@@ -13,14 +13,14 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Adds HOUSEF_MULTI7 and HOUSEF_MULTI8 to the owner masks of all five
 // aircraft types (the A10 attack plane, transport helicopter, Apache, Orca
 // and cargo plane), so the seventh and eighth multiplayer houses may own
 // them. The two bits are defined as zero unless the engine is built with
 // EIGHTPLAYERS, which this project enables by default.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 

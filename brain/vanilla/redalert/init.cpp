@@ -12,6 +12,13 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D. This is not EA's original file.
+// Adds the asset-free DLL initialization path and a release-build fixed-seed option
+// used by the Red Alert bootstrap determinism gate. Normal executable startup is
+// unchanged. It changes initialization but not Red Alert gameplay rules.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
 
 /* $Header: /CounterStrike/INIT.CPP 8     3/14/97 5:15p Joe_b $ */
 /***********************************************************************************************
@@ -73,6 +80,23 @@
 #include "common/vqaconfig.h"
 #include "common/winasm.h"
 #include "intro.h"
+
+/* OpenCNC3D bootstrap mode omits presentation data while preserving simulation setup. */
+bool OpenCNC3DHeadless = false;
+
+static unsigned char OpenCNC3DHeadlessStrings[(2048 * 2) + 1];
+
+static void Init_OpenCNC3D_Headless_Strings(void)
+{
+    unsigned short const empty_string_offset = (unsigned short)(sizeof(OpenCNC3DHeadlessStrings) - 1);
+    for (unsigned int index = 0; index < 2048; ++index) {
+        OpenCNC3DHeadlessStrings[index * 2] = (unsigned char)(empty_string_offset & 0xFF);
+        OpenCNC3DHeadlessStrings[(index * 2) + 1] = (unsigned char)(empty_string_offset >> 8);
+    }
+    OpenCNC3DHeadlessStrings[sizeof(OpenCNC3DHeadlessStrings) - 1] = '\0';
+    SystemStrings = (char const*)OpenCNC3DHeadlessStrings;
+    DebugStrings = (char const*)OpenCNC3DHeadlessStrings;
+}
 
 RemapControlType SidebarScheme;
 
@@ -177,6 +201,7 @@ bool Init_Game(int, char*[])
     /*
     **	Initialize the encryption keys.
     */
+    GlyphX_Debug_Print("RA3D|stage|init.keys");
     Init_Keys();
 
     /*
@@ -184,11 +209,12 @@ bool Init_Game(int, char*[])
     **	performed. This bootstrap process will enable the error message
     **	handler to function.
     */
+    GlyphX_Debug_Print("RA3D|stage|init.bootstrap");
     Bootstrap();
 
     ////////////////////////////////////////
     // The editor needs to not start the mouse up. - 7/22/2019 JAS
-    if (!RunningFromEditor) {
+    if (!OpenCNC3DHeadless && !RunningFromEditor) {
         /*
         **	Check for an initialize a working mouse pointer. Display error and bail if
         **	no mouse driver is installed.
@@ -203,7 +229,7 @@ bool Init_Game(int, char*[])
     Init_CDROM_Access();
 #endif
 
-    if (Special.IsFromInstall) {
+    if (!OpenCNC3DHeadless && Special.IsFromInstall) {
         Load_Prolog_Page();
     }
 
@@ -211,6 +237,8 @@ bool Init_Game(int, char*[])
     **	Register and cache any secondary mixfiles.
     */
     Init_Secondary_Mixfiles();
+
+    GlyphX_Debug_Print("RA3D|stage|init.heaps");
 
     /*
     **	This is a special hack to initialize the heaps that must be in place before the
@@ -278,7 +306,11 @@ bool Init_Game(int, char*[])
     **	Find and process any rules for this game.
     */
     CCFileClass rulesIniFile("RULES.INI");
-    if (RuleINI.Load(rulesIniFile, false)) {
+    bool const rules_loaded = RuleINI.Load(rulesIniFile, false);
+    if (rules_loaded || OpenCNC3DHeadless) {
+        if (!rules_loaded) {
+            GlyphX_Debug_Print("RA3D|stage|init.rules.compiled-defaults");
+        }
         Rule.Process(RuleINI);
     }
 #ifdef FIXIT_CSII //	checked - ajw 9/28/98
@@ -314,20 +346,29 @@ bool Init_Game(int, char*[])
     /*
     **	Play the startup animation.
     */
-    if (!Special.IsFromInstall) {
+    if (!OpenCNC3DHeadless && !Special.IsFromInstall) {
         VisiblePage.Clear();
         //		Mono_Printf("Playing Intro\n");
         Play_Intro();
         memset(CurrentPalette, 0x01, 768);
         WhitePalette.Set();
-    } else {
+    } else if (!OpenCNC3DHeadless) {
         memset(CurrentPalette, 0x01, 768);
     }
 
     /*
     **	Initialize the text remap tables.
     */
-    Init_Color_Remaps();
+    if (!OpenCNC3DHeadless) {
+        Init_Color_Remaps();
+    } else {
+        /* Headless simulation needs stable remap tables, not PALETTE.CPS pixels. */
+        for (PlayerColorType pcolor = PCOLOR_FIRST; pcolor < PCOLOR_COUNT; pcolor++) {
+            for (int color = 0; color < 256; color++) {
+                ColorRemaps[pcolor].RemapTable[color] = color;
+            }
+        }
+    }
 
     /*
     **	Get authorization to access the game.
@@ -344,7 +385,7 @@ bool Init_Game(int, char*[])
     **	If not automatically launching into the intro, then display the title
     **	page while the bulk data is cached.
     */
-    if (!Special.IsFromInstall) {
+    if (!OpenCNC3DHeadless && !Special.IsFromInstall) {
         Load_Title_Page(true);
 
         Hide_Mouse();
@@ -364,6 +405,7 @@ bool Init_Game(int, char*[])
     **	Initialize the bulk data. This takes the longest time and must be performed once
     **	before the regular game starts.
     */
+    GlyphX_Debug_Print("RA3D|stage|init.systems");
     Init_Bulk_Data();
 
     /*
@@ -392,13 +434,17 @@ bool Init_Game(int, char*[])
     **	Read game options, so the GameSpeed is initialized when multiplayer
     ** dialogs are invoked.  (GameSpeed must be synchronized between systems.)
     */
-    Options.Load_Settings();
+    if (!OpenCNC3DHeadless) {
+        Options.Load_Settings();
+    }
 
     /*
     ** Initialise the color lookup tables for the chronal vortex
     */
     ChronalVortex.Stop();
-    ChronalVortex.Setup_Remap_Tables(Scen.Theater);
+    if (!OpenCNC3DHeadless) {
+        ChronalVortex.Setup_Remap_Tables(Scen.Theater);
+    }
 
     /*
     **	Clear out name overrides array
@@ -410,6 +456,7 @@ bool Init_Game(int, char*[])
     }
 #endif // FIXIT_NAME_OVERRIDE
 
+    GlyphX_Debug_Print("RA3D|stage|init.ready");
     return (true);
 }
 
@@ -529,6 +576,12 @@ bool Select_Game(bool fade)
     **	Set default mouse shape
     */
     Map.Set_Default_Mouse(MOUSE_NORMAL, false);
+
+    /* OpenCNC3D needs the per-scenario resets above, but no title screen or menu. */
+    if (OpenCNC3DHeadless) {
+        GlyphX_Debug_Print("RA3D|stage|select.ready");
+        return true;
+    }
 
     /*
     **	If the last game we played was a multiplayer game, jump right to that
@@ -1477,15 +1530,27 @@ bool Parse_Command_Line(int argc, char* argv[])
             continue;
         }
 
-#ifdef CHEAT_KEYS
         /*
-        **	Specify the random number seed (for debugging)
+        **	OpenCNC3D's bootstrap host has no legacy presentation assets. This option is
+        **	kept separate from RunningAsDLL so the normal remaster renderer is unchanged.
         */
-        if (strstr(string, "-SEED")) {
-            CustomSeed = (unsigned short)(atoi(string + strlen("SEED")));
+        if (stricmp(string, "-HEADLESS") == 0) {
+            OpenCNC3DHeadless = true;
             continue;
         }
-#endif
+
+        /*
+        **	Specify the random number seed. OpenCNC3D uses this in release builds so a
+        **	headless bootstrap run can be reproduced exactly on every platform.
+        */
+        if (strnicmp(string, "-SEED", strlen("-SEED")) == 0) {
+            char const* value = string + strlen("-SEED");
+            if (*value == '=' || *value == ':') {
+                value++;
+            }
+            CustomSeed = (unsigned short)atoi(value);
+            continue;
+        }
 
 #ifdef NEVER
         /*
@@ -2425,12 +2490,26 @@ static void Bootstrap(void)
     **	on the mixfiles that are necessary to display and error messages and
     **	process further initialization.
     */
-    Init_Bootstrap_Mixfiles();
+    if (!OpenCNC3DHeadless) {
+        Init_Bootstrap_Mixfiles();
+    } else {
+        /* The external Classic renderer still asks the engine to export the
+           original infantry shapes. Their art lives in LORES.MIX, which the
+           no-legacy-window path otherwise never registers. Keep it optional
+           for synthetic engine-only fixtures with no disc archives. */
+        CCFileClass lores("LORES.MIX");
+        if (lores.Is_Available()) {
+            new MFCD("LORES.MIX", &FastKey);
+            MFCD::Cache("LORES.MIX");
+        }
+    }
 
     /*
     **	Initialize the resident font pointers.
     */
-    Init_Fonts();
+    if (!OpenCNC3DHeadless) {
+        Init_Fonts();
+    }
 
     /*
     **	Setup the keyboard processor in preparation for the game.
@@ -2449,18 +2528,22 @@ static void Bootstrap(void)
     **	Fetch the language text from the hard drive first. If it cannot be
     **	found on the hard drive, then look for it in the mixfile.
     */
+    if (!OpenCNC3DHeadless) {
 #ifdef STEVES_LOAD_OVERRIDE
-    RawFileClass strings("CONQUER.ENG");
-    if (strings.Is_Available()) {
-        SystemStrings = new char[strings.Size()];
-        strings.Read((void*)SystemStrings, strings.Size());
-    } else {
-        SystemStrings = (char const*)MFCD::Retrieve(Language_Name("CONQUER"));
-    }
+        RawFileClass strings("CONQUER.ENG");
+        if (strings.Is_Available()) {
+            SystemStrings = new char[strings.Size()];
+            strings.Read((void*)SystemStrings, strings.Size());
+        } else {
+            SystemStrings = (char const*)MFCD::Retrieve(Language_Name("CONQUER"));
+        }
 #else
-    SystemStrings = (char const*)MFCD::Retrieve(Language_Name("CONQUER"));
+        SystemStrings = (char const*)MFCD::Retrieve(Language_Name("CONQUER"));
 #endif
-    DebugStrings = (char const*)MFCD::Retrieve("DEBUG.ENG");
+        DebugStrings = (char const*)MFCD::Retrieve("DEBUG.ENG");
+    } else {
+        Init_OpenCNC3D_Headless_Strings();
+    }
 
     /*
     **	Default palette initialization.
@@ -2475,7 +2558,9 @@ static void Bootstrap(void)
     **	Initialize expansion files (if present). Expansion files must be located
     **	in the current directory.
     */
-    Init_Expansion_Files();
+    if (!OpenCNC3DHeadless) {
+        Init_Expansion_Files();
+    }
 
     SidebarScheme.Background = BLACK;
     SidebarScheme.Corners = LTGREY;
@@ -2660,27 +2745,32 @@ static void Init_Bulk_Data(void)
     **	Cache the main game data. This operation can take a very long time.
     */
     MFCD::Cache("CONQUER.MIX");
-    if (SampleType != 0 && !Debug_Quiet) {
-        MFCD::Cache("SOUNDS.MIX");
-        MFCD::Cache("RUSSIAN.MIX");
-        MFCD::Cache("ALLIES.MIX");
+    if (!OpenCNC3DHeadless) {
+        if (SampleType != 0 && !Debug_Quiet) {
+            MFCD::Cache("SOUNDS.MIX");
+            MFCD::Cache("RUSSIAN.MIX");
+            MFCD::Cache("ALLIES.MIX");
+        }
+        Call_Back();
     }
-    Call_Back();
 
     /*
     **	Fetch the tutorial message data.
     */
-    INIClass ini;
-    CCFileClass tutorialIniFile("TUTORIAL.INI");
-    ini.Load(tutorialIniFile);
     for (int index = 0; index < ARRAY_SIZE(TutorialText); index++) {
-        TutorialText[index] = NULL;
-
-        char buffer[128];
-        char num[10];
-        sprintf(num, "%d", index);
-        if (ini.Get_String("Tutorial", num, "", buffer, sizeof(buffer))) {
-            TutorialText[index] = strdup(buffer);
+        TutorialText[index] = OpenCNC3DHeadless ? "" : NULL;
+    }
+    CCFileClass tutorialIniFile("TUTORIAL.INI");
+    if (tutorialIniFile.Is_Available()) {
+        INIClass ini;
+        ini.Load(tutorialIniFile);
+        for (int index = 0; index < ARRAY_SIZE(TutorialText); index++) {
+            char buffer[128];
+            char num[10];
+            sprintf(num, "%d", index);
+            if (ini.Get_String("Tutorial", num, "", buffer, sizeof(buffer))) {
+                TutorialText[index] = strdup(buffer);
+            }
         }
     }
 

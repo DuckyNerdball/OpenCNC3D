@@ -1,0 +1,109 @@
+{
+  "version": 3,
+  "author": "Blender Foundation (Yo Frankie!)",
+  "license": "CC-BY-3.0",
+  "source": "https://opengameart.org/content/grass-foot-step-sounds-yo-frankie",
+  "sources": [
+    {
+      "file": "source/sfx_step_grass_l.flac",
+      "sha256": "69361acad4d2fdad1bb50910fa87e39f5bfdd5d7a6532915bc2ce47b7bbc3101"
+    },
+    {
+      "file": "source/sfx_step_grass_r.flac",
+      "sha256": "1121c8f1dc97db5fcaf8832fc8078c24e7cbc16656c13bf02358d7b353a5ec59"
+    }
+  ],
+  "changes": "DC removal, level adjustment, endpoint fades, mono duplicated to stereo; ten variants with gentle brush/sole EQ and subtle speed differences",
+  "files": [
+    {
+      "file": "infantry_step_01.wav",
+      "sha256": "3228fa4856745c761fcbd155890a4ee180cf96ddeb9dc36c036cb6fb8667a509",
+      "source": "source/sfx_step_grass_l.flac",
+      "speed": 1,
+      "brush_eq": 0,
+      "seconds": 0.44285714285714284,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_02.wav",
+      "sha256": "627c282c6c789ee120221ecf9ecd51cf53ad1404d9be2e93c299abe9e15842cb",
+      "source": "source/sfx_step_grass_r.flac",
+      "speed": 1,
+      "brush_eq": 0,
+      "seconds": 0.482312925170068,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_03.wav",
+      "sha256": "093ecf95539030e59e8bcee2a4173de796e9454de4e9ce21b6806701f0adbcd5",
+      "source": "source/sfx_step_grass_l.flac",
+      "speed": 0.97,
+      "brush_eq": 0,
+      "seconds": 0.45657596371882087,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_04.wav",
+      "sha256": "9456045160eb8d30010a12f7065fd37e44ae1805ecd60471c7d913376ce0580e",
+      "source": "source/sfx_step_grass_r.flac",
+      "speed": 1.03,
+      "brush_eq": 0,
+      "seconds": 0.4682766439909297,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_05.wav",
+      "sha256": "3196ed227c35eda40ee66b6c4b21b7ff81374a3b19a88614b761e60dde1cfa31",
+      "source": "source/sfx_step_grass_l.flac",
+      "speed": 1.01,
+      "brush_eq": -0.22,
+      "seconds": 0.43848072562358276,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_06.wav",
+      "sha256": "261890293ca64449c82f3b236a86c8389928241b6d4e5b5611e772bae5623867",
+      "source": "source/sfx_step_grass_r.flac",
+      "speed": 0.99,
+      "brush_eq": -0.22,
+      "seconds": 0.48718820861678,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_07.wav",
+      "sha256": "d2771c631aaa6293a8347fa6720e77c2d906a485b10695cbca67affa2e23f3a1",
+      "source": "source/sfx_step_grass_l.flac",
+      "speed": 0.985,
+      "brush_eq": 0.18,
+      "seconds": 0.44961451247165535,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_08.wav",
+      "sha256": "dafc7c611390bc01efdf9f718b8adf86f12553a7064080f8fad6fe3388b19def",
+      "source": "source/sfx_step_grass_r.flac",
+      "speed": 1.015,
+      "brush_eq": 0.18,
+      "seconds": 0.4751927437641723,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_09.wav",
+      "sha256": "65712e63cae2124bc6ec3b6dfa4f7a437fb93bbf0ea82035ecb56d38ec687f2d",
+      "source": "source/sfx_step_grass_l.flac",
+      "speed": 1.025,
+      "brush_eq": -0.1,
+      "seconds": 0.43206349206349204,
+      "peak": 4587
+    },
+    {
+      "file": "infantry_step_10.wav",
+      "sha256": "48451f88d206debb67e20e2acf57752bdd8fe726d8f504922a57854f403e1cab",
+      "source": "source/sfx_step_grass_r.flac",
+      "speed": 0.975,
+      "brush_eq": 0.1,
+      "seconds": 0.4946938775510204,
+      "peak": 4587
+    }
+  ]
+}

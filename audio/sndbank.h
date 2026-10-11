@@ -25,13 +25,14 @@
 #ifndef SNDBANK_H
 #define SNDBANK_H
 
+#include "mixer.h"
 #include "wsaud.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define BANK_RATE 22050
+#define BANK_RATE MIX_RATE /* what the mixer plays, so it never resamples */
 
 typedef struct SndBank SndBank;
 
@@ -55,6 +56,15 @@ int bank_add_dir(SndBank *b, const char *path); /* loose .AUD files, searched fi
 
 /* Is the name resolvable at all, without decoding it. */
 int bank_has(SndBank *b, const char *name);
+
+/* NEW AUDIO. While on, bank_get("XPLOS.AUD") first looks for XPLOS.wav in the folder
+ * given here and plays that instead; a name with no file there keeps its 1995 sound.
+ * XPLOS_2.wav, XPLOS_3.wav and on to _16 join the same pool, and each request draws
+ * one of them at random. Off by default. Music streams through bank_open_stream and is
+ * never replaced. */
+void bank_set_new_audio_dir(SndBank *b, const char *dir);
+void bank_set_new_audio(SndBank *b, int on);
+int bank_new_audio(const SndBank *b);
 
 /* Decode (or return cached). NULL means "not on the disc" or "failed to decode";
  * the reason lands in the miss log either way. The pointer stays valid until the

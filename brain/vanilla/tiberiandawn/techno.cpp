@@ -13,12 +13,21 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Widens the return type of TechnoClass::Get_Ownable from unsigned char to
 // unsigned short, so the ownable-house bit mask it returns is no longer
 // truncated to its low 8 bits.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// MODIFIED again in September 2026: Fire_At hands a copy of each shot (firer,
+// weapon, barrel, projectile) to OpenCNC3D_Note_Fire for the renderer. That copy
+// is read by nothing in the game and does not change the simulation. Fire_At
+// also doubles the flight speed of a vehicle's tank shell while
+// OpenCNC3D_FastShells is on (default off), which DOES change the simulation.
+// MODIFIED again in October 2026: Fire_At hands a copy of the laser line it sets
+// up (firer, source, target, colours, duration) to OpenCNC3D_Note_Line for the
+// renderer. That copy is read by nothing in the game and does not change the
+// simulation.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -706,7 +715,7 @@ bool TechnoClass::Revealed(HouseClass* house)
 void TechnoClass::Hidden(void)
 {
     /*
-    **	OpenCNC 3D: the 2019 early-out that stood here read PlayerPtr's own bit and then
+    **	OpenCNC3D: the 2019 early-out that stood here read PlayerPtr's own bit and then
     **	cleared a mask every machine shares.
     **
     **	    if (!Is_Discovered_By_Player()) return;
@@ -732,7 +741,7 @@ void TechnoClass::Hidden(void)
     **	remaining writers of the legacy bool sit inside #ifndef REMASTER_BUILD and are not
     **	compiled. So outside a match the removed guard was false exactly when the mask was
     **	already zero, and clearing zero is what it always did. There is nothing here for
-    **	CNC3D_Lockstep to pick between.
+    **	OpenCNC3D_Lockstep to pick between.
     **
     **	NO GATE COVERS THIS, and the gap register says so rather than implying otherwise:
     **	the object dump exports neither IsDiscoveredByPlayerMask nor IsDiscoveredByPlayer,
@@ -2418,6 +2427,22 @@ BulletClass* TechnoClass::Fire_At(TARGET target, int which)
             // object->IsActive, object->IsInLimbo);Get_Key();
             bullet->Payback = this;
             bullet->Strength = (short)firepower;
+            /*
+            **	OpenCNC3D: a vehicle's tank shell at twice its speed, when the host asks for it
+            **	(OpenCNC3D_FastShells). Unlimbo set the class speed; this only replaces it. The
+            **	fuse timer Unlimbo armed was worked out at the class speed, so it is longer
+            **	than the faster flight needs, and a straight round detonates on its fuse
+            **	target, so the round lands where it always did, sooner.
+            */
+            if (OpenCNC3D_FastShells && What_Am_I() == RTTI_UNIT && bullet->Class->Type == BULLET_APDS) {
+                bullet->Fly_Speed(255, (MPHType)MIN((int)bullet->Class->MaxSpeed * 2, (int)MPH_LIGHT_SPEED - 1));
+            }
+            /*
+            **	OpenCNC3D: the renderer's shot record (muzzle flash, projectile trail). A copy,
+            **	read by nothing in the game; IsSecondShot is the value BEFORE it flips
+            **	below, so it names the barrel this shot left.
+            */
+            OpenCNC3D_Note_Fire(this, which, bullet, IsSecondShot ? 1 : 0, fire_coord);
         } else {
             delete bullet;
         }
@@ -2547,6 +2572,13 @@ BulletClass* TechnoClass::Fire_At(TARGET target, int which)
             LineFrame = 0;
             LineMaxFrames = 5;
             Map.Flag_To_Redraw(true);
+            /*
+            **	OpenCNC3D: the renderer's copy of the beam just set up, in world
+            **	coordinates, since a 3D picture cannot use the tactical pixels above and
+            **	LineFrame only advances when the 2D layer export is drawn. A copy, read by
+            **	nothing in the game.
+            */
+            OpenCNC3D_Note_Line(this, which, source, dest, target);
         }
         new SmudgeClass(Random_Pick(SMUDGE_SCORCH1, SMUDGE_SCORCH6), As_Coord(target));
     }

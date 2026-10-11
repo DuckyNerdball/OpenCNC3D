@@ -8,17 +8,27 @@
  *  This file holds the half that DOES change: what the battle has done to the ground
  *  since the mission started, plus the shroud, so a blade knows both.
  *
- *      R  TREAD      a vehicle drove here. Decays slowly. Two bands a vehicle, laid
- *                    along the path it actually took.
- *      G  COVER      the ground is CLAIMED right now: a building's footprint, a
- *                    vehicle's hull, plus one blade height of skirt around each.
- *                    Pinned at 1.0 while the claim stands, decays when it is released,
- *                    which is how grass grows back over a razed footprint.
+ *      R  PRESS      how flat the grass lies here. Two thin bands a vehicle, laid
+ *                    along the path it actually took, and the whole hull footprint of a
+ *                    vehicle standing on it, which RAMPS towards 1.0 on the flatten
+ *                    clock rather than landing there. Decays slowly, which is the blade
+ *                    standing back up.
+ *      G  COVER      the ground is CLAIMED right now: a building's footprint or a parked
+ *                    hull, plus one blade height of skirt around each, and the cleared
+ *                    ring round a building put down during the mission, which ramps up
+ *                    on the fade clock. Pinned at 1.0 while the claim stands, decays when
+ *                    it is released, which is how grass grows back over a razed
+ *                    footprint.
  *      B  SHROUD     shroud_corner_vis at this point, written per CORNER from the same
  *                    coverage array the shroud blanket's own vertex fade uses.
- *      A  reserved, held at 1.0. Nothing reads it.
+ *      A  TRAMPLE    a CLOCK, not a strength: 1.0 while a hull stands on the ground, then
+ *                    falling at one fixed rate, so (1 - A) times the clock's life is the
+ *                    simulated time since the hull left. The blade reads the fade out
+ *                    and the regrowth off it. 0 is ground no vehicle has touched, or
+ *                    ground that has fully grown back, and the two look the same.
  *
- *  The blade reads flat = clamp(max(R, G), 0, 1) and multiplies its colour by B.
+ *  The blade leans by R, is removed by G, fades and regrows by A, and multiplies its
+ *  colour by B.
  *
  *  WHY THE SHROUD IS IN HERE AT ALL, which is the least obvious part of the design.
  *  The shroud blanket rides 0.11 world units above the ground with depth writes OFF.
@@ -51,8 +61,8 @@
  *  ready flag, precisely so that a driver without it loses the grass and keeps bloom,
  *  shadows, water and trees. It must never be added to fx_gl.h at FX_REQ.
  * ==================================================================================== */
-#ifndef CNC3D_GRASS_CRUSH_FIELD_H
-#define CNC3D_GRASS_CRUSH_FIELD_H
+#ifndef OPENCNC3D_GRASS_CRUSH_FIELD_H
+#define OPENCNC3D_GRASS_CRUSH_FIELD_H
 
 /* ------------------------------------------------------------------------------------
  *  WHERE THIS FILE SITS IN cnc_eyes.cpp, and the three lines that call it.
@@ -314,6 +324,9 @@ struct GrassCrushDials {
     float press;           /* how hard a track presses, 0..1                       */
     float skirt;           /* clearance past a silhouette, in blade heights        */
     float blade_height;    /* cells: g_fx.grass_height. The skirt is measured in it */
+    float flatten;         /* seconds for grass under a hull to bend down flat      */
+    float fade;            /* seconds for trampled grass to fade once it is left    */
+    float ring;            /* cells of grass cleared round a newly placed building   */
 };
 static GrassCrushDials g_crushDials = {
     60.0f,      /* tread_life:  lands on 2 ulps a tick, an achieved 68.3 s        */
@@ -322,7 +335,33 @@ static GrassCrushDials g_crushDials = {
     0.22f,      /* band                                                           */
     1.00f,      /* press                                                          */
     1.00f,      /* skirt, in blade heights. See the geometry note at crush_skirt   */
-    0.13f       /* blade_height, until g_fx.grass_height exists                    */
+    0.13f,      /* blade_height, until g_fx.grass_height exists                    */
+    0.30f,      /* flatten                                                         */
+    4.00f,      /* fade                                                            */
+    3.00f       /* ring                                                            */
+};
+
+/* THE SOFT EDGE OF A BUILDING'S RING, in cells. The ring is full strength out to the
+   dial's radius less half of this and nothing at the radius plus half of it, so the dial
+   names the middle of the edge and the field ends in a blend rather than a ruled line. */
+#define GRASS_CRUSH_RING_SOFT  1.0f
+
+/* HOW LONG A VEHICLE MAY STAND STILL AND STILL BE DRIVING. The brain moves a unit in a
+   stutter: measured on a Medium Tank crossing open ground, one tick in five has no
+   displacement at all, and a vehicle picking its way round infantry pauses for two.
+   Read tick by tick, every one of those pauses is a parked vehicle, and a parked vehicle
+   claims the ground under it in the COVER channel at full strength. That is what made
+   grass vanish at once under anything that drove over it: the claim landed every fifth
+   tick along the whole route, hull wide plus the skirt, and the tread bands the moving
+   case was written to lay were buried inside it. Eight ticks is a little over half a
+   second, four times the longest pause measured while driving. */
+#define GRASS_CRUSH_STILL_TICKS  8
+
+/* What a vehicle is doing to the ground this tick. */
+enum {
+    CRUSH_NEVER   = 0,   /* has not moved since it was first seen: it was already there */
+    CRUSH_DRIVING = 1,   /* moved within the last GRASS_CRUSH_STILL_TICKS ticks         */
+    CRUSH_PARKED  = 2    /* drove here and has stood still since                        */
 };
 
 /* ---- The target ------------------------------------------------------------------ */
@@ -383,14 +422,29 @@ struct CrushVeh {
     float dirx, dirz;      /* unit heading along the path taken                     */
     unsigned char moved;   /* did it travel this tick                               */
     unsigned char haveDir; /* has it ever travelled                                 */
+    unsigned char state;   /* CRUSH_NEVER, CRUSH_DRIVING or CRUSH_PARKED             */
 };
 struct CrushRect { float x0, z0, x1, z1; };   /* claimed ground, cells, no skirt yet  */
-struct CrushTick { int frame, vehFirst, vehCount, rectFirst, rectCount; };
+/* One building's cleared ring on one tick: its footprint in cells, and how far through
+   the flatten and the fade it has got, both 0..1. The radius is applied at draw time. */
+struct CrushRing { float x0, z0, x1, z1; float press, cover; };
+struct CrushTick { int frame, vehFirst, vehCount, rectFirst, rectCount, ringFirst, ringCount; };
 
 static std::vector<CrushVeh>  g_crushVeh;
 static std::vector<CrushRect> g_crushRect;
 static std::vector<CrushTick> g_crushTick;
 static std::vector<CrushRect> g_crushRectExtra;   /* see grass_crush_note_rect */
+static std::vector<CrushRing> g_crushRing;
+
+/* EVERY BUILDING FOOTPRINT THE FIELD HAS SEEN, keyed on the footprint map's own key (the
+   origin cell), and whether it earns a ring. A building earns one when the field first
+   sees it IN BSTATE_CONSTRUCTION, which is the same test the placement jolt makes: a
+   mission's own structures arrive complete and get none, and selling shares the build
+   state but is never a first sighting. `born` is the engine frame of that first sighting,
+   and the ring's whole timeline is counted from it in ticks. A footprint that changes
+   shape under one key is a different building. */
+struct CrushBld { int x0, z0, x1, z1; int born; unsigned char ring; };
+static std::map<int, CrushBld> g_crushBld;
 
 /* Where each vehicle stood last tick. KEYED ON smooth_key, NEVER ON o.id.
    game/cnc_eyes.cpp:3308-3312 records why: units and aircraft are separate heaps that
@@ -400,7 +454,7 @@ static std::vector<CrushRect> g_crushRectExtra;   /* see grass_crush_note_rect *
    door to wherever that one died. The SMOOTH_JUMP_CELLS guard below is the second
    defence against the same thing and against reinforcement drops, and it is the same
    threshold the movement filter and the running track already use. */
-struct CrushPrev { float x, z; float dirx, dirz; int lastFrame; unsigned char haveDir; };
+struct CrushPrev { float x, z; float dirx, dirz; int lastFrame; int lastMoved; unsigned char haveDir; };
 static std::map<int, CrushPrev> g_crushPrev;
 static int g_crushNoteFrame = -1;
 static int g_crushOverflow  = 0;   /* the backlog passed the replay cap: clear, do not trim */
@@ -524,6 +578,30 @@ static float crush_step_for_life(float seconds)
     return (float)k * GRASS_CRUSH_ULP;
 }
 
+/* THE TRAMPLE CLOCK'S ONE STEP, and the life it actually achieves. One clock runs the
+   fade out and the regrowth after it, so its life is the fade dial plus the regrowth
+   dial, and the quantisation above lands the whole of its error on the regrowth: the
+   blade reads the fade as the dial says it and the regrowth as whatever is left. At the
+   defaults, 4 s plus 18 s asks for 6.2 ulps a tick and gets 6, a life of 22.8 s, so the
+   regrowth runs 18.8 s. One tick of the clock is exactly one fifteenth of a second of
+   age at any setting, because the step is a whole number of ulps. */
+static float crush_trample_step(void)
+{
+    return crush_step_for_life(g_crushDials.fade + g_crushDials.cover_life);
+}
+static float grass_crush_trample_life(void)
+{
+    return 1.0f / (crush_trample_step() * GRASS_CRUSH_TICKS_HZ);
+}
+static float grass_crush_trample_fade(void)
+{
+    const float life = grass_crush_trample_life();
+    float f = g_crushDials.fade;
+    if (f < 0.0f) f = 0.0f;
+    if (f > life) f = life;
+    return f;
+}
+
 static GLuint grass_crush_tex(void)   { return g_crushRT.tex; }
 static int    grass_crush_res(void)   { return g_crushRes; }
 static int    grass_crush_ready(void) { return g_crushRT.tex != 0 && g_crushW > 0; }
@@ -537,12 +615,14 @@ static void grass_crush_uv_scale(float* sx, float* sy)
 }
 
 /* WHAT THE BLADE SHADER MUST DO WITH THE FOUR CHANNELS. Given here as text so that the
-   two sides cannot drift apart, and because two of the three lines are not obvious.
+   two sides cannot drift apart, and because not every line of it is obvious.
 
-   The clamp on R and G is not decoration. The decay is a subtraction with no clamp of
-   its own (a float target does not clamp a blend result the way a fixed-point one does),
-   and the field is only pushed back up to zero once per sim call, so a texel that has
-   been empty for a while reads slightly negative. One max() absorbs it.
+   The clamps are cheap insurance rather than a repair. The decay is a subtraction with
+   no clamp of its own (a float target does not clamp a blend result the way a
+   fixed-point one does); the field is pushed back up to zero after every tick's decay
+   and held at or under 1.0 after every ramp, so in the field as written no channel
+   leaves [0, 1]; the reader clamps anyway, so a later pass that breaks that cannot
+   reach the blade.
 
    The FETCH SPELLING DIFFERS BY STAGE in GLSL 1.20: the vertex stage has no implicit
    derivative, so it uses texture2DLod(f, uv, 0.0), and texture2DLod is vertex-only in
@@ -552,8 +632,10 @@ static void grass_crush_uv_scale(float* sx, float* sy)
    rather than in the fragment stage so a card fades as one thing. */
 static const char* GRASS_CRUSH_GLSL_DECODE =
     "/* f is the RGBA the crush field returned. */\n"
-    "float grass_crush_flat(vec4 f)   { return clamp(max(f.r, f.g), 0.0, 1.0); }\n"
-    "float grass_crush_shroud(vec4 f) { return clamp(f.b, 0.0, 1.0); }\n";
+    "float grass_crush_press(vec4 f)   { return clamp(f.r, 0.0, 1.0); }\n"
+    "float grass_crush_cover(vec4 f)   { return clamp(f.g, 0.0, 1.0); }\n"
+    "float grass_crush_shroud(vec4 f)  { return clamp(f.b, 0.0, 1.0); }\n"
+    "float grass_crush_trample(vec4 f) { return clamp(f.a, 0.0, 1.0); }\n";
 
 /* ---- Allocation ------------------------------------------------------------------
    fx_rt_init cannot be used: it is RGBA8 by construction and says so at fx_gl.h:330-333.
@@ -606,7 +688,9 @@ static void grass_crush_free(void)
     g_crushShroudX1 = -1;
     g_crushVeh.clear(); g_crushRect.clear(); g_crushTick.clear();
     g_crushRectExtra.clear();
+    g_crushRing.clear();
     g_crushPrev.clear();
+    g_crushBld.clear();
     g_crushNoteFrame = -1;
     g_crushOverflow = 0;
     /* THE HULL CACHE IS KEYED ON A MESH INDEX INTO THE PACK, SO IT CANNOT OUTLIVE ONE.
@@ -667,7 +751,13 @@ static void grass_crush_note_tick(void)
        g_fx.enabled is the tier switch and it is stable between frames, so it carries the
        CLASSIC promise this guard was actually written for: Classic and the Win98 build
        leave it at 0 and never record a thing. */
-    if (!g_fx.enabled || !g_fx.grass) { g_crushRectExtra.clear(); return; }
+    if (!g_fx.enabled || !g_fx.grass) {
+        /* The building record goes with the field: switched on again, every standing
+           building is a first sighting, and only one still going up earns a ring. */
+        g_crushRectExtra.clear();
+        g_crushBld.clear();
+        return;
+    }
 
     /* SELF-DEDUPLICATED ON THE FRAME NUMBER. refresh_objects is called more than once
        for some ticks: the shot path re-dumps and the interactive loop re-dumps on a
@@ -696,6 +786,7 @@ static void grass_crush_note_tick(void)
         g_crushTick.clear();
         g_crushVeh.clear();
         g_crushRect.clear();
+        g_crushRing.clear();
     }
 
     CrushTick t;
@@ -704,6 +795,8 @@ static void grass_crush_note_tick(void)
     t.rectFirst = (int)g_crushRect.size();
     t.vehCount  = 0;
     t.rectCount = 0;
+    t.ringFirst = (int)g_crushRing.size();
+    t.ringCount = 0;
 
     /* ---- CLAIMED GROUND, straight off the footprint map the renderer already keeps.
        g_bldCellNow is stamped for every non-limboed K_BUILDING over its own fw x fh
@@ -734,6 +827,89 @@ static void grass_crush_note_tick(void)
         t.rectCount++;
     }
     g_crushRectExtra.clear();
+
+    /* ---- THE RING ROUND A BUILDING THAT HAS JUST GONE UP.
+       A structure put down during the mission presses the grass round it flat and clears
+       it, and the grass stays gone for as long as the structure stands. When it is sold
+       or destroyed its footprint leaves g_bldCellNow, the stamp stops, and the ring grows
+       back on the regrowth clock and stands up on the tread clock, exactly as the ground
+       under a razed footprint does.
+
+       Driven entirely off the footprint map, so every house's buildings count: the jolt
+       that goes with a placement is the local player's alone, but the ground is the
+       world's. The timeline is written HERE, in ticks since the first sighting, so the
+       field holds the same values whichever frames the ticks were drawn in. */
+    {
+        std::map<int, CrushBld> seen;
+        for (int z = 0; z < g_gridH; z++)
+            for (int x = 0; x < g_gridW; x++) {
+                const int k = g_bldCellNow[z * g_gridW + x];
+                if (k < 0) continue;
+                std::map<int, CrushBld>::iterator it = seen.find(k);
+                if (it == seen.end()) {
+                    CrushBld b; b.x0 = x; b.z0 = z; b.x1 = x + 1; b.z1 = z + 1;
+                    b.born = g_engineFrame; b.ring = 0;
+                    seen[k] = b;
+                } else {
+                    if (x < it->second.x0) it->second.x0 = x;
+                    if (z < it->second.z0) it->second.z0 = z;
+                    if (x + 1 > it->second.x1) it->second.x1 = x + 1;
+                    if (z + 1 > it->second.z1) it->second.z1 = z + 1;
+                }
+            }
+        /* The keys of buildings standing in BSTATE_CONSTRUCTION this tick, by the same
+           origin-cell key the footprint map is stamped with. */
+        std::map<int, int> building;
+        for (size_t i = 0; i < g_objects.size(); i++) {
+            const SimObject& o = g_objects[i];
+            if (o.kind != K_BUILDING || o.limbo) continue;
+            if (o.doing != DOSMAKE_BSTATE_CONSTRUCTION) continue;
+            if (o.cx < 0 || o.cy < 0 || o.cx >= g_gridW || o.cy >= g_gridH) continue;
+            building[o.cy * g_gridW + o.cx] = 1;
+        }
+        for (std::map<int, CrushBld>::iterator it = seen.begin(); it != seen.end(); ++it) {
+            std::map<int, CrushBld>::iterator old = g_crushBld.find(it->first);
+            if (old != g_crushBld.end()
+                && old->second.x0 == it->second.x0 && old->second.z0 == it->second.z0
+                && old->second.x1 == it->second.x1 && old->second.z1 == it->second.z1) {
+                it->second.born = old->second.born;
+                it->second.ring = old->second.ring;
+            } else {
+                it->second.ring = building.count(it->first) ? 1 : 0;
+                if (getenv("OPENCNC3D_GRASS_CRUSHDBG"))
+                    fprintf(stderr, "CRUSH|bld|new|key=%d|frame=%d|%d,%d-%d,%d|ring=%d\n",
+                            it->first, g_engineFrame, it->second.x0, it->second.z0,
+                            it->second.x1, it->second.z1, (int)it->second.ring);
+            }
+        }
+        if (getenv("OPENCNC3D_GRASS_CRUSHDBG"))
+            for (std::map<int, CrushBld>::const_iterator it = g_crushBld.begin();
+                 it != g_crushBld.end(); ++it)
+                if (!seen.count(it->first))
+                    fprintf(stderr, "CRUSH|bld|gone|key=%d|frame=%d|ring=%d\n",
+                            it->first, g_engineFrame, (int)it->second.ring);
+        g_crushBld.swap(seen);   /* a footprint that has gone is simply not carried over */
+
+        /* The two clocks, in ticks. A dial at 0 lands the step on the first tick. */
+        const float flatT = g_fx.crush_flatten * GRASS_CRUSH_TICKS_HZ;
+        const float fadeT = g_fx.crush_fade * GRASS_CRUSH_TICKS_HZ;
+        for (std::map<int, CrushBld>::const_iterator it = g_crushBld.begin();
+             it != g_crushBld.end(); ++it) {
+            if (!it->second.ring) continue;
+            const float age = (float)(g_engineFrame - it->second.born);
+            float pr = flatT > 0.0f ? age / flatT : 1.0f;
+            float cv = age < flatT ? 0.0f : (fadeT > 0.0f ? (age - flatT) / fadeT : 1.0f);
+            if (pr > 1.0f) pr = 1.0f;
+            if (cv > 1.0f) cv = 1.0f;
+            if (cv < 0.0f) cv = 0.0f;
+            CrushRing r;
+            r.x0 = (float)it->second.x0; r.z0 = (float)it->second.z0;
+            r.x1 = (float)it->second.x1; r.z1 = (float)it->second.z1;
+            r.press = pr; r.cover = cv;
+            g_crushRing.push_back(r);
+            t.ringCount++;
+        }
+    }
 
     /* ---- THE VEHICLES.
        Every exclusion below is a bug that would otherwise be shipped:
@@ -773,9 +949,12 @@ static void grass_crush_note_tick(void)
         v.beam = hull.beam; v.len = hull.len;
         v.dirx = 0.0f; v.dirz = 1.0f;
         v.moved = 0; v.haveDir = 0;
+        v.state = CRUSH_NEVER;
+        int lastMoved = -1;
 
         std::map<int, CrushPrev>::iterator p = g_crushPrev.find(key);
         if (p != g_crushPrev.end()) {
+            lastMoved = p->second.lastMoved;
             const float dx = o.ex - p->second.x, dz = o.ez - p->second.z;
             const float d  = sqrtf(dx * dx + dz * dz);
             /* A TELEPORT IS NOT A DRIVE. The same threshold and the same reason as the
@@ -788,11 +967,20 @@ static void grass_crush_note_tick(void)
                 v.px = p->second.x; v.pz = p->second.z;
                 v.dirx = dx / d; v.dirz = dz / d;
                 v.moved = 1; v.haveDir = 1;
+                lastMoved = g_engineFrame;
             } else if (p->second.haveDir) {
                 v.dirx = p->second.dirx; v.dirz = p->second.dirz;
                 v.haveDir = 1;
             }
         }
+        /* See GRASS_CRUSH_STILL_TICKS: a pause inside the brain's own stutter is still
+           driving, and only a vehicle that has stood for longer than that is parked. A
+           vehicle that has never moved at all was standing there before anybody was
+           looking, which is the start of a mission or the grass being switched on, and
+           it claims its ground at once exactly as a building does. */
+        if (lastMoved >= 0)
+            v.state = (g_engineFrame - lastMoved <= GRASS_CRUSH_STILL_TICKS)
+                          ? CRUSH_DRIVING : CRUSH_PARKED;
         g_crushVeh.push_back(v);
         t.vehCount++;
 
@@ -801,6 +989,7 @@ static void grass_crush_note_tick(void)
         np.dirx = v.dirx; np.dirz = v.dirz;
         np.haveDir = v.haveDir;
         np.lastFrame = g_engineFrame;
+        np.lastMoved = lastMoved;
         g_crushPrev[key] = np;
     }
 
@@ -971,6 +1160,52 @@ static void crush_quad(float x0, float z0, float x1, float z1)
     glEnd();
 }
 
+/* A BUILDING'S RING: its footprint grown by the dial's radius with ROUNDED corners, so
+   the distance is measured from the footprint in every direction rather than in a square,
+   and a soft edge GRASS_CRUSH_RING_SOFT wide. Stamped with GL_MAX in R and G at the
+   ring's own press and cover, so it holds each channel at exactly the timeline's value
+   through the decay step before it, never sums with a neighbouring ring, and never
+   lowers a building's own cover or a vehicle's mark. A convex polygon, so the fan from
+   the footprint's centre covers each texel once. */
+#define GRASS_CRUSH_RING_ARC 8
+static void crush_ring_outline(const CrushRing& r, float d, float* xs, float* zs)
+{
+    const float cx[4] = { r.x1, r.x0, r.x0, r.x1 };
+    const float cz[4] = { r.z1, r.z1, r.z0, r.z0 };
+    int n = 0;
+    for (int c = 0; c < 4; c++)
+        for (int i = 0; i <= GRASS_CRUSH_RING_ARC; i++) {
+            const float a = ((float)c + (float)i / (float)GRASS_CRUSH_RING_ARC)
+                            * 1.5707963f;
+            xs[n] = cx[c] + d * cosf(a);
+            zs[n] = cz[c] + d * sinf(a);
+            n++;
+        }
+}
+static void crush_ring(const CrushRing& r, float radius)
+{
+    enum { N = 4 * (GRASS_CRUSH_RING_ARC + 1) };
+    float ix[N], iz[N], ox[N], oz[N];
+    float din  = radius - 0.5f * GRASS_CRUSH_RING_SOFT;
+    float dout = radius + 0.5f * GRASS_CRUSH_RING_SOFT;
+    if (din < 0.0f) din = 0.0f;
+    crush_ring_outline(r, din, ix, iz);
+    crush_ring_outline(r, dout, ox, oz);
+    glColor4f(r.press, r.cover, 0.0f, 0.0f);
+    glBegin(GL_TRIANGLE_FAN);
+    glVertex2f(0.5f * (r.x0 + r.x1), 0.5f * (r.z0 + r.z1));
+    for (int i = 0; i <= N; i++) glVertex2f(ix[i % N], iz[i % N]);
+    glEnd();
+    glBegin(GL_TRIANGLE_STRIP);
+    for (int i = 0; i <= N; i++) {
+        glColor4f(r.press, r.cover, 0.0f, 0.0f);
+        glVertex2f(ix[i % N], iz[i % N]);
+        glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
+        glVertex2f(ox[i % N], oz[i % N]);
+    }
+    glEnd();
+}
+
 /* One track band, swept from where the shoulder was to where it is.
    FLAT TOPPED WITH SOFT SHOULDERS, not a tent, and the difference is the whole
    difference between a mark and no mark. A tent has a zero-width peak, and the measured
@@ -1021,12 +1256,15 @@ static void crush_band(float ax, float az, float bx, float bz,
    hull's own heading, but for a unit that is not turret-equipped the brain writes the
    secondary facing exactly once at Unlimbo and never again, and the primary is not
    worth a second source of truth here), and a square of the hull's LENGTH is guaranteed
-   to contain the true footprint at any heading. */
+   to contain the true footprint at any heading.
+
+   THE COLOUR IS SET BY THE CALLER, because the same shape goes down in three passes: at
+   full strength for a vehicle that was already standing there, as a ramp for one that
+   has just parked, and as the trample footprint with no skirt at all. */
 static void crush_hull_cover(const CrushVeh& v, float skirt)
 {
     const float hl = 0.5f * v.len  + skirt;
     const float hb = 0.5f * v.beam + skirt;
-    glColor4f(0.0f, 1.0f, 0.0f, 0.0f);
     if (!v.haveDir) {
         /* The half-diagonal, not the half-length: a rectangle of half-extents (a, b)
            turned by atan(b/a) has an axis-aligned half-width of sqrt(a*a + b*b), which
@@ -1265,6 +1503,9 @@ static int grass_crush_sim(void)
     g_crushDials.press        = g_fx.crush_press;
     g_crushDials.skirt        = g_fx.crush_skirt;
     g_crushDials.blade_height = g_fx.grass_height;
+    g_crushDials.flatten      = g_fx.crush_flatten;
+    g_crushDials.fade         = g_fx.crush_fade;
+    g_crushDials.ring         = g_fx.crush_bld_ring;
 
     /* ---- size, cap, and the announcement -------------------------------------- */
     if (!g_crushMaxTex) {
@@ -1325,6 +1566,11 @@ static int grass_crush_sim(void)
     const float skirt  = crush_skirt_cells();
     const float press  = g_crushDials.press < 0.0f ? 0.0f :
                         (g_crushDials.press > 1.0f ? 1.0f : g_crushDials.press);
+    /* The trample clock and the two ramps. Each ramp carries its channel's own decay
+       step on top, so a texel under a hull climbs at the rate its dial asks for. */
+    const float sTrample = crush_trample_step();
+    const float sFlat    = crush_step_for_life(g_crushDials.flatten) + sTread;
+    const float sPark    = crush_step_for_life(g_crushDials.fade) + sCover;
 
     /* EVERYTHING FROM HERE DOWN TOUCHES GL, INCLUDING THE ALLOCATION, so the save comes
        first. Allocating after the save rather than before it is not tidiness: the
@@ -1371,7 +1617,9 @@ static int grass_crush_sim(void)
            kept. */
         if (g_crushScen[0] && strcmp(g_crushScen, g_pack.scen) != 0) {
             g_crushVeh.clear(); g_crushRect.clear(); g_crushTick.clear();
+            g_crushRing.clear();
             g_crushPrev.clear();
+            g_crushBld.clear();
             nticks = 0;
         }
         snprintf(g_crushScen, sizeof g_crushScen, "%s", g_pack.scen);
@@ -1434,7 +1682,7 @@ static int grass_crush_sim(void)
         glGetFloatv(GL_COLOR_CLEAR_VALUE, clearc);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDisable(GL_BLEND);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);   /* A is the trample clock: untouched */
         glClear(GL_COLOR_BUFFER_BIT);
         glClearColor(clearc[0], clearc[1], clearc[2], clearc[3]);
         /* The shroud is written over the WHOLE map on a fresh field whatever its size:
@@ -1445,7 +1693,8 @@ static int grass_crush_sim(void)
 
     /* ---- the replay: one decay step and that tick's stamps, per tick ------------- */
     glEnable(GL_BLEND);
-    glColorMask(GL_TRUE, GL_TRUE, GL_FALSE, GL_FALSE);   /* R and G only. B is the shroud */
+    /* R, G and A. B is the shroud and is written by its own pass below. */
+    glColorMask(GL_TRUE, GL_TRUE, GL_FALSE, GL_TRUE);
 
     for (int t = 0; t < nticks; t++) {
         const CrushTick& tk = g_crushTick[(size_t)t];
@@ -1469,8 +1718,54 @@ static int grass_crush_sim(void)
                rather than bounding it. */
         grass_glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
         glBlendFunc(GL_ONE, GL_ONE);
-        glColor4f(sTread, sCover, 0.0f, 0.0f);
+        glColor4f(sTread, sCover, 0.0f, sTrample);
         crush_quad(0.0f, 0.0f, (float)g_gridW, (float)g_gridH);
+
+        /* THE FLOOR, EVERY TICK. A float target does not clamp a blend result, so an
+           empty texel goes one step negative for every tick of decay. That used to be
+           put right once per drawn frame, which was harmless while every stamp was a
+           GL_MAX; the ramps below ADD, and a ramp starting from a value pushed further
+           below zero the more ticks a frame happened to batch would make how flat the
+           grass lies a function of the frame rate. One quad a tick removes the
+           question. */
+        grass_glBlendEquation(GL_MAX);
+        glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
+        crush_quad(0.0f, 0.0f, (float)g_gridW, (float)g_gridH);
+
+        /* RAMPS. A hull standing on grass presses it down over the flatten clock rather
+           than in one tick, and a hull that has parked claims its skirt over the fade
+           clock rather than in one tick. Both are an ADD of a fixed step, followed by a
+           clamp at 1.0. The step carries the decay's own step on top, so a texel under
+           a hull climbs at exactly the rate the dial asks for and then holds at 1.0.
+           Every step is a whole number of ulps, so the sum is exact wherever the texel
+           was itself on the grid; the soft shoulders of the tread bands are the one
+           place it may not be, and there the result is rounded once, identically on
+           every run of one binary. */
+        int ramps = 0;
+        for (int i = 0; i < tk.vehCount; i++)
+            if (g_crushVeh[(size_t)(tk.vehFirst + i)].state != CRUSH_NEVER) { ramps = 1; break; }
+        if (ramps) {
+            grass_glBlendEquation(GL_FUNC_ADD);
+            glBlendFunc(GL_ONE, GL_ONE);
+            for (int i = 0; i < tk.vehCount; i++) {
+                const CrushVeh& v = g_crushVeh[(size_t)(tk.vehFirst + i)];
+                if (v.state == CRUSH_NEVER) continue;
+                /* THE HULL'S OWN FOOTPRINT, and no skirt: this is the grass the vehicle
+                   is actually standing on, which is where it lies down. */
+                glColor4f(sFlat, 0.0f, 0.0f, 0.0f);
+                crush_hull_cover(v, texel);
+                /* A parked hull claims its skirt too, as the clearance requires, but
+                   gradually: the grass round a tank that has just stopped fades out, it
+                   does not blink out. */
+                if (v.state == CRUSH_PARKED) {
+                    glColor4f(0.0f, sPark, 0.0f, 0.0f);
+                    crush_hull_cover(v, skirt);
+                }
+            }
+            grass_glBlendEquation(GL_MIN);
+            glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+            crush_quad(0.0f, 0.0f, (float)g_gridW, (float)g_gridH);
+        }
 
         /* STAMPS. GL_MAX, so a weaker pass can never lower a stronger one: a vehicle
            parked on its own trail cannot erase it, and two vehicles crossing leave the
@@ -1479,6 +1774,11 @@ static int grass_crush_sim(void)
            1.0-only region after nine hundred decays. */
         grass_glBlendEquation(GL_MAX);
         glBlendFunc(GL_ONE, GL_ONE);      /* ignored by a min/max equation; set anyway */
+
+        /* The rings round buildings put down during the mission. See CrushBld. */
+        if (g_crushDials.ring > 0.0f)
+            for (int i = 0; i < tk.ringCount; i++)
+                crush_ring(g_crushRing[(size_t)(tk.ringFirst + i)], g_crushDials.ring);
 
         /* Claimed ground, dilated by the skirt. See crush_skirt_cells. */
         glColor4f(0.0f, 1.0f, 0.0f, 0.0f);
@@ -1489,32 +1789,40 @@ static int grass_crush_sim(void)
 
         for (int i = 0; i < tk.vehCount; i++) {
             const CrushVeh& v = g_crushVeh[(size_t)(tk.vehFirst + i)];
-            /* THE HULL CLAIMS GROUND ONLY WHILE IT IS STANDING ON IT, and that one word
-               is the difference between wheel marks and a mown strip. This stamp is the
-               COVER channel, which does not press grass down, it removes it; it is
-               written at full strength with GL_MAX, so nothing can lower it; and the
-               cover clock is a slow one, seventeen seconds, because its real job is
-               grass growing back over a razed footprint. Stamped every tick for a vehicle
-               that is MOVING, those three facts compound into a continuous swathe of dead
-               ground wider than the hull itself, laid down along the entire route and
-               taking seventeen seconds to recover, with the two tread bands buried inside
-               it where nobody can see them: a tank mows a lawn.
-               So a moving vehicle now lays tracks and nothing else, and a stationary one
-               still claims the ground it is parked on, which is what stops blades growing
-               up through a hull that is sitting still. Driving away releases the claim and
-               the regrowth clock runs from there, which is what that clock was written
-               for. The cost of the simple form is that a blade rooted just in front of a
-               moving hull can lean over its lower edge for the frames it takes to pass;
-               giving the hull its own channel and a quarter-second release would remove
-               even that, and is written down as the fuller answer if this one reads
-               wrong in motion. */
-            if (!v.moved) { crush_hull_cover(v, skirt); continue; }
+            /* NOTHING A VEHICLE DOES REMOVES GRASS IN ONE FRAME, with one exception
+               below. The COVER channel removes grass rather than pressing it, and the
+               first form of this pass stamped it at full strength under any vehicle
+               that had not moved THIS TICK. The brain moves units in a stutter (see
+               GRASS_CRUSH_STILL_TICKS), so a driving tank stamped it every fifth tick
+               along its whole route, hull wide plus the skirt, and the grass it drove
+               over was simply gone, regrowing over the seventeen-second cover clock.
+               What a hull does now:
+                 - standing on grass, driving or parked, it holds the TRAMPLE clock at
+                   1.0 under its own footprint, and the ramp above lays the grass down;
+                 - once it has left, the clock falls and the blade reads a fade out and
+                   then the regrowth off it;
+                 - parked, it also claims its skirt, through the ramp above;
+                 - a vehicle that was ALREADY STANDING when the field first saw it, at
+                   the start of a mission or when the grass is switched on, claims its
+                   ground at once, the way a building does. There is no earlier moment
+                   for that grass to have been pressed in, and it is the case the
+                   clearance gate's switched-on-late frame has to match. */
+            if (v.state == CRUSH_NEVER) {
+                glColor4f(0.0f, 1.0f, 0.0f, 0.0f);
+                crush_hull_cover(v, skirt);
+                continue;
+            }
+            glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+            crush_hull_cover(v, texel);
+            if (!v.moved) continue;
             /* TWO BANDS, ONE EITHER SIDE OF THE CENTRE LINE, and the direction comes
                from the PATH rather than from the hull's facing: treads lie along the
                ground a vehicle covered, and a tank turning on the spot must not smear a
                mark sideways. The wake reached the same shape for the neighbouring
                reason, one source at each shoulder rather than one under the keel
-               (game/water_mod.h:961-963). */
+               (game/water_mod.h:961-963). They sit inside the footprint and change
+               nothing while it is flat; what they leave is the long lean of the two
+               tracks after the rest of the swath has stood back up. */
             const float nx = -v.dirz, nz = v.dirx;
             const float half = 0.5f * g_crushDials.gauge * v.beam;
             float core = 0.5f * g_crushDials.band * v.beam;
@@ -1528,21 +1836,10 @@ static int grass_crush_sim(void)
         }
     }
 
-    /* THE FLOOR, once per call rather than once per tick. A float target does not clamp
-       a blend result, so a texel that is already empty goes one step negative for every
-       tick of decay. One GL_MAX against zero puts it back. Doing it per call rather than
-       per tick bounds the excursion at MAXSTEPS steps, which the reader's own
-       max(f.r, f.g) then absorbs anyway; doing it at all is what stops a session left
-       running for days from walking the channel down towards the half-float floor. */
-    if (nticks > 0 || clearFirst) {
-        grass_glBlendEquation(GL_MAX);
-        glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
-        crush_quad(0.0f, 0.0f, (float)g_gridW, (float)g_gridH);
-    }
-
     g_crushFrame = g_engineFrame;
     g_crushVeh.clear();
     g_crushRect.clear();
+    g_crushRing.clear();
     g_crushTick.clear();
 
     /* ---- and the shroud, which is a picture of NOW rather than of the ticks ------- */
@@ -1553,15 +1850,17 @@ static int grass_crush_sim(void)
 
     crush_gl_restore(&sv);
 
-    if (getenv("CNC3D_GRASS_CRUSHDBG")) {
+    if (getenv("OPENCNC3D_GRASS_CRUSHDBG")) {
         fprintf(stderr, "CRUSH|%dx%d|res=%d|%.2f MiB|ticks=%d|clear=%d|"
                         "tread %.1fs (%d ulp)|cover %.1fs (%d ulp)|"
+                        "trample %.1fs of which fade %.1fs|"
                         "texel %.4f cells|skirt %.3f cells|err=0x%x\n",
                 g_crushW, g_crushH, g_crushRes,
                 (double)g_crushW * g_crushH * GRASS_CRUSH_BPT / (1024.0 * 1024.0),
                 nticks, clearFirst,
                 1.0 / (sTread * GRASS_CRUSH_TICKS_HZ), (int)(sTread * 2048.0f + 0.5f),
                 1.0 / (sCover * GRASS_CRUSH_TICKS_HZ), (int)(sCover * 2048.0f + 0.5f),
+                (double)grass_crush_trample_life(), (double)grass_crush_trample_fade(),
                 (double)texel, (double)skirt, (unsigned)glGetError());
     }
     return 1;
@@ -1594,4 +1893,4 @@ static int grass_crush_sim(void)
  *       is G36c's own rule applied to a channel that now remembers things.
  * ==================================================================================== */
 
-#endif /* CNC3D_GRASS_CRUSH_FIELD_H */
+#endif /* OPENCNC3D_GRASS_CRUSH_FIELD_H */

@@ -1,12 +1,12 @@
 #!/bin/sh
 #
 # stage-skirmish-maps.sh -- take the nine retail skirmish maps from the 1995 MS-DOS
-# disc all the way to playable OpenCNC 3D packs, in one command.
+# disc all the way to playable OpenCNC3D packs, in one command.
 #
 # WHY THIS EXISTS
 #
 # The N64 port cut multiplayer, so the cartridge carries no terrain for the nine retail
-# skirmish scenarios SCM01EA..SCM09EA. OpenCNC 3D draws terrain only from a cartridge-shaped
+# skirmish scenarios SCM01EA..SCM09EA. OpenCNC3D draws terrain only from a cartridge-shaped
 # <SCEN>.MAP, so without one there is no pack and no skirmish map to play on. The three
 # tools that close that gap already exist and each is validated on its own; what was
 # missing was the wiring between them, and the staging step in the middle that neither
@@ -157,7 +157,7 @@ fi
        from a working checkout, and treat the ignore rule as a defect worth fixing."
 
 # ---------------------------------------------------------------------------
-# The local symlink scaffolds. Both tools resolve their inputs through a share/CNC3D
+# The local symlink scaffolds. Both tools resolve their inputs through a share/OpenCNC3D
 # path that is not carried in git, so create it here rather than expecting whoever runs
 # this to know. Relative targets on purpose: an absolute one would bind the checkout to
 # one directory on one machine.
@@ -174,12 +174,12 @@ link_relative() {   # link_relative <target-relative-to-link> <link path>
     echo "scaffold: created $2 -> $1"
 }
 
-# n64_terrain.py looks for its inputs under <its own directory>/share/CNC3D/assets.
-link_relative "../../../../extracted" "$TERRAIN/share/CNC3D/assets/extracted"
-link_relative "../../../../terrain"   "$TERRAIN/share/CNC3D/assets/terrain"
+# n64_terrain.py looks for its inputs under <its own directory>/share/OpenCNC3D/assets.
+link_relative "../../../../extracted" "$TERRAIN/share/OpenCNC3D/assets/extracted"
+link_relative "../../../../terrain"   "$TERRAIN/share/OpenCNC3D/assets/terrain"
 # pk4mod.py rewrites the PK4 baker's one path constant to tools/bakery/support, and the
-# baker then joins share/OpenCNC 3D onto it.
-link_relative "../../sharecopy" "$ROOT/tools/bakery/support/share/CNC3D"
+# baker then joins share/OpenCNC3D onto it.
+link_relative "../../sharecopy" "$ROOT/tools/bakery/support/share/OpenCNC3D"
 
 mkdir -p "$PACKS"
 

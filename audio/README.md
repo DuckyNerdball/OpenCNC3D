@@ -1,13 +1,35 @@
-# OpenCNC 3D: the audio engine
+# OpenCNC3D: the audio engine
 
 Every sound the game makes, out of the 1995 MS-DOS Tiberian Dawn discs, mixed into one
-stereo 16-bit stream at 22050 Hz.
+stereo 16-bit stream at 44100 Hz (22050 Hz on the Win98 tier).
 
 **Nothing here can produce an N64 sound.** The bank only ever opens `SOUNDS.MIX`,
 `SPEECH.MIX`, `SCORES.MIX`, `ZOUNDS.MIX`, `AUD.MIX` and `TRANSIT.MIX` from
 `data/dosdata`, and the only decoders present are Westwood `.AUD` (both compressions).
 When a sound is not on the disc, `bank_get` returns NULL, the caller plays silence, and
 the name lands in the miss log. There is no fallback path that could reach anywhere else.
+
+**The one door out is New Audio, and it is shut by default.** While the F5 NEW AUDIO
+switch is on, `bank_get("XPLOS.AUD")` first looks for `XPLOS.wav` (and `XPLOS_2.wav` up
+to `XPLOS_16.wav`, one of which is drawn at random each time) in `newaudio/` beside
+`dosdata/`, and plays that. A name with no file there keeps its 1995 sound; music is
+streamed and never replaced. Every replacement that loads is printed once as an
+`AUDIO|newaudio|` line, so a recording always says which sounds were not the disc's.
+
+## The mix rate
+
+The mixer runs at **44100 Hz** so a replacement sound keeps everything up to 20 kHz. The
+1995 data is all 22050 Hz, and it is carried up by `halfband.h`, a fixed integer 2x
+upsampler (Kaiser windowed sinc, 24 taps a side): every original sample is kept exactly
+and one is made between each pair. Clips go through it once, at load; the music and
+movie streams go through it as they are pushed, on the game thread, so the render path
+still only copies. Measured on CONSTRU2, XPLOS and NUYELL1 through the real bank: every
+source sample kept bit for bit, energy below 10 kHz changed by at most 0.001 dB, and
+what lands above 13 kHz is 70 to 83 dB below the clip. Any other ratio (the four 22222
+Hz files, a replacement not already at 44100) goes through a Kaiser windowed sinc at
+load instead. Every stream count the mixer reports (push, want, level) is still in 22050
+Hz source samples, so the movie player's clock did not change units. The Win98 tier
+keeps 22050 Hz by its `WIN98` define and does none of this.
 
 ## Build and prove it, no sound card required
 
@@ -43,6 +65,10 @@ Measured on the original discs, `data/dosdata`.
 | Voice stealing holds under load | 16 simultaneous effects against 32 voices: `mixer_active_voices` reports 16, nothing is dropped, nothing crashes |
 | Output is deterministic | Two `mixtest` runs are byte-identical over 882044 bytes |
 | No memory or UB faults | The full 249-file audit and the mix harness run clean under AddressSanitizer and UndefinedBehaviorSanitizer, zero diagnostics |
+
+The table was measured when the mix ran at 22050 Hz, and its sample counts are in that
+rate. Re-run at 44100 Hz, `banktest` passes all 257 files that are on the disc: none
+silent, clipped or offset, and every resampled length exact.
 
 Pictures I actually looked at are in `out/`: `constru1.png` (EVA, clear formant bands and
 syllable envelope), `nuyell1.png` (the type 1 scream, low-band energy with a smooth HF
@@ -101,7 +127,7 @@ filenames and priorities are the engine's own, never retyped.
 
 ## The API the app calls
 
-One header, `cncaudio.h`. Wiring in `app/cnc3d.cpp`:
+One header, `cncaudio.h`. Wiring in `app/opencnc3d.cpp`:
 
 ```c
 #include "cncaudio.h"
@@ -166,7 +192,7 @@ this was a standalone module: two devices on one sound card is the bug that shap
 code eventually produces.
 
 ```
-app/cnc3d.cpp           audio_boot() -> DMS_Config.au and game_set_audio()
+app/opencnc3d.cpp       audio_boot() -> DMS_Config.au and game_set_audio()
 menu/dosmenu_shell.c    cnc_music_play_index() for MAP1, audio_frame() as its pump
 video/moviesnd.c        binds movieplay.c's MOV_Audio to the MOVIE bus
 game/cnc_eyes.cpp       ev_cb() -> cnc_audio_on_sound_effect / cnc_audio_on_speech,
@@ -206,9 +232,16 @@ does not include anything from here, contrary to what the old README claimed.
 (An earlier decision listed here -- loose `dosdata/music/MAP1.AUD` vs streaming from
 `TRANSIT.MIX` -- was settled by the integration: the shell asks the bank for the theme
 by BASE NAME (`MAP1`) and `audioboot.c` registers `TRANSIT.MIX` at boot, so the menu
-theme streams from the archive. The play folder ships no loose music folder at all. A
-loose file would still win if one were dropped in, and the bank now says so out loud;
-see "loose files" below.)
+theme streams from the archive. A loose file would still win if one were dropped in, and
+the bank now says so out loud; see "loose files" below.)
+
+**The packages carry no music.** `SCORES.MIX`, `TRANSIT.MIX` and the loose themes in
+`dosdata/music/` are an optional download, made by the Windows installer or the launcher's
+Setup screen from EA's freeware disc images. A folder without them is an ordinary install:
+the bank counts `themes=0`, the menu and the missions are silent and say so on stderr, the
+playlist switches itself off, and the jukebox lists only themes whose file the bank has.
+The sound effects and EVA (`SOUNDS.MIX`, `SPEECH.MIX`, `ZOUNDS.MIX`, `AUD.MIX`) always
+ship. The developer play folder keeps the whole score for the gates.
 
 ## What the data actually contains
 
@@ -262,12 +295,12 @@ engine names them, so they are never requested and are reported as `UNUSED`, not
 every sound effect and the 1995 game panned them, so mono would throw away information
 the callback is giving us. Stereo costs one extra multiply per frame.
 
-**The bank resamples at load, the mixer does not resample at all.** Everything in the
-cache is already 22050 Hz mono, so the voice loop is a multiply and an add. Each voice
+**The bank resamples at load, the mixer does not resample voices at all.** Everything
+in the cache is already mono at the mix rate, so the voice loop is a multiply and an add. Each voice
 still carries a 16.16 step (fixed at unity today) so pitch variation is a one line change
 later rather than a restructure.
 
-**Gains ramp per 256-frame block, not per sample.** 11.6 ms per step at 22050 Hz, which is
+**Gains ramp per 256-frame block, not per sample.** 5.8 ms per step at 44100 Hz, which is
 inaudible on a linear fade and keeps the inner loop to two multiplies per frame. The step
 is taken at the block midpoint so a ramp does not lag.
 
@@ -277,8 +310,9 @@ handle after its voice finished and its slot was recycled is inert rather than d
 **Clips are pinned while a voice plays them.** Voices read straight out of the bank cache,
 so the LRU must not evict underneath one. `cnc_audio_update` unpins on retire.
 
-**The cache is capped at 8 MB with LRU eviction.** Decoding all 249 sounds at once would
-be about 12 MB, which is fine on a modern desktop and not fine on Win98.
+**The cache is capped at 8 MB of 22050 Hz audio with LRU eviction**, i.e. 16 MB at the
+44100 Hz rate. Decoding all 249 sounds at once would be about 12 MB at 22050 Hz, which is
+fine on a modern desktop and not fine on Win98, where the cap stays 8 MB.
 
 **Speech cuts, it does not overlap.** EVA speaks one line at a time and a new line stops
 the current one, matching `Speak_AI`.

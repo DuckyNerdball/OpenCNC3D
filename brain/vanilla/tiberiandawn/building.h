@@ -13,12 +13,12 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
-// Declares one new member function on BuildingClass, CNC3D_Can_Rally, the
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
+// Declares one new member function on BuildingClass, OpenCNC3D_Can_Rally, the
 // predicate for whether a building may take a rally point. The
 // implementation and all resulting behaviour are in building.cpp.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -129,6 +129,8 @@ public:
     **	of crew. This is true even if it subsiquently gets captured back.
     */
     unsigned IsCaptured : 1;
+    /* Stored in the existing bitfield word, including saved games. */
+    unsigned IsPowerOff : 1;
 
     /*
     **	Special countdown to destruction value. If the building is destroyed,
@@ -213,8 +215,8 @@ public:
     virtual InfantryType Crew_Type(void) const;
     virtual int Pip_Count(void) const;
     virtual bool Can_Player_Move(void) const;
-    /* CNC3D, additive: may this building take a rally point? */
-    bool CNC3D_Can_Rally(void) const;
+    /* OpenCNC3D, additive: may this building take a rally point? */
+    bool OpenCNC3D_Can_Rally(void) const;
     virtual ActionType What_Action(ObjectClass* target) const;
     virtual ActionType What_Action(CELL cell) const;
     virtual bool Can_Demolish(void) const;
@@ -227,6 +229,8 @@ public:
     virtual int Refund_Amount(void) const;
     virtual DirType Fire_Direction(void) const;
     int Power_Output(void) const;
+    int Power_Drain(void) const { return IsPowerOff ? 0 : Class->Drain; }
+    bool Toggle_Power(void);
 
     /*
     **	Coordinate inquiry functions. These are used for both display and

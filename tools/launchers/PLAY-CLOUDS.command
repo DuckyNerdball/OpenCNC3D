@@ -17,8 +17,8 @@
 # ============================================================================
 cd "$(dirname "$0")"
 
-exec ./cnc3d --menupack dosmenu.pack \
+exec ./opencnc3d --menupack dosmenu.pack \
      --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack \
      --dylib ./TiberianDawn.dylib --dir ./missions/ --content ./content/ \
      --w 1280 --h 720 \
-     --gfx cnc3d-clouds.cfg --gfxsave cnc3d-clouds.cfg
+     --gfx opencnc3d-clouds.cfg --gfxsave opencnc3d-clouds.cfg

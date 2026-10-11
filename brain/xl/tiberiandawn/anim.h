@@ -101,10 +101,10 @@ public:
     }
 
     /*
-    ** OpenCNC 3D instrumentation (read-only). The StageClass base is private, so the object
+    ** OpenCNC3D instrumentation (read-only). The StageClass base is private, so the object
     ** dump cannot ask an anim which frame it is on without this. No behaviour change.
     */
-    int CNC3D_Stage(void) const
+    int OpenCNC3D_Stage(void) const
     {
         return StageClass::Fetch_Stage();
     };

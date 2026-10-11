@@ -1,8 +1,8 @@
 """Bake the C&C95 (Win95) 64x48 cameos into a pack the sidebar can draw.
 import os
 
-# Repo root, resolved at runtime. CNC3D_ROOT overrides it for an out-of-tree checkout.
-_ROOT = os.environ.get("CNC3D_ROOT") or os.path.abspath(
+# Repo root, resolved at runtime. OPENCNC3D_ROOT overrides it for an out-of-tree checkout.
+_ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 

@@ -1,0 +1,169 @@
+{
+  "fixture": {
+    "scenario": "SCB20EA",
+    "camera": [
+      50,
+      12,
+      3000
+    ],
+    "size": [
+      2560,
+      1440
+    ],
+    "frames_per_phase": 50,
+    "gfx_sha256": "2dc0e034f5d5e5479942269f1bd6fffb99c8fedeed1ebe929542a5dc8da059ef",
+    "baseline_sha256": "ac07da35edec4ea0b960cbc780cc029669c49edd2e7daea04ffec366d26f6266",
+    "candidate_sha256": "8b76d329f2a4f96640c255aae1c335c8992d0c563aaf309e01463d059e9d89db"
+  },
+  "old": {
+    "intact": {
+      "median_ms": 10.96,
+      "p90_ms": 13.4
+    },
+    "burst": {
+      "median_ms": 31.78,
+      "p90_ms": 32.78,
+      "buffer_uploads_in_51_draws": 148159,
+      "draws_in_51_draws": 154632,
+      "fragment_flushes_in_51_draws": 0
+    },
+    "flight": {
+      "median_ms": 31.1,
+      "p90_ms": 33.37
+    },
+    "settling": {
+      "median_ms": 29.83,
+      "p90_ms": 31.45
+    },
+    "sink": {
+      "median_ms": 38.78,
+      "p90_ms": 39.94
+    },
+    "late": {
+      "median_ms": 25.83,
+      "p90_ms": 26.71
+    },
+    "gone": {
+      "median_ms": 9.58,
+      "p90_ms": 13.13
+    }
+  },
+  "new": {
+    "intact": {
+      "median_ms": 9.72,
+      "p90_ms": 12.91,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "burst": {
+      "median_ms": 23.26,
+      "p90_ms": 25.33,
+      "changed_pixels": 0,
+      "max_delta": 0,
+      "buffer_uploads_in_51_draws": 6325,
+      "draws_in_51_draws": 154632,
+      "fragment_flushes_in_51_draws": 153
+    },
+    "flight": {
+      "median_ms": 23.37,
+      "p90_ms": 25.77,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "settling": {
+      "median_ms": 23.64,
+      "p90_ms": 24.99,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "sink": {
+      "median_ms": 25.31,
+      "p90_ms": 27.81,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "late": {
+      "median_ms": 19.07,
+      "p90_ms": 20.23,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "gone": {
+      "median_ms": 11.51,
+      "p90_ms": 12.58,
+      "changed_pixels": 0,
+      "max_delta": 0
+    }
+  },
+  "disabled": {
+    "intact": {
+      "median_ms": 10.93,
+      "p90_ms": 13.16,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "burst": {
+      "median_ms": 31.97,
+      "p90_ms": 32.67,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "flight": {
+      "median_ms": 32.65,
+      "p90_ms": 33.55,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "settling": {
+      "median_ms": 29.49,
+      "p90_ms": 30.98,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "sink": {
+      "median_ms": 38.83,
+      "p90_ms": 40.1,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "late": {
+      "median_ms": 26.18,
+      "p90_ms": 27.19,
+      "changed_pixels": 0,
+      "max_delta": 0
+    },
+    "gone": {
+      "median_ms": 9.37,
+      "p90_ms": 12.96,
+      "changed_pixels": 0,
+      "max_delta": 0
+    }
+  },
+  "deployment": {
+    "source_root": ".",
+    "source_branch": "main",
+    "binaries": {
+      "playable/cnc_eyes": "8b76d329f2a4f96640c255aae1c335c8992d0c563aaf309e01463d059e9d89db",
+      "playable/opencnc3d": "aa4f24c41a4ce073323e323f74b9a3243a152ca478b305c8ede2450d139c38e6",
+      "playable/ra3d/opencnc3d": "aa4f24c41a4ce073323e323f74b9a3243a152ca478b305c8ede2450d139c38e6"
+    },
+    "sources": {
+      "game/cnc_eyes.cpp": "af98713ca62795cbf7f5c659640d93d6618709815b14ca3239f2bbad57f82fd6",
+      "game/mesh_batch.h": "cba1054ad4935f4d3497cb53592fc52cf9cf599ff200f83e855dca12ebbdbf6b",
+      "game/ebld_mod.h": "555d7d4e5e304230b959e3582e3c6f4781b5e9ca34ccfcba76ce482eee33cabd"
+    }
+  },
+  "validation": {
+    "frozen_phases_zero_pixel_difference": 7,
+    "original_fallback_zero_pixel_difference": 7,
+    "enhanced_hud_fog_shroud_subtick_zero_pixel_difference": 5,
+    "canonical_gates": [
+      "G273",
+      "G295",
+      "G303"
+    ],
+    "ra_models_and_snow": "PASS",
+    "td_and_ra_hidden_launcher_checks": "PASS",
+    "source_lists": "PASS (38 files)"
+  }
+}

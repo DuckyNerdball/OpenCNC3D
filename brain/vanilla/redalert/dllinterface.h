@@ -12,6 +12,14 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D in October 2026. This is not EA's original file.
+// Adds an IsBlushing flag to CNCObjectStruct, the exported object record the
+// renderer reads, so the blush an object shows when it is targeted can be drawn.
+// It does not change the game simulation.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
 
 #pragma once
 
@@ -225,6 +233,7 @@ struct CNCObjectStruct
     bool IsDumping;
     bool IsTheaterSpecific;
     unsigned int FlashingFlags;
+    bool IsBlushing;
     unsigned char Cloak;
     bool CanRepair;
     bool CanDemolish;

@@ -4,7 +4,7 @@ bin_to_n64map.py -- turn a PC Tiberian Dawn terrain .BIN into a cartridge .MAP.
 
 WHY THIS EXISTS
 
-OpenCNC 3D never draws terrain from the PC .BIN. It draws it from the cartridge's own
+OpenCNC3D never draws terrain from the PC .BIN. It draws it from the cartridge's own
 <SCEN>.MAP: 64x64 big-endian u16 N64 tile IDs indexing the theater's DA4/DA8 tile banks.
 That is what assets/terrain/n64_terrain.py resolves into terrain_<SCEN>.json, and what
 tools/bakery/bake5.py turns into <SCEN>.pack.
@@ -179,7 +179,7 @@ def ini_map_version(text):
 
 
 def ini_grid(text):
-    """[CNC3D] Grid= -- the square an XL-native map occupies.
+    """[OpenCNC3D] Grid= -- the square an XL-native map occupies.
 
     The playable rect in [MAP] is not this: a map is authored inside a border, so
     X/Y/Width/Height describe the part that is played on and say nothing about the size of
@@ -191,7 +191,7 @@ def ini_grid(text):
         if t.startswith("["):
             section = t.strip("[]").upper()
             continue
-        if section == "CNC3D" and t.upper().startswith("GRID="):
+        if section == "OpenCNC3D" and t.upper().startswith("GRID="):
             try:
                 return int(t.split("=", 1)[1])
             except ValueError:
@@ -253,15 +253,18 @@ def normalise_theater(value):
 
 
 def theater_from_ini(text):
-    """CNC3DTheater= wins: SNOW maps say Theater=WINTER to the TD brain."""
-    plain = None
+    """OpenCNC3DTheater= wins: SNOW maps say Theater=WINTER to the TD brain."""
+    plain = earlier = None
     for line in text.splitlines():
         t = line.strip().upper()
-        if t.startswith("CNC3DTHEATER="):
+        if t.startswith("OPENCNC3DTHEATER="):
             return normalise_theater(t.split("=", 1)[1])
+        # the same key as a map saved by an earlier editor writes it
+        if t.startswith("CNC3DTHEATER=") and earlier is None:
+            earlier = normalise_theater(t.split("=", 1)[1])
         if t.startswith("THEATER=") and plain is None:
             plain = normalise_theater(t.split("=", 1)[1])
-    return plain
+    return earlier if earlier is not None else plain
 
 
 def read_scenario(scen, binpath=None, inipath=None):
@@ -300,7 +303,7 @@ def read_scenario(scen, binpath=None, inipath=None):
     if ini_map_version(ini) == 2:
         grid = ini_grid(ini)
         if grid <= 0:
-            raise SystemExit("%s: [MAP] Version=2 but the INI has no [CNC3D] Grid= line, "
+            raise SystemExit("%s: [MAP] Version=2 but the INI has no [OpenCNC3D] Grid= line, "
                              "so the size of the map is not stated anywhere" % scen)
         dense = expand_xl_bin(data, grid)
         if dense is None:

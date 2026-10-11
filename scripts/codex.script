@@ -1,10 +1,10 @@
 # ====================================================================================
-# OpenCNC 3D -- the DATABASE tab, driven from a script so a gate can prove it.
+# OpenCNC3D -- the DATABASE tab, driven from a script so a gate can prove it.
 #
 #   cd playable && ../game/cnc_eyes --scen SCG01EB --pack SCG01EA.pack --build 98 \
 #        --gfx --script ../scripts/codex.script
 #
-# --gfx is NOT optional and neither is CNC3D_HUD=new. The tab is Enhanced-only and it
+# --gfx is NOT optional and neither is OPENCNC3D_HUD=new. The tab is Enhanced-only and it
 # lives in the Enhanced HUD's tab strip; a bare --script run has g_fx.enabled == 0 and
 # the classic DOS bar, so the plate is correctly absent and every line below would be
 # measuring its absence. The first `codex state` prints avail= so a run that forgot

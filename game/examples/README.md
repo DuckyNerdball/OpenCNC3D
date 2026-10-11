@@ -8,7 +8,7 @@ It is staged into `playable/missions/user_maps/` by `game/build.sh` if it is not
 there. Edit it freely -- build.sh never overwrites a copy that already exists.
 
 **The name matters.** The game's own User Maps menu finds maps by PROBING `USER00` to
-`USER99` rather than reading the directory, because `app/cnc3d.cpp` compiles for Windows
+`USER99` rather than reading the directory, because `app/opencnc3d.cpp` compiles for Windows
 98 against a freestanding mingw and will not take `dirent.h`. So a user map keeps a name
 from that space, which is why this one is `USER90` and not something readable -- the
 readable part is `[Basic] Name=`, which both the editor's Open Map and the game's menu
@@ -95,3 +95,52 @@ of it. Open it and look at what it demonstrates:
 Play it in the editor, then bake it (`sh tools/stage-skirmish-maps.sh --from
 playable/missions/user_maps USER91`) and the pack comes out **CNC3DPKF** -- the pack
 format that carries its own width and height instead of implying 64.
+
+---
+
+## USER30 -- Mammoth Proving Ground
+
+A small map for looking at the authored Mammoth Tank model, which Enhanced Visuals draws
+in place of the cartridge's own. **Temperate on purpose:** the hull is desert camouflage,
+so it reads against green and hides in sand, and a test map that hides the thing it is
+testing is not a test map.
+
+- **Four Mammoths on the line**, facing north, with a Medium Tank beside them for scale.
+- **Two more in Nod red** across the field, because the player colour is a mask over the
+  paint rather than a second texture set, and the only way to judge a mask is to see two
+  houses of the same model together.
+- **A War Factory and a Repair Bay**, so one can be built, driven out and driven back in:
+  the belt scrolls with distance travelled and the turret turns to the engine's own
+  facing, and neither of those shows on a tank standing still.
+- 20,000 credits, a full build list and a tiberium field the harvester can reach.
+
+Play it from the main menu (**User Maps**), or open it in the editor. Press F5 and look
+under **12g AUTHORED VEHICLE MODELS** for the sun, the fill and the surface relief;
+turning the first row off puts every vehicle straight back on its cartridge model, which
+is the comparison any judgement about the new art has to be made against.
+
+---
+
+## USER92 -- Temperate Plateau Texture Test
+
+A terrain review map: grass fills the 44×44 playable area, 127 cliff cells
+surround a raised plateau. A GDI Mammoth Tank stands at cell `(32,32)` and a
+GDI Construction Yard is placed at `(35,33)` on the same flat plateau.
+Experimental Art replaces the completed yard with the authored PBR model;
+turning it off restores the cartridge model. The editor authored the cliff layout and the 65×65 `.HGT` heightmap
+together. Ground is height byte 64, the plateau top is 128, and the Mammoth's
+start view is on the top. These heights are part of the map and do not depend on
+the experimental terrain-displacement setting. A connected gravel route of 38
+road cells stays on the plateau: it runs south from a north cap, joins an east
+spur at a T junction, and ends in two capped approaches. It uses D03, D06,
+D11, D15, D28 and D29 road shapes without changing the plateau heightmap.
+The mission has no tiberium or combat scripting; CHECK MISSION reports one
+intentional warning for the absent tiberium and no errors.
+
+Open **User Maps → Temperate Plateau Texture Test**. To inspect the new texture
+set, select Remastered terrain and enable **F5 → Experimental → experimental art**.
+Enable **terrain displacement** to compare the generated cliff and gravel-road
+normal, height and road roughness maps. The **relief scale** control starts at
+0.25 world cells and changes the road depth live. Remastered art requires the
+player's own Remastered Collection installation. Turning the experiment off
+returns to that installation's original Remastered terrain.

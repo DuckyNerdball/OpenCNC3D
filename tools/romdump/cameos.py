@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- the cartridge's sidebar CAMEOS.
+OpenCNC3D -- the cartridge's sidebar CAMEOS.
 
 Every cameo the N64 build of C&C can draw on its sidebar, straight out of the ROM.
 

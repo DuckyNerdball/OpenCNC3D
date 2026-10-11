@@ -3,10 +3,10 @@
 import os, struct, sys
 from capstone import Cs, CS_ARCH_MIPS, CS_MODE_MIPS64, CS_MODE_BIG_ENDIAN
 
-_ROOT = os.environ.get("CNC3D_ROOT") or os.path.abspath(
+_ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-# The cartridge is not in the repo. CNC3D_ROM names it; otherwise data/rom/.
-ROM_P = os.environ.get("CNC3D_ROM") or os.path.join(_ROOT, "data", "rom", "cnc_eu.z64")
+# The cartridge is not in the repo. OPENCNC3D_ROM names it; otherwise data/rom/.
+ROM_P = os.environ.get("OPENCNC3D_ROM") or os.path.join(_ROOT, "data", "rom", "cnc_eu.z64")
 ROM = open(ROM_P, "rb").read()
 
 SEG_ROM, SEG_RAM = 0x1000, 0x80000400

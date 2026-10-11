@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenCNC 3D -- the viewer's 3D ASSET layer: every mission's objects, and the meshes.
+"""OpenCNC3D -- the viewer's 3D ASSET layer: every mission's objects, and the meshes.
 
 Two outputs, both derived from files the repo already holds:
 

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>CS0618;CS8632</NoWarn>
+    <!-- A CUE4Parse checkout; see README.md. -->
+    <CUE4PARSE Condition="'$(CUE4PARSE)' == ''">$(MSBuildThisFileDirectory)../../../../CUE4Parse</CUE4PARSE>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(CUE4PARSE)/CUE4Parse/CUE4Parse.csproj" />
+    <ProjectReference Include="$(CUE4PARSE)/CUE4Parse-Conversion/CUE4Parse-Conversion.csproj" />
+  </ItemGroup>
+</Project>

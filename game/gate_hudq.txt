@@ -1,0 +1,33 @@
+# G318. THE PRODUCTION QUEUE STRIP of the Enhanced HUD: one card per item in production
+# or queued, down the left edge of the panel beside the power meter. See gate_hudq.py for
+# what each marked stretch of this run has to show. Every frame drawn prints one HUDQ
+# line (hudqlog 1): each card's name, how many are in hand, its percentage, its state and
+# its screen position. "frames N" draws N frames with the engine standing still, so the
+# cards' sliding is measured frame by frame on the automated clock (1/60 s a frame).
+# Each echo names the stretch of frames that FOLLOWS it.
+tick 30
+hudqlog 1
+echo HUDQ-out
+build NUKE
+build E1
+queue E1 9
+queue E2 1
+queue E3 1
+build MTNK
+queue JEEP 1
+frames 40
+echo HUDQ-mid
+tick 60
+frames 2
+echo HUDQ-leave
+ready NUKE
+frames 60
+echo HUDQ-hold
+hold MTNK
+frames 3
+echo HUDQ-cancelled
+cancelbuild MTNK
+frames 40
+tick 3
+frames 2
+quit

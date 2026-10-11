@@ -1,0 +1,11 @@
+# Original Allied mission SCG01EA: select a jeep and move it across the map.
+cam 62 50
+tick 1
+lclickobj JEEP 0
+expectsel 1
+seldump
+order 60 50
+tick 90
+seldump
+state
+quit

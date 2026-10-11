@@ -34,6 +34,7 @@ Run:  python3 bake_dosmenu.py
 """
 
 import json
+import hashlib
 import os
 import struct
 import sys
@@ -45,35 +46,26 @@ from mixshp import MixSet, Shape, ShapeBlock   # noqa: E402
 from decode_fnt import Font                    # noqa: E402
 
 DATA = os.path.normpath(os.path.join(HERE, "..", "dosdata"))
-MIX_PATHS = ["LOCAL.MIX", "cd1/CONQUER.MIX"]
+if not os.path.isdir(DATA):
+    DATA = os.path.normpath(os.path.join(HERE, "..", "data", "dosdata"))
+MIX_PATHS = ["LOCAL.MIX", "CONQUER.MIX", "cd1/CONQUER.MIX"]
 
 # the replacement title plate. When this file exists it is fitted to the original
 # 320x200 plate and quantised to TITLE.CPS's own 256 colour palette, so the menu
 # chrome (which addresses palette indices directly) keeps working unchanged.
 TITLE_OVERRIDE = os.path.join(HERE, "art", "title.png")
+WORDMARK_OVERRIDE = os.path.join(HERE, "art", "opencnc-3d-logo-v01.png")
 
 # The bottom strip of the plate is painted out and the copyright line is printed at
 # runtime instead, in the DOS 6 point font (dosmenu.c, dm_draw_copyright). Rows 193..199
 # is where the 1995 plate put it and where the replacement art still has its remnant.
 COPYRIGHT_STRIP_TOP = 186
 
-# The wordmark block ("COMMAND & CONQUER 3D") in the replacement art. Making room for
-# "3D" pushed the block up to row 127, and the menu panel's bottom edge is row 135, so
-# nine rows of "COMMAND" end up behind the panel. WORDMARK_TOP re-fits the block into
-# the space between it and the copyright strip: the block is scaled uniformly, keeping
-# its aspect, and re-centred. None leaves the art exactly as delivered.
+# Remove the legacy wordmark from the preserved title source and composite the
+# approved transparent OpenCNC 3D image in its own seat below the menu dialog.
 # 138 is where the 1995 plate starts its wordmark, three rows clear of the panel.
 WORDMARK_INK_TOP = 127
-WORDMARK_INK_BOTTOM = 193  # where the delivered art's wordmark block ends ("3D" included)
 WORDMARK_TOP = 138
-
-# Rows 127..132 of the delivered art carry the wordmark AND the last wisps of the two
-# fireballs; from 133 down there is no flame at all (measured: 6 stray pixels at row
-# 133, none below). In those rows the flame lives outside x 55..265 and the letters
-# live inside, so the block takes a column window there and the full width below.
-WORDMARK_FIRE_ROWS = 133
-WORDMARK_X0 = 55
-WORDMARK_X1 = 266
 
 OUT = os.path.join(HERE, "dosmenu.pack")
 MAGIC = b"DOSBAR01"
@@ -175,13 +167,9 @@ def fit_override(path, orig_px, pal6, align=True):
 
     plate = img.crop((0, top, W, H - bottom)).resize((320, 200), Image.BOX)
 
-    # Refit the wordmark block, and blank the strip the runtime copyright prints into.
-    #
-    # The block cannot simply be cut out and moved: its top rows overlap the tails of
-    # the two fireballs, which are part of the backdrop and must stay where they are.
-    # The wordmark is neutral grey and the fire is strongly orange, so the ink is
-    # separated by CHROMA, not by rectangle: a pixel belongs to the wordmark when its
-    # channels are close together and it is not black. Everything else is left behind.
+    # Preserve the backdrop's flame, remove the old letters and composite alpha
+    # before palette quantisation. The source logo remains unchanged on disk.
+    wordmark_report = None
     if WORDMARK_TOP is not None:
         # The backdrop is rebuilt by KEEPING the fire rather than erasing the wordmark.
         # Erasing left a halo: the wordmark's sheen is a dim reddish grey that no
@@ -189,36 +177,35 @@ def fit_override(path, orig_px, pal6, align=True):
         # smudges beside the letters. Asking the opposite question is robust, because
         # the only thing that belongs in this band is flame: strongly coloured, red
         # dominant, and bright. Everything else in the band goes black.
-        source = np.asarray(plate, dtype=np.int32).copy()
         band = np.asarray(plate.crop((0, WORDMARK_INK_TOP, 320, 200)), dtype=np.int32)
         r, g, b = band[:, :, 0], band[:, :, 1], band[:, :, 2]
         fire = ((band.max(2) - band.min(2)) > 55) & (r > g) & (g >= b) & (band.sum(2) > 110)
         band[~fire] = 0
         plate.paste(Image.fromarray(band.astype(np.uint8)), (0, WORDMARK_INK_TOP))
 
-        # The block to move is the wordmark as delivered. Only its top few rows share
-        # space with the flame, and there the flame is outside the letters, so those
-        # rows are taken through a column window instead of a colour test. Colour
-        # cannot separate them: the letters are metal LIT by the fire, so their right
-        # hand side is as warm as the flame it reflects, and every chroma threshold
-        # that removed the flame also ate into "COMMAND".
-        blk = np.asarray(source[WORDMARK_INK_TOP:WORDMARK_INK_BOTTOM], dtype=np.int32)
-        ink = np.zeros(blk.shape[:2], dtype=np.uint8)
-        fire_rows = WORDMARK_FIRE_ROWS - WORDMARK_INK_TOP
-        ink[:fire_rows, WORDMARK_X0:WORDMARK_X1] = 255
-        ink[fire_rows:, :] = 255
-
-        scale = float(COPYRIGHT_STRIP_TOP - WORDMARK_TOP) / float(blk.shape[0])
-        nw = max(1, int(round(320 * scale)))
-        nh = max(1, int(round(blk.shape[0] * scale)))
-        small_blk = Image.fromarray(blk.astype(np.uint8)).resize((nw, nh), Image.LANCZOS)
-        small_ink = Image.fromarray(ink).resize((nw, nh), Image.LANCZOS).point(
-            lambda v: 255 if v > 110 else 0)
-
-        # Erase the wordmark from where it was, using the same chroma mask, so the
-        # fireball tails it overlapped survive and no ghost of the old position is
-        # left behind. Then drop the scaled copy in at its new home.
-        plate.paste(small_blk, ((320 - nw) // 2, WORDMARK_TOP), small_ink)
+        logo = Image.open(WORDMARK_OVERRIDE)
+        with open(WORDMARK_OVERRIDE, "rb") as logo_file:
+            logo_sha256 = hashlib.sha256(logo_file.read()).hexdigest()
+        if logo.mode != "RGBA" or logo.getchannel("A").getextrema() != (0, 255):
+            raise ValueError("approved wordmark must have a transparent alpha channel")
+        bounds = logo.getchannel("A").getbbox()
+        ink = logo.crop(bounds)
+        scale = min(300.0 / ink.width,
+                    float(COPYRIGHT_STRIP_TOP - WORDMARK_TOP) / ink.height)
+        nw, nh = max(1, round(ink.width * scale)), max(1, round(ink.height * scale))
+        small_logo = ink.resize((nw, nh), Image.Resampling.LANCZOS)
+        x = (320 - nw) // 2
+        composed = plate.convert("RGBA")
+        composed.alpha_composite(small_logo, (x, WORDMARK_TOP))
+        plate = composed.convert("RGB")
+        wordmark_report = {
+            "source": os.path.relpath(WORDMARK_OVERRIDE, HERE),
+            "sha256": logo_sha256,
+            "source_size": list(logo.size), "alpha_bounds": list(bounds),
+            "plate_bounds": [x, WORDMARK_TOP, x + nw, WORDMARK_TOP + nh],
+            "player_colour": "non-recolourable; paired all-black mask",
+            "player_colour_mask": "art/opencnc-3d-logo-v01-player-mask.png",
+        }
     plate.paste((0, 0, 0), (0, COPYRIGHT_STRIP_TOP, 320, 200))
 
     small = np.asarray(plate, dtype=np.int32)
@@ -240,6 +227,7 @@ def fit_override(path, orig_px, pal6, align=True):
         "quantise_error_mean": round(float(np.abs(small - quant).mean()), 2),
         "rows_changed_vs_original": int((np.abs(orig_rgb - quant).sum(2).mean(1) > 40).sum()),
         "wordmark_top": WORDMARK_TOP,
+        "wordmark": wordmark_report,
         "copyright_strip_blanked_from": COPYRIGHT_STRIP_TOP,
     }
     return bytes(idx.tobytes()), report

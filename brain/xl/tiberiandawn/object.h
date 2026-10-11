@@ -149,7 +149,7 @@ public:
     static void Init(void);
 
     /*
-    **	INVINCIBILITY (project OpenCNC 3D addition; not upstream).
+    **	INVINCIBILITY (project OpenCNC3D addition; not upstream).
     **
     **	WHY IT LIVES HERE. The exported debug interface already switches money
     **	(DEBUG_REQUEST_ADD_RESOURCES), instant build (DEBUG_REQUEST_END_PRODUCTION), the
@@ -173,9 +173,9 @@ public:
     **	It is cleared by Init(), which Clear_Scenario() calls, so it cannot survive into the
     **	next scenario. Default is OFF.
     */
-    static uint64_t CNC3D_InvincibleHouses;
-    static void CNC3D_Set_Invincible(HousesType house, bool on);
-    bool CNC3D_Is_Invincible(void) const;
+    static uint64_t OpenCNC3D_InvincibleHouses;
+    static void OpenCNC3D_Set_Invincible(HousesType house, bool on);
+    bool OpenCNC3D_Is_Invincible(void) const;
 
     /*
     **	Query functions.

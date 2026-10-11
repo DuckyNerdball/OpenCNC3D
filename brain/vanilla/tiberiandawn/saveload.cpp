@@ -13,13 +13,13 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Splits the savegame version constant into a named SAVEGAME_MAGIC that
 // takes a different value under EIGHTPLAYERS, so a save file written by a
 // six-player build no longer matches and is refused instead of being loaded
 // against the changed house indices and multiplayer table layout.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 

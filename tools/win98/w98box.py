@@ -27,7 +27,7 @@ daemon itself listens on 192.168.1.115:9855 and autostarts with Windows.
 import os, shutil, sys, time
 
 for _p in (os.path.expanduser("~/Documents/GamedevTycoon"),
-           "$CNC3D_SHARE/GameBrowser/tools"):
+           "$OPENCNC3D_SHARE/GameBrowser/tools"):
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 try:
@@ -40,7 +40,7 @@ except ImportError:
 # this machine, and COMMAND.COM's `copy` from C: to a UNC path silently fails outright
 # ("0 file(s) copied"), which is why every transfer below goes through a pushed AutoIt
 # script rather than through the shell.
-DROP = "$CNC3D_SHARE/cnc98"
+DROP = "$OPENCNC3D_SHARE/cnc98"
 UNC  = r"\\192.168.1.117\share\cnc98"
 DEST = r"C:\CNC98"
 EXE  = "w98glide.exe"

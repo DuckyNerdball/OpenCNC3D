@@ -13,12 +13,12 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
-// Adds a single include of "cnc3d_compat.h", the project's small Win32
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
+// Adds a single include of "opencnc3d_compat.h", the project's small Win32
 // compatibility shim, ahead of function.h so the file compiles with non-
 // Windows toolchains. No other line of the file is changed.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -43,7 +43,7 @@
  *   main -- Initial startup routine (preps library systems).                                  *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-#include "cnc3d_compat.h"   // OpenCNC 3D: Win32 shims for non-Windows builds
+#include "opencnc3d_compat.h"   // OpenCNC3D: Win32 shims for non-Windows builds
 #include "function.h"
 #include "common/ini.h"
 #include "common/paths.h"

@@ -65,6 +65,33 @@ SYS = ["Intensity", "FireBall", "VehicleDamage", "StructureDamage", "Shock",
        "Burn_Fire", "Burn_Smoke", "Ion_Spark", "Debris", "FlameThrower"]
 
 
+ARATE_NOTE = """/* `arate` is the visual sub-record's byte +0x31, and it is the ALPHA RAMP SLOPE.
+
+   This used to be read as "texture frames per tick in 1/64ths" -- a hypothesis that
+   fitted the table's shape and some reference frames, and was wrong. The ROM settles
+   both halves of it:
+
+     FRAME. Both draw paths compute the frame from age and life and nothing else:
+       RAM 0x80050060 (triangle) and RAM 0x80050298 (quad) do
+         lbu a0,0x39 (life total); lbu v0,0x30 (life left); lw v1,0x28(sys) (nframes);
+         subu; mult; div  ->  frame = (total - left) * nframes / total
+       applied as a T offset of frame * 32 texels down a vertical film strip
+       (RAM 0x800500F8..0x8005011C). The whole strip is stretched across the life.
+
+     ALPHA. RAM 0x8004FFC8 does
+         lbu a0,0x30 (life left); lbu v0,0x31; mult; lbu v1,0x32; slt
+       i.e. alpha = min(lifeLeft * byte31, byte32), written to the vertex at
+       RAM 0x80050138. byte32 is the CAP (the value we already store as `a`), and
+       byte31 is the slope: full alpha until lifeLeft * slope falls under the cap,
+       then a linear fade to nothing. The action integrator at RAM 0x8004F300/0x8004F314
+       copies both bytes out of the visual record.
+
+   Values are unchanged, only their meaning: Burn_Fire family 0x32 = 50,
+   Explode_* / Debris and most others 0x10 = 16, Lightning 0x04 = 4, Flame_Spout 0x30,
+   Fire_S 0x20, LandingSmoke 0x21. */
+
+"""
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
@@ -90,7 +117,7 @@ def main():
       "   cartridge's own: anim table ROM 0x1B6444, source table ROM 0x1B41C0, visual\n"
       "   sub-records ROM 0xA2C2C+. Units are WORLD UNITS, 256 to the cell (the JSON's\n"
       "   _meta string says 192; it is wrong, see this file's generator header). */\n"
-      "#ifndef CNC3D_EFX_RECIPES_H\n#define CNC3D_EFX_RECIPES_H\n\n")
+      "#ifndef OPENCNC3D_EFX_RECIPES_H\n#define OPENCNC3D_EFX_RECIPES_H\n\n")
 
     # ---- sources -----------------------------------------------------------
     o("struct EfxSourceRec {\n"
@@ -108,8 +135,23 @@ def main():
       "    unsigned char arate;        /* visual +0x31, the ALPHA RAMP SLOPE per tick  */\n"
       "};\n\n"
       "static const EfxSourceRec EFX_SRC[65] = {\n")
+    # THE ONE CORRECTION TO THE CARTRIDGE'S TABLE, and it is labelled in the output.
+    # SOURCE_Flame_N (record 17) reads angle a in [-2.00, -0.01] and b in [0.01, 0.00]
+    # in the ROM (read off the bytes at 0x1B41C0 + 17*0x44 + 0x34), where its seven
+    # siblings all read a narrow band about plus or minus 1.00: a north-facing
+    # flamethrower sprayed a fan from straight up to north-and-into-the-ground, and the
+    # first online playtest saw it. Almost certainly a typo in the original table (-2.00
+    # for -1.01, b's two bounds swapped); corrected to the siblings' pattern by decision.
+    # The ROM's own numbers stay in particle_recipes.json, untouched.
+    CORRECT = {17: {"angle_a_min": -1.01, "angle_a_max": -0.99,
+                    "angle_b_min": -0.01, "angle_b_max": 0.01}}
     for i in range(65):
-        s = src[i]
+        s = dict(src[i])
+        if i in CORRECT:
+            s.update(CORRECT[i])
+            o("  /* corrected: the ROM reads a %.2f..%.2f b %.2f..%.2f here, see the generator */\n"
+              % (src[i]["angle_a_min"], src[i]["angle_a_max"],
+                 src[i]["angle_b_min"], src[i]["angle_b_max"]))
         v = vis[s["visual_ram"]]["records"][0]
         raw = v["raw_30"].replace(" ", "")
         by = [int(raw[j:j + 2], 16) for j in range(0, len(raw), 2)]
@@ -122,9 +164,7 @@ def main():
               s["angle_a_min"], s["angle_a_max"], s["angle_b_min"], s["angle_b_max"],
               v["y_accel_per_tick"], v["f2C"], by[2], by[3], by[4], by[5], by[1]))
     o("};\n\n")
-    o("/* `arate` is the visual sub-record byte +0x31: the ALPHA RAMP SLOPE.
-   alpha = min(lifeLeft * arate, cap). The frame index comes from age/life alone.
-   See efx_recipes.h for the full ROM trail. */\n\n")
+    o(ARATE_NOTE)
 
     # ---- the second Debris visual variant (the pale chunk) -----------------
     v0 = vis["0x800A202C"]["records"][0]
@@ -137,10 +177,14 @@ def main():
       "   (p080: dark-red chunks AND white-grey chunks leaving the same blast). */\n"
       "static const unsigned char EFX_DEBRIS_VAR1[4] = { %d, %d, %d, %d };\n"
       "static const float EFX_CHUNK_YACC   = %.6ff;   /* world units per tick^2 */\n"
-      "static const float EFX_CHUNK_BOUNCE = %.6ff;   /* visual +0x28 elasticity */\n\n"
+      "static const float EFX_CHUNK_BOUNCE = %.6ff;   /* visual +0x28 elasticity */\n"
+      "/* The chunk's size step, visual sub-record +0x2C at ROM 0xA2C58, integrated at\n"
+      "   RAM 0x8004EF90. 0.25 / 0.005 is exactly 50 ticks against a 40..50 tick life, so a\n"
+      "   chunk dwindles to nothing as it dies rather than popping out at full size. */\n"
+      "static const float EFX_CHUNK_SHRINK = %.6ff;\n\n"
       % (v1["y_accel_per_tick"], v1["damping"], by[3], by[4], by[5],
          by[2], by[3], by[4], by[5],
-         v0["y_accel_per_tick"], v0["damping"]))
+         v0["y_accel_per_tick"], v0["damping"], v0["f2C"]))
 
     # ---- anims -------------------------------------------------------------
     o("/* One slot = one emitter the anim instantiates. dx/dz are world-unit offsets\n"
@@ -181,7 +225,7 @@ def main():
             r, i, n, "" if r >= 0 else "   -- no N64 counterpart"))
     o("};\n"
       "static const int EFX_ANIM2RECIPE_N = %d;\n\n"
-      "#endif /* CNC3D_EFX_RECIPES_H */\n" % len(DOS))
+      "#endif /* OPENCNC3D_EFX_RECIPES_H */\n" % len(DOS))
 
 
 main()

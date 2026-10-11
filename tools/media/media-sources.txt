@@ -1,0 +1,36 @@
+# The candidate download mirrors for the movies and music, hand-edited.
+#
+# tools/media/make-media-manifest.py reads this, opens every candidate by byte range,
+# and keeps a mirror in the manifest only if it really is the disc it claims to be:
+# an image whose ISO9660 layout matches the other mirrors of that disc and whose bytes,
+# at every file the manifest names, match the reference copies. A zip is kept only when
+# the disc image inside it is STORED, because only then is a byte range in the zip a
+# byte range in the image. The tool prints every mirror it drops and why.
+#
+#   source <DISC> iso|zip <url>
+#
+# DISC is GDI, NOD or COVERT. Order is preference: the launcher tries mirrors in the
+# order the manifest lists them, which is this order minus the dropped ones.
+#
+# GDI and NOD are the two discs of the freeware C&C Gold release that Electronic Arts
+# made available at no charge. The archive.org copies in items gdi-95 and
+# cn-c-gdi-95 carry identical MD5 and SHA-1 values, and the image inside each
+# files.cncnz.com zip has the same CRC-32 as those, so they are one set of bytes on
+# three hosts.
+#
+# COVERT is The Covert Operations disc, the only source of eight of the 37 score
+# tracks. The files.cncnz.com zip of it is deflated and cannot serve ranges, and the
+# archive.org copies of the retail disc are raw 2352-byte-sector images, where a file is
+# not one contiguous range. The 2048-byte-sector image of the disc in the archive.org
+# item of the Worldwide Warfare compilation is the copy that can.
+
+source GDI iso https://archive.org/download/gdi-95/GDI95.ISO
+source GDI zip https://files.cncnz.com/cc1_tiberian_dawn/full_game/GDI95.zip
+source GDI iso https://archive.org/download/cn-c-gdi-95/CnC_GDI95.iso
+
+source NOD iso https://archive.org/download/gdi-95/NOD95.ISO
+source NOD zip https://files.cncnz.com/cc1_tiberian_dawn/full_game/NOD95.zip
+source NOD iso https://archive.org/download/cn-c-gdi-95/CnC_NOD95.iso
+
+source COVERT iso https://archive.org/download/cc_worldwide_warfare/COVERT.iso
+source COVERT zip https://files.cncnz.com/cc1_tiberian_dawn/full_game/CovertOps_ISO.zip

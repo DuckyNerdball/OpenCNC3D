@@ -50,8 +50,14 @@ typedef struct DMS_Config {
     const char* pack;      /* dosmenu.pack                                  */
     const char* music;     /* theme BASE NAME, e.g. "MAP1"; NULL = silence  */
     const char* intro;     /* INTRO2.VQA for the Intro button, or NULL      */
+    /* Non-zero draws Intro & Sneak Peek disabled, because the movie it plays is not
+       installed. Separate from `intro`, which the automated runs set to NULL only so
+       that nothing plays: whether the button is live is a fact about the folder. */
+    int intro_missing;
     const char* logo;      /* LOGO.VQA for dms_logo, or NULL                */
     const char* version;   /* the version string printed on the plate       */
+    const char* copyright; /* NULL uses OpenCNC3D default; "" keeps title art text */
+    int red_alert;         /* original RA main menu chrome and five-button layout */
     /* Harness only: dump the movie's own frames as PNG, and stop it early so a gate
        does not spend two minutes watching the intro. NULL/0 in any build anyone plays. */
     const char* movie_shotdir;
@@ -73,13 +79,14 @@ struct SK_Lobby;
 typedef struct DMS {
     SDL_Window* win;
     GLuint tex;
-    int tw, th;                 /* power of two texture holding the 320x200 */
+    int legal_active;           /* main-menu live text presentation layer */
+    int tw, th;                 /* power of two texture, sized for 640x400 RA */
     int scale, vpx, vpy;        /* letterbox, recomputed every frame        */
     float px, py;               /* drawable pixels per window point         */
     DB_Pack* pack;
     DB_Surface surf;
     DM_State st;
-    unsigned char screen[DM_SCREEN_W * DM_SCREEN_H];
+    unsigned char screen[640 * 400];
     unsigned char* rgba;
     unsigned char* padded;
     unsigned char* faded;
@@ -99,6 +106,11 @@ int  dms_open(DMS* s, SDL_Window* win, const DMS_Config* cfg, char* err, int err
 int  dms_logo(DMS* s);         /* 1 played/skipped, 0 the window was closed */
 int  dms_intro(DMS* s);        /* the same, for the Intro & Sneak Peek button */
 int  dms_run(DMS* s);          /* DM_* item, or DMS_QUIT                    */
+/* Red Alert's original title-page new-game choice. Returns 0 Allies, 1 Soviet,
+   DMS_CANCEL on Escape, or DMS_QUIT. auto_side is harness-only (-1 normally). */
+int  dms_ra_choose_side(DMS* s, int auto_side, const char* shot);
+/* Returns 0 Easy, 1 Normal or 2 Hard before the side choice. */
+int  dms_ra_choose_difficulty(DMS* s, int auto_difficulty, const char* shot);
 
 /* The SPECIAL OPS mission list. Returns the index of the mission the player chose,
    DMS_CANCEL for Cancel/ESC, or DMS_QUIT if the window was closed. The caller owns the list
@@ -242,6 +254,16 @@ int  dms_lobby(DMS* s, const struct SK_Map* maps, int count, const struct SK_Pre
    `net` is 0 for an ordinary skirmish, 1 hosting, 2 joined. With a non-zero net this polls
    the match while it draws, keeps the roster's ready lights in step with the wire, and
    answers DMS_MP_PLAY when the host starts. */
+/* THE SEATS THE START CLOSED, NOT THE HOST. When START is pressed the room closes every
+   seat still OPEN so the roster it sends is the people in it, and that closing lands in
+   the setup the next room is built from: the host who left four seats open for a
+   four-way came back to a room with four BLOCKED seats and had to open them again, one
+   by one, before anybody could join (the first online playtest). This says, seat by
+   seat, whether the block was the START's doing rather than the host's own click, and
+   the next room's setup reads it to put those seats back to OPEN. Cleared by the next
+   room. */
+int  dms_lobby_seat_auto_closed(int seat);
+void dms_lobby_auto_closed_clear(void);
 int  dms_lobby_net(DMS* s, const struct SK_Map* maps, int count, const struct SK_Prev* prev,
                    struct SK_Lobby* out, DMS_LobbyProbe* probe, int net);
 /* Write the menu surface to a PNG, scaled up. Returns 1 on success. */

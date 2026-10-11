@@ -1,0 +1,7 @@
+RA_BOOT|v=1|api=258|requested_seed=19005|scenario=RA3DBOOT|theater=2|rect=20,20,24,24
+TICK|0|timer=20|alive=1
+TICK|15|timer=19|alive=1
+TICK|30|timer=18|alive=1
+TICK|45|timer=17|alive=1
+TICK|60|timer=16|alive=1
+END|ticks=60|timer_changed=1

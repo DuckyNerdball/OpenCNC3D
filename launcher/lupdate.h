@@ -1,7 +1,7 @@
 /*
  * lupdate.h -- "is there a newer build, and can you put it on this disk".
  *
- * THE SITE IS THE SOURCE OF TRUTH. cnc3dgame.com already has a Builds section,
+ * THE SITE IS THE SOURCE OF TRUTH. opencnc3d.com already has a Builds section,
  * and it is generated from three routes the launcher reads directly:
  *
  *   GET /api/builds                 the newest release and its assets
@@ -86,5 +86,54 @@ int lu_notes_changed(LU_State *u);
 /* What this build was compiled to talk to, for the About line and for a support
  * question that starts "which host is it even trying". Never NULL. */
 const char *lu_host_summary(void);
+
+/* ------------------------------------------------------------------------ *
+ * THE FIRST INSTALL INTO A FOLDER, for the Windows web installer, which puts only the
+ * launcher in the folder and has it fetch the game (launcher/lsetup_cli.c).
+ *
+ * lu_create_fresh is lu_create for a folder that may not be an install yet: the lock
+ * is taken whether or not the folder holds an install record (lz_lock_new), and
+ * lu_apply then always takes this platform's FULL package, resuming a download an
+ * earlier attempt left in opencnc3d-update.zip.ocpart, and writes the install record
+ * as its last file, exactly as an update does. It is the ONLY way into such a folder:
+ * a state made by lu_create still refuses a folder with no record. A folder that
+ * already holds an install is reinstalled over, unless it already holds the newest
+ * build (lu_check then says up to date and there is nothing to apply).
+ * ------------------------------------------------------------------------ */
+LU_State *lu_create_fresh(const char *dir);
+
+/* lu_want pins the build an install takes: "0.8.0" (or "v0.8.0") installs that release
+ * from the site's list and fails, saying so, while the site does not list it; NULL or ""
+ * takes the newest. Set it before lu_check. */
+void lu_want(LU_State *u, const char *version);
+
+/* Bytes of the package downloaded so far, and its size (-1 while unknown). */
+void lu_bytes(LU_State *u, long long *done, long long *total);
+
+/* The name of the package being downloaded, "" before a check has chosen one. */
+void lu_download_name(LU_State *u, char *buf, int len);
+
+/* 1 when the last check failed because the site was never reached at all. */
+int lu_unreachable(LU_State *u);
+
+/* Stop the running download at the next chance. What arrived of a fresh install's
+ * package stays, and the next attempt resumes it. */
+void lu_cancel(LU_State *u);
+
+/* The size of this platform's full package in the newest build, once a check has
+ * read it, and -1 before: what a first install will download. */
+long long lu_package_size(LU_State *u);
+
+/* THE MENU ART ALONE, for a folder that holds the launcher and nothing else. The
+ * launcher draws every one of its screens with the 1995 fonts and frames in
+ * dosmenu.pack, so in such a folder it cannot even show the screen that offers to
+ * install the game. This fetches the newest build's binary-only package (which
+ * carries the pack, and is a few MB rather than the whole game), takes dosmenu.pack out
+ * of it into `dir`, and throws the rest away. Blocking: run it on a worker. `cb` sees
+ * the download's bytes and may return 0 to stop it. A pack already in the folder is
+ * left alone and counts as done. Returns 1 with the pack in place; 0 with `err` in a
+ * player's words, and *unreachable (may be NULL) set when the site was never reached. */
+int lu_fetch_pack(const char *dir, int (*cb)(void *user, long long done, long long total),
+                  void *user, int *unreachable, char *err, int errlen);
 
 #endif /* LUPDATE_H */

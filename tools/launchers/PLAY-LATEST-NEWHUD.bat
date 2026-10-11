@@ -1,9 +1,9 @@
 @echo off
 rem ---------------------------------------------------------------------------
-rem  OpenCNC 3D -- launch the NEWEST build on the Desktop, on the new 640x480 HUD.
+rem  OpenCNC3D -- launch the NEWEST build on the Desktop, on the new 640x480 HUD.
 rem
 rem  There is no build path written down in here on purpose. Every time it runs
-rem  it looks at every CNC3D-windows-* folder on the Desktop, picks the one whose
+rem  it looks at every OpenCNC3D-windows-* folder on the Desktop, picks the one whose
 rem  cnc_eyes.exe is newest, and launches that. Drop in a new build, unzip one
 rem  from the Mac, or rebuild in place, and this follows it with no edits.
 rem
@@ -23,12 +23,12 @@ if "%MODE%"=="" set "MODE=menu"
 
 set "DESK=%USERPROFILE%\Desktop"
 set "GAME="
-for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%DESK%' -Directory -Filter 'CNC3D-windows-*' -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName 'cnc_eyes.exe') } | Sort-Object { (Get-Item (Join-Path $_.FullName 'cnc_eyes.exe')).LastWriteTime } -Descending | Select-Object -First 1 -ExpandProperty FullName"`) do set "GAME=%%D"
+for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "Get-ChildItem -LiteralPath '%DESK%' -Directory -Filter 'OpenCNC3D-windows-*' -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName 'cnc_eyes.exe') } | Sort-Object { (Get-Item (Join-Path $_.FullName 'cnc_eyes.exe')).LastWriteTime } -Descending | Select-Object -First 1 -ExpandProperty FullName"`) do set "GAME=%%D"
 
 if not defined GAME (
   echo.
-  echo Could not find a C^&C 3D build on the Desktop.
-  echo Looked for folders named CNC3D-windows-* containing cnc_eyes.exe in:
+  echo Could not find an OpenCNC3D build on the Desktop.
+  echo Looked for folders named OpenCNC3D-windows-* containing cnc_eyes.exe in:
   echo   %DESK%
   echo.
   pause
@@ -47,18 +47,18 @@ if exist BUILD-ID.txt (
 echo   HUD:   new 640x480      mode: %MODE%
 echo.
 
-set CNC3D_HUD=new
+set OPENCNC3D_HUD=new
 
 if /i "%MODE%"=="mission" (
-  cnc_eyes.exe --scen SCG01EC --pack SCG01EA.pack --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack --dylib TiberianDawn.dll --dir missions\ --content content\ --w 1600 --h 960 > cnc3d-log.txt 2>&1
+  cnc_eyes.exe --scen SCG01EC --pack SCG01EA.pack --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack --dylib TiberianDawn.dll --dir missions\ --content content\ --w 1600 --h 960 > opencnc3d-log.txt 2>&1
 ) else (
-  cnc3d.exe --menupack dosmenu.pack --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack --dylib TiberianDawn.dll --dir .\missions\ --content .\content\ --w 1600 --h 960 > cnc3d-log.txt 2>&1
+  opencnc3d-game.exe --menupack dosmenu.pack --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack --dylib TiberianDawn.dll --dir .\missions\ --content .\content\ --w 1600 --h 960 > opencnc3d-log.txt 2>&1
 )
 
 echo.
-echo ---------- the GL block, from cnc3d-log.txt ----------
-powershell -NoProfile -Command "Get-Content cnc3d-log.txt -TotalCount 12"
+echo ---------- the GL block, from opencnc3d-log.txt ----------
+powershell -NoProfile -Command "Get-Content opencnc3d-log.txt -TotalCount 12"
 echo -----------------------------------------------------
-echo Full log: %GAME%\cnc3d-log.txt
+echo Full log: %GAME%\opencnc3d-log.txt
 echo If anything looks wrong, send that file.
 pause

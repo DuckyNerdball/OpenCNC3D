@@ -13,12 +13,12 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in September 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
 // Adds one flag, IsShortGame, to SpecialClass: a house is finished when it
 // has no structure left that could rebuild it. Read only by
 // Check_Pertinent_Structures, and off unless set for the match.
 // It DOES change the game simulation when the flag is on.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -246,7 +246,7 @@ public:
     unsigned IsEarlyWin : 1;
 
     /*
-    **  OpenCNC 3D: SHORT GAME. A house is finished when it has no structures left that
+    **  OpenCNC3D: SHORT GAME. A house is finished when it has no structures left that
     **  could rebuild it, so defences and walls do not keep it alive. Read only by
     **  Check_Pertinent_Structures. Off unless the host ticks it in the lobby.
     */

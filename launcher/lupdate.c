@@ -2,7 +2,7 @@
  * lupdate.c -- see lupdate.h.
  *
  * THE SITE IS THE SOURCE OF TRUTH, and it already was before this file existed.
- * cnc3dgame.com's Builds section is drawn from three routes, and the launcher
+ * opencnc3d.com's Builds section is drawn from three routes, and the launcher
  * reads exactly the same three:
  *
  *   GET /api/builds       the newest release: its tag, and every asset with an
@@ -28,7 +28,7 @@
  *     package is enough, so every update becomes the full 500 MB one.
  *
  * Both are answered by ONE SMALL FILE published as an ordinary release asset
- * beside the zips (`CNC3D-vX.Y.Z-manifest.txt`, written by
+ * beside the zips (`OpenCNC3D-vX.Y.Z-manifest.txt`, written by
  * tools/launcher/make-manifest.sh). The launcher looks for it in the asset list
  * and, finding it, gets a SHA-256 for every zip and the data fingerprint for this
  * platform. Not finding it, it falls back to the full package checked by length,
@@ -61,7 +61,7 @@
 /* The site, unless a build was pointed somewhere else. A staging deployment, a
  * local `next dev`, or the selftest's fake site are the only reasons to;
  * tools/launcher/make-config.sh is where that is set. */
-#define LU_SITE (LCFG_BASE[0] ? LCFG_BASE : "https://cnc3dgame.com")
+#define LU_SITE (LCFG_BASE[0] ? LCFG_BASE : "https://opencnc3d.com")
 
 #define LU_API_CAP (4 * 1024 * 1024) /* /api/changelog is the big one */
 
@@ -97,6 +97,14 @@ struct LU_State
      * for again by an update when it could not. */
     LZ_Lock lk;
     int locked;
+
+    /* lu_create_fresh: the first install into this folder (see lupdate.h). */
+    int fresh;
+    long long dl_done, dl_total; /* bytes of the package, for a size readout */
+    int unreachable;             /* the last check never reached the site     */
+
+    /* lu_want: the one build this state may install, "" for the newest. */
+    char want[64];
 };
 
 /* ------------------------------------------------------------------------ *
@@ -183,6 +191,50 @@ int lu_notes_changed(LU_State *u)
 const char *lu_host_summary(void)
 {
     return LU_SITE;
+}
+
+void lu_bytes(LU_State *u, long long *done, long long *total)
+{
+    if (!u) {
+        *done = 0;
+        *total = -1;
+        return;
+    }
+    SDL_LockMutex(u->lock);
+    *done = u->dl_done;
+    *total = u->dl_total;
+    SDL_UnlockMutex(u->lock);
+}
+
+void lu_download_name(LU_State *u, char *buf, int len)
+{
+    if (!u) {
+        snprintf(buf, (size_t)len, "%s", "");
+        return;
+    }
+    SDL_LockMutex(u->lock);
+    snprintf(buf, (size_t)len, "%s", u->full.name);
+    SDL_UnlockMutex(u->lock);
+}
+
+int lu_unreachable(LU_State *u)
+{
+    int r;
+    if (!u)
+        return 0;
+    SDL_LockMutex(u->lock);
+    r = u->unreachable;
+    SDL_UnlockMutex(u->lock);
+    return r;
+}
+
+void lu_cancel(LU_State *u)
+{
+    if (!u)
+        return;
+    SDL_LockMutex(u->lock);
+    u->cancel = 1;
+    SDL_UnlockMutex(u->lock);
 }
 
 /* ------------------------------------------------------------------------ *
@@ -282,16 +334,38 @@ static int lu_read_builds(LU_State *u, const char *json, char *err, int errlen)
         return 0;
     }
     if (!lj_bool(root, "ok", 1)) {
-        snprintf(err, (size_t)errlen, "cnc3dgame.com reported a problem with its builds");
+        snprintf(err, (size_t)errlen, "opencnc3d.com reported a problem with its builds");
         lj_free(root);
         return 0;
     }
     latest = lj_get(root, "latest");
+    /* A PINNED BUILD IS TAKEN FROM THE LIST, never from `latest`. Setup of one version
+     * installs that version: handed the newest instead, a setup cut before the site lists
+     * it would install an OLDER game than itself, and one cut after a newer release would
+     * install a game its own launcher was never built against. */
+    if (u->want[0]) {
+        const LJ_Value *rel;
+        latest = NULL;
+        for (rel = lj_first(lj_get(root, "releases")); rel; rel = lj_next(rel)) {
+            const char *t = lj_str(rel, "tag");
+            if (t && !strcmp(t[0] == 'v' ? t + 1 : t, u->want)) {
+                latest = rel;
+                break;
+            }
+        }
+        if (!latest) {
+            snprintf(err, (size_t)errlen,
+                     "opencnc3d.com does not list v%s yet, so it cannot be installed; "
+                     "try again later", u->want);
+            lj_free(root);
+            return 0;
+        }
+    }
     tag = lj_str(latest, "tag");
     if (!tag || !*tag) {
         /* An empty build list is a real state on a fresh deployment, and it is
          * not an error the player can act on. Said as itself. */
-        snprintf(err, (size_t)errlen, "cnc3dgame.com is not listing any build yet");
+        snprintf(err, (size_t)errlen, "opencnc3d.com is not listing any build yet");
         lj_free(root);
         return 0;
     }
@@ -331,7 +405,7 @@ static int lu_read_builds(LU_State *u, const char *json, char *err, int errlen)
     lj_free(root);
     if (!found_full) {
         snprintf(err, (size_t)errlen,
-                 "the newest build on the site has no " LU_PLATFORM " package");
+                 "the build on the site has no " LU_PLATFORM " package");
         return 0;
     }
     return 1;
@@ -448,7 +522,7 @@ static char *lu_read_changelog(const char *json, char *err, int errlen)
 }
 
 /* ------------------------------------------------------------------------ *
- * cnc3d-install.txt: what this folder holds. Written by the release packager and
+ * opencnc3d-install.txt: what this folder holds. Written by the release packager and
  * rewritten by every update, as the update's own last step, so the next check has
  * something true to compare.
  * ------------------------------------------------------------------------ */
@@ -464,7 +538,7 @@ static void lu_read_install(LU_State *u)
 {
     char path[1200], line[512];
     FILE *f;
-    snprintf(path, sizeof path, "%s/cnc3d-install.txt", u->dir);
+    snprintf(path, sizeof path, "%s/opencnc3d-install.txt", u->dir);
     f = fopen(path, "rb");
     if (!f)
         return;
@@ -474,6 +548,10 @@ static void lu_read_install(LU_State *u)
             u->installed_data[0] = '\0';
             sscanf(line + 8, "%79s", u->installed_data);
         }
+        /* Only a fresh install takes the version from here: lu_create's caller
+         * passes the one it read itself. */
+        if (u->fresh && !strncmp(line, "version ", 8) && line[8])
+            snprintf(u->installed, sizeof u->installed, "%.60s", line + 8);
     }
     fclose(f);
 }
@@ -485,7 +563,7 @@ static void lu_read_install(LU_State *u)
 static void lu_install_record(const LU_State *u, char *out, size_t outlen)
 {
     snprintf(out, outlen,
-             "# written by the OpenCNC 3D launcher after an update\nversion %s\ndata_id %s\n",
+             "# written by the OpenCNC3D launcher after an update\nversion %s\ndata_id %s\n",
              u->latest, u->latest_data[0] ? u->latest_data : "unknown");
 }
 
@@ -504,7 +582,7 @@ static void lu_install_record(const LU_State *u, char *out, size_t outlen)
  * ONLY ONE LAUNCHER PER FOLDER RECOVERS OR UPDATES. The installer's finish page
  * starts one and a player can double-click a second; the second one's recovery
  * would put back or remove copies the first one's update still needs to undo
- * itself, and both would download into the same cnc3d-update.zip. lu_own_install
+ * itself, and both would download into the same opencnc3d-update.zip. lu_own_install
  * takes lz_lock on the install and holds it until lu_destroy. A launcher that
  * cannot take it still checks for updates and still plays, but neither recovers
  * nor installs until the other one has gone.
@@ -523,15 +601,15 @@ static void lu_install_record(const LU_State *u, char *out, size_t outlen)
  * extractor only ever steps aside a file it is about to write.
  *
  * THE COMMIT MARKERS, which lz_extract writes after every other entry and never
- * from an extraction that failed. cnc3d-install.txt is the file the launcher
+ * from an extraction that failed. opencnc3d-install.txt is the file the launcher
  * reads the installed version from; BUILD-ID.txt is the one a person reads.
  * Either one written early, by a zip that happens to list it early, would let a
- * half-updated folder claim the new version. The zip's own cnc3d-install.txt is
+ * half-updated folder claim the new version. The zip's own opencnc3d-install.txt is
  * not used at all: the launcher's record, and the site's changelog as
  * CHANGELOG.txt, are handed to lz_extract as its final files, so a binary-only zip
  * that carries no record still gets one inside the journal.
  * ------------------------------------------------------------------------ */
-static const char *const lu_markers[] = {"cnc3d-install.txt", "BUILD-ID.txt", NULL};
+static const char *const lu_markers[] = {"opencnc3d-install.txt", "BUILD-ID.txt", NULL};
 
 /* Take the install lock if this launcher does not hold it yet, and on first
  * taking it finish whatever an earlier update left behind. Returns lz_lock's
@@ -539,12 +617,28 @@ static const char *const lu_markers[] = {"cnc3d-install.txt", "BUILD-ID.txt", NU
  * folder is not an install and nothing was done to it. Called from lu_create and
  * from the worker, never from both at once: lu_start waits for the previous
  * worker, and lu_create runs before there is one. */
+/* Where a fresh install's package arrives, kept between attempts so the next one
+ * resumes it (the ending is lzip's LZ_PART, a name no update may carry).
+ *
+ * BESIDE IT, WHICH PACKAGE IT IS A PIECE OF: the asset's id, name and size, written
+ * before the first byte arrives. A new build published between a Stop and a
+ * Resume is a different file at a different address; resumed onto the old one's bytes it
+ * would fail its checksum only once the whole of it had come down, gigabytes later. So a
+ * part whose tag does not name the asset about to be fetched is thrown away and the
+ * download starts again from its first byte. A part with no tag at all cannot prove
+ * what it is, and is thrown away too. The tag ends in LZ_PART as well, so it is a name
+ * no update carries and no package fingerprint counts. */
+#define LU_FRESH_PART "opencnc3d-update.zip" LZ_PART
+#define LU_FRESH_TAG "opencnc3d-update.id" LZ_PART
+
 static int lu_own_install(LU_State *u)
 {
     int rc;
     if (u->locked)
         return 1;
-    rc = lz_lock(u->dir, &u->lk);
+    /* THE FRESH INSTALL IS THE ONE STATE THAT LOCKS A FOLDER WITH NO RECORD (see
+     * lupdate.h). Every other state goes through lz_lock, which refuses one. */
+    rc = u->fresh ? lz_lock_new(u->dir, &u->lk) : lz_lock(u->dir, &u->lk);
     if (rc == 1) {
         char path[1300];
         u->locked = 1;
@@ -552,13 +646,88 @@ static int lu_own_install(LU_State *u)
         /* A download or an install killed part way leaves the zip, up to 560 MB of
          * it, or the part of it that arrived, and with the lock held nothing else
          * can be writing either. The folder is the lock's, which only an install
-         * gets. */
-        snprintf(path, sizeof path, "%s/cnc3d-update.zip", u->lk.dir);
+         * gets. A fresh install keeps its own part file, which is how it resumes;
+         * an ordinary start removes that too, since only a fresh install resumes
+         * one. */
+        snprintf(path, sizeof path, "%s/opencnc3d-update.zip", u->lk.dir);
         remove(path);
-        snprintf(path, sizeof path, "%s/cnc3d-update.zip.part", u->lk.dir);
+        snprintf(path, sizeof path, "%s/opencnc3d-update.zip.part", u->lk.dir);
         remove(path);
+        /* A FRESH INSTALL'S PART IS KEPT BY EVERY START, this one included. Setup run
+         * over an older install can stop part way and still leave a game to play, and a
+         * player who starts that game's launcher before pressing Setup's Retry must not
+         * cost the next attempt the gigabytes that already arrived. Its tag says which
+         * package it is, so the next fresh install either resumes it or throws it away
+         * (lu_part_claim), and any update that completes removes both
+         * (lu_part_forget). */
     }
     return rc;
+}
+
+/* The tag a fresh install's part carries: see LU_FRESH_TAG. The site's asset id is
+ * the release host's own, given to one upload and never to another, so with the name
+ * and the size beside it nothing else is needed. The checksum is left out on purpose:
+ * it comes from a separate small download that can fail on its own, and a tag that
+ * changed with it would throw a good part away. */
+static void lu_part_tag(const LU_Asset *a, char *out, size_t outlen)
+{
+    snprintf(out, outlen,
+             "# the package opencnc3d-update.zip.ocpart is a piece of\n"
+             "asset %lld\nname %s\nsize %lld\n",
+             a->id, a->name, a->size);
+}
+
+/* Before any byte of `a` is fetched into the part: 1 with the part kept when its tag
+ * names `a`, or with the part thrown away and a tag for `a` written in its place. 0 when
+ * the tag cannot be written, and then nothing is downloaded, because bytes nobody can
+ * vouch for are worse than none. */
+static int lu_part_claim(LU_State *u, const LU_Asset *a, char *err, int errlen)
+{
+    char part[1300], tagp[1300], want[600], have[600];
+    FILE *f;
+    size_t n = 0;
+    int tagged = 0;
+
+    snprintf(part, sizeof part, "%s/" LU_FRESH_PART, u->lk.dir);
+    snprintf(tagp, sizeof tagp, "%s/" LU_FRESH_TAG, u->lk.dir);
+    lu_part_tag(a, want, sizeof want);
+    have[0] = '\0';
+    f = fopen(tagp, "rb");
+    if (f) {
+        n = fread(have, 1, sizeof have - 1, f);
+        have[n] = '\0';
+        fclose(f);
+        tagged = 1;
+    }
+    if (tagged && !strcmp(have, want))
+        return 1;
+    remove(part);
+    remove(tagp);
+    f = fopen(tagp, "wb");
+    if (!f || fputs(want, f) < 0 || fflush(f) != 0) {
+        if (f)
+            fclose(f);
+        remove(tagp);
+        snprintf(err, (size_t)errlen, "could not write in the game folder (%.300s)", u->dir);
+        return 0;
+    }
+    if (fclose(f) != 0) {
+        remove(tagp);
+        snprintf(err, (size_t)errlen, "could not write in the game folder (%.300s)", u->dir);
+        return 0;
+    }
+    return 1;
+}
+
+/* Once the folder holds the newest build, a fresh install's part and its tag have
+ * nothing left to resume. */
+static void lu_part_forget(LU_State *u)
+{
+    char path[1300];
+    snprintf(path, sizeof path, "%s/" LU_FRESH_PART, u->lk.dir);
+    remove(path);
+    snprintf(path, sizeof path, "%s/" LU_FRESH_TAG, u->lk.dir);
+    remove(path);
 }
 
 /* ------------------------------------------------------------------------ *
@@ -571,6 +740,8 @@ static int lu_dl_progress(void *user, long long done, long long total)
     int cancel;
     SDL_LockMutex(u->lock);
     u->progress = (total > 0) ? (int)((done * 1000) / total) : -1;
+    u->dl_done = done;
+    u->dl_total = total;
     cancel = u->cancel;
     SDL_UnlockMutex(u->lock);
     return !cancel;
@@ -592,9 +763,15 @@ static int lu_do_check(LU_State *u, char *err, int errlen)
     char url[1400];
     char *text;
 
-    lu_set(u, LU_CHECKING, "Asking cnc3dgame.com for the newest build...");
-    text = ln_get_text(lu_api("/api/builds", url, sizeof url), LCFG_KEY, LU_API_CAP, err,
-                       errlen);
+    lu_set(u, LU_CHECKING, "Asking opencnc3d.com for the newest build...");
+    {
+        int unreached = 0;
+        text = ln_get_text_reach(lu_api("/api/builds", url, sizeof url), LCFG_KEY, LU_API_CAP,
+                                 &unreached, err, errlen);
+        SDL_LockMutex(u->lock);
+        u->unreachable = !text && unreached;
+        SDL_UnlockMutex(u->lock);
+    }
     if (!text)
         return 0;
     {
@@ -638,6 +815,61 @@ static int lu_do_check(LU_State *u, char *err, int errlen)
     return 1;
 }
 
+/* A FRESH INSTALL'S PACKAGE, RESUMED. The full package is gigabytes, and the web
+ * installer that asks for it can be stopped, retried, or lose its network, so it is
+ * fetched by Range into LU_FRESH_PART and kept between attempts. Each attempt asks
+ * /api/download again, because the address it redirects to is signed and expires.
+ * Three attempts, two and then eight seconds apart; a host that does not answer Range
+ * at all on a fresh start is asked for the whole file the ordinary way instead.
+ * Returns 1 with the package at `zip`. */
+static int lu_fetch_resumable(LU_State *u, const LU_Asset *a, const char *zip, char *err,
+                              int errlen)
+{
+    char url[1400], part[1300];
+    int attempt, rc = LN_RANGE_BROKEN;
+
+    snprintf(part, sizeof part, "%s/" LU_FRESH_PART, u->lk.dir);
+    if (!lu_part_claim(u, a, err, errlen))
+        return 0;
+    for (attempt = 1; attempt <= 3; attempt++) {
+        long status = 0;
+        int wait;
+        rc = ln_get_range(lu_asset_url(a->id, url, sizeof url), LCFG_KEY, part, 0, a->size, 30,
+                          (volatile int *)&u->cancel, lu_dl_progress, u, &status, err, errlen);
+        if (rc == LN_RANGE_OK)
+            break;
+        if (rc == LN_RANGE_CANCEL || rc == LN_RANGE_DISK)
+            return 0;
+        if (rc == LN_RANGE_NORANGE && ln_file_size(part) <= 0) {
+            lu_part_forget(u);
+            return ln_get_file(url, LCFG_KEY, zip, lu_dl_progress, u, err, errlen);
+        }
+        if (rc == LN_RANGE_NORANGE || (rc == LN_RANGE_HTTP && status < 500 && status != 408
+                                       && status != 429))
+            return 0;
+        for (wait = 0; attempt < 3 && wait < (attempt == 1 ? 20 : 80); wait++) {
+            int stop;
+            SDL_LockMutex(u->lock);
+            stop = u->cancel;
+            SDL_UnlockMutex(u->lock);
+            if (stop) {
+                snprintf(err, (size_t)errlen, "cancelled");
+                return 0;
+            }
+            SDL_Delay(100);
+        }
+    }
+    if (rc != LN_RANGE_OK)
+        return 0;
+    remove(zip);
+    if (rename(part, zip) != 0) {
+        snprintf(err, (size_t)errlen, "could not put the download in place");
+        return 0;
+    }
+    lu_part_forget(u); /* the part is the zip now; only its tag is left */
+    return 1;
+}
+
 static int lu_do_apply(LU_State *u, char *err, int errlen)
 {
     char url[1400], zip[1300], hex[80];
@@ -651,23 +883,31 @@ static int lu_do_apply(LU_State *u, char *err, int errlen)
         break;
     case 0:
         snprintf(err, (size_t)errlen,
-                 "another OpenCNC 3D launcher is using this game folder. Close it and press "
+                 "another OpenCNC3D launcher is using this game folder. Close it and press "
                  "Update again.");
         return 0;
     case -2: {
         /* lz_is_install refused the folder: its record is missing, or what holds the
-         * record's name is not a plain file. Asked only to say which. */
+         * record's name is not a plain file. Asked only to say which. A fresh install
+         * is refused only a folder that is a link or not a folder at all. */
         char rec[1300];
         struct stat st;
-        snprintf(rec, sizeof rec, "%s/cnc3d-install.txt", u->dir);
+        if (u->fresh) {
+            snprintf(err, (size_t)errlen,
+                     "%.300s is not a folder the game can be installed into (it is missing, a "
+                     "file, or a link to somewhere else)",
+                     u->dir);
+            return 0;
+        }
+        snprintf(rec, sizeof rec, "%s/opencnc3d-install.txt", u->dir);
         if (stat(rec, &st) == 0)
             snprintf(err, (size_t)errlen,
-                     "cnc3d-install.txt in this folder is not a plain file (it is a link or a "
+                     "opencnc3d-install.txt in this folder is not a plain file (it is a link or a "
                      "folder), so the folder is not updated. Download the game again to get a "
                      "folder that can be.");
         else
             snprintf(err, (size_t)errlen,
-                     "this folder has no cnc3d-install.txt, so it is not updated. Download the "
+                     "this folder has no opencnc3d-install.txt, so it is not updated. Download the "
                      "game again to get a folder that can be.");
         return 0;
     }
@@ -682,7 +922,7 @@ static int lu_do_apply(LU_State *u, char *err, int errlen)
     /* The small update when the data provably matches, the whole package when it
      * does not or when the release published nothing to check it against. */
     SDL_LockMutex(u->lock);
-    small = u->bins.id > 0 && u->latest_data[0] && u->installed_data[0]
+    small = !u->fresh && u->bins.id > 0 && u->latest_data[0] && u->installed_data[0]
             && !strcmp(u->latest_data, u->installed_data);
     a = small ? &u->bins : &u->full;
     SDL_UnlockMutex(u->lock);
@@ -691,18 +931,24 @@ static int lu_do_apply(LU_State *u, char *err, int errlen)
              (a->size + 524288) / 1048576);
     SDL_LockMutex(u->lock);
     u->progress = 0;
+    u->dl_done = 0;
+    u->dl_total = a->size;
     SDL_UnlockMutex(u->lock);
     lu_set(u, LU_DOWNLOADING, msg);
 
     /* Into the locked install, and onto names removed first, so the download is
      * never written through whatever a link on either name points at. */
-    snprintf(zip, sizeof zip, "%s/cnc3d-update.zip.part", u->lk.dir);
+    snprintf(zip, sizeof zip, "%s/opencnc3d-update.zip.part", u->lk.dir);
     remove(zip);
-    snprintf(zip, sizeof zip, "%s/cnc3d-update.zip", u->lk.dir);
+    snprintf(zip, sizeof zip, "%s/opencnc3d-update.zip", u->lk.dir);
     remove(zip);
-    if (!ln_get_file(lu_asset_url(a->id, url, sizeof url), LCFG_KEY, zip, lu_dl_progress,
-                     u, err, errlen))
+    if (u->fresh && a->size > 0) {
+        if (!lu_fetch_resumable(u, a, zip, err, errlen))
+            return 0;
+    } else if (!ln_get_file(lu_asset_url(a->id, url, sizeof url), LCFG_KEY, zip, lu_dl_progress,
+                            u, err, errlen)) {
         return 0;
+    }
 
     lu_set(u, LU_APPLYING, "Checking the download...");
     SDL_LockMutex(u->lock);
@@ -730,13 +976,9 @@ static int lu_do_apply(LU_State *u, char *err, int errlen)
          * failure, and it catches nothing subtle. Better than nothing and worse
          * than a hash; the release only has to carry one small file to make it a
          * hash. See the header. */
-        FILE *f = fopen(zip, "rb");
-        long long got = -1;
-        if (f) {
-            fseek(f, 0, SEEK_END);
-            got = (long long)ftell(f);
-            fclose(f);
-        }
+        /* 64-bit on every platform: ftell on the 32-bit Windows build stops at 2 GiB,
+         * which a full package can now pass. */
+        long long got = ln_file_size(zip);
         if (got != a->size) {
             snprintf(err, (size_t)errlen,
                      "the download stopped early (%lld of %lld bytes). Try again.", got,
@@ -747,7 +989,7 @@ static int lu_do_apply(LU_State *u, char *err, int errlen)
     }
 
     /* THE WRAPPER FOLDER IS READ OFF THE ARCHIVE, not assumed per kind. The full
-     * packages wrap everything in CNC3D-<platform>-vX.Y.Z/ on both platforms; the
+     * packages wrap everything in OpenCNC3D-<platform>-vX.Y.Z/ on both platforms; the
      * binary-only zip is flat on macOS and wrapped on Windows. Assuming "the bins
      * zip is flat" unpacks a wrapped one into a subfolder named after the zip,
      * leaves the install's own binaries untouched, and reports success. */
@@ -773,7 +1015,7 @@ static int lu_do_apply(LU_State *u, char *err, int errlen)
             k++;
         }
         SDL_UnlockMutex(u->lock);
-        extra[k].name = "cnc3d-install.txt";
+        extra[k].name = "opencnc3d-install.txt";
         extra[k].bytes = record;
         extra[k].len = strlen(record);
         k++;
@@ -788,6 +1030,7 @@ static int lu_do_apply(LU_State *u, char *err, int errlen)
     SDL_LockMutex(u->lock);
     snprintf(u->installed, sizeof u->installed, "%s", u->latest);
     SDL_UnlockMutex(u->lock);
+    lu_part_forget(u);
     return 1;
 }
 
@@ -843,7 +1086,7 @@ static void lu_start(LU_State *u, LU_Phase phase, const char *status)
         u->worker = NULL;
     }
     lu_set(u, phase, status);
-    u->worker = SDL_CreateThread(lu_thread, "cnc3d-update", u);
+    u->worker = SDL_CreateThread(lu_thread, "opencnc3d-update", u);
     if (!u->worker)
         lu_set(u, LU_FAILED, "could not start the update worker");
 }
@@ -852,7 +1095,7 @@ void lu_check(LU_State *u)
 {
     if (!u)
         return;
-    lu_start(u, LU_CHECKING, "Checking cnc3dgame.com for a newer build...");
+    lu_start(u, LU_CHECKING, "Checking opencnc3d.com for a newer build...");
 }
 
 void lu_apply(LU_State *u)
@@ -894,6 +1137,37 @@ LU_State *lu_create(const char *dir, const char *version)
     return u;
 }
 
+void lu_want(LU_State *u, const char *version)
+{
+    if (!u)
+        return;
+    SDL_LockMutex(u->lock);
+    snprintf(u->want, sizeof u->want, "%s",
+             version ? (version[0] == 'v' ? version + 1 : version) : "");
+    SDL_UnlockMutex(u->lock);
+}
+
+LU_State *lu_create_fresh(const char *dir)
+{
+    LU_State *u = (LU_State *)calloc(1, sizeof *u);
+    if (!u)
+        return NULL;
+    u->lock = SDL_CreateMutex();
+    u->progress = -1;
+    u->dl_total = -1;
+    u->fresh = 1;
+    u->full.id = u->bins.id = u->manifest.id = -1;
+    snprintf(u->dir, sizeof u->dir, "%s", dir ? dir : ".");
+    snprintf(u->installed, sizeof u->installed, "?");
+    /* The lock first, as lu_create does, and then what the folder says it holds: a
+     * folder reinstalled over may hold the newest build already. */
+    lu_own_install(u);
+    lu_read_install(u);
+    u->phase = LU_IDLE;
+    snprintf(u->status, sizeof u->status, " ");
+    return u;
+}
+
 void lu_set_installed(LU_State *u, const char *version)
 {
     if (!u)
@@ -917,4 +1191,85 @@ void lu_destroy(LU_State *u)
     free(u->notes);
     SDL_DestroyMutex(u->lock);
     free(u);
+}
+
+long long lu_package_size(LU_State *u)
+{
+    long long n;
+    if (!u)
+        return -1;
+    SDL_LockMutex(u->lock);
+    n = u->full.id > 0 ? u->full.size : -1;
+    SDL_UnlockMutex(u->lock);
+    return n;
+}
+
+/* ------------------------------------------------------------------------ *
+ * The menu art alone: see lupdate.h.
+ *
+ * Through the same pieces as an install: the site's build list, the binary-only
+ * package's own checksum or length, and an extractor that writes one name through a
+ * part file and renames it in only once it is whole. The folder is locked the way a
+ * first install locks it, and only the one name that was empty changes in it.
+ * ------------------------------------------------------------------------ */
+
+int lu_fetch_pack(const char *dir, int (*cb)(void *user, long long done, long long total),
+                  void *user, int *unreachable, char *err, int errlen)
+{
+    char path[1300], url[1400], hex[80];
+    LU_State *u;
+    LU_Asset a;
+    int ok;
+
+    if (unreachable)
+        *unreachable = 0;
+    snprintf(path, sizeof path, "%s/dosmenu.pack", dir ? dir : ".");
+    if (ln_file_size(path) > 0)
+        return 1;
+    u = lu_create_fresh(dir);
+    if (!u) {
+        snprintf(err, (size_t)errlen, "out of memory");
+        return 0;
+    }
+    if (!u->locked) {
+        snprintf(err, (size_t)errlen,
+                 "the game folder could not be locked; another OpenCNC3D launcher may be using it");
+        lu_destroy(u);
+        return 0;
+    }
+    if (!lu_do_check(u, err, errlen)) {
+        if (unreachable)
+            *unreachable = lu_unreachable(u);
+        lu_destroy(u);
+        return 0;
+    }
+    SDL_LockMutex(u->lock);
+    a = u->bins;
+    SDL_UnlockMutex(u->lock);
+    if (a.id <= 0) {
+        snprintf(err, (size_t)errlen,
+                 "the newest build on the site has no small " LU_PLATFORM
+                 " package to take the menu art from");
+        lu_destroy(u);
+        return 0;
+    }
+
+    snprintf(path, sizeof path, "%s/opencnc3d-update.zip", u->lk.dir);
+    remove(path);
+    ok = ln_get_file(lu_asset_url(a.id, url, sizeof url), LCFG_KEY, path, cb, user, err, errlen);
+    if (ok && a.sha[0]) {
+        ok = lz_sha256_file(path, hex, err, errlen);
+        if (ok && strcmp(hex, a.sha) != 0) {
+            snprintf(err, (size_t)errlen, "the menu art did not arrive intact. Try again.");
+            ok = 0;
+        }
+    } else if (ok && a.size > 0 && ln_file_size(path) != a.size) {
+        snprintf(err, (size_t)errlen, "the menu art's download stopped early. Try again.");
+        ok = 0;
+    }
+    if (ok)
+        ok = lz_extract_one(&u->lk, path, lz_wrapped(path), "dosmenu.pack", err, errlen);
+    remove(path);
+    lu_destroy(u);
+    return ok;
 }

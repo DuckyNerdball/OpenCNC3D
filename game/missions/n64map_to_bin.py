@@ -32,13 +32,13 @@ import sys, os, struct, math
 # moment that directory was cleaned up -- taking the first step of the new-mission
 # pipeline with it.
 #
-# Resolution order: $CNC3D_EXTRACTED, then the repo's own extracted tree, then the
+# Resolution order: $OPENCNC3D_EXTRACTED, then the repo's own extracted tree, then the
 # bakery's local copy. If none of them exists, say so and exit rather than failing later
 # with a confusing FileNotFoundError on a tile bank.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.normpath(os.path.join(_HERE, "..", ".."))
 _CANDIDATES = [
-    os.environ.get("CNC3D_EXTRACTED"),
+    os.environ.get("OPENCNC3D_EXTRACTED"),
     os.path.join(_REPO, "data", "extracted"),
     os.path.join(_REPO, "tools", "bakery", "sharecopy", "assets", "extracted"),
 ]
@@ -48,7 +48,7 @@ if EXTRACTED is None:
         "n64map_to_bin: cannot find the ROM's extracted files. Tried:\n  "
         + "\n  ".join(str(c) for c in _CANDIDATES)
         + "\nRun: python3 tools/romdump/archive.py data/rom/cnc_eu.z64 extract "
-          "data/extracted\nor set CNC3D_EXTRACTED to an existing extract.")
+          "data/extracted\nor set OPENCNC3D_EXTRACTED to an existing extract.")
 BANK8_BASE = 1024
 
 def theater_root(ini_path):

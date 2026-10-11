@@ -10,7 +10,7 @@
  * The vanilla `CNC_Get_Game_State(GAME_STATE_LAYERS)` call returns FALSE with a count of
  * zero for a single player custom instance. That is not a Windows 98 fault: the identical
  * host built natively on macOS does exactly the same thing, measured before it was
- * blamed. The renderer therefore uses `CNC3D_Dump_Objects`, an export our own
+ * blamed. The renderer therefore uses `OpenCNC3D_Dump_Objects`, an export our own
  * brain/patches add, which walks the engine's real Infantry/Units/Buildings/Terrains
  * heaps directly and does not go through the Draw_It intercept, so it works with no art
  * loaded at all. It reports by PRINTING to stdout, one "OBJ|" line per object, so this
@@ -109,7 +109,7 @@ int wb_objects(W98_Object *out, int max);
  * top left corner at TacticalCoord. Our camera has nothing whatever to do with that
  * space, so a mouse pixel is NEVER handed straight through. tier1 picks a CELL with its
  * own inverse camera and the brain converts that cell into engine input pixels through
- * CNC3D_Cell_To_Pixel, which round-trips its own answer through Pixel_To_Coord so it
+ * OpenCNC3D_Cell_To_Pixel, which round-trips its own answer through Pixel_To_Coord so it
  * cannot lie about a rejected click. This mirrors game/cnc_eyes.cpp:6566-6578.
  *
  * Orders queue as engine events and land on the NEXT tick, never inside the call.
@@ -229,7 +229,7 @@ int wb_shroud(unsigned char *out4096);
  * Tiberium, walls, bullets and animations are not techno objects and live in none of the
  * heaps the object dump walks, so the engine reports them on their own lines. They are
  * parsed out of the SAME capture wb_objects already takes, so asking for them costs
- * nothing: a second CNC3D_Dump_Objects would be another full walk of the map.
+ * nothing: a second OpenCNC3D_Dump_Objects would be another full walk of the map.
  * ----------------------------------------------------------------------------------- */
 #define WB_MAX_TIB     2048
 #define WB_MAX_WALLS    512

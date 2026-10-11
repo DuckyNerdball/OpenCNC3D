@@ -377,9 +377,9 @@ def read_tlut(rom, off, n=256):
 
 
 def load_rom(p=None):
-    # The cartridge is not in the repo. CNC3D_ROM names it; otherwise data/rom/.
+    # The cartridge is not in the repo. OPENCNC3D_ROM names it; otherwise data/rom/.
     if p is None:
-        _root = os.environ.get("CNC3D_ROOT") or os.path.abspath(
+        _root = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
-        p = os.environ.get("CNC3D_ROM") or os.path.join(_root, "data", "rom", "cnc_eu.z64")
+        p = os.environ.get("OPENCNC3D_ROM") or os.path.join(_root, "data", "rom", "cnc_eu.z64")
     return open(p, "rb").read()

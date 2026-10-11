@@ -1,5 +1,6 @@
 tick 5
 lclickobj MCV:@me
+group 1 2
 actclickobj MCV:@me
 tick 6000
 objdump

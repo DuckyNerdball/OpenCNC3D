@@ -60,7 +60,7 @@ int main(void)
     const NbGame* g;
     int n;
 
-    printf("OpenCNC 3D LAN beacon gate\n\n");
+    printf("OpenCNC3D LAN beacon gate\n\n");
 
     if (!nb_browse_open()) {
         printf("FAILED: could not open the discovery port %d. Something else is on it,\n"
@@ -115,6 +115,13 @@ int main(void)
     check(n == 2, "a game on a different port is a different row");
 
     /* ---- leg 4: silence removes a row, which is the whole liveness story ---- */
+    /* Read what is already queued first. settle() stops as soon as it has the rows it
+       wants, and on a machine with two networks every announcement arrives twice, so the
+       second copies would still be waiting and would read as fresh after the nap. Twice,
+       half a second apart, so a copy still in flight is read too. */
+    nb_browse_poll();
+    gb_nap(500);
+    nb_browse_poll();
     printf("  waiting %d ms for the rows to go stale...\n", NB_STALE_MS + 500);
     gb_nap(NB_STALE_MS + 500);
     nb_browse_poll();

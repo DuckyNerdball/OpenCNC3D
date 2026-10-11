@@ -7,7 +7,7 @@ _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # hardcoded ./ is right on exactly one machine and silently wrong everywhere else,
 # including a second checkout on this one.
 
-ROM_PATH = os.environ.get("CNC3D_ROM", os.path.join(_REPO, "data", "rom", "cnc_eu.z64"))
+ROM_PATH = os.environ.get("OPENCNC3D_ROM", os.path.join(_REPO, "data", "rom", "cnc_eu.z64"))
 ROM = open(ROM_PATH, "rb").read()
 
 # resident boot segment: IPL3 copies ROM[0x1000..] -> RAM[0x80000400..]

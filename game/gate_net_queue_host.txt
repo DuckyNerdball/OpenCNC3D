@@ -1,0 +1,41 @@
+tick 2
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 250
+build NUKE
+tick 300
+startplace NUKE
+place auto
+tick 30
+build PYLE
+tick 300
+startplace PYLE
+place auto
+tick 60
+queue E1 5
+tick 1200
+queuedump
+count E1:@me
+lclickobj E1:@me
+order 3 15 c
+tick 4
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 60
+objdump
+quit

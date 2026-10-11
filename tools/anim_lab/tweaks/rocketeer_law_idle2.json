@@ -1,0 +1,82 @@
+{
+ "speed": 0.9,
+ "bones": {
+  "Spine": {
+   "rot": [
+    0,
+    6,
+    0
+   ]
+  },
+  "Head": {
+   "sway": [
+    {
+     "axis": "y",
+     "deg": 12,
+     "cycles": 1,
+     "phase": 0.5
+    }
+   ]
+  }
+ },
+ "toward": [
+  {
+   "clip": "Anim_RocketSoldier_Aim",
+   "amount": 1.0,
+   "bones": [
+    "LeftArm",
+    "LeftForeArm",
+    "LeftHand",
+    "RightArm",
+    "RightForeArm",
+    "RightHand",
+    "Weapon"
+   ]
+  }
+ ],
+ "carry": {
+  "pitch": 7.4,
+  "yaw": 19.04,
+  "pivot": "RightArm"
+ },
+ "legs": {
+  "stagger": 50
+ },
+ "grip": {
+  "right": {
+   "at": [
+    -6,
+    -4.1,
+    -5
+   ],
+   "elbow": [
+    0.3,
+    0.3,
+    -1
+   ],
+   "straight": true
+  },
+  "left": {
+   "at": [
+    12,
+    -12,
+    -6.8
+   ],
+   "fingers": [
+    1,
+    0.25,
+    0.1
+   ],
+   "palm": [
+    0,
+    0.1,
+    1
+   ],
+   "elbow": [
+    0,
+    -0.5,
+    -1
+   ]
+  }
+ }
+}

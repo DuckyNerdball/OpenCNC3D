@@ -253,12 +253,12 @@ extern "C" {
  * ------------------------------------------------------------------------ */
 
 #define DOPT_SND_W 292 /* Option_Width                            sounddlg.cpp:61 */
-#define DOPT_SND_H 146 /* Option_Height                           sounddlg.cpp:62 */
+#define DOPT_SND_H 158 /* Option_Height                           sounddlg.cpp:62 */
 #define DOPT_SND_X ((DOPT_SCREEN_W - DOPT_SND_W) / 2)  /*          sounddlg.cpp:64 */
 #define DOPT_SND_Y ((DOPT_SCREEN_H - DOPT_SND_H) / 2)  /*          sounddlg.cpp:65 */
 
 #define DOPT_SND_LIST_X (DOPT_SND_X + 1)   /* Listbox_X            sounddlg.cpp:67 */
-#define DOPT_SND_LIST_Y (DOPT_SND_Y + 54)  /* Listbox_Y            sounddlg.cpp:68 */
+#define DOPT_SND_LIST_Y (DOPT_SND_Y + 66)  /* Listbox_Y            sounddlg.cpp:68 */
 #define DOPT_SND_LIST_W 290                /* Listbox_W            sounddlg.cpp:69 */
 #define DOPT_SND_LIST_H 73                 /* Listbox_H            sounddlg.cpp:70 */
 #define DOPT_SND_ROW_H 8                   /* 6 point text plus a line of air        */
@@ -271,24 +271,25 @@ extern "C" {
 
 #define DOPT_SND_BTN_W 85                              /* Button_Width sounddlg.cpp:72 */
 #define DOPT_SND_BTN_X (DOPT_SND_X + DOPT_SND_W - (DOPT_SND_BTN_W + 7)) /*        :73 */
-#define DOPT_SND_BTN_Y (DOPT_SND_Y + 130)              /* Button_Y     sounddlg.cpp:74 */
+#define DOPT_SND_BTN_Y (DOPT_SND_Y + 142)              /* Button_Y     sounddlg.cpp:74 */
 #define DOPT_SND_BTN_H 9
 
 #define DOPT_SND_STOP_X (DOPT_SND_X + 5)   /* Stop_X               sounddlg.cpp:76 */
-#define DOPT_SND_STOP_Y (DOPT_SND_Y + 129) /* Stop_Y               sounddlg.cpp:77 */
+#define DOPT_SND_STOP_Y (DOPT_SND_Y + 141) /* Stop_Y               sounddlg.cpp:77 */
 #define DOPT_SND_PLAY_X (DOPT_SND_X + 23)  /* Play_X               sounddlg.cpp:79 */
-#define DOPT_SND_PLAY_Y (DOPT_SND_Y + 129) /* Play_Y               sounddlg.cpp:80 */
+#define DOPT_SND_PLAY_Y (DOPT_SND_Y + 141) /* Play_Y               sounddlg.cpp:80 */
 #define DOPT_SND_GLYPH_W 16                /* the shape buttons' own width, ours    */
 
 #define DOPT_SND_ONOFF_W 25                    /* OnOff_Width      sounddlg.cpp:82 */
 #define DOPT_SND_SHUFFLE_X (DOPT_SND_X + 91)   /* Shuffle_X        sounddlg.cpp:88 */
-#define DOPT_SND_SHUFFLE_Y (DOPT_SND_Y + 130)  /* Shuffle_Y        sounddlg.cpp:90 */
+#define DOPT_SND_SHUFFLE_Y (DOPT_SND_Y + 142)  /* Shuffle_Y        sounddlg.cpp:90 */
 #define DOPT_SND_REPEAT_X (DOPT_SND_X + 166)   /* Repeat_X         sounddlg.cpp:92 */
-#define DOPT_SND_REPEAT_Y (DOPT_SND_Y + 130)   /* Repeat_Y         sounddlg.cpp:93 */
+#define DOPT_SND_REPEAT_Y (DOPT_SND_Y + 142)   /* Repeat_Y         sounddlg.cpp:93 */
 
 #define DOPT_SND_MVOL_X (DOPT_SND_X + 147)  /* MSlider_X           sounddlg.cpp:95 */
 #define DOPT_SND_MVOL_Y (DOPT_SND_Y + 28)   /* MSlider_Y           sounddlg.cpp:96 */
 #define DOPT_SND_FXVOL_Y (DOPT_SND_Y + 40)  /* FXSlider_Y          sounddlg.cpp:101 */
+#define DOPT_SND_AMBVOL_Y (DOPT_SND_Y + 52)
 #define DOPT_SND_VOL_W 108                  /* MSlider_W           sounddlg.cpp:97 */
 #define DOPT_SND_VOL_H 5                    /* MSlider_Height      sounddlg.cpp:98 */
 
@@ -298,6 +299,7 @@ typedef enum
 {
     DOPT_S_MUSIC = 0,
     DOPT_S_SOUND,
+    DOPT_S_AMBIENCE,
     DOPT_S_LIST,      /* the whole listbox; the row is worked out from the y        */
     DOPT_S_STOP,
     DOPT_S_PLAY,
@@ -735,42 +737,61 @@ typedef struct
  * tuned, and this is where a player turns a thing off. Mixing the two would make the
  * pause menu a second tuning surface that could disagree with the first.
  * ------------------------------------------------------------------------ */
+/* THE VISUALS PAGE: the three graphics modes, a radio triple wearing the dialog's own
+   button look, then the way into Advanced, then OK. The three are in FX_MODE_* order, so
+   `item - DOPT_V_CLASSIC` is the mode. */
 typedef enum
 {
-    DOPT_V_CLASSIC = 0, /* mutually exclusive with ENHANCED  */
+    DOPT_V_CLASSIC = 0, /* the three are mutually exclusive; one is always chosen */
+    DOPT_V_N64,
     DOPT_V_ENHANCED,
-    DOPT_V_ADVANCED,    /* disabled while CLASSIC is chosen  */
+    DOPT_V_ADVANCED,    /* every mode has settings of its own, so never disabled */
     DOPT_V_OK,
     DOPT_V_COUNT
 } DOPT_Vis;
 
-/* One per major element of the chain. The order is the order they run in. */
+/* The graphics modes, the same numbers as FxState's FX_MODE_*. */
+enum { DOPT_MODE_CLASSIC = 0, DOPT_MODE_N64 = 1, DOPT_MODE_ENHANCED = 2, DOPT_MODE_COUNT = 3 };
+
+/* Every row of the Advanced page. The page has two halves and so does this list:
+ *
+ *   GLOBAL   the first DOPT_VE_GLOBAL_COUNT, which belong to the machine and not to a
+ *            mode: how the window is shown, its size, vertical sync and the FPS counter.
+ *            They sit at the top of the page, always visible, and changing the graphics
+ *            mode does not touch them.
+ *   PER MODE everything after, which each graphics mode keeps a set of its own
+ *            (DOPT_Profile). The page shows ONE mode's set at a time, chosen with the three
+ *            tabs, in a scrolling well; which rows a mode has at all is dopt_vis_in_mode's
+ *            answer, and their order in the well is that function's list, not this enum.
+ *
+ * An Advanced page ITEM is one of these rows by the same number, so a row's item index,
+ * its ADVRECT line and its label never disagree; the tabs, Reset, OK and the scroll bar
+ * follow at DOPT_A_TAB0 onwards. */
 typedef enum
 {
-    /* FIRST, and not because it runs first -- it is not a post pass at all. It is the one
-       element here that changes how the GAME reads rather than how the picture is graded,
-       so it goes where the eye lands. It is a button under ENHANCED called Smooth
-       Animations, on by default; with it off the original non-interpolated animations
-       are used. */
-    /* THE DISPLAY ROWS, AT THE TOP (5 Sep 2026, by request, in this order). The first
-       three are a radio triple over DOPT_Visuals::dispmode -- one lit at a time; the
-       Resolution row is a drop list over ::residx, greyed under Windowed Borderless
-       because the desktop decides; Reset puts every Advanced row back to fx_defaults;
-       UI scaling is a drop list over ::uiscale, Enhanced only. None of them is a boolean
-       in elem[], for the reason texset is not. */
+    /* THE DISPLAY ROWS. The first three are a radio triple over DOPT_Visuals::dispmode --
+       one lit at a time; the Resolution row is a drop list over ::residx, greyed under
+       Borderless because the desktop decides. Vertical sync and the FPS counter are
+       ::vsync and ::fps. None of them is in a profile. */
     DOPT_VE_FULLSCREEN = 0,
     DOPT_VE_WINDOWED,
     DOPT_VE_BORDERLESS,
     DOPT_VE_RESOLUTION,
-    DOPT_VE_RESET,
-    DOPT_VE_UISCALE,
+    DOPT_VE_VSYNC,
+    DOPT_VE_FPS,
+    DOPT_VE_GLOBAL_COUNT,
+    /* UI SCALING, the first per-mode row: a drop list over DOPT_Profile::uiscale, and the
+       new HUD's only (the DOS bar keeps its own zoom). */
+    DOPT_VE_UISCALE = DOPT_VE_GLOBAL_COUNT,
     /* PERSPECTIVE (v0.6.8): a two-way drop list, Classic / Isometric. The value lives
-       in DOPT_Visuals::perspective, like the other drop rows; see FxState::perspective. */
+       in DOPT_Profile::perspective, like the other drop rows; see FxState::perspective. */
     DOPT_VE_PERSPECTIVE,
+    /* SMOOTH ANIMATIONS: the sub-tick interpolation. With it off the original
+       non-interpolated animations are used. */
     DOPT_VE_SMOOTH,
     /* A button called New HUD, enabled by default under ENHANCED mode; Classic mode
        keeps the old DOS HUD. Like the two above it this is not a post pass; it selects which sidebar the
-       game draws. It was previously reachable only through the CNC3D_HUD=new environment
+       game draws. It was previously reachable only through the OPENCNC3D_HUD=new environment
        variable, which is a developer's switch and not a player's. */
     DOPT_VE_NEWHUD,
     DOPT_VE_BILINEAR,
@@ -782,14 +803,15 @@ typedef enum
     DOPT_VE_WATER,
     /* 3D TREES: the rigged tree models in place of the cartridge's, beside the sea and
        for the same reason, a presentation row that changes what is DRAWN. On by default
-       under ENHANCED; CLASSIC draws the cartridge's trees whatever the tick says, and the
-       tick stands so choosing ENHANCED again gives them back. FxState::tree3d.
+       under ENHANCED; CLASSIC has no such row, because the chain that draws them is off
+       there. FxState::tree3d.
 
-       GRASS AND RAIN HAVE NO ROW HERE, deliberately. Both ship off under ENHANCED as
-       well as CLASSIC and are reachable only through the tuning panel until their look
-       is settled, which means a release build, whose panel is compiled out, cannot turn
-       either of them on. That is the intended state, not an oversight. */
+       RAIN HAS NO ROW HERE, deliberately: it ships off in every mode and is reachable
+       only through the tuning panel until its look is settled. The GRASS has a row, but
+       only under ENHANCED, which is the one mode it is drawn in. */
     DOPT_VE_TREES,
+    /* 3D TIBERIUM: the solid crystals in place of the flat overlay. FxState::tib3d. */
+    DOPT_VE_TIB3D,
     /* WHICH TERRAIN TILE ART DRAWS, and the one row on this page that is not a
        checkbox: it is a three-way drop list. Sits with the other presentation rows
        rather than in the post chain, because like the HUD and the filter it changes
@@ -809,16 +831,30 @@ typedef enum
     DOPT_VE_BLOOM,
     DOPT_VE_GRADE,
     DOPT_VE_CRT,
+    /* THE ENHANCED ROWS: the new art, each drawn only in that mode, so the other two
+       tabs do not list them. Each is the FxState switch of the same name. */
+    DOPT_VE_NEWAUDIO,   /* new_audio: the replacement sound effects                 */
+    DOPT_VE_GRASS,      /* grass: the real grass                                    */
+    DOPT_VE_FOLIAGE,    /* fol_on: bushes and grass clumps                          */
+    DOPT_VE_ROCKS,      /* rock_on: the rocks by the rock faces                     */
+    DOPT_VE_SOLDIERS,   /* m3inf_on: the 3D soldiers                                */
+    DOPT_VE_MODELS,     /* m3_on: the new 3D vehicle and building models            */
+    DOPT_VE_UVFX,       /* uvfx_on: the new explosions                              */
+    DOPT_VE_PATCHES,    /* mottle_on: the ground patches                            */
+    DOPT_VE_RELIEF,     /* experimental_relief: the terrain displacement            */
+    DOPT_VE_POINTER,    /* curgreen_on: the green pointer                           */
     DOPT_VE_COUNT
 } DOPT_VisElem;
 
-#define DOPT_A_OK DOPT_VE_COUNT          /* the OK button follows the checkboxes */
-/* The scroll bar is the LAST item on the page, after OK, and that ordering is
-   load-bearing: every index below DOPT_A_OK is still an element row, so dopt_activate's
-   `item < DOPT_VE_COUNT` toggle test and dopt_draw_advanced's row loop both keep working
-   without learning that the bar exists. */
-#define DOPT_A_BAR (DOPT_VE_COUNT + 1)
-#define DOPT_A_COUNT (DOPT_VE_COUNT + 2)
+/* THE ADVANCED PAGE'S OTHER ITEMS, after every row, so `item < DOPT_VE_COUNT` is always
+   "a row". The three tabs pick which mode's rows the well shows; they are in DOPT_MODE_*
+   order, so `item - DOPT_A_TAB0` is the mode. Reset puts that mode's rows back to how
+   they shipped. The scroll bar is last and is not a stop on the keyboard walk. */
+#define DOPT_A_TAB0 DOPT_VE_COUNT
+#define DOPT_A_RESET (DOPT_VE_COUNT + DOPT_MODE_COUNT)
+#define DOPT_A_OK (DOPT_A_RESET + 1)
+#define DOPT_A_BAR (DOPT_A_OK + 1)
+#define DOPT_A_COUNT (DOPT_A_BAR + 1)
 
 /* THE RESOLUTION LIST'S TWO SIZES. DOPT_RES_MAX is how many sizes it HOLDS: every size
    the display offers, up to this many, the desktop's own first. DOPT_RES_VIEW is how
@@ -830,49 +866,69 @@ typedef enum
    that actually fit off the end. */
 enum { DOPT_RES_MAX = 32, DOPT_RES_VIEW = 7 };
 
+/* ONE GRAPHICS MODE'S OWN SETTINGS: the per-mode rows of the Advanced page. */
 typedef struct
 {
-    int enhanced;                 /* 0 = CLASSIC, 1 = ENHANCED              */
-    int elem[DOPT_VE_COUNT];      /* per element, meaningful only when on   */
+    int elem[DOPT_VE_COUNT];      /* the checkbox rows; the global and drop rows unused */
     /* DOPT_VE_TEXSET's value: one of DOPT_TEX_*. It is here rather than in elem[]
        because elem[] is a boolean array and this row is a three-way choice. */
     int texset;
     /* DOPT_VE_INFSET's value: one of DOPT_TEX_*, the same numbering. */
     int infset;
-    /* THE DISPLAY ROWS' VALUES. dispmode is one of DOPT_DISP_*; uiscale is
-       0..3 for 1x, -2x, -3x, -4x; res_w/res_h[] is the list the host enumerated from the
-       display, nres of them, and residx the chosen one. Entry 0 is the desktop's own
-       size and prints as "Desktop"; the rest follow largest first. res_fit[] is the
-       host's word on whether a bordered window of that size fits the desktop's usable
-       room: an entry that does not is greyed and refused under WINDOWED, with a tip
-       that says why, and pickable under FULLSCREEN, where it is a real mode. */
-    int dispmode;
-    int uiscale;
+    int uiscale;                  /* 0..DOPT_UI_COUNT-1: 1x, -2x                 */
     int perspective;              /* 0 Classic, 1 Isometric (v0.6.8)             */
+} DOPT_Profile;
+
+typedef struct
+{
+    int mode;                     /* DOPT_MODE_*: the graphics mode in use       */
+    /* Every mode's settings, the one in use included. The Advanced page edits whichever
+       its tabs point at; the host applies prof[mode] to the picture and keeps the other
+       two for when their mode is chosen. */
+    DOPT_Profile prof[DOPT_MODE_COUNT];
+    /* THE GLOBAL ROWS' VALUES. dispmode is one of DOPT_DISP_*; res_w/res_h[] is the list
+       the host enumerated from the display, nres of them, and residx the chosen one.
+       Entry 0 is the desktop's own size and prints as "Desktop"; the rest follow largest
+       first. res_fit[] is the host's word on whether a bordered window of that size fits
+       the desktop's usable room: an entry that does not is greyed and refused under
+       WINDOWED, with a tip that says why, and pickable under FULLSCREEN, where it is a
+       real mode. vsync is FxState::vsync's own 0 off / 1 on / 2 adaptive, so a tick
+       that is left alone keeps an adaptive setting; fps is the counter. */
+    int dispmode;
+    int vsync;
+    int fps;
     int nres, residx;
     int res_w[DOPT_RES_MAX], res_h[DOPT_RES_MAX], res_fit[DOPT_RES_MAX];
-    /* Whether the Remastered entry can be chosen at all -- the host sets this from
-       whether it found an install. A false here greys the entry and gives it the
-       tooltip; it never hides it, because 1995 draws a disabled gadget rather than
-       removing it (gadget.cpp:632) and a player has to be able to see the option
-       exists before they understand what would unlock it. */
-    int remaster_ok;
     /* Whether the DOS entry can be chosen -- the host sets this from whether THIS MAP'S
        pack actually carries a second terrain atlas. Two theaters (SNOW, SAND) have no
        1995 original at all, and a pack baked before the DOS art existed carries none
        either; in both cases picking DOS silently drew the cartridge and the control
-       looked broken. Same rule as remaster_ok: greyed with a reason, never hidden. */
+       looked broken. A false here greys the entry and gives it the tooltip; it never
+       hides it, because 1995 draws a disabled gadget rather than removing it
+       (gadget.cpp:632) and a player has to be able to see the option exists before
+       they understand what would unlock it. */
     int dos_tex_ok;
+    /* Whether the Enhanced entry can be chosen: this map's theater has an Enhanced
+       texture pack (or, with no map loaded, any theater does). Greyed with a reason
+       otherwise, and never taken away from a saved choice: the ground falls back to the
+       1995 art on a theater that has none. */
+    int enh_tex_ok;
     /* Set when the MAIN MENU opened this screen directly rather than the pause dialog
        walking to it. OK then closes the whole dialog instead of stepping back to a
        pause menu that is not on screen. */
     int from_menu;
 } DOPT_Visuals;
 
-/* The drop list's entries, in the order they are drawn. Matches FxState's FX_TEX_*
+/* The art rows' VALUES, in the order they are drawn. Matches FxState's FX_TEX_*
    numbering one for one, deliberately: the dialog and the renderer must not need a
-   translation table between them. */
-enum { DOPT_TEX_N64 = 0, DOPT_TEX_DOS = 1, DOPT_TEX_REMASTER = 2, DOPT_TEX_COUNT = 3 };
+   translation table between them, and the numbers are what a saved file holds.
+   DOPT_TEX_REMASTER is withdrawn: the Remastered Collection art is no longer offered, so
+   the value is not listed on either row (dopt_drop_listed) and keeps its number only so
+   that Enhanced stays 3. DOPT_TEX_COUNT is the range of values, not how many are listed. */
+enum { DOPT_TEX_N64 = 0, DOPT_TEX_DOS = 1, DOPT_TEX_REMASTER = 2, DOPT_TEX_ENH = 3,
+       DOPT_TEX_COUNT = 4 };
+/* The infantry row keeps the first two: there are no Enhanced sprites on it. */
+enum { DOPT_INF_COUNT = 2 };
 /* The display modes, the same numbers as fullscreen.h's FS_MODE_*; and the UI scale
    entries. The Resolution list's own two sizes are DOPT_RES_MAX and DOPT_RES_VIEW,
    declared above the struct that holds the list. */
@@ -883,8 +939,8 @@ enum { DOPT_PERSP_COUNT = 2 };                  /* Classic, Isometric (v0.6.8)  
 
 
 /* Geometry: the Game Controls box, reused, because it is already the right size and
-   already centred. The checkbox column steps 10 rows so nine of them plus the caption
-   land clear of the OK button at row 127. */
+   already centred. The Visuals page puts a "Graphics Mode" heading at DOPT_V_TOP, the
+   three mode buttons one step under it, then a gap, then Advanced. */
 #define DOPT_V_X DOPT_GC_X
 #define DOPT_V_Y DOPT_GC_Y
 #define DOPT_V_W DOPT_GC_W
@@ -893,9 +949,59 @@ enum { DOPT_PERSP_COUNT = 2 };                  /* Classic, Isometric (v0.6.8)  
 #define DOPT_V_BTN_H 9
 #define DOPT_V_BTN_X (DOPT_V_X + 30)
 #define DOPT_V_TOP (DOPT_V_Y + DOPT_GC_TOP_MARGIN)
+#define DOPT_V_HEADING "Graphics Mode"
+#define DOPT_V_MODES_TOP (DOPT_V_TOP + 10)   /* the first mode button, under the heading */
 #define DOPT_V_STEP 11
-#define DOPT_V_GAP 8                     /* between ENHANCED and ADVANCED */
+#define DOPT_V_GAP 8                     /* between the last mode and ADVANCED */
+/* The Cheat page's column top. It used to be the Advanced page's too, and the cheat
+   rows are still measured from it. */
 #define DOPT_A_TOP (DOPT_V_Y + DOPT_GC_TOP_MARGIN - 4)
+
+/* ------------------------------------------------------------------------ *
+ * THE ADVANCED PAGE'S OWN BOX, which is not the Game Controls box any more.
+ *
+ * It holds two sections and a tab row: the GLOBAL rows (three display modes on one row,
+ * then Resolution, then Vertical sync and the FPS counter on one row), a heading, the
+ * three GRAPHICS MODE tabs, and under them the chosen mode's rows in a scrolling well,
+ * with Reset and OK as a pair at the bottom. 232 x 141 has room for the well alone, so
+ * the box is 300 x 190: the widest and tallest this 320 x 200 plate takes with the
+ * 10 and 5 pixel margins the jukebox (292 wide) already keeps, and the width is what
+ * lets three display modes share one row with labels that are the words a player uses.
+ *
+ * THE NUMBERS, top down, all at factor 1:
+ *   5    the box's top edge; the caption and its rule take rows 10..18
+ *   27   the "Global" heading
+ *   36   the display triple, three columns of DOPT_AD_COL_W
+ *   45   Resolution, two columns wide
+ *   54   Vertical sync and the FPS counter, a column each
+ *   65   the "Graphics Mode" heading, with the mode in use printed at its right
+ *   74   the three tabs, 9 tall
+ *   88   the well's top row; ten rows at a step of 9 end at 177
+ *   181  Reset and OK, 9 tall, 5 clear of the bottom edge as DOPT_GC_OK_Y is
+ * The well stops 2 rows above the bottom pair (the layout gate's own minimum), and the
+ * tabs stop 5 above the well, which is room for a checkbox's own 1-row label rise.
+ * MEASURED by game/gate_optlayout.c rather than trusted from this paragraph.
+ * ------------------------------------------------------------------------ */
+#define DOPT_AD_W 300
+#define DOPT_AD_H 190
+#define DOPT_AD_X ((DOPT_SCREEN_W - DOPT_AD_W) / 2)
+#define DOPT_AD_Y ((DOPT_SCREEN_H - DOPT_AD_H) / 2)
+#define DOPT_AD_BOX_X (DOPT_AD_X + 16)
+#define DOPT_AD_LABEL_X (DOPT_AD_BOX_X + 7 + 6)   /* DOPT_A_BOX + 6, as the old column */
+#define DOPT_AD_FULL_W (DOPT_AD_W - 32)           /* a global row or the tab row      */
+#define DOPT_AD_COL_W (DOPT_AD_FULL_W / 3)        /* one of the three global columns  */
+#define DOPT_AD_GHEAD_Y (DOPT_AD_Y + 22)          /* "Global"                         */
+#define DOPT_AD_G0_Y (DOPT_AD_GHEAD_Y + 9)        /* the display triple               */
+#define DOPT_AD_G1_Y (DOPT_AD_G0_Y + 9)           /* Resolution                       */
+#define DOPT_AD_G2_Y (DOPT_AD_G1_Y + 9)           /* Vertical sync, FPS counter       */
+#define DOPT_AD_MHEAD_Y (DOPT_AD_G2_Y + 11)       /* "Graphics Mode"                  */
+#define DOPT_AD_TAB_Y (DOPT_AD_MHEAD_Y + 9)
+#define DOPT_AD_TAB_H 9
+#define DOPT_AD_OK_H 9
+#define DOPT_AD_OK_Y (DOPT_AD_Y + DOPT_AD_H - DOPT_AD_OK_H - 5)
+#define DOPT_AD_TOP (DOPT_AD_TAB_Y + DOPT_AD_TAB_H + 5)
+#define DOPT_AD_HEADING_G "Global"
+#define DOPT_AD_HEADING_M "Graphics Mode"
 /* THE COLUMN'S PITCH, AND WHY IT IS BACK AT NINE.
    The column starts at DOPT_A_TOP (55) and the OK button's top edge is at DOPT_GC_OK_Y
    (156). At a step of 10 the ELEVENTH checkbox would sit at y=155 and end at 162,
@@ -945,22 +1051,23 @@ enum { DOPT_PERSP_COUNT = 2 };                  /* Classic, Isometric (v0.6.8)  
  *     dopt_next_item steps over the bar: it is a pointer gadget, not a stop on the walk.
  *
  * THE NUMBERS, all derived.
- *   The well may not come within 2 rows of the OK button, which is the layout gate's own
- *   minimum, so it ends at DOPT_GC_OK_Y - 2 and DOPT_A_VIEW_H is 99. At a step of 9 that
- *   is exactly 11 rows: the well runs 55..153, its last row sits at 145..151, and OK
- *   starts at 156.
+ *   The well may not come within 2 rows of the Reset and OK pair, which is the layout
+ *   gate's own minimum, so it ends at DOPT_AD_OK_Y - 2 and DOPT_A_VIEW_H is 91. At a step
+ *   of 9 that is 10 rows: the well runs 88..177, its last row sits at 169..175, and the
+ *   pair starts at 181.
  *   The bar is 5 wide, which is MSlider_Height (sounddlg.cpp:102), the thickness this
  *   dialog's own slider body already has, used on the other axis rather than chosen. The
- *   rows end at 252 and the bar occupies 255..259, inside a box whose inner edge is 274.
+ *   rows end at 286 and the bar occupies 289..293, inside a box whose inner edge is 308.
  *   MEASURED by game/gate_optlayout.c, which reads these rectangles back at the top AND
  *   at the bottom of travel rather than trusting this paragraph. */
-#define DOPT_A_VIEW_H (DOPT_GC_OK_Y - 2 - DOPT_A_TOP)
+#define DOPT_A_VIEW_H (DOPT_AD_OK_Y - 2 - DOPT_AD_TOP)
 #define DOPT_A_VIEW_ROWS (DOPT_A_VIEW_H / DOPT_A_STEP)
 #define DOPT_A_BAR_W 5   /* MSlider_Height                       sounddlg.cpp:102 */
 #define DOPT_A_BAR_GAP 2 /* the layout gate's own minimum        goptions.cpp:130 */
-#define DOPT_A_ROW_W (DOPT_V_W - 32 - DOPT_A_BAR_W - DOPT_A_BAR_GAP)
+#define DOPT_A_ROW_W (DOPT_AD_FULL_W - DOPT_A_BAR_W - DOPT_A_BAR_GAP)
 /* THE VALUE BOX ON A DROP ROW starts DOPT_A_DROP_GAP columns after that row's own
-   printed label and runs to the row's right edge (DOPT_A_BOX_X + DOPT_A_ROW_W). The
+   printed label and runs to the row's own right edge (a well row's is DOPT_AD_BOX_X +
+   DOPT_A_ROW_W; the Resolution row's is two global columns). The
    label widths are MEASURED at layout time (labw[] in DOPT_State): one right-aligned
    width for every row, sized to the widest art entry, put "Resolution", "UI scaling"
    and "Perspective" under the plate, and no rectangle audit saw it because
@@ -974,8 +1081,8 @@ enum { DOPT_PERSP_COUNT = 2 };                  /* Classic, Isometric (v0.6.8)  
 #define DOPT_A_DROP_W 86
 #define DOPT_A_DROP_H (DOPT_A_BOX + 2)
 
-#define DOPT_A_BAR_X (DOPT_A_BOX_X + DOPT_A_ROW_W + DOPT_A_BAR_GAP)
-#define DOPT_A_BAR_Y DOPT_A_TOP
+#define DOPT_A_BAR_X (DOPT_AD_BOX_X + DOPT_A_ROW_W + DOPT_A_BAR_GAP)
+#define DOPT_A_BAR_Y DOPT_AD_TOP
 #define DOPT_A_BAR_H (DOPT_A_VIEW_ROWS * DOPT_A_STEP)
 #define DOPT_A_THUMB_MIN 4 /* MAX(size, 4)                         slider.cpp:185 */
 
@@ -1090,6 +1197,7 @@ typedef struct
     int music;      /* 0 .. DOPT_VOL_TOP                          */
     int sound;      /* 0 .. DOPT_VOL_TOP                          */
     int speech;     /* 0 .. DOPT_VOL_TOP                          */
+    int ambience;   /* independent Enhanced environment volume */
 } DOPT_Settings;
 
 /* THE MIXER / RENDERER BINDING.
@@ -1107,10 +1215,11 @@ typedef struct
     /* The same seam for the Visuals pages. NULL is legal and means the toggles move,
        draw and remember, and nothing happens to the picture. */
     void (*applyvis)(void *user, const DOPT_Visuals *v);
-    /* RESET TO DEFAULTS on the Advanced page: the host rewrites the block from its ONE
-       source of defaults (fx_defaults in game/fx_state.h) and the page then applies it.
-       The dialog holds no copy of the numbers; NULL means the button does nothing. */
-    void (*resetvis)(void *user, DOPT_Visuals *v);
+    /* RESET TO DEFAULTS on the Advanced page: the host rewrites ONE MODE'S settings, the
+       mode the page's tabs point at, from its ONE source of defaults (fx_defaults in
+       game/fx_state.h), and the page then applies the block. The dialog holds no copy of
+       the numbers; NULL means the button does nothing. */
+    void (*resetvis)(void *user, DOPT_Visuals *v, int mode);
     /* And the same seam again for the cheat page. NULL means the switches move, draw and
        remember, and nothing in the game changes. */
     void (*applych)(void *user, const DOPT_Cheats *c);
@@ -1139,6 +1248,10 @@ typedef struct
        CurValue on that page's scroll bar (slider.cpp:186) and the element index drawn
        at the top of the well. */
     int advTop;
+    /* WHICH GRAPHICS MODE THE ADVANCED PAGE IS EDITING, a DOPT_MODE_*. Chosen with the
+       page's three tabs, and set to the mode in use each time the page is opened. It is
+       only a view: picking a tab never changes the mode in use. */
+    int advTab;
     /* DOPT_VE_TEXSET's drop list. It is drawn OVER the rows beneath it and hit-tested
        before them, which is the whole of what makes it a drop list rather than another
        row. texhot is the entry under the pointer and is what the tooltip follows; -1
@@ -1172,6 +1285,7 @@ typedef struct
 
     DOPT_Settings set;
     DOPT_Visuals  vis;
+    int n64_unavailable; /* RA3D: draw N64 mode and tab disabled */
     DOPT_Cheats   cheat;
     int cheats_locked;   /* a network match: every switch drawn, none clickable */
     /* WHAT KIND OF GAME THIS IS, and how far through it this player is. A match renames
@@ -1235,10 +1349,22 @@ void dopt_bind(DOPT_State *st, void *user, void (*apply)(void *, const DOPT_Sett
 /* The Visuals seam. Call after dopt_bind (which sets `user`); fires once immediately so
    the host and the checkboxes start in agreement. */
 void dopt_bind_visuals(DOPT_State *st, void (*applyvis)(void *, const DOPT_Visuals *));
-void dopt_bind_visuals_reset(DOPT_State *st, void (*resetvis)(void *, DOPT_Visuals *));
+void dopt_bind_visuals_reset(DOPT_State *st, void (*resetvis)(void *, DOPT_Visuals *, int));
+/* WHICH ROWS A GRAPHICS MODE HAS, in the order its tab lists them: fills `out` (at least
+   DOPT_VE_COUNT long) and returns how many. The global rows are in no mode's list. */
+int dopt_vis_mode_rows(int mode, int *out);
+/* Whether a row belongs to a mode's tab at all. */
+int dopt_vis_in_mode(int elem, int mode);
+/* SCROLL THE ADVANCED WELL SO A ROW IS SHOWING, the way a hand would before clicking it,
+   and answer whether it can show at all: 0 for a row that is not in the tab on screen.
+   For the headless driver, which used to work this out itself from the row's number. */
+int dopt_adv_reveal(DOPT_State *st, int item);
+/* How many rows the tab on screen lists. */
+int dopt_adv_count(const DOPT_State *st);
 /* Push the host's current truth INTO the dialog, for the case where something else
    changed it (the F5 panel, a preset loaded from the command line). */
 void dopt_set_visuals(DOPT_State *st, const DOPT_Visuals *v);
+void dopt_set_n64_unavailable(DOPT_State *st, int unavailable);
 /* Open straight onto the Visuals page. The main menu uses this; the pause menu walks
    there through its own button. */
 void dopt_open_visuals(DOPT_State *st, const DB_Pack *p);
@@ -1366,15 +1492,20 @@ const char *dopt_texset_label(int which);
 /* The label for one entry of the drop list on `item` -- the terrain row names textures
    and the infantry row names sprites. */
 const char *dopt_drop_label(int item, int which);
-/* The same for EVERY drop row, resolution and UI scale included, and how many entries a
-   row has: the art rows have DOPT_TEX_COUNT, the UI scale DOPT_UI_COUNT, the resolution
-   row as many sizes as the host enumerated. */
+/* The same for EVERY drop row, resolution and UI scale included, and the range of entry
+   numbers a row has: the terrain row DOPT_TEX_COUNT, the infantry row DOPT_INF_COUNT,
+   the UI scale DOPT_UI_COUNT, the resolution row as many sizes as the host enumerated.
+   An entry number is the row's VALUE, so a number can be withdrawn without renumbering
+   the rest: dopt_drop_listed says whether entry `which` is in the open list at all
+   (only DOPT_TEX_REMASTER on the terrain row is not), and an entry that is not has no
+   rectangle and takes no click. */
 const char *dopt_drop_text(const DOPT_State *st, int item, int which);
 int dopt_drop_count(const DOPT_State *st, int item);
+int dopt_drop_listed(int item, int which);
 
 /* The tooltip shown when the pointer rests on an entry that cannot be chosen, or NULL
-   when that entry is selectable: Remastered without an install, DOS on a map with no
-   1995 tiles, and a resolution too large for a window under WINDOWED. */
+   when that entry is selectable: DOS on a map with no 1995 tiles, Enhanced on a theater
+   with no Enhanced pack, and a resolution too large for a window under WINDOWED. */
 const char *dopt_texset_tooltip(const DOPT_State *st, int which);
 /* The same tip, as its three separate lines. The drawing needs them apart; the script
    diagnostic wants them joined, which is what the function above is for. */

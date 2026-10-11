@@ -12,6 +12,14 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
+// Declares InfantryClass::opencnc3d_end_leg_here, defined in infantry.cpp, which
+// ends a soldier's move where he stands once he is in range under free movement.
+// The declaration itself does not change the game simulation; infantry.cpp does.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\infantry.h_v   2.18   16 Oct 1995 16:48:08   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -210,6 +218,7 @@ public:
     **	AI.
     */
     virtual void AI(void);
+    void opencnc3d_end_leg_here(void); /* OpenCNC3D: free infantry, infantry.cpp */
     virtual TARGET Greatest_Threat(ThreatType threat) const;
     virtual int Mission_Attack(void);
 

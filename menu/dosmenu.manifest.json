@@ -72,13 +72,35 @@
   "copyright_strip_blanked_from": 186,
   "crop_bottom": 13,
   "crop_top": 0,
-  "quantise_error_mean": 1.32,
-  "rows_changed_vs_original": 49,
+  "quantise_error_mean": 1.24,
+  "rows_changed_vs_original": 46,
   "source": "art/title.png",
   "source_size": [
    1024,
    656
   ],
+  "wordmark": {
+   "alpha_bounds": [
+    31,
+    9,
+    1882,
+    778
+   ],
+   "plate_bounds": [
+    102,
+    138,
+    218,
+    186
+   ],
+   "player_colour": "non-recolourable; paired all-black mask",
+   "player_colour_mask": "art/opencnc-3d-logo-v01-player-mask.png",
+   "sha256": "33b4001278f281e7b6c6a351f5931d8b16a755bc6a28d5be86d93ac8de46c704",
+   "source": "art/opencnc-3d-logo-v01.png",
+   "source_size": [
+    1922,
+    818
+   ]
+  },
   "wordmark_top": 138
  },
  "version": 1

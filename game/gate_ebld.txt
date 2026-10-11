@@ -1,0 +1,70 @@
+# G273. THE ENHANCED POWER PLANT COMES APART HIT BY HIT, FROM THE SIDE IT IS HIT FROM.
+#
+# Under Enhanced a building type with an ebld file (game/ebld_mod.h; today only the
+# Power Plant) is drawn from its remastered model and broken in stages: every 5% of its
+# strength lost knocks a chip off the struck side, at half strength its loose pieces
+# break off under physics, and at death everything still standing becomes about two
+# hundred shards that are blasted clear, sink and fade over a scorch mark. This script
+# stages all of it on one building and dumps the system's own state at each stage;
+# gates.sh runs it four times (Enhanced twice, Enhanced with --noebld, Classic) and reads
+# the dumps.
+#
+# THE SUBJECT is the player's own Power Plant on SCG90EA (NUKE#0, cell 50,51), force-fired
+# by the Medium Tank east of it, as G91 does. CTRL-click is force fire and works on your
+# own buildings, and it is the only way a script can stage real hits from a real
+# attacker, which is what the struck side is inferred from. The order is one shot, so it
+# is re-issued each round. Measured: five rounds take it from 400 to 123 of 400 (376,
+# 307, 238, 192, 123), past half strength and not dead, with the tank firing from cell
+# 55,49, north-east of it. hurtobj then kills it outright, with no attacker at all.
+#
+# THE CAMERA sits one cell east of the building so the tank is clear of the sidebar: at
+# cam 51 52 the first select aims at column 1124, on the sidebar's edge at 1280 wide. It
+# never moves between a select and its order, because lclickobj and actclickobj click a
+# SCREEN POSITION.
+#
+# THE ECHO LINES name each ebldump for the suite, which reads the dumps by those names,
+# and gates.sh rewrites the shot names per run. The ticks after the kill are timed to the
+# wreck's own clock: the sink starts 3.5 s (52 or 53 ticks) after the blast, so the
+# "sink" dump 68 ticks after the kill is taken during it, and the scorch is gone 34 s
+# (510 ticks) after it, so the "end" dump 588 ticks after the kill must find the
+# building's entry erased.
+tick 20
+cam 52 52
+zoom max
+echo g273 intact
+ebldump
+shot shots/g273_intact.png
+lclickobj MTNK 0
+actclickobj NUKE 0 c
+tick 150
+echo g273 held
+ebldump
+shot shots/g273_held.png
+lclickobj MTNK 0
+actclickobj NUKE 0 c
+tick 150
+lclickobj MTNK 0
+actclickobj NUKE 0 c
+tick 150
+lclickobj MTNK 0
+actclickobj NUKE 0 c
+tick 150
+lclickobj MTNK 0
+actclickobj NUKE 0 c
+tick 150
+echo g273 damaged
+obj NUKE 0
+obj MTNK 0
+ebldump
+shot shots/g273_damaged.png
+hurtobj NUKE 0
+tick 8
+shot shots/g273_blast.png
+tick 60
+echo g273 sink
+ebldump
+shot shots/g273_sink.png
+tick 520
+echo g273 end
+ebldump
+quit

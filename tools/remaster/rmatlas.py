@@ -3,16 +3,12 @@ import os, sys, collections
 import numpy as np
 import xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(REPO, 'tools'))
-sys.path.insert(0, os.path.join(REPO, 'tools', 'bakery', 'sharecopy', 'assets', 'terrain'))
+TOOLS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TOOLS)
+sys.path.insert(0, os.path.join(TOOLS, 'bakery', 'sharecopy', 'assets', 'terrain'))
 import meg, dds, n64_terrain as NT, pc_tex_override as P
 
-DATA = os.environ.get('CNC3D_REMASTERED_DATA', '')
-if not DATA:
-    raise SystemExit('set CNC3D_REMASTERED_DATA to the CnCRemastered/Data directory')
-if not DATA.endswith(os.sep):
-    DATA += os.sep
+DATA = '$STEAM_LIBRARY/steamapps/common/Command & Conquer Remastered/CnCRemastered/Data/'
 THEATER = {'TEMPERAT': ('TD_TERRAIN_TEMPERATE.XML', 'THEATERF_TEMPERATE'),
            'DESERT':   ('TD_TERRAIN_DESERT.XML',   'THEATERF_DESERT'),
            'WINTER':   ('TD_TERRAIN_WINTER.XML',   'THEATERF_WINTER')}

@@ -1,4 +1,4 @@
-"""C&C3D sidebar HUD, 640x480.
+"""OpenCNC3D sidebar HUD, 640x480.
 
 The delivered reference IS the chassis: one static background, drawn once. Only the
 genuinely dynamic things composite on top, into slots measured off that reference.

@@ -22,8 +22,8 @@
  * exactly as the skirmish lobby answers a match setup and never starts a mission. That is
  * what lets the whole screen be walked by a script with no network in the process.
  */
-#ifndef CNC3D_DOSMP_H
-#define CNC3D_DOSMP_H
+#ifndef OPENCNC3D_DOSMP_H
+#define OPENCNC3D_DOSMP_H
 
 #include "dosbar.h"
 

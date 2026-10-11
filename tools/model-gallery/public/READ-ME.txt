@@ -1,4 +1,4 @@
-OpenCNC 3D MODEL GALLERY
+OpenCNC3D MODEL GALLERY
 ===================
 
 Every 3D asset on the Command & Conquer (Nintendo 64) cartridge: 202 models,

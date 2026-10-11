@@ -109,19 +109,19 @@ def build(outdir, name, size, stride, houses, army, pair):
     for k in ("Intro", "Brief", "Action", "Win", "Lose"):
         lines.append("%s=x" % k)
     lines.append("Percent=0")
-    lines.append("CNC3DKind=Multi")
+    lines.append("OpenCNC3DKind=Multi")
     lines.append("")
     # THE SQUARE THE MAP OCCUPIES, which [MAP] does not state. X/Y/Width/Height are the
     # PLAYABLE RECT inside a border; the array the map lives in is larger, and for the
     # older formats it was implied by the .BIN's own length. A sparse file has no length
     # to read it from, so an XL map says it.
-    lines.append("[CNC3D]")
+    lines.append("[OpenCNC3D]")
     lines.append("Grid=%d" % size)
     lines.append("")
     lines.append("[MAP]")
     lines.append("Version=%d" % MAP_VERSION_XL)
     lines.append("Theater=TEMPERATE")
-    lines.append("CNC3DTheater=TEMPERATE")
+    lines.append("OpenCNC3DTheater=TEMPERATE")
     lines.append("X=2")
     lines.append("Y=2")
     lines.append("Width=%d" % (size - 4))

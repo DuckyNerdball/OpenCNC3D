@@ -125,38 +125,38 @@ set(TIBDAWN_SRC
     winstub.cpp
 )
 
-# OpenCNC 3D XL: this fork builds exactly one artifact, the TiberianDawnXL shared
+# OpenCNC3D XL: this fork builds exactly one artifact, the TiberianDawnXL shared
 # library (docs/design-xl-brain.md, BUILD). The VanillaTD executable, the icon
 # and version-resource generation, the map-editor COM interface's non-Windows
 # guard, and the remaster_mods resource copy from the vanilla file are all gone
 # with the targets that used them. The networking sources stay in the tree (the
 # fork copies tiberiandawn/ whole) but nothing here compiles them.
 
-# OpenCNC 3D: dllinterface.{h,cpp} (the CNC_* API) is written for MSVC and uses __int64,
+# OpenCNC3D: dllinterface.{h,cpp} (the CNC_* API) is written for MSVC and uses __int64,
 # __declspec and types declared inside anonymous unions. Clang/GCC accept all of that
 # with the Microsoft-extension flags, so the API compiles unmodified off Windows.
 if(NOT MSVC)
-    set(CNC3D_MS_FLAGS -fms-extensions)
+    set(OPENCNC3D_MS_FLAGS -fms-extensions)
     include(CheckCXXCompilerFlag)
-    check_cxx_compiler_flag(-fdeclspec CNC3D_HAS_FDECLSPEC)
-    if(CNC3D_HAS_FDECLSPEC)
-        list(APPEND CNC3D_MS_FLAGS -fdeclspec)
+    check_cxx_compiler_flag(-fdeclspec OPENCNC3D_HAS_FDECLSPEC)
+    if(OPENCNC3D_HAS_FDECLSPEC)
+        list(APPEND OPENCNC3D_MS_FLAGS -fdeclspec)
     endif()
 endif()
 
-# OpenCNC 3D: the map-editor interface is COM-based (SAFEARRAY/HRESULT/VT_UI1) and is
+# OpenCNC3D: the map-editor interface is COM-based (SAFEARRAY/HRESULT/VT_UI1) and is
 # Windows-only. The headless brain does not need it, so it is dropped off Windows.
 if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(CNC3D_EDITOR_IFACE dllinterfaceeditor.cpp)
+    set(OPENCNC3D_EDITOR_IFACE dllinterfaceeditor.cpp)
 else()
-    set(CNC3D_EDITOR_IFACE "")
+    set(OPENCNC3D_EDITOR_IFACE "")
 endif()
 
 file(GLOB_RECURSE TIBDAWN_HEADERS "*.h")
 
 add_library(TiberianDawnXL SHARED
     dllinterface.cpp
-    ${CNC3D_EDITOR_IFACE}
+    ${OPENCNC3D_EDITOR_IFACE}
     sidebarglyphx.cpp
     ${TIBDAWN_SRC}
     ${TIBDAWN_HEADERS}
@@ -164,9 +164,9 @@ add_library(TiberianDawnXL SHARED
 # No MEGAMAPS / EIGHTPLAYERS defines: their ifdefs are collapsed to the ON
 # values in the source -- the tree IS the fork (docs/design-xl-brain.md).
 target_compile_definitions(TiberianDawnXL PUBLIC $<$<CONFIG:Debug>:_DEBUG> ${REMASTER_DEFS} TIBERIAN_DAWN XLMAPS)
-if(CNC3D_MS_FLAGS)
-    target_compile_options(TiberianDawnXL PRIVATE ${CNC3D_MS_FLAGS})
-    target_compile_options(commonr PRIVATE ${CNC3D_MS_FLAGS})
+if(OPENCNC3D_MS_FLAGS)
+    target_compile_options(TiberianDawnXL PRIVATE ${OPENCNC3D_MS_FLAGS})
+    target_compile_options(commonr PRIVATE ${OPENCNC3D_MS_FLAGS})
 endif()
 target_include_directories(TiberianDawnXL PUBLIC ${CMAKE_SOURCE_DIR} .)
 target_link_libraries(TiberianDawnXL commonr ${REMASTER_LIBS} ${STATIC_LIBS})

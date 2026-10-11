@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D wave 6 -- the cartridge's OBJECT SHADOW inventory, recovered and asserted.
+OpenCNC3D wave 6 -- the cartridge's OBJECT SHADOW inventory, recovered and asserted.
 
 Run:  python3 soldier_shadow.py [path/to/cnc_eu.z64]
 
@@ -21,8 +21,8 @@ import os
 import struct
 import sys
 
-# Repo root, resolved at runtime. CNC3D_ROOT overrides it for an out-of-tree checkout.
-_ROOT = os.environ.get("CNC3D_ROOT") or os.path.abspath(
+# Repo root, resolved at runtime. OPENCNC3D_ROOT overrides it for an out-of-tree checkout.
+_ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 

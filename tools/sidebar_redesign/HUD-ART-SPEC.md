@@ -1,4 +1,4 @@
-# C&C3D Sidebar HUD — Art Production Spec
+# OpenCNC3D Sidebar HUD — Art Production Spec
 
 **Audience:** the artist or agent producing the image assets.
 **You do not need any prior context.** Everything required is in this document.

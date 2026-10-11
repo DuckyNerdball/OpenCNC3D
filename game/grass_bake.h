@@ -117,8 +117,8 @@
  *  water and the trees.
  * ==================================================================================== */
 
-#ifndef CNC3D_GRASS_BAKE_H
-#define CNC3D_GRASS_BAKE_H
+#ifndef OPENCNC3D_GRASS_BAKE_H
+#define OPENCNC3D_GRASS_BAKE_H
 
 /* Include AFTER water_mod.h (cnc_eyes.cpp:6979). By then everything this file reads is
    in scope: PackCell and Pack (cnc_eyes.cpp:998, :1022), terrain_y (:1188), cell_shown
@@ -1143,7 +1143,7 @@ static bool grass_colour_build(void)
                set for the radar (cnc_eyes.cpp:998-1001, filled at :2084 and :6623). It is
                a coarser answer, not a wrong one. */
             const int ts = terrain_texset_drawn();
-            const int ix = (ts >= 0 && ts < 3) ? ts : 0;
+            const int ix = (ts >= 0 && ts < 4) ? ts : 0;
             o[0] = c.avg[ix][0]; o[1] = c.avg[ix][1]; o[2] = c.avg[ix][2];
             written[ci] = 1;
             continue;
@@ -1495,4 +1495,4 @@ static bool grass_draw(void);
  *    files, not a hypothetical one.
  */
 
-#endif /* CNC3D_GRASS_BAKE_H */
+#endif /* OPENCNC3D_GRASS_BAKE_H */

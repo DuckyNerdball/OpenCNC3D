@@ -1,0 +1,14 @@
+RA_ABI|view=0,0,7680,9216|origin=12544,11520|map=49,45,30,36|legacy=1
+SEL-BEGIN count=0 frame=0
+SEL-END
+SEL-BEGIN count=1 frame=0
+SEL|UNIT|JEEP|id=2|cell=6462|x=62|y=50|mission=Guard|navcell=-1|tarcell=-1
+SEL-END
+RA_ABI|selected=UNIT,2|cell=62,50|mission=Guard|nav=-1|tar=-1
+RA_ABI|pixel=1|px=324|py=132
+PROBE|px=324,132|coord=16000,12928|cell=6462|cx=62|cy=50|obj=JEEP|action=2
+SEL-BEGIN count=1 frame=0
+SEL|UNIT|JEEP|id=2|cell=6462|x=62|y=50|mission=Guard|navcell=-1|tarcell=-1
+SEL-END
+SEL-BEGIN count=0 frame=0
+SEL-END

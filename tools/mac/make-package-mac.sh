@@ -2,7 +2,8 @@
 # Assemble the macOS release folder: the game, and nothing else.
 #
 #   tools/mac/make-package-mac.sh <destdir>
-#   CNC3D_PLAYABLE=/some/playable tools/mac/make-package-mac.sh <destdir>
+#   OPENCNC3D_PLAYABLE=/some/playable tools/mac/make-package-mac.sh <destdir>
+#   OPENCNC3D_NO_RA=1 tools/mac/make-package-mac.sh <destdir>     with no Red Alert in it
 #
 # tools/release.sh calls this and then zips <destdir>. It is a separate script rather
 # than a block inside release.sh for the same reason tools/win/make-build-win.sh is one:
@@ -37,7 +38,7 @@ ROOT=$(pwd)
 
 OUT="$1"
 [ -n "$OUT" ] || { echo "usage: tools/mac/make-package-mac.sh <destdir>" >&2; exit 2; }
-SRC="${CNC3D_PLAYABLE:-$ROOT/playable}"
+SRC="${OPENCNC3D_PLAYABLE:-$ROOT/playable}"
 [ -d "$SRC" ] || { echo "no build folder at $SRC. Run game/make-build.sh first." >&2; exit 1; }
 
 die() { printf '\nPACKAGING REFUSED: %s\n' "$*" >&2; exit 1; }
@@ -46,7 +47,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 # A required entry is copied with need_*, an optional one with the [ -f ] && cp form.
-# The difference matters: a missing SCORES.MIX has to stop the release, while a missing
+# The difference matters: a missing SOUNDS.MIX has to stop the release, while a missing
 # dostib.pack only means that baker has not been run on this machine yet.
 need_file() {
     [ -f "$SRC/$1" ] || die "$1 is not in $SRC.
@@ -65,26 +66,76 @@ need_dir() {
     # recursive, so all of it shipped: v0.6.6 carried 61 files of one person's own maps to
     # everybody who downloaded it. The two tracked worked examples are put back by name
     # below, because they ARE content and the exclusion would otherwise take them with it.
-    rsync -aL --exclude '.DS_Store' --exclude 'user_maps/' "$SRC/$1" "$OUT/"
+    #
+    # A second argument names an rsync exclude file, which is how dosdata leaves its
+    # movies and music behind (see THE MOVIES AND THE MUSIC below).
+    if [ -n "$2" ]; then
+        rsync -aL --exclude '.DS_Store' --exclude 'user_maps/' --exclude-from="$2" \
+            "$SRC/$1" "$OUT/"
+    else
+        rsync -aL --exclude '.DS_Store' --exclude 'user_maps/' "$SRC/$1" "$OUT/"
+    fi
 }
 
+# THE MOVIES AND THE MUSIC DO NOT SHIP. The 1995 cutscenes and the score are not in any
+# package: the Windows installer and the launcher's Setup screen fetch them from the disc
+# images on archive.org (the movies from the 1995 Gold discs, EA's 2007 freeware release;
+# the music from the Covert Operations disc image), and only when the player leaves their
+# boxes ticked. A folder without them plays cleanly; the game finds both by file presence
+# and reads no setting.
+#
+# THE LIST IS ONE FILE, tools/media/media-paths.txt, so this packager, the Windows
+# packager, the data fingerprint and the release's check of the zips all leave out the
+# same paths: one path per line relative to the package root, a trailing "/" for a folder,
+# '#' for a comment, and the leading "/" optional, read the same way by all four. It is
+# turned here into rsync anchors, each line given its "/" whether it had one or not. The
+# Red Alert module's movies and score are on it too, and are refused at the end like the
+# rest.
+# The copy below is the same list, used only when that file is absent, so a checkout
+# without it still cannot ship the media.
+MEDIA_LIST="$ROOT/tools/media/media-paths.txt"
+MEDIA_EXCLUDE=$(mktemp)
+trap 'rm -f "$MEDIA_EXCLUDE"' EXIT
+if [ -f "$MEDIA_LIST" ]; then
+    sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+        -e 's|^\./||' -e 's|^/||' "$MEDIA_LIST" | grep -v '^$' | sed 's|^|/|' > "$MEDIA_EXCLUDE" || true
+else
+    printf '%s\n' /dosdata/movies/ /dosdata/music/ /dosdata/SCORES.MIX \
+        /dosdata/TRANSIT.MIX /dosdata/transit/TRANSIT.MIX /movies/ \
+        /ra3d/movies/ /ra3d/audio/SCORES.MIX /ra3d/data/SCORES.MIX > "$MEDIA_EXCLUDE"
+fi
+[ -s "$MEDIA_EXCLUDE" ] || die "the media list $MEDIA_LIST is empty, so nothing would keep
+       the movies and music out of the package."
+
 # ---- the program ------------------------------------------------------------------
-# Two binaries, not one. cnc3d is the app (menu, campaign, movies, and the Tier 2 chain
+# Two binaries, not one. opencnc3d is the app (menu, campaign, movies, and the Tier 2 chain
 # on at startup); cnc_eyes is the renderer run directly, straight into one mission with
 # the chain off.
 #
 # TEN of the package's thirteen .command launchers exec cnc_eyes, not four: PLAY-GDI,
 # PLAY-NOD, PLAY-HUD-NEW, PLAY-HUD-OLD, PLAY-HUD-NOD, PLAY-BUILD-TEST, PLAY-CAMERA-AB,
 # TUNE-SHADOWS, TUNE-EXPLOSIONS, TEST-MUZZLE-FLASH. Only PLAY, PLAY-HUD-MENU and
-# TUNE-PRESENTATION run cnc3d, and so does C&C3D.app. Shipping cnc3d alone would leave
+# TUNE-PRESENTATION run opencnc3d, and so does OpenCNC3D.app. Shipping opencnc3d alone would leave
 # ten of the fourteen double-click entry points dead. Counted over the union this script
 # actually copies below, which is tools/launchers/*.command plus $SRC/*.command.
 #
 # The READ-ME names both binaries and splits its launcher list by which one each runs,
 # because that is also what decides whether the picture comes up enhanced or classic.
 # See tools/launchers/README.md.
-need_file cnc3d
+need_file opencnc3d
 need_file cnc_eyes
+# RED ALERT is staged only when the build is not told to leave it out: OPENCNC3D_NO_RA=1,
+# which tools/release.sh sets, packages no ra3d/ even when the play folder holds one, and
+# the package is searched for any piece of it at the end. A module that IS staged brings
+# its own movies and score, which may not ship, so such a package is refused by the
+# media check at the end until Red Alert has downloads of its own.
+if [ "$OPENCNC3D_NO_RA" = "1" ]; then
+    echo "   Red Alert: left out (OPENCNC3D_NO_RA=1)"
+elif [ -d "$SRC/ra3d" ]; then
+    python3 "$ROOT/tools/ra3d/stage-runtime.py" --source "$SRC/ra3d" \
+        --out "$OUT/ra3d" --app "$SRC/opencnc3d" --brain "$SRC/ra3d/RedAlert.dylib"
+fi
+need_file dosclassic.pack
 
 # THE CONNECTIVITY TOOL. It has no game in it: it opens one UDP socket, runs three hundred
 # lockstep turns against the other end and prints a digest of the orders both sides
@@ -96,19 +147,19 @@ need_file cnc_eyes
 # is 40 KB and it links nothing the package does not already carry.
 need_file netcheck
 
-# THE LAUNCHER. C&C3D.app's script execs this; without it the bundle falls back to
+# THE LAUNCHER. OpenCNC3D.app's script execs this; without it the bundle falls back to
 # running the game directly, which works but silently ships a package with no way
 # to see the version, read the changelog or take an update. That fallback is there
 # so a Mac can always play, not so a release can quietly lose its front door, so
 # the packager refuses instead of relying on it.
-need_file cnc3d-launcher
+need_file opencnc3d-launcher
 
 # EVERY .dylib, BY GLOB, not by name -- and the reason the glob is not a name list is
 # sitting in the folder. Today it matches THREE:
 #
 #   TiberianDawn.dylib     the GPL engine
 #   libSDL2-2.0.0.dylib    bundled by tools/bundle-sdl.sh, which also rewrites the load
-#                          command, so `otool -L playable/cnc3d` now reads
+#                          command, so `otool -L playable/opencnc3d` now reads
 #                          @executable_path/libSDL2-2.0.0.dylib and no longer names a
 #                          Homebrew prefix that does not exist on the player's machine
 #   libSDL3.dylib          what Homebrew installs as "SDL2" is sdl2-compat, a shim that
@@ -145,42 +196,179 @@ for f in "$SRC"/*.pack; do
     cp "$f" "$OUT/"; _n=$((_n+1))
 done
 [ "$_n" -gt 0 ] || die "there are no .pack files in $SRC."
+[ ! -f "$SRC/temperate_grass_rgb.bin" ] || cp "$SRC/temperate_grass_rgb.bin" "$OUT/"
 need_file CONQUER.MIX
 
-need_dir content       # the two theatre .MIX stubs the terrain loader wants
+# THE AUTHORED MODELS, models3d/<TYPE>.c3m, which the renderer finds by name beside the
+# missions. This allow-list predates them and never named the folder, so a package made
+# from it drew every authored vehicle and soldier with the cartridge's model and sprite
+# while the Windows zip, which copies the folder from playable/, drew the new ones: the
+# same release showing two different games. Counted, because a folder that arrives
+# empty fails the same way and says nothing either.
+if [ -d "$SRC/models3d" ]; then
+    mkdir -p "$OUT/models3d"
+    _m=0
+    for f in "$SRC"/models3d/*.c3m; do
+        [ -f "$f" ] || continue
+        cp "$f" "$OUT/models3d/"; _m=$((_m+1))
+    done
+    [ "$_m" -gt 0 ] || die "$SRC/models3d holds no .c3m files, so the package would draw
+       no authored model at all."
+fi
+
+# THE FIXED CARTRIDGE BUILDINGS, n64fix/<TYPE>.n64x, drawn in Enhanced in place of the
+# cartridge's building models and found by name exactly as the authored models are, so
+# this allow-list has to name them or the package draws the cartridge's buildings while
+# the Windows zip draws the fixed ones. Taken from the TREE, as the Windows packager
+# takes them: tracked files that no build step changes. Counted for the reason above.
+if [ -d "$ROOT/game/n64fix" ]; then
+    mkdir -p "$OUT/n64fix"
+    _m=0
+    for f in "$ROOT"/game/n64fix/*.n64x; do
+        [ -f "$f" ] || continue
+        cp "$f" "$OUT/n64fix/"; _m=$((_m+1))
+    done
+    [ "$_m" -gt 0 ] || die "game/n64fix holds no .n64x files, so the package would draw
+       no fixed building at all."
+fi
+
+# THE ENHANCED BUILDINGS, ebld/<TYPE>.ebld: under Enhanced a type with one of these is
+# drawn from its remastered model and breaks apart hit by hit in place of the fixed
+# model and the old shatter. Found by type name like the fixed buildings, so named here
+# for the same reason, taken from the TREE for the same reason, and counted for the
+# same reason: without them the package's Power Plant differs from the Windows zip's.
+if [ -d "$ROOT/game/ebld" ]; then
+    mkdir -p "$OUT/ebld"
+    _m=0
+    for f in "$ROOT"/game/ebld/*.ebld; do
+        [ -f "$f" ] || continue
+        cp "$f" "$OUT/ebld/"; _m=$((_m+1))
+    done
+    [ "$_m" -gt 0 ] || die "game/ebld holds no .ebld files, so the package would draw
+       no Enhanced building at all."
+fi
+
+# THE PLACEMENTS, eplc/<TYPE>.eplc: under Enhanced a remastered structure with one of these
+# goes up part by part, as the remaster lab places it, instead of by the cartridge's
+# reveal. Taken from the TREE and counted for the same reason as the buildings above.
+if [ -d "$ROOT/game/eplc" ]; then
+    mkdir -p "$OUT/eplc"
+    _m=0
+    for f in "$ROOT"/game/eplc/*.eplc; do
+        [ -f "$f" ] || continue
+        cp "$f" "$OUT/eplc/"; _m=$((_m+1))
+    done
+    [ "$_m" -gt 0 ] || die "game/eplc holds no .eplc files, so the package's structures
+       would go up by the cartridge's reveal."
+fi
+
+# THE REMASTERED VEHICLES AND AIRCRAFT, evhc/<TYPE>.evhc: under Enhanced a type with one of
+# these is drawn, animated and wrecked from its remastered model in place of the
+# cartridge's. Found by type name, taken from the TREE and counted, as the buildings above.
+if [ -d "$ROOT/game/evhc" ]; then
+    mkdir -p "$OUT/evhc"
+    _m=0
+    for f in "$ROOT"/game/evhc/*.evhc; do
+        [ -f "$f" ] || continue
+        cp "$f" "$OUT/evhc/"; _m=$((_m+1))
+    done
+    [ "$_m" -gt 0 ] || die "game/evhc holds no .evhc files, so the package would draw
+       no remastered vehicle at all."
+fi
+
+# THE REMASTERED SOLDIERS, einf/<TYPE>.c3m: under Enhanced an infantry type with one of
+# these is drawn as an animated 3D soldier. From the TREE and counted, as the Enhanced
+# buildings are, so the package's soldiers cannot differ from the Windows zip's.
+if [ -d "$ROOT/game/einf" ]; then
+    mkdir -p "$OUT/einf"
+    _m=0
+    for f in "$ROOT"/game/einf/*.c3m; do
+        [ -f "$f" ] || continue
+        cp "$f" "$OUT/einf/"; _m=$((_m+1))
+    done
+    [ "$_m" -gt 0 ] || die "game/einf holds no .c3m files, so the package would draw
+       no remastered soldier at all."
+fi
+
+# THE UNITY EXPLOSION, vfx3d/<effect>/, found by path beside the missions exactly as the
+# models are, and missing from a package for the same reason if it is not named here:
+# the package would draw the cartridge's explosion while the Windows zip drew Unity's.
+if [ -d "$SRC/vfx3d" ]; then
+    rsync -aL "$SRC/vfx3d" "$OUT/"
+    [ -f "$OUT/vfx3d/claims.txt" ] || die "$SRC/vfx3d arrived without claims.txt, so the
+       package would draw no Unity explosion."
+fi
+
+need_dir content       # original theater scenery merged with the playable terrain
+for _theater in TEMPERAT DESERT; do
+    [ -s "$OUT/content/$_theater.MIX" ] || die "content/$_theater.MIX is required for DOS Classic"
+done
 need_dir missions      # the scenario INIs
-need_dir movies        # LOGO.VQA and INTRO2.VQA
-# THE WORKED EXAMPLES GO BACK IN, BY NAME. need_dir excludes user_maps wholesale because
-# it is a personal folder, and these two are the exception: game/examples/ tracks them,
-# game/build.sh stages them, and the editor's own documentation walks a reader through
-# them. Named one at a time rather than by a pattern, so the day somebody's map is called
-# USER92 it does NOT quietly rejoin the package.
+# No top-level movies/: it was a second copy of LOGO.VQA and INTRO2.VQA that nothing in the
+# game reads (the game plays dosdata/movies/), and the movies no longer ship anyway.
+# NO USER MAP SHIPS, the tracked examples included. need_dir excludes user_maps wholesale
+# because it is a personal folder, and the package carries it EMPTY: the game and the
+# editor save into it, so it exists, and nothing is in it. game/examples/ still tracks the
+# worked examples and game/build.sh still stages them into a developer play folder, where
+# the gates play them. Refused below if anything arrives in it.
 _ex="$OUT/missions/user_maps"
 mkdir -p "$_ex"
-for _m in USER90 USER91; do
-    for _e in INI BIN HGT; do
-        [ -f "$SRC/missions/user_maps/$_m.$_e" ] &&
-            cp "$SRC/missions/user_maps/$_m.$_e" "$_ex/"
-    done
-done
+_um=$(cd "$_ex" && find . -type f ! -name '.DS_Store' | sed 's|^\./||' | head -8)
+[ -z "$_um" ] || { echo "the package's user_maps folder is not empty, and no user map ships:" >&2
+    echo "$_um" | sed 's/^/  /' >&2; exit 1; }
 
 
 # DOSDATA IS THE ONE THAT HAS TO BE DEREFERENCED, AND IT IS CHECKED AFTERWARDS.
 # In playable/ it is a SYMLINK into data/dosdata so that a local test folder does not
 # carry a second 527 MB copy of the 1995 discs (game/make-build.sh makes the link, and
-# has said "a release substitutes a real copy" since the day it did). Archive that link
-# AS a link and it expands on the other machine as a dangling pointer, after which the
-# game boots, runs, and is completely silent, with one line on stderr to say so. That is
-# project rule 9's "A RELEASE IS PLAYABLE" clause, and it is the single most expensive
-# thing this script can get wrong, so it is asserted rather than assumed.
-need_dir dosdata
+# the packages copy it for real). Archive that link AS a link and it expands on the other
+# machine as a dangling pointer, after which the game boots, runs, and is completely
+# silent, with one line on stderr to say so. That is project rule 9's "A RELEASE IS
+# PLAYABLE" clause, and it is the single most expensive thing this script can get wrong,
+# so it is asserted rather than assumed.
+#
+# It is copied WITHOUT the movies and the music (the media list above). The developer
+# folder keeps them, because the gates that play a movie or measure the score run there.
+need_dir dosdata "$MEDIA_EXCLUDE"
 [ -L "$OUT/dosdata" ] && die "dosdata came across as a SYMLINK. Unzipped on another
        machine that is a dangling pointer and the game plays in silence."
-[ -f "$OUT/dosdata/SCORES.MIX" ] || die "dosdata/SCORES.MIX is not in the package.
-       Without the 1995 archives the build boots, plays, and has no sound at all."
+# rsync keeps a folder whose only file was excluded (transit/ held nothing but
+# TRANSIT.MIX), and an empty folder is not content. A download that brings the file back
+# makes the folder again.
+find "$OUT/dosdata" -mindepth 1 -type d -empty -delete
+# THE SOUND HAS TO ARRIVE, and the score is not the proof of it any more: a package with
+# no score is now what ships. The sound effects and the EVA lines are the 1995 archives
+# that must be there, and without either the build boots, plays, and is silent.
+for _mix in SOUNDS.MIX SPEECH.MIX; do
+    [ -f "$OUT/dosdata/$_mix" ] || die "dosdata/$_mix is not in the package.
+       Without the 1995 sound archives the build boots, plays, and has no sound at all."
+done
+# The movies and the music are asked of the WHOLE package at the end, below, so a movie
+# or a score that arrives by any folder copied after this one is caught too.
+# NEW AUDIO, dereferenced like dosdata and checked the same way. Without it the F5
+# switch does nothing on the other machine, and says so only in the log.
+need_dir cinematic
+[ -L "$OUT/cinematic" ] && die "cinematic came across as a SYMLINK."
+for clip in placement_impact building_collapse vehicle_impact structural_damage construction_rumble; do
+    [ -f "$OUT/cinematic/$clip.wav" ] || die "cinematic audio is missing."
+done
+need_dir foley
+[ -L "$OUT/foley" ] && die "foley came across as a SYMLINK."
+for variant in 01 02 03 04 05 06 07 08 09 10; do
+    [ -f "$OUT/foley/infantry_step_$variant.wav" ] || die "infantry foley is missing."
+done
+need_dir ambience
+[ -L "$OUT/ambience" ] && die "ambience came across as a SYMLINK."
+for clip in desert_zoomin desert_zoomout temperate_zoomin temperate_zoomout river_zoomin water_zoomin water_zoomout hud_click hud_mouseover tank_drive small_tank_drive vehicle_drive; do
+    [ -f "$OUT/ambience/$clip.wav" ] || die "ambience/$clip.wav is missing."
+done
+need_dir newaudio
+[ -L "$OUT/newaudio" ] && die "newaudio came across as a SYMLINK."
+[ -f "$OUT/newaudio/README.txt" ] || die "newaudio/README.txt is not in the package, and
+       the game only takes the folder as present when its README is there."
 
 # ---- the launchers ----------------------------------------------------------------
-# C&C3D.app is the default double-click; the .command files are the specialised routes
+# OpenCNC3D.app is the default double-click; the .command files are the specialised routes
 # and the live tuning dials. Copied by glob because in playable/ the class is closed:
 # a .command file there IS a double-click entry point, there is no other kind.
 #
@@ -192,10 +380,8 @@ need_dir dosdata
 #     yet (PLAY-BUILD-TEST.command, PLAY-CAMERA-AB.command; a known gap). Shipping a launcher nobody exercised would be the worse trade.
 #   * tools/launchers/ is underneath because a playable/ rebuilt from nothing has no
 #     launchers at all: game/make-build.sh lays down binaries, packs, missions and
-#     dosdata and not one .command. This step runs AFTER release.sh has tagged and
-#     pushed, so refusing there over files that are sitting tracked in the repo two
-#     directories away would be pedantry rather than safety.
-# ONE APP, NO .command FILES. Each platform ships a single executable called C&C3D,
+#     dosdata and not one .command.
+# ONE APP, NO .command FILES. Each platform ships a single executable called OpenCNC3D,
 # carrying a game icon, so it is obvious which file to run.
 #
 # Thirteen .command launchers used to ship. They existed because `--dir` and `--content`
@@ -207,11 +393,11 @@ need_dir dosdata
 #
 # The tracked masters stay in tools/launchers/ for development use. They are simply not
 # part of what a player is handed.
-[ -d "$ROOT/tools/launchers/C&C3D.app" ] || die "tools/launchers/C&C3D.app is missing.
+[ -d "$ROOT/tools/launchers/OpenCNC3D.app" ] || die "tools/launchers/OpenCNC3D.app is missing.
        It is the ONLY thing a player double-clicks now, so there is no fallback to ship
        instead of it."
-rsync -aL --exclude '.DS_Store' "$ROOT/tools/launchers/C&C3D.app" "$OUT/"
-# THE BUNDLE'S EXECUTABLE IS THE COMPILED cnc3d-launch, AND THE BUNDLE IS SIGNED. Both
+rsync -aL --exclude '.DS_Store' "$ROOT/tools/launchers/OpenCNC3D.app" "$OUT/"
+# THE BUNDLE'S EXECUTABLE IS THE COMPILED opencnc3d-launch, AND THE BUNDLE IS SIGNED. Both
 # halves are one fix for one fault, found across two Macs: macOS asks the
 # player once whether an app may use the local network and refuses every packet until
 # they answer, but it only asks about an app it can NAME and VERIFY, and the process
@@ -222,22 +408,34 @@ rsync -aL --exclude '.DS_Store' "$ROOT/tools/launchers/C&C3D.app" "$OUT/"
 # TWO TRAPS, both of which cost hours and both of which look like a corrupt download:
 #   - A minimum-OS version newer than the player's Mac makes LaunchServices refuse the
 #     bundle with -10825 and no explanation. Build machines run a newer SDK than players
-#     do, so cnc3d-launch MUST be built through tools/mac/deployment-target.sh, and
+#     do, so opencnc3d-launch MUST be built through tools/mac/deployment-target.sh, and
 #     universal, or an Apple Silicon Mac cannot run the app's own executable.
 #   - No certificate is involved here. This is ad-hoc signing, not notarisation, and the
 #     right-click-Open an unsigned download needs is unchanged.
-if [ -x "$ROOT/launcher/cnc3d-launch" ]; then
-    cp "$ROOT/launcher/cnc3d-launch" "$OUT/C&C3D.app/Contents/MacOS/cnc3d-launch"
-    chmod +x "$OUT/C&C3D.app/Contents/MacOS/cnc3d-launch"
+if [ -x "$ROOT/launcher/opencnc3d-launch" ]; then
+    cp "$ROOT/launcher/opencnc3d-launch" "$OUT/OpenCNC3D.app/Contents/MacOS/opencnc3d-launch"
+    chmod +x "$OUT/OpenCNC3D.app/Contents/MacOS/opencnc3d-launch"
 else
-    die "launcher/cnc3d-launch is missing. launcher/build.sh makes it. Without it the
+    die "launcher/opencnc3d-launch is missing. launcher/build.sh makes it. Without it the
        bundle ships the old shell script, which cannot be signed and cannot hold the
        app identity the local-network permission is attached to: LAN play then fails on
        every Mac, silently."
 fi
+# BOTH CPUS IN WHAT SHIPS. game/make-build.sh checks the play folder; this checks the
+# package, which is assembled from it by name and also swaps in the compiled .app
+# executable. One package serves Apple Silicon and Intel, so a thin file here stops the
+# game on the other kind of Mac and on no machine the build was tested on.
+. "$ROOT/tools/mac/deployment-target.sh"
+for f in "$OUT"/* "$OUT/OpenCNC3D.app/Contents/MacOS"/*; do
+    [ -f "$f" ] || continue
+    case "$(file -b "$f")" in *Mach-O*) ;; *) continue ;; esac
+    # shellcheck disable=SC2086
+    lipo "$f" -verify_arch $OPENCNC3D_MAC_ARCHS 2>/dev/null \
+        || die "$(basename "$f") in the package is $(lipo -archs "$f" 2>/dev/null), not $OPENCNC3D_MAC_ARCHS"
+done
 if command -v codesign >/dev/null 2>&1; then
-    codesign --force -s - "$OUT/C&C3D.app" 2>/dev/null \
-        || echo "note: ad-hoc signing C&C3D.app failed; the Local Network prompt will not appear" >&2
+    codesign --force -s - "$OUT/OpenCNC3D.app" 2>/dev/null \
+        || echo "note: ad-hoc signing OpenCNC3D.app failed; the Local Network prompt will not appear" >&2
 fi
 # NOT SIGNED, and that is a finding, not an omission: an ad-hoc signature on
 # this bundle, whose executable is a shell script, makes macOS 15 refuse to open it at
@@ -245,44 +443,37 @@ fi
 # the usual right-click-Open. The Local Network prompt does not need the signature: it
 # needs the usage text in Info.plist and a send the player can see, which the launcher
 # now makes before any game window.
-[ -d "$OUT/C&C3D.app" ] || die "C&C3D.app did not make it into the package. It is the
+[ -d "$OUT/OpenCNC3D.app" ] || die "OpenCNC3D.app did not make it into the package. It is the
        default double-click, the one thing that always works, and the READ-ME
-       names it first. The tracked master is tools/launchers/C&C3D.app."
-[ -f "$OUT/C&C3D.app/Contents/Resources/AppIcon.icns" ] || die "C&C3D.app has no icon.
+       names it first. The tracked master is tools/launchers/OpenCNC3D.app."
+[ -f "$OUT/OpenCNC3D.app/Contents/Resources/AppIcon.icns" ] || die "OpenCNC3D.app has no icon.
        it exists so the app is recognisable at a glance; rebuild it with
        tools/launchers/make_icon.py, which also writes the Windows .ico from the same
        source so the two platforms cannot drift."
 _n=$(ls -A "$OUT"/*.command 2>/dev/null | wc -l | tr -d ' ')
 [ "$_n" = "0" ] || die "a .command launcher reached the package ($_n of them). The macOS
-       package ships C&C3D.app and nothing else to double-click; see the note above."
+       package ships OpenCNC3D.app and nothing else to double-click; see the note above."
 
-# THE APP OPENS THE LAUNCHER. (Reported: "Make sure its the default
-# executeable / app for Windows / Mac, from release v0.6.3 and going forward.")
-#
-# C&C3D.app is a tracked script wrapper, because a binary cannot be committed
-# (repository rules rule 2), and that script has a DELIBERATE FALLBACK: if cnc3d-launcher
-# is not beside the game it runs the game directly. That fallback exists so a Mac
-# can always play, not so a release can quietly lose its front door, and the two
-# are indistinguishable from inside the package. So both halves are checked here:
-# the script must reach for the launcher, and the launcher must be there for it to
-# find.
-grep -q 'cnc3d-launcher' "$OUT/C&C3D.app/Contents/MacOS/cnc3d-launch" \
-    || die "C&C3D.app's script does not run cnc3d-launcher. That app is the ONE thing
+# The app opens the launcher. A wrapper can fall back to the game when the
+# launcher is absent, so verify both the wrapper's launcher route and the
+# packaged launcher executable.
+grep -q 'opencnc3d-launcher' "$OUT/OpenCNC3D.app/Contents/MacOS/opencnc3d-launch" \
+    || die "OpenCNC3D.app's script does not run opencnc3d-launcher. That app is the ONE thing
        a player double-clicks, so a package whose app goes straight to the game ships
        with no launcher at all: no version, no changelog, no update."
-cmp -s "$SRC/cnc3d-launcher" "$OUT/cnc3d-launcher" \
-    || die "cnc3d-launcher in the package is not the one in $SRC. The app execs it by
+cmp -s "$SRC/opencnc3d-launcher" "$OUT/opencnc3d-launcher" \
+    || die "opencnc3d-launcher in the package is not the one in $SRC. The app execs it by
        name and would fall through to the game."
-strings -a "$OUT/cnc3d-launcher" 2>/dev/null | grep -q '/api/builds' \
-    || die "cnc3d-launcher does not contain the site's build route, so whatever it is,
+strings -a "$OUT/opencnc3d-launcher" 2>/dev/null | grep -q '/api/builds' \
+    || die "opencnc3d-launcher does not contain the site's build route, so whatever it is,
        it is not a launcher that can check for updates. Rebuild it with
        game/make-build.sh, which is what refreshes $SRC."
-echo "   C&C3D.app opens cnc3d-launcher, which can reach the site"
+echo "   OpenCNC3D.app opens opencnc3d-launcher, which can reach the site"
 
 # ---- the paper --------------------------------------------------------------------
 # FROM THE TRACKED MASTER, not from playable/. The copy that lived in playable/ was
 # untracked, nothing regenerated it, and it went out in every release still announcing
-# "OpenCNC 3D v0.3.1 (macOS build, )".
+# "OpenCNC3D v0.3.1 (macOS build, )".
 [ -f "$ROOT/tools/launchers/READ-ME.txt" ] || die "tools/launchers/READ-ME.txt is missing.
        That file is the macOS package's README and it is tracked; restore it rather than
        falling back to whatever is in $SRC."
@@ -327,14 +518,14 @@ done
 #      Both halves of that are fixed; see the CLOSED note. No
 #      launcher and no player path touches any of the three.
 #
-#  cnc3d-fx.cfg
+#  opencnc3d-fx.cfg
 #      THE TUNED PRESENTATION DIALS, and the one omission here that changes what the
-#      player sees, so it is spelled out. cnc3d reads that filename at boot
-#      (app/cnc3d.cpp:655), so while it sat in playable/ the macOS package shipped it and
+#      player sees, so it is spelled out. opencnc3d reads that filename at boot
+#      (app/opencnc3d.cpp:655), so while it sat in playable/ the macOS package shipped it and
 #      the Windows package, assembled from a named list, never had it. Two packages of
 #      the same tag, rendering from different numbers, with nothing saying so. Both now
 #      boot fx_defaults() from game/fx_state.h. The preset itself is NOT lost: it is
-#      tracked at docs/tuning/cnc3d-fx.cfg, with a header saying whose it is and how to
+#      tracked at docs/tuning/opencnc3d-fx.cfg, with a header saying whose it is and how to
 #      put it back. One can be regenerated at any time with TUNE-PRESENTATION.command.
 #
 #  cnc_eyes_head
@@ -344,12 +535,42 @@ done
 #  BUILD-HISTORY.txt, .DS_Store
 #      Developer bookkeeping. BUILD-HISTORY.txt is the one file the old cp -RL package
 #      remembered to delete.
+#
+#  dosdata/movies/, dosdata/music/, dosdata/SCORES.MIX, dosdata/transit/TRANSIT.MIX,
+#  movies/, and Red Alert's ra3d/movies/ and its SCORES.MIX
+#      The 1995 movies and score, about 566 MB. They come from the disc images on
+#      archive.org at install time, when the player wants them, and are refused just
+#      below if any of them arrives. The list is tools/media/media-paths.txt.
+
+# NO MOVIE AND NO SCORE CAME WITH ANY OF IT, asked of the whole finished package rather
+# than trusted to the exclude list: every path on the list, matched without regard to case
+# as a player's disk may match it, then anything that is a movie or a score by its name
+# wherever it landed, then the two files a media download leaves in an install (its
+# record and its partial files), which belong to the player's folder and never to a
+# package. Red Alert's are refused the same way: its movies and score are on the list,
+# and a .VQA or a SCORES.MIX under ra3d/ is a movie or a score like any other. Asked
+# here, last, so that no folder copied above can bring one in unasked.
+_media=$(cd "$OUT" && {
+    while IFS= read -r _p; do
+        _p=${_p#/}; _p=${_p%/}
+        [ -n "$_p" ] && find . -ipath "./$_p" -print
+    done < "$MEDIA_EXCLUDE"
+    find . \( -iname '*.vqa' -o -iname 'SCORES.MIX' -o -iname 'TRANSIT.MIX' \
+        -o -ipath './dosdata/music/*' -o -iname 'opencnc3d-media.txt' -o -iname '*.ocpart' \) \
+        -print
+} | sed 's|^\./||' | sort -u | head -12)
+[ -z "$_media" ] || die "movies or music reached the package, and no package carries them:
+$(echo "$_media" | sed 's/^/           /')
+       The Windows installer and the launcher's Setup download them for the player who
+       wants them. The Red Alert module carries its own movies and score, which may not
+       ship either, so a package with the module in it is refused here too until Red
+       Alert has downloads of its own: build it with OPENCNC3D_NO_RA=1."
 
 # ---- what the launcher reads about its own install --------------------------------
 # Written here, last, so both files describe the folder exactly as it is about to
 # be zipped:
 #
-#   cnc3d-install.txt   the version, and the data fingerprint that decides whether
+#   opencnc3d-install.txt   the version, and the data fingerprint that decides whether
 #                       the next update can be the 2.7 MB one or has to be 507 MB
 #   CHANGELOG.txt       so the launcher's panel has the right notes in it before
 #                       any network call has been made, or has failed
@@ -359,17 +580,27 @@ done
 # manifest. One implementation of that hash, quoted at both ends: two would agree
 # until the day they did not, and the only symptom would be every update silently
 # becoming a full download.
+#
+# NO RED ALERT, ASKED OF THE FOLDER ITSELF, first: the fingerprint covers every data file
+# in it. Everything Red Alert is under ra3d/ or named for it (RedAlert.dylib, ra3d-fx.cfg),
+# so a package built without it holds no such name anywhere.
+if [ "$OPENCNC3D_NO_RA" = "1" ]; then
+    _ra=$(cd "$OUT" && find . \( -iname 'ra3d*' -o -iname 'redalert*' \) | head -5)
+    [ -z "$_ra" ] || die "the package was built with OPENCNC3D_NO_RA=1 and still carries
+       Red Alert:
+$(echo "$_ra" | sed 's/^/           /')"
+fi
 VERNUM=$(tr -d '[:space:]' < "$ROOT/VERSION")
 "$ROOT/tools/launcher/make-changelog-txt.sh" "$OUT/CHANGELOG.txt" >/dev/null
 {
     echo "# written by tools/mac/make-package-mac.sh"
     echo "version $VERNUM"
     echo "data_id $("$ROOT/tools/launcher/data-id.sh" "$OUT")"
-} > "$OUT/cnc3d-install.txt"
-[ -s "$OUT/cnc3d-install.txt" ] || die "cnc3d-install.txt was not written. Without it
+} > "$OUT/opencnc3d-install.txt"
+[ -s "$OUT/opencnc3d-install.txt" ] || die "opencnc3d-install.txt was not written. Without it
        the launcher cannot tell which build this is, and the update host cannot offer
        this package the small binary-only update."
-echo "   install record: v$VERNUM  data $(awk '$1=="data_id"{print substr($2,1,12)}' "$OUT/cnc3d-install.txt")"
+echo "   install record: v$VERNUM  data $(awk '$1=="data_id"{print substr($2,1,12)}' "$OUT/opencnc3d-install.txt")"
 
 ENTRIES=$(find "$OUT" -mindepth 1 | wc -l | tr -d ' ')
 TOP=$(ls -A "$OUT" | wc -l | tr -d ' ')

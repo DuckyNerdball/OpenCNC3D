@@ -27,7 +27,7 @@ So there are two tiers, and the boundary is not a matter of taste:
 | Conditions | one event | up to eight clauses, ALL or ANY, each negatable |
 | State | `Data` on five events, `AttachCount` | named counters |
 | Effects | the eighteen actions | the same eighteen actions |
-| Runs on | anything that reads `[Triggers]` | OpenCNC 3D only |
+| Runs on | anything that reads `[Triggers]` | OpenCNC3D only |
 | Tagged | no | `[Basic] Enhanced=1` |
 
 ---
@@ -49,7 +49,7 @@ Instead an Enhanced rule compiles to two halves:
 - a **rule** in `[EnhancedScript]` -- the rich condition, naming its carrier.
 
 `cnc_eyes` evaluates the condition each tick and, when it is satisfied, calls
-`CNC3D_Spring_Trigger(name)`. The engine then runs **its own** action body.
+`OpenCNC3D_Spring_Trigger(name)`. The engine then runs **its own** action body.
 
 ### Why the house route
 
@@ -220,7 +220,7 @@ SCRIPT's third view, beside RULES and TEAMS.
   event would fire twice, once by the engine and once by this tier.
 - Zones paint green and are their own table.
 
-The status line reads `MAP RUNS ANYWHERE` or `MAP NEEDS CNC3D`.
+The status line reads `MAP RUNS ANYWHERE` or `MAP NEEDS OpenCNC3D`.
 
 ---
 

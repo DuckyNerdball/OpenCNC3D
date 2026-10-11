@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn a CNC3D_TICKDUMP capture into one SHA-256 per tick.
+"""Turn a OPENCNC3D_TICKDUMP capture into one SHA-256 per tick.
 
 LINE ENDINGS ARE NORMALISED, and that is not tidiness. Windows opens stdout in TEXT mode,
 so a capture redirected to a file there has every \n written as \r\n while the same

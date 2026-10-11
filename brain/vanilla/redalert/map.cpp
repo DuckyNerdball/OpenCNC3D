@@ -12,6 +12,12 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D. This is not EA's original file.
+// Includes the non-Windows compatibility helpers used by the remaster library.
+// It does not change the game simulation.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
 
 /* $Header: /CounterStrike/MAP.CPP 3     3/14/97 5:15p Joe_b $ */
 /***********************************************************************************************
@@ -59,6 +65,7 @@
  *   MapClass::Pick_Random_Location -- Picks a random location on the map.                     *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+#include "../tiberiandawn/opencnc3d_compat.h"
 #include "function.h"
 #include "lcwpipe.h"
 #include "lcwstraw.h"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- objgraph, EXTENDED: scene-graph walking across BOTH model segments,
+OpenCNC3D -- objgraph, EXTENDED: scene-graph walking across BOTH model segments,
 plus per-part mount transforms. Drop-in superset of tools/romdump/objgraph.py
 (node_ptr / walk_node / display_lists keep their signatures and their GMG
 behaviour bit-for-bit; they simply now also accept ScriptModels pointers).
@@ -40,7 +40,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # ROM: private sharecopy first, then the canonical layout when this file is
-# dropped into share/CNC3D/tools/romdump.
+# dropped into share/OpenCNC3D/tools/romdump.
 _ROM_CANDIDATES = [
     os.path.join(HERE, "sharecopy", "rom", "cnc_eu.z64"),
     os.path.abspath(os.path.join(HERE, "..", "..", "rom", "cnc_eu.z64")),

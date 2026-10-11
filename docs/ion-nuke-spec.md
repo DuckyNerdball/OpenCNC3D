@@ -590,7 +590,7 @@ measured count against a number this document takes from the cartridge.
    point (and therefore where the beam's foot lands on a slope) is not decoded here.
 6. **Sound.** ANIM_ION_CANNON declares N64 sound id 11 and ANIM_ATOM_BLAST id 15 in the
    cartridge ctor table. Neither id has been mapped to the audio bank.
-7. **A tooling bug, verified, that another agent should fix.** `tools/romdump/segments.py`
+7. **A tooling bug, verified, that a follow-up change should fix.** `tools/romdump/segments.py`
    ends Movie6_1 at ROM 0x04578A0. The segment descriptor at ROM 0x00910DC reads
    `romStart 0xB0442DA0, romEnd 0xB0460190, ramStart 0x8017C100`, so the real end is
    ROM 0x0460190 and 0x88F0 = 35,056 bytes are unresolvable today. The `geometry` sweep

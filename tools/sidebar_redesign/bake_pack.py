@@ -55,6 +55,18 @@ ASSETS = [
     ("card_frame",   "card_frame.png",         1),
     ("card_seg_lit",   "card_seg_lit.png",     1),
     ("card_seg_unlit", "card_seg_unlit.png",   1),
+    ("eh_body", "enhanced/eh_body.png", 1),
+    ("eh_map", "enhanced/eh_map.png", 1),
+    ("eh_wing", "enhanced/eh_wing.png", 1),
+    ("eh_header", "enhanced/eh_header.png", 3),
+    ("eh_plate", "enhanced/eh_plate.png", 4),
+    ("eh_repair", "enhanced/eh_repair.png", 1),
+    ("eh_sell", "enhanced/eh_sell.png", 1),
+    ("eh_power", "enhanced/eh_power.png", 1),
+    ("eh_structures", "enhanced/eh_structures.png", 1),
+    ("eh_infantry", "enhanced/eh_infantry.png", 1),
+    ("eh_vehicles", "enhanced/eh_vehicles.png", 1),
+    ("eh_aircraft", "enhanced/eh_aircraft.png", 1),
 ]
 
 def bake():

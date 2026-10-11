@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCR = os.environ.get("CNC3D_SCRATCH") or os.path.abspath(os.path.join(HERE, "..", ".."))
+SCR = os.environ.get("OPENCNC3D_SCRATCH") or os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, HERE); sys.path.insert(0, SCR + "/survey")
 import mount, rend2
 

@@ -1,4 +1,4 @@
-# OpenCNC 3D: the DOS main menu
+# OpenCNC3D: the DOS main menu
 
 The 1995 MS-DOS Command & Conquer main menu, rebuilt as a standalone module and
 running natively on macOS. **No N64 content is used here at all**, by a project decision:
@@ -79,6 +79,41 @@ Nothing here is eyeballed.
 
 ## The one substitution: the title plate
 
+The current legal notice is the user's exact text in `DM_COPYRIGHT_DEFAULT`
+(`dosmenu.h`). It is painted with the same `GRAD6FNT` face and native spacing as
+the main-menu buttons. A 640-wide presentation layer fits both complete sentences
+in the existing footer seat without resizing the approved logo or altering hits.
+The original 320x200 menu pixels are duplicated with nearest sampling; legal
+glyphs retain their native source pixels. The renderer applies the menu fade
+to the footer, and actual screenshots include the same live-text pass. The
+Red Alert title path is preserved. `preview --copyright-text TEXT` overrides the
+notice in a headless still; an empty string demonstrates clean title artwork.
+
+The approved logo's embedded PNG provenance chunk was stripped for the repository
+hygiene hook; decoded RGBA pixels and the runtime menu pack remain byte-identical.
+The original generated file is preserved in the source archive. The
+portable prompt records the input filename and SHA-256 instead of a machine path.
+
+As of 8 October 2026, the user-approved `art/opencnc-3d-logo-v01.png`
+replaces the legacy wordmark. The original `art/title.png`
+is preserved as the backdrop source. The baker retains its flames, removes the
+old wordmark, crops only transparent padding from the approved logo and fits it
+uniformly into the seat at rows 138–185 below the dialog. Alpha compositing runs
+before quantisation into the unchanged title palette; it does not alter menu
+geometry, fonts, chrome or interactions. `dosmenu.manifest.json` records the
+approved source hash, alpha bounds and final seat. The exact generation prompt
+is saved alongside the source.
+
+The logo is intentionally non-recolourable. Its paired
+`art/opencnc-3d-logo-v01-player-mask.png` is an all-black, linear grayscale image
+with the same dimensions and pixel layout. This menu is baked artwork, so the
+mask is an explicit source contract rather than a runtime recolouring input.
+The Red Alert title artwork remains its own asset.
+
+The baker also resolves the current `data/dosdata/` archive layout when the
+legacy `dosdata/` source directory is absent, including `CONQUER.MIX` at the
+archive root. Run `python3 menu/bake_dosmenu.py` before staging the title pack.
+
 `art/title.png` replaces `TITLE.CPS`. The baker fits it to the original 320x200 plate
 and quantises it back into TITLE.CPS's own 256 colour palette, which is not cosmetic:
 the green dialog and the button text address palette INDICES (140, 141, 159, 41, 4),
@@ -131,7 +166,7 @@ vertically in the blanked strip, so a line that fits sits where the 1995 one sat
 wordmark block is refitted into 138..185 to leave room for two rows if it needs them.
 
 The engine's sixth button, "New Missions", is **deliberately not implemented**. It is
-shown only when `EXPAND.DAT` is present (Covert Operations), and OpenCNC 3D has no expansion
+shown only when `EXPAND.DAT` is present (Covert Operations), and OpenCNC3D has no expansion
 disc to detect, so the layout is always the five button one, which is what `menus.cpp`
 draws when `Expansion_Present()` is false.
 

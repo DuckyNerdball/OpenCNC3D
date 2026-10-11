@@ -1,0 +1,24 @@
+# G319 leg 1: an aircraft's shadow in Classic is a dark smudge on the ground, not a
+# second aircraft (game/gate_airshadow.py reads what this prints).
+#
+# SCB70EA is the aircraft gate's own mission: the Brotherhood's Air Strike is ready, and
+# its three A-10s fly at FLIGHT_LEVEL over open Temperate grass. A fixed-wing aircraft
+# does not bob, so two frames of the same tick are the same frame, and the second one,
+# with the shadows left out, finds the shadow's pixels by difference.
+
+tick 120
+gfxmode 0
+cam 30 40
+sbclickitem SW_AirStrike
+actclick 450 300
+tick 60
+cam 10 32
+tick 1
+airdump
+shot shots/g319_on.png
+dosairprobe
+dosshadows 0
+shot shots/g319_off.png
+dosairprobe
+dosshadows 1
+quit

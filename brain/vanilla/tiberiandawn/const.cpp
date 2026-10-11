@@ -13,13 +13,13 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Adds two 256-entry palette remap tables, RemapGrey and RemapBrown, for
 // multiplayer houses 7 and 8, compiled only when EIGHTPLAYERS is defined.
 // Each table remaps only the gold house colour band (indices 176 to 191)
 // onto grey or brown ramps and leaves every other index identical.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 

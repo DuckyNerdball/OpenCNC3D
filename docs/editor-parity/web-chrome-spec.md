@@ -1,4 +1,4 @@
-# OpenCNC 3D WEB MISSION EDITOR -- EXACT CHROME SPECIFICATION
+# OpenCNC3D WEB MISSION EDITOR -- EXACT CHROME SPECIFICATION
 
 Source files (repo-relative):
 - `tools/heightmap-viewer/public/index.html` (lines 6-590 = the entire stylesheet; lines 592-879 = markup). There is **no separate .css file**.
@@ -106,7 +106,7 @@ Left → right, separated by the 14px flex gap:
 
 1. **`.mark`** -- flex, gap 8px, colour `var(--gold)`, `letter-spacing:.16em`, `font-size:11px`, `font-weight:600`.
    - **`.coin`** -- 34×34px, `flex:0 0 34px`, `perspective:260px`, `transform-style:preserve-3d`, `animation: coinspin 7s linear infinite` (0°→360° rotateY), disabled under `prefers-reduced-motion`. Three absolutely-positioned children filling `inset:0`: front face `background:url(data/gdi.png) center/contain no-repeat`, `border-radius:50%`, `box-shadow: 0 0 0 1px rgba(224,176,112,.55) inset, 0 0 10px -2px rgba(224,176,112,.5)`; back face `.b` = same, `rotateY(180deg)`; edge `.e` = `rotateY(90deg)`, **width 5px**, `left:calc(50% - 2.5px)`, `background:linear-gradient(180deg,#3a2b17,#e8c98f 18%,#8a6a3c 50%,#e8c98f 82%,#3a2b17)`, `border-radius:1px`.
-   - Text `CNC3D` then `<span class="sub">MISSION EDITOR</span>` -- sub is `color:var(--dimmer)`, `letter-spacing:.14em`, `font-weight:400`, inherits 11px.
+   - Text `OpenCNC3D` then `<span class="sub">MISSION EDITOR</span>` -- sub is `color:var(--dimmer)`, `letter-spacing:.14em`, `font-weight:400`, inherits 11px.
 2. **`.vr`** -- vertical rule, **1px × 26px**, `background:var(--line)`, `flex:0 0 1px`.
 3. **`#mapchip` (`.mapchip .bev`)** -- clickable; opens the Missions tab (`editor.js:2300`). `height:30px`, `padding:0 8px 0 10px`, gap 10px, `background:var(--panel2)`, `border:1px solid var(--line2)`, `border-radius:4px`, `cursor:pointer`. Hover: `border-color:#4a5c72; background:var(--panel3)`. Contents left→right:
    - `#mcdot` (`.dotside`) -- 7×7px circle, `background:var(--gold)`, `box-shadow:0 0 0 2px rgba(224,176,112,.18)`. Runtime: set to `#ff6a5a` when `side === 'Nod'`, else `#e0b070` (app.js:1190).

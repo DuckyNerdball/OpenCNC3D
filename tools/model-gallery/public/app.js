@@ -1,4 +1,4 @@
-/* OpenCNC 3D model gallery.
+/* OpenCNC3D model gallery.
  *
  * Draws the cartridge's models the way the game draws them, because it reads the same
  * baked pack the game reads. The three rules that make a mesh come out right, all of
@@ -1079,7 +1079,7 @@ document.getElementById('mGo').onclick = async () => {
       const files = await fetchAll(items, set);
       text.textContent = 'Zipping ' + files.length + ' files…';
       await new Promise(r => setTimeout(r, 30));
-      download(zip(files), 'cnc3d-models-' + mFmt +
+      download(zip(files), 'opencnc3d-models-' + mFmt +
         (mOptState.gdi ? '-gdi' : '') + '.zip');
     }
     text.textContent = 'Done.';

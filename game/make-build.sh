@@ -4,9 +4,9 @@
 set -e
 cd "$(dirname "$0")"
 # THE DESTINATION AND THE DATA BELONG TO THE WORKING COPY THIS SCRIPT LIVES IN, and both
-# used to be spelled $HOME/OpenCNC 3D regardless of where that was.
+# used to be spelled $HOME/CNC3D regardless of where that was.
 #
-# On the one working copy whose path happens to be $HOME/OpenCNC 3D that reads the same either
+# On the one working copy whose path happens to be $HOME/CNC3D that reads the same either
 # way, which is why it survived. Anywhere else it is wrong and it is wrong SILENTLY: a
 # build run from a second checkout compiles this tree's sources and then installs them
 # over the FIRST checkout's playable folder, so one session's binaries replace another's
@@ -19,12 +19,12 @@ cd "$(dirname "$0")"
 # tools/release.sh and any deliberate out-of-tree build rely on.
 REPO="$(cd .. && pwd)"
 DEST="${1:-$REPO/playable}"
-LOCAL_DATA="${CNC3D_DATA:-$REPO/data/dist-v0.3.1}"
+LOCAL_DATA="${OPENCNC3D_DATA:-$REPO/data/dist-v0.3.1}"
 GITDESC=$(git describe --always --dirty 2>/dev/null || echo untracked)
-# tools/release.sh sets CNC3D_BUILD_ID to the number it is about to tag, because at the
+# tools/release.sh sets OPENCNC3D_BUILD_ID to the number it is about to tag, because at the
 # moment it builds, VERSION has been bumped and not yet committed, so git describe would
 # name the artefact "-dirty" for what is about to become a clean release.
-[ -n "$CNC3D_BUILD_ID" ] && GITDESC="$CNC3D_BUILD_ID"
+[ -n "$OPENCNC3D_BUILD_ID" ] && GITDESC="$OPENCNC3D_BUILD_ID"
 
 # GENERATE BEFORE YOU COMPILE. bake_pack.py writes game/hud640_layout.h, and hud640.h
 # takes every coordinate from it, so it is a compile INPUT. It used to run after the three
@@ -44,22 +44,100 @@ python3 ../tools/sidebar_redesign/bake_pack.py >/dev/null || {
 (cd ../launcher && ./build.sh) # the front door: version, changelog, update, Play
 mkdir -p "$DEST"
 cp cnc_eyes "$DEST/"
-cp ../app/cnc3d "$DEST/"
+cp ../app/opencnc3d "$DEST/"
+# Refresh an already staged RA module with this same renderer and its own building art.
+#
+# OPENCNC3D_NO_RA=1 MAKES A BUILD WITH NO RED ALERT IN IT, which is what the public
+# packages are (tools/release.sh sets it). Everything Red Alert lives under ra3d/: its
+# brain, its packs, its building art and its copy of the program. This build then puts
+# none of it in $DEST, and an ra3d/ already there from an earlier build is left exactly as
+# it was rather than deleted, because it is somebody's staged module; both packagers leave
+# it out under the same switch.
+if [ "$OPENCNC3D_NO_RA" = "1" ]; then
+    echo "Red Alert: left out (OPENCNC3D_NO_RA=1); nothing is staged into $DEST/ra3d"
+    [ ! -d "$DEST/ra3d" ] || echo "   the ra3d/ already there is from an earlier build: not refreshed, not packaged"
+elif [ -d "$DEST/ra3d" ]; then
+    cp ../app/opencnc3d "$DEST/ra3d/opencnc3d"
+    cp "$REPO/brain/vanilla/build-native/redalert/RedAlert.dylib" "$DEST/ra3d/RedAlert.dylib"
+    python3 "$REPO/tools/ra3d/stage-structures.py" "$DEST/ra3d"
+fi
+cp ../art/generated/temperate_grass/v3_color_matched/grass_rgb.bin \
+   "$DEST/temperate_grass_rgb.bin"
+# The Enhanced textures, two packs per theater (build.sh made them): the cells at 144
+# texels a cell and the join blend's strips. Windows takes every .pack from here, so both
+# platforms ship them. The first set's packs (terrain30_<TH>.pack) go from a folder that
+# still has them: the game would never read them, and the Windows zip would carry them.
+rm -f "$DEST"/terrain30_*.pack
+for th in TEMPERAT DESERT WINTER SNOW; do
+    cp "../art/remaster/textures/$th/terrainenh_$th.pack" "$DEST/"
+    cp "../art/remaster/textures/$th/terrainseam_$th.pack" "$DEST/"
+done
+cp ../art/generated/temperate_cliffs/approved_style_v1/cliffs_rgb_color_matched.pack \
+   "$DEST/temperate_cliffs_rgb.pack"
+cp ../art/generated/temperate_cliffs/approved_style_v1/cliffs_height.pack \
+   "$DEST/temperate_cliffs_height.pack"
+cp ../art/generated/temperate_cliffs/approved_style_v1/cliffs_normal.pack \
+   "$DEST/temperate_cliffs_normal.pack"
+cp ../art/generated/temperate_roads/approved_style_v1/roads_rgb.pack \
+   "$DEST/temperate_roads_rgb.pack"
+cp ../art/generated/temperate_roads/approved_style_v1/roads_height.pack \
+   "$DEST/temperate_roads_height.pack"
+cp ../art/generated/temperate_roads/approved_style_v1/roads_normal.pack \
+   "$DEST/temperate_roads_normal.pack"
+cp ../art/generated/temperate_roads/approved_style_v1/roads_roughness.pack \
+   "$DEST/temperate_roads_roughness.pack"
+cp ../art/generated/temperate_shores/remastered_style_v1/shores_rgb.pack \
+   "$DEST/temperate_shores_rgb.pack"
+cp ../art/generated/temperate_shores/remastered_style_v1/shores_height.pack \
+   "$DEST/temperate_shores_height.pack"
+cp ../art/generated/temperate_shores/remastered_style_v1/shores_normal.pack \
+   "$DEST/temperate_shores_normal.pack"
+cp ../art/generated/temperate_bridges/remastered_style_v1/bridges_rgb.pack \
+   "$DEST/temperate_bridges_rgb.pack"
+cp ../art/generated/temperate_bridges/remastered_style_v1/bridges_height.pack \
+   "$DEST/temperate_bridges_height.pack"
+cp ../art/generated/temperate_bridges/remastered_style_v1/bridges_normal.pack \
+   "$DEST/temperate_bridges_normal.pack"
+cp ../art/generated/temperate_bridges/remastered_style_v1/bridges_roughness.pack \
+   "$DEST/temperate_bridges_roughness.pack"
+cp ../art/generated/temperate_rivers/remastered_style_v1/rivers_rgb.pack \
+   "$DEST/temperate_rivers_rgb.pack"
+cp ../art/generated/temperate_rivers/remastered_style_v1/rivers_height.pack \
+   "$DEST/temperate_rivers_height.pack"
+cp ../art/generated/temperate_rivers/remastered_style_v1/rivers_normal.pack \
+   "$DEST/temperate_rivers_normal.pack"
 
-# THE LAUNCHER LIVES AT THE PACKAGE ROOT, not inside C&C3D.app, and that is on
+# THE LAUNCHER LIVES AT THE PACKAGE ROOT, not inside OpenCNC3D.app, and that is on
 # purpose. Put it in the bundle and it needs its own copy of the SDL libraries
 # three directories away from the ones already here, or a rewritten load command
 # that breaks the moment anyone moves the app. At the root it is an ordinary file
 # beside the game: tools/bundle-sdl.sh below finds it by scanning the folder, and
-# the binary-only update can name it. C&C3D.app stays a tracked, binary-free
-# wrapper whose script execs it (repository rules rule 2 keeps binaries out of git).
-cp ../launcher/cnc3d-launcher "$DEST/"
-[ -x "$DEST/cnc3d-launcher" ] || { echo "the launcher did not reach $DEST" >&2; exit 1; }
+# the binary-only update can name it. OpenCNC3D.app stays a tracked, binary-free
+# wrapper whose script execs it, because binaries are kept out of git.
+cp ../launcher/opencnc3d-launcher "$DEST/"
+[ -x "$DEST/opencnc3d-launcher" ] || { echo "the launcher did not reach $DEST" >&2; exit 1; }
 
 # And the bundle that opens it, so a freshly built playable/ is the shape a player
 # gets rather than a folder with no way in. rsync -aL because the tracked master
 # is the only copy and this must not follow it back.
-rsync -aL --exclude '.DS_Store' "$REPO/tools/launchers/C&C3D.app" "$DEST/" 2>/dev/null || true
+rsync -aL --exclude '.DS_Store' "$REPO/tools/launchers/OpenCNC3D.app" "$DEST/" 2>/dev/null || true
+
+# THE .app's OWN EXECUTABLE IS THE COMPILED ONE HERE TOO, not the tracked script. On an
+# Apple Silicon Mac without Rosetta, macOS offers to install Rosetta for a bundle whose
+# executable is a shell script, even when everything the script starts is native, and
+# the game does not open. tools/mac/make-package-mac.sh has always swapped in
+# launcher/opencnc3d-launch for the download; the play folder a developer double-clicks
+# kept the script until this. Same binary, same ad-hoc signature as the package.
+if [ -x ../launcher/opencnc3d-launch ]; then
+  cp ../launcher/opencnc3d-launch "$DEST/OpenCNC3D.app/Contents/MacOS/opencnc3d-launch"
+  chmod +x "$DEST/OpenCNC3D.app/Contents/MacOS/opencnc3d-launch"
+  codesign --force -s - "$DEST/OpenCNC3D.app" 2>/dev/null \
+    || echo "note: ad-hoc signing $DEST/OpenCNC3D.app failed" >&2
+else
+  echo "FAIL: launcher/opencnc3d-launch is missing (launcher/build.sh makes it); the play" >&2
+  echo "      folder's OpenCNC3D.app would keep the script, which asks for Rosetta on Apple Silicon" >&2
+  exit 1
+fi
 
 # THE SDL LIBRARIES TRAVEL WITH THE BUILD. Until 20 Aug 2026 they did not, and every
 # macOS release ever cut was unplayable on any Mac but this one: both binaries carried
@@ -73,7 +151,21 @@ rsync -aL --exclude '.DS_Store' "$REPO/tools/launchers/C&C3D.app" "$DEST/" 2>/de
 # it (cnc_eyes_head, say) would otherwise ship still pointing at Homebrew.
 sh ../tools/bundle-sdl.sh "$DEST"
 
-cp ../menu/dosmenu.pack "$DEST/" 2>/dev/null || true
+# THE MENU PACK IS BAKED HERE WHEN IT IS MISSING OR OLDER THAN WHAT IT IS MADE FROM.
+# It holds the title screen with the logo, the 1995 fonts and the dialog frames, and it
+# is a build product: a fresh checkout has none, and a pack left from an earlier bake
+# would ship an earlier title. So it is baked from menu/art and the DOS data whenever
+# either is newer, and a failed bake stops the build rather than shipping without it.
+MENU_BAKE=0
+[ -f ../menu/dosmenu.pack ] || MENU_BAKE=1
+for f in ../menu/bake_dosmenu.py ../menu/art/*.png; do
+    [ "$f" -nt ../menu/dosmenu.pack ] && MENU_BAKE=1
+done
+if [ "$MENU_BAKE" = 1 ]; then
+    echo "   menu pack: baking menu/dosmenu.pack"
+    python3 ../menu/bake_dosmenu.py || { echo "FATAL: the menu pack did not bake" >&2; exit 1; }
+fi
+cp ../menu/dosmenu.pack "$DEST/"
 
 # WHAT LOCAL_DATA IS, AND WHY ALMOST NOTHING COMES FROM IT.
 #
@@ -98,9 +190,9 @@ cp ../menu/dosmenu.pack "$DEST/" 2>/dev/null || true
 # is to say so rather than to paper over it with old bytes.
 #
 # content/ and CONQUER.MIX are the two with no baker. They are left alone here: where they
-# are meant to live is an open question in known-gap notes and not this script's to settle.
-# Note only that the RIGHT CONQUER.MIX is the 268366-byte one beside the other play data,
-# not the 2244000-byte archive of the same name in data/dosdata, which is a different file.
+# are meant to live is still an open question, and not this script's to settle.
+# game/build.sh preserves the playable CONQUER.MIX members and adds missing original
+# sprite members from data/dosdata/CONQUER.MIX for DOS Classic.
 
 # THE PACKS THE GAME ACTUALLY RUNS COME FROM THE BAKERY, and nothing
 # put them here: this script copied the binaries and left whatever .pack files happened
@@ -140,6 +232,25 @@ python3 bake_logos.py >/dev/null || {
 python3 bake_tib3d.py >/dev/null || {
     echo "make-build.sh: bake_tib3d.py failed; the Enhanced crystals would be absent" >&2; exit 1; }
 
+# AND THE SKY, on the same reasoning and with one extra wrinkle. bake_sky.py turns the
+# committed cross photograph under data/sky into the cube map and the nine harmonics that
+# Enhanced lights every authored model by. Input and tool are both tracked and the bake is
+# a couple of seconds, so by the rule that a build product with a command behind it is not
+# committed, the PACK is not: it is made here every time.
+#
+# The wrinkle is that this one needs numpy and Pillow, which bake_tib3d.py does not, so
+# the message names them. A build machine that has baked the trees already has both.
+#
+# IT REFUSES RATHER THAN WARNS, and that is the point. Without sky.pack the renderer falls
+# back to the two-colour hemisphere it used before, which is a complete picture with no
+# error in it -- so a shipped build missing this looks like a renderer whose metal went
+# dull rather than like a build that lost a file.
+python3 bake_sky.py "$REPO/data/sky/sky_cross.webp" -o sky.pack >/dev/null || {
+    echo "make-build.sh: bake_sky.py failed; Enhanced would light every authored model" >&2
+    echo "  from the flat two-colour fallback and say nothing about it." >&2
+    echo "  It needs numpy and Pillow: python3 -m pip install numpy pillow" >&2; exit 1; }
+[ -s sky.pack ] || { echo "make-build.sh: sky.pack came out empty" >&2; exit 1; }
+
 # THE TREES ARE A COMMITTED ASSET, NOT A BAKE. bake_tree3d.py rebuilds tree3d.pack from
 # a Poly Haven glTF, and that glTF is a sixty-megabyte download per species which has no
 # business in this repository. The pack it produces is one megabyte, so the PACK is what
@@ -148,10 +259,178 @@ python3 bake_tib3d.py >/dev/null || {
 if [ -f "$REPO/data/trees/tree3d.pack" ]; then
     cp "$REPO/data/trees/tree3d.pack" tree3d.pack
 fi
+
+# THE REMASTERED TIBERIUM travels the same way. tools/art/remaster/resources/run_TIB.sh
+# builds and paints it in headless Blender and bake_candidate.py packs it, which is no step
+# for every build, so the PACK is what is tracked and a build copies it. The game loads it
+# under Enhanced in every theater (tib3d_mod.h, TIB3D_RINGS_PACK); without it the old
+# tib3d.pack draws instead.
+if [ -f "$REPO/data/tiberium/tib3d_rings.pack" ]; then
+    cp "$REPO/data/tiberium/tib3d_rings.pack" tib3d_rings.pack
+fi
+
+# THE GROUND PATCHES travel for the same reason the trees do. bake_mottle.py builds the
+# pack out of two hundred megabytes of source photographs that have no business in this
+# repository, so the PACK is what is tracked and a build copies it. Without it the
+# renderer looks for the file, does not find it, and draws plain ground, which is a
+# correct picture that says nothing about why the patches are missing.
+for patch in mottle.pack mottle_desert.pack; do
+    [ ! -f "$REPO/data/mottle/$patch" ] || cp "$REPO/data/mottle/$patch" "$patch"
+done
+
+# THE SCATTERED BUSHES AND GRASS CLUMPS travel for the same reason as well.
+# tools/art/foliage/bake_foliage3d.py builds the pack from a Unity Asset Store package
+# that needs Unity to read, so the PACK is what is tracked and a build copies it. Without
+# it the experimental art draws no bushes and says so once in the log.
+if [ -f "$REPO/data/foliage/foliage3d.pack" ]; then
+    cp "$REPO/data/foliage/foliage3d.pack" foliage3d.pack
+fi
+# THE ROCKS, the same way: rock3d.pack is baked from a Unity Asset Store package by
+# tools/art/rocks/bake_rock3d.py and committed; a build copies it.
+if [ -f "$REPO/data/rocks/rock3d.pack" ]; then
+    cp "$REPO/data/rocks/rock3d.pack" rock3d.pack
+fi
+# THE PAINTED STONES, the switch. tools/art/rocks/build_stones.py makes the fifteen stones
+# as angular hand-painted rocks in the remaster set's method, one pack per theater
+# (rock3d_DESERT/TEMPERAT/WINTER.pack), and the game reads a theater's pack in place of
+# rock3d.pack when the play folder has it. ROCK_STONES_DEFAULT is the one flag: "painted"
+# bakes the theater packs into the folder, "unity" keeps the experimental stones (and
+# removes any painted packs an earlier build left, so a folder never mixes the two).
+# tools/art/rocks/stones.sh does the work and reads this line; the Windows package calls
+# the same script, so both platforms carry the same stones. ROCK_STONES=unity in the
+# environment builds one folder with the old stones, for a comparison.
+ROCK_STONES_DEFAULT=painted
+sh "$REPO/tools/art/rocks/stones.sh" . "${ROCK_STONES:-$ROCK_STONES_DEFAULT}"
+
+# THE AUTHORED VEHICLE MODELS travel for the same reason the trees do, and are committed
+# for the same reason: tools/art/blender_c3m.py rebuilds a .c3m out of a Blender file
+# that is a hundred megabytes and has no business in this repository, so the PRODUCT is
+# what is tracked and a build copies it. Without this a release ships a renderer that
+# looks for models3d/, finds nothing, and draws the cartridge's vehicles -- which is a
+# correct picture and the wrong one, and says nothing at all about why.
+if [ -d "$REPO/game/models3d" ]; then
+    mkdir -p "$DEST/models3d"
+    for m in "$REPO"/game/models3d/*.c3m; do
+        [ -f "$m" ] && cp "$m" "$DEST/models3d/"
+    done
+fi
+# THE FIXED CARTRIDGE BUILDINGS (n64fix_mod.h), Enhanced only, travel the same way and
+# for the same reason: tools/art/n64fix/bake_enhanced.py needs the Blender exports, so
+# the baked game/n64fix/*.n64x are tracked and a build copies them. The folder is
+# REPLACED rather than added to, because the renderer finds a model by name: a file
+# left behind from a type whose approval was withdrawn would go on drawing it.
+if [ -d "$REPO/game/n64fix" ]; then
+    rm -rf "$DEST/n64fix"
+    mkdir -p "$DEST/n64fix"
+    for m in "$REPO"/game/n64fix/*.n64x; do
+        [ -f "$m" ] && cp "$m" "$DEST/n64fix/"
+    done
+fi
+# THE ENHANCED BUILDINGS (ebld_mod.h), Enhanced only, travel the same way and for the
+# same reason: tools/art/remaster/bake_ebld.py reads a viewer export that only Blender
+# can produce, so the baked game/ebld/<TYPE>.ebld files are tracked and a build copies
+# them. REPLACED rather than added to, as n64fix is: the renderer finds a building's file
+# by its type name, so a file left behind from a withdrawn type would go on drawing and
+# breaking that building. Missing, Enhanced draws the fixed building and the old shatter,
+# which is a correct picture and the wrong one; check_asset below refuses that folder.
+if [ -d "$REPO/game/ebld" ]; then
+    rm -rf "$DEST/ebld"
+    mkdir -p "$DEST/ebld"
+    for m in "$REPO"/game/ebld/*.ebld; do
+        [ -f "$m" ] && cp "$m" "$DEST/ebld/"
+    done
+fi
+# THE PLACEMENTS (ebld_place.h), Enhanced only, beside them and the same way:
+# tools/art/remaster/bake_eplc.py reads the lab's placements, made with Blender's parts, so
+# the baked game/eplc/<TYPE>.eplc files are tracked, and the folder is REPLACED so a
+# withdrawn type's file cannot go on moving it. Missing, a remastered structure goes up by
+# the cartridge's reveal; check_asset below refuses that folder.
+if [ -d "$REPO/game/eplc" ]; then
+    rm -rf "$DEST/eplc"
+    mkdir -p "$DEST/eplc"
+    for m in "$REPO"/game/eplc/*.eplc; do
+        [ -f "$m" ] && cp "$m" "$DEST/eplc/"
+    done
+fi
+# THE REMASTERED VEHICLES AND AIRCRAFT (evhc_mod.h), Enhanced only, the same way and for
+# the same reasons: tools/art/remaster/bake_evhc.py reads a viewer export only Blender can
+# produce, so the baked game/evhc/<TYPE>.evhc files are tracked, and the folder is REPLACED
+# so a withdrawn type's file cannot go on drawing it. Missing, Enhanced draws the
+# cartridge's vehicles and their old shatter; check_asset below refuses that folder.
+if [ -d "$REPO/game/evhc" ]; then
+    rm -rf "$DEST/evhc"
+    mkdir -p "$DEST/evhc"
+    for m in "$REPO"/game/evhc/*.evhc; do
+        [ -f "$m" ] && cp "$m" "$DEST/evhc/"
+    done
+fi
+# THE REMASTERED SOLDIERS (einf/<TYPE>.c3m, model3d_mod.h), Enhanced only, travel the same
+# way and for the same reason: tools/art/remaster/infantry/ makes them with Blender, so
+# the product is tracked and a build copies it. REPLACED rather than added to, as ebld is:
+# the renderer finds a soldier's file by type name. Missing, Enhanced draws the 1995
+# sprites; check_asset below refuses that folder.
+if [ -d "$REPO/game/einf" ]; then
+    rm -rf "$DEST/einf"
+    mkdir -p "$DEST/einf"
+    for m in "$REPO"/game/einf/*.c3m; do
+        [ -f "$m" ] && cp "$m" "$DEST/einf/"
+    done
+fi
+# THE REMASTERED CURSORS (ecur/ecur.bin, cursor3d_mod.h), Enhanced only, travel the same
+# way and for the same reason: tools/art/remaster/cursors/bake_ecur.py bakes them from the
+# approved lab models, which need Blender and the cartridge extraction, so the product is
+# tracked and a build copies it. Missing, Enhanced draws the cartridge's cursors;
+# check_asset below refuses that.
+if [ -f "$REPO/game/ecur/ecur.bin" ]; then
+    rm -rf "$DEST/ecur"
+    mkdir -p "$DEST/ecur"
+    cp "$REPO/game/ecur/ecur.bin" "$DEST/ecur/"
+fi
+# THE UNITY EXPLOSION (unityvfx_mod.h) travels the same way and for the same reason:
+# game/vfx3d/<effect>/ is the product of tools/art/unity_vfx/, which needs Unity and the
+# Asset Store package, so the product is tracked and a build copies it. Missing, the
+# renderer says so once at start and draws the cartridge's explosions.
+if [ -d "$REPO/game/vfx3d" ]; then
+    mkdir -p "$DEST/vfx3d"
+    rsync -a "$REPO/game/vfx3d/" "$DEST/vfx3d/"
+fi
 # bake_pack.py writes into the REPO's playable, which is not necessarily $DEST.
 if [ "$REPO/playable/hud640.pack" != "$DEST/hud640.pack" ]; then
     cp "$REPO/playable/hud640.pack" "$DEST/hud640.pack"
 fi
+
+# THE GENERATED HEIGHTMAPS. A scenario the cartridge left flat (the Covert Operations
+# missions first) gets a heightmap generated from its own tiles by tools/autoheight, and
+# the reviewed result is committed as data/autoheight/<SCEN>.HGT. bake5.py reads it on
+# its own, but nothing re-bakes a scenario pack during a build, so a heightmap committed
+# after the pack was baked would never reach the game. Re-bake any such pack that is
+# older than its heightmap (a few seconds each; the loop below then stages it), and
+# afterwards REFUSE if a staged pack does not carry exactly the committed heights:
+# without this, a map would play flat with nothing on screen to say so.
+mkdir -p ../tools/bakery/game
+for HGT in "$REPO"/data/autoheight/*.HGT; do
+    [ -f "$HGT" ] || continue
+    S=$(basename "$HGT" .HGT)
+    P="../tools/bakery/game/$S.pack"
+    if [ ! -f "$P" ] || [ "$HGT" -nt "$P" ]; then
+        # bake5.py reads the scenario's resolved terrain, terrain_<SCEN>.json, which is a
+        # generated intermediate and not committed: a fresh checkout has none. n64_terrain.py
+        # makes it from the committed .MAP and .INI in well under a second, so make it here
+        # when it is missing rather than relying on a checkout that happens to hold one.
+        TJ="../tools/bakery/sharecopy/assets/terrain/terrain_$S.json"
+        if [ ! -f "$TJ" ]; then
+            echo "auto heightmap: resolving $S terrain"
+            python3 ../tools/bakery/sharecopy/assets/terrain/n64_terrain.py "$S" \
+                > "../tools/bakery/game/$S.terrain.log" 2>&1 && [ -f "$TJ" ] || {
+                cat "../tools/bakery/game/$S.terrain.log" >&2
+                echo "make-build.sh: n64_terrain.py $S failed; $S could not be baked" >&2; exit 1; }
+        fi
+        echo "auto heightmap: baking $S"
+        python3 ../tools/bakery/bake5.py "$S" > "../tools/bakery/game/$S.bake.log" 2>&1 || {
+            cat "../tools/bakery/game/$S.bake.log" >&2
+            echo "make-build.sh: bake5.py $S failed; its generated heightmap would not ship" >&2; exit 1; }
+    fi
+done
 
 n=0
 for BAKED in ../tools/bakery/game .; do
@@ -163,6 +442,31 @@ for BAKED in ../tools/bakery/game .; do
   done
 done
 echo "packs: $n refreshed"
+python3 "$REPO/tools/autoheight/check_packs.py" "$DEST" || {
+    echo "make-build.sh: a scenario pack does not carry its generated heightmap" >&2; exit 1; }
+
+# THE REMASTERED EFFECTS (Enhanced): efx_enh.pack, baked every build from the committed
+# sources in art/remaster/fx by tools/art/remaster/fx/make_fx.py, on top of the cartridge's
+# own efx.pack (which bake_efx.py makes from the ROM, and which must therefore already be
+# in $DEST). It refuses rather than warns, for the reason sky.pack does: without the pack
+# Enhanced quietly draws the cartridge's effects, a complete picture with nothing wrong
+# in it. The Windows build copies every pack in $DEST, so this covers both.
+[ -f "$DEST/efx.pack" ] || { echo "make-build.sh: no $DEST/efx.pack to build the remastered effects on (game/bake_efx.py)" >&2; exit 1; }
+python3 "$REPO/tools/art/remaster/fx/make_fx.py" --cart "$DEST/efx.pack" --pack "$DEST/efx_enh.pack" >/dev/null || {
+    echo "make-build.sh: make_fx.py failed; Enhanced would draw the cartridge's effects" >&2
+    echo "  and say nothing about it. It needs numpy and Pillow." >&2; exit 1; }
+[ -s "$DEST/efx_enh.pack" ] || { echo "make-build.sh: efx_enh.pack came out empty" >&2; exit 1; }
+
+# THE REMASTERED BUILDING APRONS (Enhanced): bibenh.pack, baked every build from the
+# committed paintings in art/remaster/bib and the cartridge's own apron silhouettes by
+# tools/art/remaster/bib/bake_bibenh.py. Refused rather than warned for the same reason:
+# without it Enhanced quietly draws the cartridge's aprons. Windows copies it with every
+# other pack in $DEST.
+python3 "$REPO/tools/art/remaster/bib/bake_bibenh.py" --pack "$DEST/bibenh.pack" >/dev/null || {
+    echo "make-build.sh: bake_bibenh.py failed; Enhanced would draw the cartridge's aprons" >&2
+    echo "  and say nothing about it. It needs numpy, scipy and Pillow." >&2; exit 1; }
+[ -s "$DEST/bibenh.pack" ] || { echo "make-build.sh: bibenh.pack came out empty" >&2; exit 1; }
+
 rsync -a missions "$DEST/" 2>/dev/null || true
 
 # THE BRAIN TRAVELS WITH THE BUILD TOO, and it did not.
@@ -262,24 +566,69 @@ for b in gate_lockstep gate_netloop netcheck; do
   [ -x "$DEST/$b" ] || { echo "FAIL: $b did not reach $DEST (G130 runs the two gates; game/build.sh makes all three)" >&2; exit 1; }
   g=$((g+1))
 done
+# THE REST OF THE GATE BINARIES game/build.sh makes. It stages them into the checkout's own
+# playable/, which is this folder only when the build is run from that checkout; built from
+# another worktree, the copies here stayed whatever an older build left, and after the move
+# to universal binaries that meant Intel-only helpers beside a universal game. Not asserted
+# one by one: the architecture check below refuses any Mach-O here that is missing a slice.
+for b in gate_tunnel gate_beacon gate_lobby gate_roomcode gate_mpbrowse cnc_twobrain; do
+  [ -x "$b" ] && cp "$b" "$DEST/" && g=$((g+1))
+done
+# fx_state.h is a SOURCE HEADER in a folder that otherwise holds a build, and it is here
+# for the same reason gate_optlayout is: a gate reads it, and a gate input that is quietly
+# absent is worse than one that is loudly wrong. G259 is a static read of the dial table
+# rather than a render -- it proves no two rows drive the same setting, which no picture
+# can show -- so the table itself is its input. It resolves that file beside gates.sh, and
+# gates.sh runs from THIS folder whenever a release is cut, so without this line the gate
+# cannot pass in the one run that decides whether a build ships.
+cp fx_state.h "$DEST/" 2>/dev/null || true
+[ -f "$DEST/fx_state.h" ] || { echo "FAIL: fx_state.h did not reach $DEST (G259 reads the dial table out of it)" >&2; exit 1; }
+g=$((g+1))
 echo "gates: $g files copied to $DEST"
+
+# Enhanced environment, cinematic and HUD WAVs. Local folder points at the reproducible
+# import; package builders dereference it into a portable folder. A play folder that holds a
+# real copy instead (cloned from another folder, which dereferences the link) is refreshed
+# from the import on every build: left alone it kept the sounds it was first given, and
+# played the placement's old generated impact and rumble after recordings replaced them.
+media_dir() {
+  [ -d "../data/$1" ] || return 0
+  if [ -L "$DEST/$1" ]; then return 0; fi
+  if [ -d "$DEST/$1" ]; then rsync -a --delete --exclude '.DS_Store' "../data/$1/" "$DEST/$1/"
+  else ln -s "$(cd "../data/$1" && pwd)" "$DEST/$1"; fi
+}
+media_dir ambience
+media_dir cinematic
+media_dir foley
 
 # THE SOUND DATA. Without dosdata/ beside the binary the build boots, plays and is
 # completely silent, and the only thing that says so is one line on stderr. The
 # archives are large (SCORES.MIX alone is 54 MB), so this is a symlink into the repo's
-# data/dosdata rather than a copy; a release tarball substitutes a real copy.
+# data/dosdata rather than a copy; the packages substitute a real copy.
+#
+# THIS FOLDER KEEPS THE MOVIES AND THE MUSIC, all of data/dosdata through the link, and it
+# must: the gates that play a movie or measure the score run here. The packages are the
+# ones without them (tools/mac/make-package-mac.sh and the Windows packager leave out the
+# paths in tools/media/media-paths.txt), and gate G316 plays the campaign in a folder made
+# from this one with those paths taken away.
 if [ ! -e "$DEST/dosdata" ] && [ -d ../data/dosdata ]; then
   ln -s "$(cd ../data/dosdata && pwd)" "$DEST/dosdata"
   echo "linked dosdata -> $DEST/dosdata"
 fi
+# THE NEW AUDIO replacement sounds, linked for the same reason: the folder is the
+# repo's own, and the release package copies it for real.
+if [ ! -e "$DEST/newaudio" ] && [ -d ../data/newaudio ]; then
+  ln -s "$(cd ../data/newaudio && pwd)" "$DEST/newaudio"
+  echo "linked newaudio -> $DEST/newaudio"
+fi
 # EVERY MACH-O IN THE FOLDER DECLARES A macOS FLOOR THIS OLD OR OLDER. Measured 20 Aug
-# 2026: cnc3d, cnc_eyes AND TiberianDawn.dylib all carried LC_BUILD_VERSION minos 26.0,
+# 2026: opencnc3d, cnc_eyes AND TiberianDawn.dylib all carried LC_BUILD_VERSION minos 26.0,
 # because no build script set a deployment target and clang stamps whatever SDK it finds.
 # dyld REFUSES a Mach-O whose minos is newer than the running system, so every Mac below
 # macOS 26 rejected the release before main() ran -- on top of, and hiding behind, the
 # SDL bundling that was supposed to make a release playable elsewhere.
 #
-# WHAT IS CHECKED: cnc3d, cnc_eyes, netcheck and every .dylib -- the binaries by name and
+# WHAT IS CHECKED: opencnc3d, cnc_eyes, netcheck and every .dylib -- the binaries by name and
 # the libraries by the same *.dylib glob the macOS packager uses. netcheck is on the list
 # because it ships too, and because of what it is for: it is the tool a person reaches for
 # when a match will not start, so a copy that dyld refuses would answer that question with
@@ -295,18 +644,30 @@ fi
 # fixed.
 . ../tools/mac/deployment-target.sh
 floorbad=0
-for p in "$DEST/cnc3d" "$DEST/cnc_eyes" "$DEST/netcheck" "$DEST"/*.dylib; do
+for p in "$DEST/opencnc3d" "$DEST/cnc_eyes" "$DEST/netcheck" "$DEST"/*.dylib; do
   [ -f "$p" ] || continue
-  MIN=$(otool -l "$p" 2>/dev/null \
+  # EVERY SLICE, not the first: a universal file carries one load command per
+  # architecture, and plain otool -l reads only the first, so an arm64 slice asking for
+  # a newer macOS would pass behind a compliant x86_64 one. The highest floor is kept.
+  MIN=""
+  for a in $(lipo -archs "$p" 2>/dev/null); do
+    m=$(otool -arch "$a" -l "$p" 2>/dev/null \
         | awk '/LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX/{f=1} f && /^ *(minos|version) /{print $2; exit}')
+    [ -n "$m" ] || { MIN=""; break; }
+    if [ -z "$MIN" ] || awk -v a="$m" -v b="$MIN" 'BEGIN{
+          split(a,x,"."); split(b,y,".");
+          exit ((x[1]*10000+x[2]*100+x[3]) > (y[1]*10000+y[2]*100+y[3])) ? 0 : 1 }'; then
+      MIN=$m
+    fi
+  done
   if [ -z "$MIN" ]; then
     echo "FAIL: $(basename "$p") declares no macOS floor at all (no LC_BUILD_VERSION)." >&2
     floorbad=1; continue
   fi
-  awk -v a="$MIN" -v b="$CNC3D_MACOS_MIN" 'BEGIN{
+  awk -v a="$MIN" -v b="$OPENCNC3D_MACOS_MIN" 'BEGIN{
         split(a,x,"."); split(b,y,".");
         exit ((x[1]*10000+x[2]*100+x[3]) <= (y[1]*10000+y[2]*100+y[3])) ? 0 : 1 }' \
-    || { echo "FAIL: $(basename "$p") declares macOS $MIN, above the $CNC3D_MACOS_MIN floor." >&2
+    || { echo "FAIL: $(basename "$p") declares macOS $MIN, above the $OPENCNC3D_MACOS_MIN floor." >&2
          floorbad=1; }
 done
 [ "$floorbad" = "0" ] || {
@@ -317,18 +678,68 @@ done
   echo "the brain gets it from tools/mac/build-brain-mac.sh, which is what to run if the" >&2
   echo "name above is TiberianDawn.dylib." >&2
   exit 1; }
-echo "macOS floor: cnc3d, cnc_eyes, netcheck and every .dylib in $DEST are $CNC3D_MACOS_MIN or older"
+echo "macOS floor: opencnc3d, cnc_eyes, netcheck and every .dylib in $DEST are $OPENCNC3D_MACOS_MIN or older"
+
+# BOTH CPUS, EVERY BINARY. One Mac package runs on Apple Silicon and on Intel only if every
+# Mach-O in it carries both slices (tools/mac/deployment-target.sh). The process is one
+# architecture throughout, so a single thin file -- an SDL library left over from an older
+# build, a brain built before the switch -- stops the game on the other kind of Mac in
+# dyld, and on the build machine nothing is wrong at all. The .app's own executable is
+# checked here only when it is a Mach-O: the play folder carries the script version, and
+# the package swaps in the compiled one (tools/mac/make-package-mac.sh checks that).
+#
+# What this build puts here must be universal, and fails the build if not. Any OTHER Mach-O
+# in the folder (a binary from an experiment that no build makes any more) is only named:
+# it is not shipped, the package copies files by name, but it will not run on the Mac
+# whose CPU it lacks.
+archbad=0
+for p in "$DEST"/* "$DEST/OpenCNC3D.app/Contents/MacOS"/*; do
+  [ -f "$p" ] || continue
+  case "$(file -b "$p")" in *Mach-O*) ;; *) continue ;; esac
+  # AND IT CAN FIND ITS SDL. A binary copied in after tools/bundle-sdl.sh ran above keeps
+  # the @rpath load command a CMake-built SDL records; with no LC_RPATH that resolves to
+  # nothing and the binary dies in dyld (exit 134) before main.
+  if otool -L "$p" 2>/dev/null | awk 'NR>1 && /^[ \t]/ { print $1 }' | grep -q '^@rpath/libSDL2'; then
+    echo "FAIL: $(basename "$p") loads SDL through @rpath and has no rpath: tools/bundle-sdl.sh never fixed it." >&2
+    archbad=1
+  fi
+  # shellcheck disable=SC2086
+  lipo "$p" -verify_arch $OPENCNC3D_MAC_ARCHS 2>/dev/null && continue
+  case "$(basename "$p")" in
+    opencnc3d|cnc_eyes|opencnc3d-launcher|netcheck|cnc_twobrain|gate_*|*.dylib|opencnc3d-launch)
+      echo "FAIL: $(basename "$p") is $(lipo -archs "$p" 2>/dev/null), not $OPENCNC3D_MAC_ARCHS." >&2
+      archbad=1 ;;
+    *)
+      echo "note: $(basename "$p") in $DEST is $(lipo -archs "$p" 2>/dev/null) only; no build makes it" ;;
+  esac
+done
+[ "$archbad" = "0" ] || {
+  echo "" >&2
+  echo "A file above would stop the game on the Mac whose CPU it lacks. Rebuild it through" >&2
+  echo "game/build.sh, app/build.sh or tools/mac/build-brain-mac.sh; an SDL library is" >&2
+  echo "replaced by tools/bundle-sdl.sh from the universal SDL tools/mac/setup-sdl-mac.sh makes." >&2
+  exit 1; }
+echo "architectures: every Mach-O this build puts in $DEST is $OPENCNC3D_MAC_ARCHS"
 
 # A COOKED PACKAGE CARRIES NO F5 PANEL. Same check as tools/win/make-build-win.sh, for
 # the same fail-open case: a cook that was asked for and not compiled in.
-if [ -n "$CNC3D_COOKED" ]; then
-  for b in cnc_eyes cnc3d; do
-    strings - "$DEST/$b" 2>/dev/null | grep -q 'unavailable in a cooked build' || {
-      echo "FAIL: $b was packaged as a cooked build but carries the F5 panel: it was" >&2
-      echo "compiled without CNC3D_COOKED. Rebuild with the packager, not by hand." >&2
+#
+# READ OFF THE BINARIES, NOT THE FLAGS. Each one carries the build mark from
+# game/opencnc3d_build.h (tools/version.sh writes it), and it ends "|cooked" only when
+# OPENCNC3D_COOKED reached that compile. It names the build too, so a binary left over
+# from another build fails here as well: the stamp has to be the one in the header now.
+if [ -n "$OPENCNC3D_COOKED" ]; then
+  STAMP=$(sed -n 's/^#define OPENCNC3D_BUILD "\(.*\)"$/\1/p' opencnc3d_build.h 2>/dev/null)
+  [ -n "$STAMP" ] || { echo "FAIL: game/opencnc3d_build.h names no build" >&2; exit 1; }
+  for b in cnc_eyes opencnc3d; do
+    strings -a "$DEST/$b" 2>/dev/null | grep -qxF "OPENCNC3D|build|$STAMP|cooked" || {
+      echo "FAIL: $b was packaged as a cooked build of $STAMP but does not say so. Its" >&2
+      echo "build mark is: $(strings -a "$DEST/$b" 2>/dev/null | grep '^OPENCNC3D|build|' | sort -u | tr '\n' ' ')" >&2
+      echo "A missing |cooked means it was compiled without OPENCNC3D_COOKED and still has" >&2
+      echo "the F5 panel. Rebuild with the packager, not by hand." >&2
       exit 1; }
   done
-  echo "cooked: cnc_eyes and cnc3d carry no F5 panel"
+  echo "cooked: cnc_eyes and opencnc3d are $STAMP, compiled with no F5 panel"
 fi
 
 # A COMPLETE PLAY FOLDER, OR A REFUSAL THAT NAMES WHAT IS MISSING AND WHO MAKES IT.
@@ -350,20 +761,33 @@ check_asset() {   # $1 = file or dir, $2 = how to get it
   $1
       $2"
 }
-check_asset content            "the theater archives. No baker in this repo: see known-gap notes"
-check_asset CONQUER.MIX        "the 268366-byte one. NOT data/dosdata's 2244000-byte file of that name"
+check_asset content            "the theater archives (TEMPERAT.MIX, DESERT.MIX); game/build.sh stages them"
+check_asset content/TEMPERAT.MIX "original temperate scenery; staged by game/build.sh"
+check_asset content/DESERT.MIX   "original desert scenery; staged by game/build.sh"
+check_asset dosclassic.pack    "game/bake_dosclassic.py"
+check_asset CONQUER.MIX        "the playable archive with original DOS sprites merged by game/build.sh"
 check_asset dossidebar.pack    "game/bake_dossidebar.py   (the game REFUSES to draw a sidebar without it)"
 check_asset cameos.pack        "game/bake_cameos.py"
 check_asset dosinfantry.pack   "game/bake_dosinfantry.py"
 check_asset dosmake.pack       "game/bake_dosmake.py"
 check_asset campaign.pack      "game/bake_campaign.py"
 check_asset efx.pack           "game/bake_efx.py"
+check_asset efx_enh.pack       "tools/art/remaster/fx/make_fx.py   (Enhanced remastered effects; without it Enhanced draws the cartridge's)"
 check_asset dosmenu.pack       "menu/, copied above"
 check_asset verdict.pack       "game/bake_verdict.py"
 check_asset dostib.pack        "game/bake_dostiberium.py"
 check_asset tib3d.pack         "game/bake_tib3d.py       (Enhanced solid crystals; without it the flat overlay draws alone)"
+check_asset tib3d_rings.pack   "data/tiberium/tib3d_rings.pack, copied above (the remastered Tiberium, Enhanced; without it the old tib3d.pack draws)"
 check_asset tree3d.pack        "data/trees/tree3d.pack   (Enhanced leafy trees; without it the cartridge tree model draws)"
+check_asset foliage3d.pack     "data/foliage/foliage3d.pack   (experimental art bushes and grass clumps; without it none are scattered)"
+check_asset rock3d.pack        "data/rocks/rock3d.pack   (the rocks at the foot of rock faces on a theater without a painted pack; without it none are laid there)"
+check_asset ebld               "game/ebld/*.ebld, copied above; tools/art/remaster/bake_ebld.py writes them (the Enhanced Power Plant; without it Enhanced draws the fixed building and the old shatter)"
+check_asset eplc               "game/eplc/*.eplc, copied above; tools/art/remaster/bake_eplc.py writes them (the remastered structures going up part by part; without it Enhanced shows the cartridge's reveal)"
+check_asset evhc               "game/evhc/*.evhc, copied above; tools/art/remaster/bake_evhc.py writes them (the remastered vehicles and aircraft; without it Enhanced draws the cartridge's)"
+check_asset einf               "game/einf/*.c3m, copied above; tools/art/remaster/infantry/soldier_c3m.py writes them (the remastered Minigunner; without it Enhanced draws the 1995 infantry sprites)"
+check_asset ecur/ecur.bin      "game/ecur/ecur.bin, copied above; tools/art/remaster/cursors/bake_ecur.py writes it (the remastered cursors; without it Enhanced draws the cartridge's)"
 check_asset smudge.pack        "game/bake_smudges.py"
+check_asset bibenh.pack        "tools/art/remaster/bib/bake_bibenh.py   (Enhanced remastered building aprons; without it Enhanced draws the cartridge's)"
 check_asset logos.pack         "game/bake_logos.py       (the score screen's spinning faction logo)"
 check_asset hud640.pack        "tools/sidebar_redesign/bake_pack.py"
 check_asset cameos95.pack      "tools/sidebar_redesign/cameos95.py"
@@ -390,8 +814,7 @@ if [ -n "$MISSING" ]; then
   echo "" >&2
   echo "Refusing rather than shipping a folder that starts and is wrong. Most of these" >&2
   echo "degrade silently, so the damage would show up as a renderer bug in somebody's" >&2
-  echo "report weeks later. See known-gap notes, \"make-build.sh cannot assemble a" >&2
-  echo "complete play folder from a fresh checkout\"." >&2
+  echo "report weeks later. Each line above names the command that makes the file." >&2
   echo "" >&2
   echo "Do NOT satisfy these by copying from data/dist-v0.3.1. It is a v0.3.1 snapshot," >&2
   echo "stale by several releases: a folder filled from it passes this check and then" >&2
@@ -402,7 +825,7 @@ fi
 # SKIRMISH NEEDS A PAIR PER MAP, and nothing above can see that. Every name in the list
 # above is a fixed auxiliary pack; not one scenario pack is among them, and the missions
 # copy is "|| true", so a folder can pass every check written so far with the SCM mission
-# INIs present and no SCM packs at all. skirmish_scan in app/cnc3d.cpp admits a map only
+# INIs present and no SCM packs at all. skirmish_scan in app/opencnc3d.cpp admits a map only
 # when it finds BOTH halves, so such a folder ships a Skirmish button with an empty lobby
 # behind it and nothing in this file says a word.
 #

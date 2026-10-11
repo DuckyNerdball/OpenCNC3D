@@ -1,5 +1,5 @@
 /* ============================================================================
- *  C&C3D.app's main executable, on macOS. A NATIVE BINARY, and that is the whole
+ *  OpenCNC3D.app's main executable, on macOS. A NATIVE BINARY, and that is the whole
  *  point of it: this file replaces a bash script that did the same job.
  *
  *  WHY IT STOPPED BEING A SCRIPT (6 Sep 2026, after two failed LAN tests).
@@ -43,8 +43,8 @@ static int has_named(const char* d, const char* name, int exec)
     int n;
     snprintf(p, sizeof p, "%s/%s", d, name);
     if (exec ? is_exec(p) : is_file(p)) return 1;
-    snprintf(p, sizeof p, "%s/cnc3d-update.journal", d); if (!is_file(p)) return 0;
-    snprintf(p, sizeof p, "%s/cnc3d-install.txt", d);    if (!is_file(p)) return 0;
+    snprintf(p, sizeof p, "%s/opencnc3d-update.journal", d); if (!is_file(p)) return 0;
+    snprintf(p, sizeof p, "%s/opencnc3d-install.txt", d);    if (!is_file(p)) return 0;
     for (n = 1; n <= 9; n++) {
         if (n == 1) snprintf(p, sizeof p, "%s/%s.old", d, name);
         else        snprintf(p, sizeof p, "%s/%s.old%d", d, name, n);
@@ -54,11 +54,11 @@ static int has_named(const char* d, const char* name, int exec)
 }
 
 /* A folder is "the game" only if it carries the binary AND two things only the real
-   package has. Testing for cnc3d alone would let a stray copy of the binary win. */
+   package has. Testing for opencnc3d alone would let a stray copy of the binary win. */
 static int is_game_dir(const char* d)
 {
     if (!d || !*d) return 0;
-    return has_named(d, "cnc3d", 1) && has_named(d, "TiberianDawn.dylib", 0)
+    return has_named(d, "opencnc3d", 1) && has_named(d, "TiberianDawn.dylib", 0)
         && has_named(d, "dosmenu.pack", 0);
 }
 
@@ -69,7 +69,7 @@ static void alert(const char* msg)
     char cmd[4096];
     snprintf(cmd, sizeof cmd,
              "/usr/bin/osascript -e 'on run argv' "
-             "-e 'display alert \"C&C3D\" message (item 1 of argv) as critical' "
+             "-e 'display alert \"OpenCNC3D\" message (item 1 of argv) as critical' "
              "-e 'end run' -- %s >/dev/null 2>&1", "\"$MSG\"");
     setenv("MSG", msg, 1);
     (void)system(cmd);
@@ -83,7 +83,7 @@ static int ask_choose(const char* msg)
     setenv("MSG", msg, 1);
     snprintf(cmd, sizeof cmd,
              "/usr/bin/osascript -e 'on run argv' "
-             "-e 'display alert \"C&C3D\" message (item 1 of argv) buttons {\"Quit\", \"Choose Folder\"} "
+             "-e 'display alert \"OpenCNC3D\" message (item 1 of argv) buttons {\"Quit\", \"Choose Folder\"} "
              "default button \"Choose Folder\" as critical' "
              "-e 'return button returned of result' -e 'end run' -- \"$MSG\" 2>/dev/null");
     f = popen(cmd, "r");
@@ -96,7 +96,7 @@ static int ask_choose(const char* msg)
 static int pick_folder(char* out, size_t outmax)
 {
     FILE* f = popen("/usr/bin/osascript -e 'try' "
-                    "-e 'POSIX path of (choose folder with prompt \"Select the C&C3D folder\")' "
+                    "-e 'POSIX path of (choose folder with prompt \"Select the OpenCNC3D folder\")' "
                     "-e 'end try' 2>/dev/null", "r");
     size_t n;
     if (!f) return 0;
@@ -117,7 +117,7 @@ int main(void)
                                         "dosinfantry.pack", "TiberianDawn.dylib" };
     if (_NSGetExecutablePath(exe, &sz) != 0) return 1;
 
-    /* .../C&C3D.app/Contents/MacOS/cnc3d-launch  ->  the folder holding the .app */
+    /* .../OpenCNC3D.app/Contents/MacOS/opencnc3d-launch  ->  the folder holding the .app */
     {
         char tmp[2048]; snprintf(tmp, sizeof tmp, "%s", exe);
         snprintf(bundle, sizeof bundle, "%s", dirname(tmp));      /* MacOS   */
@@ -154,9 +154,13 @@ int main(void)
             d = opendir(bases[i]);
             if (!d) continue;
             while ((e = readdir(d)) != NULL) {
+                /* The whole name, in any case, sized from the literal: the zip expands
+                   to OpenCNC3D-macos-v<build>, and a copy may have been renamed. */
+                static const char prefix[] = "opencnc3d";
                 char cand[2048];
                 if (e->d_name[0] == '.') continue;
-                if (strncasecmp(e->d_name, "cnc3d", 5) != 0 && strstr(e->d_name, "OpenCNC 3D") == NULL)
+                if (strncasecmp(e->d_name, prefix, sizeof prefix - 1) != 0
+                    && strstr(e->d_name, "OpenCNC3D") == NULL)
                     continue;
                 snprintf(cand, sizeof cand, "%s/%s", bases[i], e->d_name);
                 if (is_game_dir(cand)) { snprintf(dir, sizeof dir, "%s", cand); break; }
@@ -167,16 +171,16 @@ int main(void)
 
     if (!dir[0]) {
         const char* msg = strstr(bundle, "/AppTranslocation/")
-            ? "macOS opened C&C3D from a temporary location, so the app cannot see the rest of the game. "
+            ? "macOS opened OpenCNC3D from a temporary location, so the app cannot see the rest of the game. "
               "This is because the download is not signed by Apple -- it is not a damaged download.\n\n"
-              "Choose the C&C3D folder (the one holding cnc3d and the .pack files) and it will start, "
+              "Choose the OpenCNC3D folder (the one holding opencnc3d and the .pack files) and it will start, "
               "and stay fixed for next time."
             : "Could not find the game files next to this app.\n\n"
-              "Choose the C&C3D folder (the one holding cnc3d and the .pack files) and it will start.";
+              "Choose the OpenCNC3D folder (the one holding opencnc3d and the .pack files) and it will start.";
         if (!ask_choose(msg)) return 1;
         if (!pick_folder(dir, sizeof dir) || !is_game_dir(dir)) {
             alert("That folder does not contain the game.\n\n"
-                  "Look for the folder holding cnc3d, TiberianDawn.dylib and the .pack files. "
+                  "Look for the folder holding opencnc3d, TiberianDawn.dylib and the .pack files. "
                   "It is the folder the download unzipped into.");
             return 1;
         }
@@ -220,9 +224,9 @@ int main(void)
        this process with a binary that lives OUTSIDE the bundle, and from that moment the
        system sees no app at all: it never asks, and it refuses every packet to the LAN
        with "No route to host". Measured on two Macs over a day. Staying alive as the
-       parent keeps the game attributed to C&C3D.app, so the question is asked once and
+       parent keeps the game attributed to OpenCNC3D.app, so the question is asked once and
        the player's answer sticks. The cost is one idle process for the session. */
-    /* EXCEPT WHILE AN UPDATE IS UNFINISHED. cnc3d-update.journal in the folder means
+    /* EXCEPT WHILE AN UPDATE IS UNFINISHED. opencnc3d-update.journal in the folder means
        the launcher was stopped part way through an update, and only the launcher
        reads the journal and puts the folder back. Starting the game instead would
        run whatever mix of two builds the update left, and leave it that way on every
@@ -232,27 +236,27 @@ int main(void)
     {
         pid_t pid = fork();
         if (pid == 0) {
-            if (is_exec("./cnc3d-launcher"))
-                execl("./cnc3d-launcher", "cnc3d-launcher", "--", "--w", "1600", "--h", "960", (char*)NULL);
-            if (is_file("./cnc3d-update.journal")) {
+            if (is_exec("./opencnc3d-launcher"))
+                execl("./opencnc3d-launcher", "opencnc3d-launcher", "--", "--w", "1600", "--h", "960", (char*)NULL);
+            if (is_file("./opencnc3d-update.journal")) {
                 char old[32];
                 int n;
                 for (n = 1; n <= 9; n++) {
-                    if (n == 1) snprintf(old, sizeof old, "./cnc3d-launcher.old");
-                    else        snprintf(old, sizeof old, "./cnc3d-launcher.old%d", n);
+                    if (n == 1) snprintf(old, sizeof old, "./opencnc3d-launcher.old");
+                    else        snprintf(old, sizeof old, "./opencnc3d-launcher.old%d", n);
                     if (is_exec(old))
-                        execl(old, "cnc3d-launcher", "--", "--w", "1600", "--h", "960", (char*)NULL);
+                        execl(old, "opencnc3d-launcher", "--", "--w", "1600", "--h", "960", (char*)NULL);
                 }
                 _exit(126);
             }
-            execl("./cnc3d", "cnc3d", "--w", "1600", "--h", "960", (char*)NULL);
+            execl("./opencnc3d", "opencnc3d", "--w", "1600", "--h", "960", (char*)NULL);
             _exit(127);
         }
         if (pid > 0) {
             int st = 0;
             while (waitpid(pid, &st, 0) < 0 && errno == EINTR) { }
             if (WIFEXITED(st) && WEXITSTATUS(st) == 126) {
-                alert("An update to C&C3D did not finish, and the launcher that finishes it is "
+                alert("An update to OpenCNC3D did not finish, and the launcher that finishes it is "
                       "missing, so the game was not started.\n\n"
                       "Download the game again and replace this folder with it.");
                 return 1;

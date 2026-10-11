@@ -45,11 +45,11 @@ WANT = "Act On Instinct"          # theme.cpp's first score track, TXT_THEME_AOI
 
 # dosopt.h:58-59, :193-208. The DOS plate and the Sound Controls dialog inside it.
 SCREEN_W, SCREEN_H = 320, 200
-SND_W, SND_H = 292, 146
+SND_W, SND_H = 292, 158      # the Ambience row made the dialog 12 rows taller
 SND_X = (SCREEN_W - SND_W) // 2
 SND_Y = (SCREEN_H - SND_H) // 2
 LIST_X = SND_X + 1
-LIST_Y = SND_Y + 54
+LIST_Y = SND_Y + 66
 LIST_W, LIST_H = 290, 73
 ROW_H = 8
 ROWS = LIST_H // ROW_H

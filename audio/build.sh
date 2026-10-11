@@ -1,5 +1,5 @@
 #!/bin/sh
-# OpenCNC 3D audio engine build.
+# OpenCNC3D audio engine build.
 #
 #   ./build.sh          core + harnesses (no SDL, headless proof)
 #   ./build.sh sdl      also builds the SDL2 smoke test

@@ -95,7 +95,7 @@ that port, listens, and lists what it hears. No service, no configuration, and i
 a network with no internet at all.
 
 ```
-CNC3D_LAN_PORT   17420        one below the default match port, deliberately adjacent
+OPENCNC3D_LAN_PORT   17420        one below the default match port, deliberately adjacent
 ```
 
 The beacon says only what the browser needs to draw a row and decide whether to try:
@@ -122,7 +122,7 @@ correctly rather than lingering.
 
 The LAN beacon cannot cross a router, so the internet list needs somewhere for hosts to
 announce to. Decision 1 in `docs/design-multiplayer.md` already recommended one small
-always-on service, and `cnc3dgame.com` already serves `/api/builds`, `/api/changelog` and
+always-on service, and `opencnc3d.com` already serves `/api/builds`, `/api/changelog` and
 `/api/download`, so this is a fourth route on a host that exists rather than a new thing to
 run.
 

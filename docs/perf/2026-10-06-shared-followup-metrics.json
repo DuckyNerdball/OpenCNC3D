@@ -1,0 +1,1603 @@
+{
+  "date": "2026-10-06",
+  "machine": "Apple M5 Max, 40 GPU cores, 64 GB RAM",
+  "size": [
+    2560,
+    1440
+  ],
+  "settings_sha256": "54914f69cbb1c0ddc9d341f4abf4442e4a4c20316f614695b3b3d8db2295ef5c",
+  "measurement_note": "FRAMEPROF is CPU submission/wall time including swap, not GPU timer queries. First window is cold; next three are warm. Static framebench uses glFinish and freezes simulation.",
+  "source_hashes": {
+    "game/cnc_eyes.cpp": "7ecaba6c1bee0a65aaff65b5abaf2077f1397f8c8007863c8ffc166ef56f5a12",
+    "game/mesh_batch.h": "b317dfe5c925331fe311d3e33d33d011ecd3a01019098cebeee6d055a60f3d8b",
+    "game/ebld_mod.h": "9617bc9c2b5b961965ff8180e35e2a4a34e82fb7fadc095c2385c02a15a12a34",
+    "game/ra3d_sprites_mod.h": "44fa14aeed84c6a3061891224acb20e4033f343e308f53521a201d0404c1f41f"
+  },
+  "profiles": {
+    "td-live.log": [
+      {
+        "frames": "254",
+        "mean": "19.75",
+        "worst": "591.7",
+        "prep + shroud corners": "0.26",
+        "sun shadow map": "3.50",
+        "seabed": "0.02",
+        "water": "5.15",
+        "terrain": "0.41",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.12",
+        "tread marks": "0.00",
+        "smudges": "0.03",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.11",
+        "crystals: update": "0.08",
+        "crystals: glow": "1.83",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "2.13",
+        "trees + foliage": "0.82",
+        "cutout + translucent": "0.31",
+        "infantry": "0.11",
+        "effects": "0.05",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.03",
+        "post chain": "2.94",
+        "hud + present": "0.19",
+        "panels": "0.15",
+        "editor + options": "0.17",
+        "swap": "0.85",
+        "events + tick + refresh": "0.40"
+      },
+      {
+        "frames": "280",
+        "mean": "17.89",
+        "worst": "27.9",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.31",
+        "seabed": "0.03",
+        "water": "4.79",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.12",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.09",
+        "crystals: glow": "1.78",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "2.27",
+        "trees + foliage": "0.89",
+        "cutout + translucent": "0.33",
+        "infantry": "0.13",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.10",
+        "hud + present": "0.20",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.75",
+        "events + tick + refresh": "0.39"
+      },
+      {
+        "frames": "282",
+        "mean": "17.76",
+        "worst": "24.5",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.36",
+        "seabed": "0.02",
+        "water": "4.77",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.12",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.08",
+        "crystals: glow": "1.76",
+        "tiberium crystals": "0.03",
+        "objects (opaque)": "2.23",
+        "trees + foliage": "0.87",
+        "cutout + translucent": "0.33",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.08",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.76",
+        "events + tick + refresh": "0.37"
+      },
+      {
+        "frames": "280",
+        "mean": "17.89",
+        "worst": "24.3",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.39",
+        "seabed": "0.02",
+        "water": "4.78",
+        "terrain": "0.41",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.12",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.12",
+        "crystals: glow": "1.75",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "2.24",
+        "trees + foliage": "0.88",
+        "cutout + translucent": "0.33",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.10",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.76",
+        "events + tick + refresh": "0.37"
+      }
+    ],
+    "td-live-glow-off.log": [
+      {
+        "frames": "261",
+        "mean": "19.21",
+        "worst": "635.9",
+        "prep + shroud corners": "0.27",
+        "sun shadow map": "3.72",
+        "seabed": "0.03",
+        "water": "5.47",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.10",
+        "tread marks": "0.00",
+        "smudges": "0.03",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.11",
+        "crystals: update": "0.08",
+        "crystals: glow": "0.00",
+        "tiberium crystals": "0.01",
+        "objects (opaque)": "2.19",
+        "trees + foliage": "0.88",
+        "cutout + translucent": "0.33",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.03",
+        "post chain": "3.10",
+        "hud + present": "0.20",
+        "panels": "0.13",
+        "editor + options": "0.16",
+        "swap": "1.31",
+        "events + tick + refresh": "0.40"
+      },
+      {
+        "frames": "293",
+        "mean": "17.12",
+        "worst": "26.5",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.51",
+        "seabed": "0.03",
+        "water": "5.16",
+        "terrain": "0.43",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.11",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.10",
+        "crystals: glow": "0.00",
+        "tiberium crystals": "0.01",
+        "objects (opaque)": "2.28",
+        "trees + foliage": "0.92",
+        "cutout + translucent": "0.35",
+        "infantry": "0.13",
+        "effects": "0.07",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.24",
+        "hud + present": "0.21",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.96",
+        "events + tick + refresh": "0.40"
+      },
+      {
+        "frames": "299",
+        "mean": "16.72",
+        "worst": "23.6",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.41",
+        "seabed": "0.03",
+        "water": "4.93",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.10",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.08",
+        "crystals: glow": "0.00",
+        "tiberium crystals": "0.01",
+        "objects (opaque)": "2.21",
+        "trees + foliage": "0.87",
+        "cutout + translucent": "0.33",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.13",
+        "hud + present": "0.20",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.26",
+        "events + tick + refresh": "0.37"
+      },
+      {
+        "frames": "303",
+        "mean": "16.55",
+        "worst": "23.9",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.38",
+        "seabed": "0.02",
+        "water": "4.86",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.11",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.13",
+        "crystals: glow": "0.00",
+        "tiberium crystals": "0.01",
+        "objects (opaque)": "2.16",
+        "trees + foliage": "0.85",
+        "cutout + translucent": "0.32",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.04",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.34",
+        "events + tick + refresh": "0.35"
+      }
+    ],
+    "td-live-reflect-off.log": [
+      {
+        "frames": "281",
+        "mean": "17.84",
+        "worst": "681.0",
+        "prep + shroud corners": "0.25",
+        "sun shadow map": "3.71",
+        "seabed": "0.03",
+        "water": "0.64",
+        "terrain": "0.45",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.10",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.11",
+        "crystals: update": "0.08",
+        "crystals: glow": "3.58",
+        "tiberium crystals": "0.06",
+        "objects (opaque)": "2.25",
+        "trees + foliage": "0.94",
+        "cutout + translucent": "0.34",
+        "infantry": "0.14",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.03",
+        "post chain": "3.12",
+        "hud + present": "0.20",
+        "panels": "0.12",
+        "editor + options": "0.15",
+        "swap": "1.00",
+        "events + tick + refresh": "0.39"
+      },
+      {
+        "frames": "314",
+        "mean": "15.95",
+        "worst": "21.8",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.47",
+        "seabed": "0.03",
+        "water": "0.21",
+        "terrain": "0.43",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.11",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.08",
+        "crystals: update": "0.10",
+        "crystals: glow": "3.35",
+        "tiberium crystals": "0.06",
+        "objects (opaque)": "2.37",
+        "trees + foliage": "0.99",
+        "cutout + translucent": "0.36",
+        "infantry": "0.14",
+        "effects": "0.07",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.26",
+        "hud + present": "0.21",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.22",
+        "events + tick + refresh": "0.38"
+      },
+      {
+        "frames": "309",
+        "mean": "16.20",
+        "worst": "25.3",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.51",
+        "seabed": "0.03",
+        "water": "0.22",
+        "terrain": "0.43",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.11",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.08",
+        "crystals: glow": "3.10",
+        "tiberium crystals": "0.06",
+        "objects (opaque)": "2.40",
+        "trees + foliage": "0.99",
+        "cutout + translucent": "0.35",
+        "infantry": "0.14",
+        "effects": "0.07",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.23",
+        "hud + present": "0.20",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.70",
+        "events + tick + refresh": "0.38"
+      },
+      {
+        "frames": "309",
+        "mean": "16.18",
+        "worst": "23.1",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.55",
+        "seabed": "0.03",
+        "water": "0.22",
+        "terrain": "0.44",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.11",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.08",
+        "crystals: update": "0.13",
+        "crystals: glow": "3.08",
+        "tiberium crystals": "0.06",
+        "objects (opaque)": "2.33",
+        "trees + foliage": "0.97",
+        "cutout + translucent": "0.35",
+        "infantry": "0.14",
+        "effects": "0.07",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.24",
+        "hud + present": "0.21",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.68",
+        "events + tick + refresh": "0.37"
+      }
+    ],
+    "td-live-wind-off.log": [
+      {
+        "frames": "251",
+        "mean": "19.94",
+        "worst": "619.5",
+        "prep + shroud corners": "0.27",
+        "sun shadow map": "3.65",
+        "seabed": "0.02",
+        "water": "5.28",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.10",
+        "tread marks": "0.00",
+        "smudges": "0.03",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.10",
+        "crystals: update": "0.08",
+        "crystals: glow": "1.63",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "2.17",
+        "trees + foliage": "0.85",
+        "cutout + translucent": "0.33",
+        "infantry": "0.13",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.03",
+        "post chain": "3.04",
+        "hud + present": "0.19",
+        "panels": "0.13",
+        "editor + options": "0.16",
+        "swap": "0.74",
+        "events + tick + refresh": "0.42"
+      },
+      {
+        "frames": "290",
+        "mean": "17.30",
+        "worst": "23.3",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.27",
+        "seabed": "0.02",
+        "water": "4.67",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.10",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.06",
+        "crystals: update": "0.09",
+        "crystals: glow": "1.77",
+        "tiberium crystals": "0.03",
+        "objects (opaque)": "2.20",
+        "trees + foliage": "0.85",
+        "cutout + translucent": "0.32",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.04",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.61",
+        "events + tick + refresh": "0.37"
+      },
+      {
+        "frames": "288",
+        "mean": "17.41",
+        "worst": "22.5",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.32",
+        "seabed": "0.02",
+        "water": "4.71",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.10",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.08",
+        "crystals: glow": "1.69",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "2.21",
+        "trees + foliage": "0.86",
+        "cutout + translucent": "0.32",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.06",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.67",
+        "events + tick + refresh": "0.37"
+      },
+      {
+        "frames": "287",
+        "mean": "17.48",
+        "worst": "24.9",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.34",
+        "seabed": "0.02",
+        "water": "4.69",
+        "terrain": "0.42",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.10",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.12",
+        "crystals: glow": "1.75",
+        "tiberium crystals": "0.03",
+        "objects (opaque)": "2.21",
+        "trees + foliage": "0.86",
+        "cutout + translucent": "0.32",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "3.06",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.65",
+        "events + tick + refresh": "0.36"
+      }
+    ],
+    "ra-live.log": [
+      {
+        "frames": "396",
+        "mean": "12.65",
+        "worst": "878.6",
+        "prep + shroud corners": "0.18",
+        "sun shadow map": "1.72",
+        "terrain": "4.99",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.00",
+        "tread marks": "0.00",
+        "smudges": "0.00",
+        "tiberium crystals": "0.00",
+        "objects (opaque)": "0.91",
+        "trees + foliage": "0.12",
+        "cutout + translucent": "0.11",
+        "infantry": "1.15",
+        "effects": "0.00",
+        "rain + shroud draw": "0.04",
+        "markers + bars": "0.02",
+        "post chain": "1.47",
+        "hud + present": "0.09",
+        "panels": "0.08",
+        "editor + options": "0.03",
+        "swap": "0.78",
+        "events + tick + refresh": "0.95"
+      },
+      {
+        "frames": "520",
+        "mean": "9.62",
+        "worst": "13.5",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "1.65",
+        "terrain": "2.47",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.00",
+        "tread marks": "0.00",
+        "smudges": "0.00",
+        "tiberium crystals": "0.00",
+        "objects (opaque)": "0.91",
+        "trees + foliage": "0.12",
+        "cutout + translucent": "0.11",
+        "infantry": "1.09",
+        "effects": "0.00",
+        "rain + shroud draw": "0.04",
+        "markers + bars": "0.02",
+        "post chain": "1.45",
+        "hud + present": "0.09",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.78",
+        "events + tick + refresh": "0.89"
+      },
+      {
+        "frames": "510",
+        "mean": "9.81",
+        "worst": "15.1",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "1.67",
+        "terrain": "2.51",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.00",
+        "tread marks": "0.00",
+        "smudges": "0.00",
+        "tiberium crystals": "0.00",
+        "objects (opaque)": "0.93",
+        "trees + foliage": "0.12",
+        "cutout + translucent": "0.11",
+        "infantry": "1.10",
+        "effects": "0.00",
+        "rain + shroud draw": "0.04",
+        "markers + bars": "0.02",
+        "post chain": "1.47",
+        "hud + present": "0.09",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.84",
+        "events + tick + refresh": "0.90"
+      },
+      {
+        "frames": "506",
+        "mean": "9.88",
+        "worst": "15.1",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "1.68",
+        "terrain": "2.51",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.00",
+        "tread marks": "0.00",
+        "smudges": "0.00",
+        "tiberium crystals": "0.00",
+        "objects (opaque)": "0.94",
+        "trees + foliage": "0.12",
+        "cutout + translucent": "0.11",
+        "infantry": "1.10",
+        "effects": "0.00",
+        "rain + shroud draw": "0.04",
+        "markers + bars": "0.02",
+        "post chain": "1.47",
+        "hud + present": "0.09",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.87",
+        "events + tick + refresh": "0.91"
+      }
+    ],
+    "td-live-remaster-wind-off.log": [
+      {
+        "frames": "263",
+        "mean": "19.05",
+        "worst": "612.9",
+        "prep + shroud corners": "0.26",
+        "sun shadow map": "3.10",
+        "seabed": "0.02",
+        "water": "4.70",
+        "terrain": "0.41",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.12",
+        "tread marks": "0.00",
+        "smudges": "0.03",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.11",
+        "crystals: update": "0.08",
+        "crystals: glow": "2.15",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "1.90",
+        "trees + foliage": "0.59",
+        "cutout + translucent": "0.33",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.03",
+        "post chain": "2.46",
+        "hud + present": "0.19",
+        "panels": "0.13",
+        "editor + options": "0.17",
+        "swap": "1.60",
+        "events + tick + refresh": "0.40"
+      },
+      {
+        "frames": "303",
+        "mean": "16.56",
+        "worst": "22.8",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "1.84",
+        "seabed": "0.02",
+        "water": "4.18",
+        "terrain": "0.41",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.12",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.08",
+        "crystals: update": "0.09",
+        "crystals: glow": "2.09",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "1.91",
+        "trees + foliage": "0.59",
+        "cutout + translucent": "0.32",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "2.45",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.56",
+        "events + tick + refresh": "0.36"
+      },
+      {
+        "frames": "302",
+        "mean": "16.56",
+        "worst": "20.7",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "1.85",
+        "seabed": "0.02",
+        "water": "4.18",
+        "terrain": "0.41",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.12",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.08",
+        "crystals: glow": "2.25",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "1.91",
+        "trees + foliage": "0.60",
+        "cutout + translucent": "0.33",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "2.46",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.39",
+        "events + tick + refresh": "0.36"
+      },
+      {
+        "frames": "303",
+        "mean": "16.56",
+        "worst": "22.0",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "1.87",
+        "seabed": "0.02",
+        "water": "4.20",
+        "terrain": "0.41",
+        "shore": "0.03",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.12",
+        "tread marks": "0.00",
+        "smudges": "0.02",
+        "crystals: before": "0.00",
+        "crystals: field merge": "0.00",
+        "crystals: layout": "0.07",
+        "crystals: update": "0.12",
+        "crystals: glow": "2.12",
+        "tiberium crystals": "0.04",
+        "objects (opaque)": "1.92",
+        "trees + foliage": "0.60",
+        "cutout + translucent": "0.33",
+        "infantry": "0.12",
+        "effects": "0.06",
+        "rain + shroud draw": "0.03",
+        "markers + bars": "0.02",
+        "post chain": "2.46",
+        "hud + present": "0.19",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.43",
+        "events + tick + refresh": "0.35"
+      }
+    ],
+    "ra-live-old.log": [
+      {
+        "frames": "261",
+        "mean": "19.17",
+        "worst": "879.4",
+        "prep + shroud corners": "0.27",
+        "sun shadow map": "2.11",
+        "terrain": "7.72",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.00",
+        "tread marks": "0.00",
+        "smudges": "0.00",
+        "tiberium crystals": "0.00",
+        "objects (opaque)": "2.30",
+        "trees + foliage": "0.10",
+        "cutout + translucent": "0.09",
+        "infantry": "1.23",
+        "effects": "0.00",
+        "rain + shroud draw": "0.04",
+        "markers + bars": "0.03",
+        "post chain": "2.88",
+        "hud + present": "0.10",
+        "panels": "0.13",
+        "editor + options": "0.05",
+        "swap": "1.13",
+        "events + tick + refresh": "0.98"
+      },
+      {
+        "frames": "348",
+        "mean": "14.39",
+        "worst": "19.5",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "1.96",
+        "terrain": "3.90",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.00",
+        "tread marks": "0.00",
+        "smudges": "0.00",
+        "tiberium crystals": "0.00",
+        "objects (opaque)": "2.29",
+        "trees + foliage": "0.09",
+        "cutout + translucent": "0.09",
+        "infantry": "1.12",
+        "effects": "0.00",
+        "rain + shroud draw": "0.04",
+        "markers + bars": "0.02",
+        "post chain": "2.81",
+        "hud + present": "0.09",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.01",
+        "events + tick + refresh": "0.94"
+      },
+      {
+        "frames": "340",
+        "mean": "14.72",
+        "worst": "26.0",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "2.01",
+        "terrain": "3.94",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.00",
+        "tread marks": "0.00",
+        "smudges": "0.00",
+        "tiberium crystals": "0.00",
+        "objects (opaque)": "2.32",
+        "trees + foliage": "0.10",
+        "cutout + translucent": "0.09",
+        "infantry": "1.15",
+        "effects": "0.00",
+        "rain + shroud draw": "0.04",
+        "markers + bars": "0.02",
+        "post chain": "2.86",
+        "hud + present": "0.09",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "1.15",
+        "events + tick + refresh": "0.94"
+      },
+      {
+        "frames": "350",
+        "mean": "14.30",
+        "worst": "19.0",
+        "prep + shroud corners": "0.01",
+        "sun shadow map": "1.98",
+        "terrain": "3.87",
+        "mottle": "0.00",
+        "tiberium": "0.00",
+        "tiberium ground": "0.00",
+        "tread marks": "0.00",
+        "smudges": "0.00",
+        "tiberium crystals": "0.00",
+        "objects (opaque)": "2.29",
+        "trees + foliage": "0.09",
+        "cutout + translucent": "0.09",
+        "infantry": "1.13",
+        "effects": "0.00",
+        "rain + shroud draw": "0.04",
+        "markers + bars": "0.02",
+        "post chain": "2.81",
+        "hud + present": "0.09",
+        "panels": "0.01",
+        "editor + options": "0.00",
+        "swap": "0.93",
+        "events + tick + refresh": "0.94"
+      }
+    ]
+  },
+  "ra_structure": {
+    "old": {
+      "frames": [
+        "FRAMEBENCH|n=90|median=10.41|p90=12.77",
+        "FRAMEBENCH|n=90|median=9.69|p90=12.43",
+        "FRAMEBENCH|n=90|median=9.98|p90=11.56",
+        "FRAMEBENCH|n=90|median=8.17|p90=8.58",
+        "FRAMEBENCH|n=90|median=10.54|p90=11.80",
+        "FRAMEBENCH|n=90|median=10.26|p90=11.40",
+        "FRAMEBENCH|n=90|median=10.92|p90=11.90"
+      ],
+      "stats": {}
+    },
+    "new": {
+      "frames": [
+        "FRAMEBENCH|n=90|median=7.70|p90=8.69",
+        "FRAMEBENCH|n=90|median=5.72|p90=6.53",
+        "FRAMEBENCH|n=90|median=5.98|p90=7.18",
+        "FRAMEBENCH|n=90|median=5.31|p90=7.04",
+        "FRAMEBENCH|n=90|median=7.65|p90=8.56",
+        "FRAMEBENCH|n=90|median=6.71|p90=7.81",
+        "FRAMEBENCH|n=90|median=6.06|p90=6.68"
+      ],
+      "stats": {
+        "hits": "62403",
+        "uploads": "26301",
+        "culled": "53376",
+        "draws": "52416",
+        "class_skip": "0",
+        "entries": "93",
+        "bytes": "15750288"
+      }
+    },
+    "no-cull": {
+      "frames": [
+        "FRAMEBENCH|n=90|median=5.25|p90=5.89",
+        "FRAMEBENCH|n=90|median=5.36|p90=5.98",
+        "FRAMEBENCH|n=90|median=6.53|p90=8.20",
+        "FRAMEBENCH|n=90|median=7.12|p90=8.05",
+        "FRAMEBENCH|n=90|median=7.76|p90=8.48",
+        "FRAMEBENCH|n=90|median=8.10|p90=8.76",
+        "FRAMEBENCH|n=90|median=6.61|p90=8.55"
+      ],
+      "stats": {
+        "hits": "62403",
+        "uploads": "26301",
+        "culled": "0",
+        "draws": "206304",
+        "class_skip": "0",
+        "entries": "93",
+        "bytes": "15750288"
+      }
+    },
+    "all-off": {
+      "frames": [
+        "FRAMEBENCH|n=90|median=9.51|p90=12.12",
+        "FRAMEBENCH|n=90|median=10.88|p90=12.24",
+        "FRAMEBENCH|n=90|median=10.89|p90=12.48",
+        "FRAMEBENCH|n=90|median=9.69|p90=10.88",
+        "FRAMEBENCH|n=90|median=9.89|p90=12.60",
+        "FRAMEBENCH|n=90|median=11.24|p90=12.67",
+        "FRAMEBENCH|n=90|median=11.17|p90=12.79"
+      ],
+      "stats": {
+        "hits": "0",
+        "uploads": "0",
+        "culled": "0",
+        "draws": "0",
+        "class_skip": "0",
+        "entries": "0",
+        "bytes": "0"
+      }
+    },
+    "normal-old": {
+      "frames": [
+        "FRAMEBENCH|n=90|median=7.57|p90=10.41",
+        "FRAMEBENCH|n=90|median=8.89|p90=10.13",
+        "FRAMEBENCH|n=90|median=8.64|p90=10.01",
+        "FRAMEBENCH|n=90|median=8.22|p90=8.79",
+        "FRAMEBENCH|n=90|median=8.50|p90=9.96",
+        "FRAMEBENCH|n=90|median=7.73|p90=8.68",
+        "FRAMEBENCH|n=90|median=7.65|p90=9.81"
+      ],
+      "stats": {}
+    },
+    "normal-new": {
+      "frames": [
+        "FRAMEBENCH|n=90|median=4.69|p90=5.34",
+        "FRAMEBENCH|n=90|median=4.41|p90=5.50",
+        "FRAMEBENCH|n=90|median=4.10|p90=4.75",
+        "FRAMEBENCH|n=90|median=4.47|p90=4.93",
+        "FRAMEBENCH|n=90|median=3.86|p90=4.52",
+        "FRAMEBENCH|n=90|median=3.80|p90=4.11",
+        "FRAMEBENCH|n=90|median=3.70|p90=4.18"
+      ],
+      "stats": {
+        "hits": "41602",
+        "uploads": "17534",
+        "culled": "29280",
+        "draws": "41088",
+        "class_skip": "0",
+        "entries": "62",
+        "bytes": "10500192"
+      }
+    },
+    "old/new": [
+      {
+        "view": 0,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 1,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 2,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 3,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 4,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 5,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 6,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      }
+    ],
+    "new/no-cull": [
+      {
+        "view": 0,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 1,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 2,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 3,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 4,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 5,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 6,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      }
+    ],
+    "old/all-off": [
+      {
+        "view": 0,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 1,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 2,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 3,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 4,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 5,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 6,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      }
+    ],
+    "normal-old/normal-new": [
+      {
+        "view": 0,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 1,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 2,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 3,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 4,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 5,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 6,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      }
+    ]
+  },
+  "td_rollout_pixels": {
+    "clear-old/clear-new": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "fog-old/fog-new": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "normal-off-old/normal-off-new": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "wave-old/wave-new": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "clear-new/no-cull": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ]
+  },
+  "cpu_sample": {
+    "main_samples": 3885,
+    "draw_mesh_exclusive_samples": 1423,
+    "sample_file": "/private/tmp/opencnc3d-shared-perf/td-warm-sample.txt"
+  },
+  "raw_evidence": "/private/tmp/opencnc3d-shared-perf",
+  "diagnostic_note": "tree3d_wind-off.cfg changes legacy billboard wind, not remastered mesh wind. Use --notreewind (td-live-remaster-wind-off.log) for that control. All toggles are diagnostic, not player presets.",
+  "benchmarks": {
+    "td-half.log": [
+      "n=180|median=19.70|p90=20.69",
+      "n=180|median=16.53|p90=17.31"
+    ],
+    "td-damage.log": [
+      "n=180|median=22.75|p90=25.64",
+      "n=180|median=24.66|p90=26.65"
+    ]
+  },
+  "diagnostic_benchmarks": [
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "current",
+      "result": "FRAMEBENCH|n=120|median=21.79|p90=22.90"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|water_reflect_scene=0",
+      "result": "FRAMEBENCH|n=90|median=16.66|p90=18.55"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|water_reflect_scene=1",
+      "result": "FRAMEBENCH|n=90|median=22.06|p90=22.84"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|shadow_on=0",
+      "result": "FRAMEBENCH|n=90|median=19.36|p90=20.53"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|shadow_on=1",
+      "result": "FRAMEBENCH|n=90|median=21.30|p90=23.86"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|terrain_normals=0",
+      "result": "FRAMEBENCH|n=90|median=19.09|p90=19.95"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|terrain_normals=1",
+      "result": "FRAMEBENCH|n=90|median=21.99|p90=22.74"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tib3d_glow=0",
+      "result": "FRAMEBENCH|n=90|median=21.97|p90=24.07"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tib3d_glow=0.37500",
+      "result": "FRAMEBENCH|n=90|median=22.02|p90=22.63"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tibfog_on=0",
+      "result": "FRAMEBENCH|n=90|median=21.26|p90=24.05"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tibfog_on=1",
+      "result": "FRAMEBENCH|n=90|median=21.85|p90=22.71"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|ssao_on=0",
+      "result": "FRAMEBENCH|n=90|median=20.57|p90=22.59"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|ssao_on=1",
+      "result": "FRAMEBENCH|n=90|median=21.60|p90=22.73"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|bloom_on=0",
+      "result": "FRAMEBENCH|n=90|median=21.61|p90=22.88"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|bloom_on=1",
+      "result": "FRAMEBENCH|n=90|median=22.07|p90=23.33"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tree3d=0",
+      "result": "FRAMEBENCH|n=90|median=22.16|p90=23.69"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tree3d=1",
+      "result": "FRAMEBENCH|n=90|median=22.62|p90=24.23"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|fol_on=0",
+      "result": "FRAMEBENCH|n=90|median=21.63|p90=24.14"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|fol_on=1",
+      "result": "FRAMEBENCH|n=90|median=22.42|p90=27.37"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "BLDSHOW|draw=0",
+      "result": "FRAMEBENCH|n=90|median=12.83|p90=14.58"
+    },
+    {
+      "camera": "CAM|cam|x=50.000|z=54.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "BLDSHOW|draw=1",
+      "result": "FRAMEBENCH|n=90|median=19.22|p90=22.74"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "current",
+      "result": "FRAMEBENCH|n=120|median=15.90|p90=17.07"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|water_reflect_scene=0",
+      "result": "FRAMEBENCH|n=90|median=11.78|p90=12.33"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|water_reflect_scene=1",
+      "result": "FRAMEBENCH|n=90|median=15.71|p90=17.33"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|shadow_on=0",
+      "result": "FRAMEBENCH|n=90|median=13.92|p90=15.31"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|shadow_on=1",
+      "result": "FRAMEBENCH|n=90|median=15.91|p90=17.75"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|terrain_normals=0",
+      "result": "FRAMEBENCH|n=90|median=14.32|p90=16.60"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|terrain_normals=1",
+      "result": "FRAMEBENCH|n=90|median=17.27|p90=26.50"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tib3d_glow=0",
+      "result": "FRAMEBENCH|n=90|median=16.34|p90=18.18"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tib3d_glow=0.37500",
+      "result": "FRAMEBENCH|n=90|median=16.35|p90=17.62"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tibfog_on=0",
+      "result": "FRAMEBENCH|n=90|median=15.13|p90=15.97"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tibfog_on=1",
+      "result": "FRAMEBENCH|n=90|median=16.44|p90=20.38"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|ssao_on=0",
+      "result": "FRAMEBENCH|n=90|median=17.57|p90=20.57"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|ssao_on=1",
+      "result": "FRAMEBENCH|n=90|median=18.11|p90=22.05"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|bloom_on=0",
+      "result": "FRAMEBENCH|n=90|median=15.71|p90=17.61"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|bloom_on=1",
+      "result": "FRAMEBENCH|n=90|median=15.95|p90=16.92"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tree3d=0",
+      "result": "FRAMEBENCH|n=90|median=16.12|p90=17.76"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|tree3d=1",
+      "result": "FRAMEBENCH|n=90|median=15.69|p90=16.27"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|fol_on=0",
+      "result": "FRAMEBENCH|n=90|median=16.02|p90=17.45"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "GFX|fol_on=1",
+      "result": "FRAMEBENCH|n=90|median=16.28|p90=17.56"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "BLDSHOW|draw=0",
+      "result": "FRAMEBENCH|n=90|median=8.18|p90=8.88"
+    },
+    {
+      "camera": "CAM|cam|x=52.000|z=12.000|zoom=27.544|mode=N64|dist=3000.0|pitch=48.128",
+      "condition": "BLDSHOW|draw=1",
+      "result": "FRAMEBENCH|n=90|median=15.46|p90=16.42"
+    }
+  ],
+  "pan": [
+    {
+      "median_ms": 20.564999999999998,
+      "p90_ms": 23.89,
+      "worst_ms": 602.87,
+      "over_50ms": 1
+    },
+    {
+      "median_ms": 20.47,
+      "p90_ms": 23.27,
+      "worst_ms": 24.15,
+      "over_50ms": 0
+    },
+    {
+      "median_ms": 20.025,
+      "p90_ms": 22.74,
+      "worst_ms": 23.96,
+      "over_50ms": 0
+    }
+  ]
+}

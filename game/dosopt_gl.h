@@ -25,6 +25,7 @@ extern "C" {
 
 static DOPT_State g_optState;
 static bool       g_optOpen = false;
+static bool       g_optRedAlert = false;
 static GLuint     g_optTex = 0;
 static unsigned char g_optScreen[DOPT_SCREEN_W * DOPT_SCREEN_H];
 static unsigned char g_optRGBA[DOPT_SCREEN_W * DOPT_SCREEN_H * 4];
@@ -58,6 +59,46 @@ static void opt_free(void)
     g_optOpen = false;
 }
 
+/* Red Alert's title screen uses red controls over a dark radar grid. Keep the
+   existing dialog geometry and hit boxes, but give its indexed pixels a Red
+   Alert palette after rasterisation. This also makes the colour independent of
+   the snow, temperate or interior mission palette used by the sidebar pack. */
+static void opt_ra_palette(void)
+{
+    int x, y;
+    for (y = 0; y < DOPT_SCREEN_H; y++) for (x = 0; x < DOPT_SCREEN_W; x++) {
+        const int i = y * DOPT_SCREEN_W + x;
+        const unsigned char c = g_optScreen[i];
+        unsigned char *rgb = g_optRGBA + i * 4;
+        switch (c) {
+        case DB_BLACK:
+            rgb[0] = (x % 24 == 0 || y % 18 == 0) ? 39 : 16;
+            rgb[1] = 0; rgb[2] = 2; break;
+        case DOPT_GREEN_SHADOW:
+            rgb[0] = 66; rgb[1] = 0; rgb[2] = 0; break;
+        case DOPT_GREEN_BKGD:
+            rgb[0] = 122; rgb[1] = 0; rgb[2] = 0; break;
+        case DOPT_LIGHT_GREEN:
+            rgb[0] = 205; rgb[1] = 18; rgb[2] = 9; break;
+        case DOPT_BRIGHT_GREEN:
+            rgb[0] = 247; rgb[1] = 67; rgb[2] = 28; break;
+        case DOPT_CC_GREEN:
+            rgb[0] = 225; rgb[1] = 169; rgb[2] = 69; break;
+        case DOPT_TEXT_MEDIUM:
+            rgb[0] = 220; rgb[1] = 37; rgb[2] = 20; break;
+        case DOPT_TEXT_BRIGHT:
+            rgb[0] = 255; rgb[1] = 244; rgb[2] = 221; break;
+        case DB_PINK: /* disabled label, separate from the gold caption */
+            rgb[0] = 133; rgb[1] = 42; rgb[2] = 33; break;
+        case DOPT_DIS_FILL:
+            rgb[0] = 51; rgb[1] = 9; rgb[2] = 8; break;
+        case DOPT_DIS_HILITE:
+            rgb[0] = 103; rgb[1] = 35; rgb[2] = 27; break;
+        default: break;
+        }
+    }
+}
+
 /* One frame of the dialog over whatever the tactical view just drew. The mission
    underneath is still on the glass: the 1995 dialog was drawn over Map.Render()'s
    output too, in the mission's own palette, which is why this uses the sidebar's
@@ -85,6 +126,7 @@ static void opt_draw(int fbw, int fbh, int mouse_fx, int mouse_fy)
     /* 2. one conversion, with alpha: want_alpha makes index 0 come out fully
           transparent so the battlefield shows around the box. */
     db_surface_to_rgba(&g_optSurf, g_dbPack->pal8, g_optRGBA, 1);
+    if (g_raModule || g_optRedAlert) opt_ra_palette();
 
     /* 3. one upload */
     if (!g_optTex) {

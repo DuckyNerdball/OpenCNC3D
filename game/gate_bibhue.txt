@@ -1,0 +1,17 @@
+tick 4
+gfxmode 2
+cam VIEW
+tick 1
+bibhue 1
+bibdump arm
+shot shots/g322_TAG_new.png
+bibdump
+bibhue 0
+bibdump arm
+shot shots/g322_TAG_old.png
+bibdump
+bibhue 1
+gfx bib_enh_strength 0
+shot shots/g322_TAG_ground.png
+bibdump
+quit

@@ -697,7 +697,7 @@ bool TechnoClass::Revealed(HouseClass* house)
 void TechnoClass::Hidden(void)
 {
     /*
-    **	OpenCNC 3D: the 2019 early-out that stood here read PlayerPtr's own bit and then
+    **	OpenCNC3D: the 2019 early-out that stood here read PlayerPtr's own bit and then
     **	cleared a mask every machine shares.
     **
     **	    if (!Is_Discovered_By_Player()) return;
@@ -723,7 +723,7 @@ void TechnoClass::Hidden(void)
     **	remaining writers of the legacy bool sit inside #ifndef REMASTER_BUILD and are not
     **	compiled. So outside a match the removed guard was false exactly when the mask was
     **	already zero, and clearing zero is what it always did. There is nothing here for
-    **	CNC3D_Lockstep to pick between.
+    **	OpenCNC3D_Lockstep to pick between.
     **
     **	NO GATE COVERS THIS, and the gap register says so rather than implying otherwise:
     **	the object dump exports neither IsDiscoveredByPlayerMask nor IsDiscoveredByPlayer,

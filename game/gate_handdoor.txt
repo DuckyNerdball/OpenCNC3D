@@ -1,0 +1,154 @@
+# G323. THE HAND OF NOD'S GATE OPENS FOR EVERY SOLDIER IT TRAINS, DAMAGED OR NOT, AND THE
+# SOLDIER COMES OUT THROUGH IT.
+#
+# A Nod skirmish on SCM01EA: the MCV deployed, a Power Plant put down, a Hand of Nod put
+# down at cell 7,17, one Minigunner trained (the gate opens, he comes out of the opening),
+# the Hand of Nod damaged below half strength by one hit on its middle cell, and a second
+# Minigunner trained (the damaged building's gate opens too). Around each soldier's exit the
+# renderer's own state is dumped tick by tick: where he is drawn beside where the engine has
+# him (drawpos), how far the gate is open and where its opening is (EBLDDOOR, ebldump), and
+# in the damaged stage how far each leaf piece has moved (EBLDMOVE). gates.sh runs this
+# twice under Enhanced and once in the 1995 look, and gate_handdoor.py reads the dumps and
+# the pictures. TAG is replaced per run.
+tick 2
+cam 5 19
+lclickobj MCV:@me
+order 5 19
+tick 90
+obj FACT:@me
+sidebar
+build NUKE
+ready NUKE 900
+startplace NUKE
+place auto
+tick 80
+obj NUKE:@me
+build HAND
+ready HAND 2000
+startplace HAND
+place 7 17
+tick 120
+obj HAND:@me
+cam 8 19
+zoom max
+echo g323 intact
+ebldump
+build E1
+tick 104
+echo g323 intact t=104
+drawpos E1 0
+ebldump
+tick 1
+echo g323 intact t=105
+drawpos E1 0
+ebldump
+tick 1
+echo g323 intact t=106
+drawpos E1 0
+ebldump
+shot shots/g323_TAG_i106.png
+tick 1
+echo g323 intact t=107
+drawpos E1 0
+ebldump
+tick 1
+echo g323 intact t=108
+drawpos E1 0
+ebldump
+tick 1
+echo g323 intact t=109
+drawpos E1 0
+ebldump
+tick 2
+echo g323 intact t=111
+drawpos E1 0
+ebldump
+tick 2
+echo g323 intact t=113
+drawpos E1 0
+ebldump
+tick 3
+echo g323 intact t=116
+drawpos E1 0
+ebldump
+shot shots/g323_TAG_i116.png
+tick 4
+echo g323 intact t=120
+drawpos E1 0
+ebldump
+tick 5
+echo g323 intact t=125
+drawpos E1 0
+ebldump
+tick 10
+echo g323 intact t=135
+drawpos E1 0
+ebldump
+tick 15
+echo g323 intact t=150
+drawpos E1 0
+ebldump
+tick 60
+hurtcell 8 18
+tick 2
+obj HAND:@me
+tick 90
+echo g323 damaged
+ebldump
+build E1
+tick 104
+echo g323 damaged t=104
+drawpos E1 1
+ebldump
+tick 1
+echo g323 damaged t=105
+drawpos E1 1
+ebldump
+tick 1
+echo g323 damaged t=106
+drawpos E1 1
+ebldump
+shot shots/g323_TAG_d106.png
+tick 1
+echo g323 damaged t=107
+drawpos E1 1
+ebldump
+tick 1
+echo g323 damaged t=108
+drawpos E1 1
+ebldump
+tick 1
+echo g323 damaged t=109
+drawpos E1 1
+ebldump
+tick 2
+echo g323 damaged t=111
+drawpos E1 1
+ebldump
+tick 2
+echo g323 damaged t=113
+drawpos E1 1
+ebldump
+tick 3
+echo g323 damaged t=116
+drawpos E1 1
+ebldump
+shot shots/g323_TAG_d116.png
+tick 4
+echo g323 damaged t=120
+drawpos E1 1
+ebldump
+tick 5
+echo g323 damaged t=125
+drawpos E1 1
+ebldump
+tick 10
+echo g323 damaged t=135
+drawpos E1 1
+ebldump
+tick 15
+echo g323 damaged t=150
+drawpos E1 1
+ebldump
+shot shots/g323_TAG_d150.png
+quit

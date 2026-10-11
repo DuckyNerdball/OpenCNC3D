@@ -4,7 +4,7 @@
      and every claim about the code carries a file and line. Where the evidence does not
      reach it says UNPROVEN, and those are the parts to be most careful with. -->
 
-# THE OpenCNC 3D MAP EDITOR: THE PLAN
+# THE OpenCNC3D MAP EDITOR: THE PLAN
 
 *Written for the project owner first, implementer second. Every design claim from the web carries a URL; every claim from the code carries a file and line. Where the evidence does not reach, it says UNPROVEN.*
 
@@ -16,7 +16,7 @@ Section 7 asked the project owner the questions that change what gets built. He 
 so they are no longer open and the build order below is the one that follows.
 
 1. **v1 must be PLAYABLE, not export-only.** The finish line is a map made in the browser
-   appearing in the OpenCNC 3D skirmish lobby and starting. That is slice 2, and it needs no
+   appearing in the OpenCNC3D skirmish lobby and starting. That is slice 2, and it needs no
    terrain editing and no baking: the map borrows a theater-matched pack, which is valid
    precisely because no tile was changed.
 2. **v1 EDITS SHIPPED MAPS.** Objects and ownership on top of cartridge terrain. New-map
@@ -246,7 +246,7 @@ of a bridge something blew up mid-mission.
 ### Infantry now use the 1995 DOS sprites
 
 The viewer drew infantry as the cartridge's billboards: five stored facings mirrored
-to eight. The PC game stores all eight and mirrors nothing, and OpenCNC 3D itself already
+to eight. The PC game stores all eight and mirrors nothing, and OpenCNC3D itself already
 ships the DOS art (`game/dosinfantry.pack`), so `tools/heightmap-viewer/export_dosinf.py`
 bakes the same sprites out of the same `CONQUER.MIX` with the same `TEMPERAT.PAL`,
 importing the game's own `bake_dosinfantry.py` tables rather than retyping them. The
@@ -431,9 +431,9 @@ Terrain unchanged: pack will be borrowed from SCM01EA
 Download SCM01EA.INI
 ```
 
-That list is the linter, and it is the most valuable thing on this page. Every failure it catches is otherwise completely silent: a map with no pack does not error, it simply never appears in the menu (`app/cnc3d.cpp:288-292` and `:396-400`, both of which comment that an unplayable entry is worse than an absent one). An illegal tile is not rejected, it is quietly turned to clear (`brain/vanilla/tiberiandawn/map.cpp:1157`). Nothing anywhere cross-checks that the pack's theater matches the INI's.
+That list is the linter, and it is the most valuable thing on this page. Every failure it catches is otherwise completely silent: a map with no pack does not error, it simply never appears in the menu (`app/opencnc3d.cpp:288-292` and `:396-400`, both of which comment that an unplayable entry is worse than an absent one). An illegal tile is not rejected, it is quietly turned to clear (`brain/vanilla/tiberiandawn/map.cpp:1157`). Nothing anywhere cross-checks that the pack's theater matches the INI's.
 
-He downloads the file, drops it into `playable/missions/`, launches OpenCNC 3D, and his map is in the skirmish lobby.
+He downloads the file, drops it into `playable/missions/`, launches OpenCNC3D, and his map is in the skirmish lobby.
 
 Twenty minutes, and he has a playable skirmish map.
 
@@ -566,7 +566,7 @@ Corner-mask cliff autotiling on new maps only, with the ramp swap in the same co
 
 Three gates, and the third is where maps die silently.
 
-1. **The name must match a scanner pattern.** Skirmish: `SCM%02dE[ABC]`, n from 1 to 98 (`app/cnc3d.cpp:375-405`). Spec Ops: `SC[GB]%02d[EW][ABC]`, n from 20 to 89 (`app/cnc3d.cpp:265-292`). Anything else is invisible.
+1. **The name must match a scanner pattern.** Skirmish: `SCM%02dE[ABC]`, n from 1 to 98 (`app/opencnc3d.cpp:375-405`). Spec Ops: `SC[GB]%02d[EW][ABC]`, n from 20 to 89 (`app/opencnc3d.cpp:265-292`). Anything else is invisible.
 2. **`<CODE>.INI` and `<CODE>.BIN` go in `playable/missions/`.** A missing `.BIN` is silent: the map loads all-clear.
 3. **`<CODE>.pack` must exist next to the executable, or the map never appears in the menu.** Both scanners probe for it and `continue` on failure, by design.
 
@@ -591,7 +591,7 @@ Load a shipped map as today. An Edit button. A palette of object types. Click to
 **Shows the project owner:** a building that follows his cursor and lands where he clicks.
 
 **Slice 2: the truth layer and the file. One evening. Proves a browser-authored map reaches the lobby.**
-Ship the four static tables. Compute the no-go hatch in the browser and **diff it cell for cell against `make_skirmish_map.py`'s Python answer on all 94 shipped maps; zero disagreements or the port is wrong.** Auto-show while armed, pin on a key. The `.INI` writer and download. The linter, lifting the checks already in `make_skirmish_map.py`'s `check()` (the 3x3 buildable start pad for MCV deploy, tiberium only on bare buildable cells per `brain/vanilla/tiberiandawn/overlay.cpp:253`, the contiguous waypoint run, which `app/cnc3d.cpp:317-370` already computes correctly and `scenarioini.cpp:1567` indexes without a bound check). Autosave. Mode-aware status line.
+Ship the four static tables. Compute the no-go hatch in the browser and **diff it cell for cell against `make_skirmish_map.py`'s Python answer on all 94 shipped maps; zero disagreements or the port is wrong.** Auto-show while armed, pin on a key. The `.INI` writer and download. The linter, lifting the checks already in `make_skirmish_map.py`'s `check()` (the 3x3 buildable start pad for MCV deploy, tiberium only on bare buildable cells per `brain/vanilla/tiberiandawn/overlay.cpp:253`, the contiguous waypoint run, which `app/opencnc3d.cpp:317-370` already computes correctly and `scenarioini.cpp:1567` indexes without a bound check). Autosave. Mode-aware status line.
 **Shows the project owner:** he makes a skirmish map and plays it. **Stop here and confirm that before writing another line.**
 
 **Slice 3: ground. A few days. Proves terrain art round-trips.**

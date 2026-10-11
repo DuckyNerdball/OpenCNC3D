@@ -1,0 +1,40 @@
+{
+ "bones": {
+  "Spine": {
+   "rot": [
+    35,
+    15,
+    0
+   ],
+   "twist": 0.3,
+   "steady": 0.4
+  },
+  "Head": {
+   "rot": [
+    0,
+    28.94,
+    0
+   ]
+  }
+ },
+ "toward": [
+  {
+   "clip": "Anim_RocketSoldier_Aim",
+   "amount": 1.0,
+   "bones": [
+    "LeftArm",
+    "LeftForeArm",
+    "LeftHand",
+    "RightArm",
+    "RightForeArm",
+    "RightHand",
+    "Weapon"
+   ]
+  }
+ ],
+ "carry": {
+  "pitch": 24.25,
+  "yaw": 14.23,
+  "pivot": "RightArm"
+ }
+}

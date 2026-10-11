@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-#define H6_MAX_ASSETS 40
+#define H6_MAX_ASSETS 64
 #define H6_NAME_LEN   16
 
 /* ------------------------------------------------------------------------------------

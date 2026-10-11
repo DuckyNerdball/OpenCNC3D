@@ -1,5 +1,6 @@
 #include "cncaudio.h"
 #include "sfxtable.h"
+#include "ra_theme_table.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,9 +41,9 @@
  * N copies of one clip started in one tick begin at the SAME sample of that clip. They are
  * then bit-identical waveforms in lockstep and they sum COHERENTLY: N times the amplitude
  * of one, which is what turns a squad caught by a flame tank into distortion rather than
- * into a loud squad. Copies started one tick apart are 1470 samples out of step (22050 Hz
- * against the 15 Hz brain tick) and do not do this, which is why the window is exactly one
- * tick wide and no wider.
+ * into a loud squad. Copies started one tick apart are a fifteenth of a second out of step
+ * (1470 samples of a 22050 Hz clip, 2940 in the 44100 Hz mix) and do not do this, which is
+ * why the window is exactly one tick wide and no wider.
  *
  * Two, not one. The first copy is the event; the second is the audible difference between
  * one thing happening and more than one, and two coherent copies are 6 dB, which the
@@ -73,6 +74,7 @@ struct CncAudio
     int speech_queued;  /* SpeakQueue: one deep, -1 = empty */
     int speech_current; /* CurrentVoice: what EVA is saying now */
     char speech_pending[32];
+    char speech_current_name[32];
     int speech_ducking;
 
     int listener_cx, listener_cy, view_w, view_h;
@@ -87,6 +89,7 @@ struct CncAudio
     /* The score playlist: which ThemeType is playing, and whether the next one should
        start by itself when it ends. Off for the menu, which loops one track. */
     int theme_index;
+    int ra_side; /* 0 = TD, 1 = Allied, 2 = Soviet */
     int playlist;
     /* SHUFFLE, which until now did not exist. Options.IsScoreShuffle in 1995
        (theme.cpp:222-252) picks the next track at random instead of walking the table;
@@ -174,6 +177,9 @@ CncAudio *cnc_audio_create(const char *dosdata_dir, char *err, int errlen)
     try_add_mix(au, dosdata_dir, "SOUNDS.MIX");
     try_add_mix(au, dosdata_dir, "SPEECH.MIX");
     try_add_mix(au, dosdata_dir, "SCORES.MIX");
+    try_add_mix(au, dosdata_dir, "RA_LOCAL.MIX"); /* Red Alert INTRO and MAP themes */
+    try_add_mix(au, dosdata_dir, "ALLIES.MIX"); /* RA .V0x unit acknowledgments */
+    try_add_mix(au, dosdata_dir, "RUSSIAN.MIX"); /* RA .R0x unit acknowledgments */
     try_add_mix(au, dosdata_dir, "ZOUNDS.MIX");
     try_add_mix(au, dosdata_dir, "AUD.MIX");
     try_add_mix(au, dosdata_dir, "TRANSIT.MIX"); /* MAP1 and WIN1 live here */
@@ -369,6 +375,23 @@ int cnc_audio_on_sound_effect(CncAudio *au, int sfx_index, int variation, int x,
     return cnc_audio_play_named(au, name, MIX_BUS_FX, gain, pan, pri);
 }
 
+int cnc_audio_on_named_effect(CncAudio *au, const char *source, int priority, int x, int y)
+{
+    char name[32];
+    int gain = MIX_UNITY, pan = 0;
+    if (!au || !source || !*source)
+        return -1;
+    snprintf(name, sizeof name, "%s%s", source, strchr(source, '.') ? "" : ".AUD");
+    if (!mixer_effect_place(au->listener_cx, au->listener_cy, au->view_w, au->view_h,
+                            x, y, &gain, &pan))
+        return -1;
+    au->last_gain = gain;
+    au->last_pan = pan;
+    if (bank_has(au->bank, name) && !sfx_dupe_ok(au, name))
+        return CNC_SFX_DUPLICATE;
+    return cnc_audio_play_named(au, name, MIX_BUS_FX, gain, pan, priority);
+}
+
 int cnc_audio_on_ui_effect(CncAudio *au, int sfx_index, int gain)
 {
     char name[32];
@@ -444,11 +467,29 @@ int cnc_audio_on_speech(CncAudio *au, int speech_index)
 
     audio_backend_lock();
     if (speech_index == au->speech_queued || speech_index == au->speech_current
-        || au->speech_queued >= 0) {
+        || au->speech_queued != -1) {
         audio_backend_unlock();
         return -1; /* dropped, exactly as Speak() drops it */
     }
     au->speech_queued = speech_index;
+    audio_backend_unlock();
+    return 0;
+}
+
+int cnc_audio_on_named_speech(CncAudio *au, const char *base)
+{
+    char name[32];
+    if (!au || !base || !*base || strcmp(base, "none") == 0)
+        return -1;
+    snprintf(name, sizeof name, "%s%s", base, strchr(base, '.') ? "" : ".AUD");
+    audio_backend_lock();
+    if (au->speech_queued != -1 ||
+        (au->speech_current == -2 && strcmp(au->speech_current_name, name) == 0)) {
+        audio_backend_unlock();
+        return -1;
+    }
+    snprintf(au->speech_pending, sizeof au->speech_pending, "%s", name);
+    au->speech_queued = -2;
     audio_backend_unlock();
     return 0;
 }
@@ -580,16 +621,54 @@ int cnc_music_theme_index(const char *base)
     return -1;
 }
 
+void cnc_music_set_red_alert(CncAudio *au, int side)
+{
+    if (!au) return;
+    au->ra_side = (side == 1 || side == 2) ? side : 0;
+    au->theme_index = -1;
+}
+
+int cnc_music_theme_count(const CncAudio *au)
+{
+    return au && au->ra_side ? RA_THEME_COUNT : SFX_THEME_COUNT;
+}
+
+const ThemeEntry *cnc_music_theme(const CncAudio *au, int index)
+{
+    if (index < 0 || index >= cnc_music_theme_count(au)) return NULL;
+    return au && au->ra_side ? &ra_theme[index].theme : &sfx_theme[index];
+}
+
+int cnc_music_find_theme(const CncAudio *au, const char *base)
+{
+    int i;
+    if (!base) return -1;
+    for (i = 0; i < cnc_music_theme_count(au); i++) {
+        const char *a = cnc_music_theme(au, i)->name, *b = base;
+        while (*a && *b && ((*a | 32) == (*b | 32))) { a++; b++; }
+        if (!*a && !*b) return i;
+    }
+    return -1;
+}
+
 static int theme_allowed(CncAudio *au, int i)
 {
     char name[40];
-    if (i < 0 || i >= SFX_THEME_COUNT || !sfx_theme[i].normal)
+    const ThemeEntry *theme = cnc_music_theme(au, i);
+    if (!theme || !theme->normal)
         return 0;
-    snprintf(name, sizeof name, "%s.AUD", sfx_theme[i].name);
+    if (au->ra_side && !(ra_theme[i].sides & (unsigned)au->ra_side))
+        return 0;
+    snprintf(name, sizeof name, "%s.AUD", theme->name);
     if (bank_has(au->bank, name))
         return 1;
-    snprintf(name, sizeof name, "%s.VAR", sfx_theme[i].name);
+    snprintf(name, sizeof name, "%s.VAR", theme->name);
     return bank_has(au->bank, name);
+}
+
+int cnc_music_theme_available(CncAudio *au, int index)
+{
+    return au ? theme_allowed(au, index) : 0;
 }
 
 int cnc_music_next_theme(CncAudio *au, int current)
@@ -597,7 +676,8 @@ int cnc_music_next_theme(CncAudio *au, int current)
     int i, n;
     if (!au)
         return -1;
-    if (current >= 0 && current < SFX_THEME_COUNT && sfx_theme[current].repeat)
+    if (current >= 0 && current < cnc_music_theme_count(au) &&
+        cnc_music_theme(au, current)->repeat)
         return current;
     if (au->shuffle) {
         /* Sim_Random_Pick over the ALLOWED themes, which is what 1995 does: it picks a
@@ -607,8 +687,8 @@ int cnc_music_next_theme(CncAudio *au, int current)
            The same track twice running is refused when there is more than one to choose
            from -- the 1995 pick can repeat, but on a nine-track disc that reads as the
            music having stopped, which is the complaint shuffle exists to answer. */
-        int allowed[SFX_THEME_COUNT], na = 0;
-        for (i = 0; i < SFX_THEME_COUNT; i++)
+        int allowed[RA_THEME_COUNT > SFX_THEME_COUNT ? RA_THEME_COUNT : SFX_THEME_COUNT], na = 0;
+        for (i = 0; i < cnc_music_theme_count(au); i++)
             if (theme_allowed(au, i))
                 allowed[na++] = i;
         if (na <= 0)
@@ -624,9 +704,9 @@ int cnc_music_next_theme(CncAudio *au, int current)
         return allowed[0];
     }
     i = current;
-    for (n = 0; n < SFX_THEME_COUNT; n++) {
+    for (n = 0; n < cnc_music_theme_count(au); n++) {
         i++;
-        if (i >= SFX_THEME_COUNT || i < 0)
+        if (i >= cnc_music_theme_count(au) || i < 0)
             i = 0;
         if (theme_allowed(au, i))
             return i;
@@ -636,13 +716,14 @@ int cnc_music_next_theme(CncAudio *au, int current)
 
 int cnc_music_play_index(CncAudio *au, int index)
 {
-    if (!au || index < 0 || index >= SFX_THEME_COUNT)
+    const ThemeEntry *theme = cnc_music_theme(au, index);
+    if (!theme)
         return 0;
-    if (!cnc_music_play_theme(au, sfx_theme[index].name, sfx_theme[index].repeat))
+    if (!cnc_music_play_theme(au, theme->name, theme->repeat))
         return 0;
     au->theme_index = index;
-    printf("MUSIC|play|%s|theme=%d|%ds|%s\n", sfx_theme[index].name, index,
-           sfx_theme[index].duration, sfx_theme[index].repeat ? "repeats" : "once");
+    printf("MUSIC|play|%s|theme=%d|%ds|%s\n", theme->name, index,
+           theme->duration, theme->repeat ? "repeats" : "once");
     fflush(stdout);
     return 1;
 }
@@ -768,6 +849,8 @@ void cnc_audio_reset_speech(CncAudio *au)
     au->speech_voice = -1;
     au->speech_queued = -1;
     au->speech_current = -1;
+    au->speech_pending[0] = 0;
+    au->speech_current_name[0] = 0;
     audio_backend_unlock();
 }
 
@@ -787,14 +870,18 @@ static void speech_ai(CncAudio *au)
     if (au->speech_voice >= 0 && !mixer_voice_active(au->mix, au->speech_voice)) {
         au->speech_voice = -1;
         au->speech_current = -1;
+        au->speech_current_name[0] = 0;
     }
 
-    if (au->speech_queued < 0)
+    if (au->speech_queued == -1)
         return;
     if (au->speech_voice >= 0)
         return; /* EVA is still talking; the queued line waits its turn */
 
-    snprintf(name, sizeof name, "%s.AUD", sfx_vox[au->speech_queued]);
+    if (au->speech_queued == -2)
+        snprintf(name, sizeof name, "%s", au->speech_pending);
+    else
+        snprintf(name, sizeof name, "%s.AUD", sfx_vox[au->speech_queued]);
     c = bank_get(au->bank, name);
     if (!c) {
         au->speech_queued = -1; /* not on the disc; drop it, never substitute */
@@ -805,7 +892,9 @@ static void speech_ai(CncAudio *au)
         pin_for_voice(au, h, name);
     au->speech_voice = h;
     au->speech_current = au->speech_queued;
+    snprintf(au->speech_current_name, sizeof au->speech_current_name, "%s", name);
     au->speech_queued = -1;
+    au->speech_pending[0] = 0;
 }
 
 void cnc_audio_update(CncAudio *au)

@@ -1,0 +1,39 @@
+# The fix-and-improve queue, worked top to bottom. One type per line; a type leaves
+# the list when its fixed model is ready for review. The viewer shows the order.
+V21   Abdul's House
+V35   Aksum's Hut
+V26   Ali's House
+V24   Camel Trader
+V17   Celery Field
+V01   Church
+V25   Church
+V16   Corn Field
+V07   Damon's pub
+V15   Fallow Field
+V08   Fran's House
+V05   Gretchin's House
+V02   Han's and Gretel's
+V13   Haystack
+V12   Haystacks
+V03   Hewitt's Manor
+V11   Ludwig's House
+V36   Mambo's Hut
+V28   Menelik's House
+V34   Mubasa's Hut
+V09   Music Factory
+V19   Oil Pump
+V22   Pablo's Wicked Pub
+V18   Potato Field
+V29   Prestor John's House
+V04   Ricktor's House
+V32   Rikitikitembo's Hut
+V33   Roarke's Hut
+V20   Sala's House
+V06   The Barn
+V37   The Studio
+V10   Toymaker's
+V27   Trader Ted's
+V23   Village Well
+V30   Village Well
+V14   Wheat Field
+V31   Witch Doctor's Hut

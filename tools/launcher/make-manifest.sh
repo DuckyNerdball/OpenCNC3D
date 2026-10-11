@@ -5,7 +5,7 @@
 #
 # tools/release.sh calls this with the four zips it has just built, and attaches
 # the result to the GitHub release as a fifth asset. Nothing else publishes
-# anywhere: cnc3dgame.com's /api/builds already lists every asset of the newest
+# anywhere: opencnc3d.com's /api/builds already lists every asset of the newest
 # release, so a file added here is a file the launcher can see, with no site
 # change and no second host.
 #
@@ -19,7 +19,7 @@
 #   2. A DATA FINGERPRINT. Without one the launcher cannot prove the 15 MB
 #      binary-only package is enough for this player, so every update is the
 #      500 MB one. The fingerprint is not computed here: it is READ out of each
-#      full zip's own cnc3d-install.txt, which the packagers wrote with
+#      full zip's own opencnc3d-install.txt, which the packagers wrote with
 #      tools/launcher/data-id.sh. One implementation, quoted rather than
 #      recomputed, because two that disagreed by one file would silently turn
 #      every update back into a full download and nothing would report it.
@@ -47,10 +47,10 @@ sha256_of() {
 # One small file out of a 500 MB archive costs nothing: unzip seeks the central
 # directory rather than streaming the whole thing.
 read_data_id() {
-    id=$(unzip -p "$1" '*/cnc3d-install.txt' 2>/dev/null \
+    id=$(unzip -p "$1" '*/opencnc3d-install.txt' 2>/dev/null \
          | awk '$1=="data_id"{print $2; exit}')
     [ -n "$id" ] || {
-        echo "$1 has no cnc3d-install.txt with a data_id in it." >&2
+        echo "$1 has no opencnc3d-install.txt with a data_id in it." >&2
         echo "The packagers write that file; without it this platform can only ever" >&2
         echo "be offered the whole 500 MB package." >&2
         exit 1
@@ -62,8 +62,8 @@ MACDATA=""
 WINDATA=""
 TMP=$(mktemp)
 {
-    echo "# OpenCNC 3D $TAG. Written by tools/launcher/make-manifest.sh and published"
-    echo "# as a release asset, which is how the launcher sees it: cnc3dgame.com's"
+    echo "# OpenCNC3D $TAG. Written by tools/launcher/make-manifest.sh and published"
+    echo "# as a release asset, which is how the launcher sees it: opencnc3d.com's"
     echo "# /api/builds lists every asset of the newest release."
     echo "manifest 1"
     echo "version $VER"
@@ -79,7 +79,7 @@ for z in "$@"; do
         *macos*.zip)        key=macos_full;   MACDATA=$(read_data_id "$z") ;;
         *windows*-bins.zip) key=windows_bins ;;
         *windows*.zip)      key=windows_full; WINDATA=$(read_data_id "$z") ;;
-        *) echo "cannot tell what $name is; name it CNC3D-<platform>-<tag>[-bins].zip" >&2
+        *) echo "cannot tell what $name is; name it OpenCNC3D-<platform>-<tag>[-bins].zip" >&2
            exit 1 ;;
     esac
     # name size sha, and the launcher matches the NAME against what the site is

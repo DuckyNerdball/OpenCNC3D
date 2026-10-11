@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- the N64 infantry sprite table (`../src/n64soldier.c`), palettes included.
+OpenCNC3D -- the N64 infantry sprite table (`../src/n64soldier.c`), palettes included.
 
 WHY THIS FILE EXISTS
 --------------------
@@ -71,7 +71,7 @@ Usage:
 import os, struct, sys
 
 HERE   = os.path.dirname(os.path.abspath(__file__))
-ROOT   = os.path.abspath(os.path.join(HERE, "..", ".."))          # share/CNC3D
+ROOT   = os.path.abspath(os.path.join(HERE, "..", ".."))          # share/OpenCNC3D
 ROM_P  = os.path.join(ROOT, "rom", "cnc_eu.z64")
 IMG_D  = os.path.join(ROOT, "assets", "extracted", "IMG")
 SOLF_P = os.path.join(ROOT, "assets", "extracted", "ENG", "SOLFILES.ENG")

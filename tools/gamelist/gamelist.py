@@ -242,7 +242,7 @@ class GameList:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "cnc3d-gamelist/1"
+    server_version = "opencnc3d-gamelist/1"
     games = None
 
     def _reply(self, status, payload):

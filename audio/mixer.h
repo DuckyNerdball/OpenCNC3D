@@ -3,12 +3,15 @@
  * the sample path. It owns no device: something else pulls PCM out of it and hands
  * that to SDL here, or to DirectSound / a WAV-out double buffer on Windows 98.
  *
- * Output is signed 16 bit STEREO interleaved at MIX_RATE (22050 Hz), which is the
- * rate the whole 1995 data set already uses so nothing is resampled at playback.
+ * Output is signed 16 bit STEREO interleaved at MIX_RATE. That is 44100 Hz on the
+ * modern tiers, so replacement sounds keep everything up to 20 kHz, and 22050 Hz on
+ * Win98, the rate the whole 1995 data set uses. The 1995 material reaches a 44100 Hz
+ * mix through a windowed-sinc 2x upsampler (clips in the bank, the music and movie
+ * streams here), which leaves everything below 11 kHz, i.e. all of it, as it was.
  * Stereo, not mono, because the engine hands us a world position with every sound
  * effect and the 1995 game panned them; see mixer_effect_place().
  *
- * Four buses, each with its own gain and its own linear ramp:
+ * Five buses, each with its own gain and its own linear ramp:
  *
  *   MIX_BUS_MUSIC    the score. One streaming voice, fed from a ring the game thread
  *                    refills, because a 6 to 13 MB track cannot be held in RAM on
@@ -17,6 +20,7 @@
  *   MIX_BUS_SPEECH   EVA. One voice at a time, matching Speak_AI.
  *   MIX_BUS_MOVIE    VQA audio, pushed by the video decoder as it goes, because the
  *                    movie's clock is the video clock and its audio follows it.
+ *   MIX_BUS_AMBIENCE environment loops and rain, controlled independently of FX.
  *
  * Gains are per mille, 1000 = unity, and clamp at MIX_GAIN_MAX (2000) so a caller
  * cannot silently blow the headroom out.
@@ -34,10 +38,28 @@
 extern "C" {
 #endif
 
-#define MIX_RATE 22050
+/* The 1995 discs are all 22050 Hz, and the music and movie streams arrive at that
+ * rate. Every stream count this header speaks (push, want, level) is in those source
+ * samples whatever MIX_RATE is, so a caller pacing a movie against them never sees
+ * the output rate. */
+#define MIX_SRC_RATE 22050
+#ifdef WIN98
+#define MIX_RATE 22050 /* Tier 1: half the mixing work and the 1995 rate exactly */
+#else
+#define MIX_RATE 44100
+#endif
+#define MIX_STREAM_UP (MIX_RATE / MIX_SRC_RATE) /* 1 or 2 */
+#if MIX_RATE != MIX_SRC_RATE && MIX_RATE != 2 * MIX_SRC_RATE
+#error MIX_RATE must be 22050 or 44100: the stream upsampler is an exact 2x
+#endif
 #define MIX_UNITY 1000
 #define MIX_GAIN_MAX 2000
 #define MIX_VOICES 32
+/* Dedicated raw vehicle loops cannot consume the bank's FX/EVA/environment slots. */
+#define MIX_VEHICLE_VOICES 64
+#define MIX_FOLEY_VOICES 64
+#define MIX_CINEMATIC_VOICES 16
+#define MIX_TOTAL_VOICES (MIX_VOICES + MIX_VEHICLE_VOICES + MIX_FOLEY_VOICES + MIX_CINEMATIC_VOICES)
 
 enum
 {
@@ -45,6 +67,7 @@ enum
     MIX_BUS_FX,
     MIX_BUS_SPEECH,
     MIX_BUS_MOVIE,
+    MIX_BUS_AMBIENCE, /* Enhanced environment; independent of effects and EVA */
     MIX_BUS_COUNT
 };
 
@@ -59,6 +82,17 @@ void mixer_bus_gain(Mixer *m, int bus, int permille, int ms);
 int mixer_bus_gain_get(const Mixer *m, int bus);
 void mixer_master_gain(Mixer *m, int permille, int ms);
 int mixer_master_gain_get(const Mixer *m);
+
+/* The cinematic duck. A heavy impact holds the rest of the mix down for a moment so it
+ * lands with weight and headroom instead of being summed into the soft knee: music,
+ * ambience and every FX voice outside the cinematic pool go to `depth` per mille over
+ * attack_ms, stay there hold_ms, then return to unity over release_ms. EVA and movie
+ * audio are never ducked. A deeper request wins over a shallower one while it holds,
+ * an equal one extends the hold, and the hold runs on the output clock, so a caller
+ * that stops asking can never leave the mix held down. Integer only, like the rest. */
+void mixer_duck(Mixer *m, int depth, int attack_ms, int hold_ms, int release_ms);
+void mixer_duck_reset(Mixer *m);
+int mixer_duck_get(const Mixer *m);
 
 /* ------------------------------------------------------------------ voices */
 
@@ -92,6 +126,33 @@ int mixer_play(Mixer *m, int bus, const short *pcm, long samples, int gain, int 
  * a Win98 DirectSound backend inherits it unchanged. */
 int mixer_play_loop(Mixer *m, int bus, const short *pcm, long samples, int gain, int pan, int priority);
 
+/* Interleaved stereo at MIX_RATE; frames counts stereo pairs. */
+int mixer_play_stereo(Mixer *m, int bus, const short *pcm, long frames,
+                      int gain, int pan, int priority, int loop);
+/* Per-vehicle stereo loop on FX, in the separate vehicle voice pool. A deterministic
+ * start offset prevents identical drive recordings from summing in lockstep. */
+int mixer_play_vehicle_loop(Mixer *m, const short *pcm, long frames, int pan, long offset);
+/* Soldier one-shot stereo foley has its own slots; never steals bank or vehicles. */
+int mixer_play_foley(Mixer *m, const short *pcm, long frames, int pan);
+/* Footstep pitch ratio in per mille, clamped to 900..1100; stereo interpolation. */
+int mixer_play_foley_pitched(Mixer *m, const short *pcm, long frames, int pan, int pitch);
+/* Cinematic impacts/rumble cannot steal footsteps, vehicles, environment or EVA. */
+int mixer_play_cinematic(Mixer *m, const short *pcm, long frames, int pan, int loop);
+/* Turn a looping unity-rate voice into a CROSSFADED loop over frames [start, end):
+ * the last `xfade` frames before `end` play mixed with the first `xfade` frames from
+ * `start` on an equal-power (sine/cosine) curve, and playback carries on from
+ * start + xfade, so each pass is end - start - xfade frames long and no pass ever
+ * starts or stops on its own. Equal power because the two ends of a recording are
+ * uncorrelated: a linear crossfade of uncorrelated material sags 3 dB at its middle.
+ * Frames outside [start, end) never sound, which is how a recording's own fade-in
+ * and fade-out are kept out of the loop. Moves the voice to `start` if it sits outside
+ * the range. Returns 0 and changes nothing for a one-shot, a pitched voice, or a range
+ * shorter than two crossfades. Integer only, like the rest of the sample path. */
+int mixer_voice_loop_xfade(Mixer *m, int handle, long start, long end, long xfade);
+/* Fade then retire a loop on the audio clock, including when output is muted. */
+void mixer_voice_fade_stop(Mixer *m, int handle, int ms);
+/* Audio-clock ramp, including while muted; repeated equal targets do not restart it. */
+void mixer_voice_fade(Mixer *m, int handle, int gain, int pan, int ms);
 void mixer_voice_stop(Mixer *m, int handle);
 void mixer_voice_gain(Mixer *m, int handle, int gain, int pan);
 int mixer_voice_active(const Mixer *m, int handle);

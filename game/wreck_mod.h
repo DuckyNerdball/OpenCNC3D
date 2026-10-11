@@ -237,8 +237,14 @@ static void wreck_draw(void)
         const WreckCell& c = g_wrecks[i];
         if (!wreck_cell_visible(c, mi))
             continue;
-        draw_mesh(mi, (float)c.x + 0.5f, (float)c.y + 0.5f, -1, MODE_OPAQUE,
-                  0, 0.0f, 0, 1.0f, WRECK_YLIFT);
+        /* the remastered crashed Orca under Enhanced (ebld_terr.h), at the same anchor
+           and with the same per-vertex ground */
+        const int er = eterr_cell_draw(ETERR_WRECK, WRECK_TYPE_CODE, c.x, c.y, MODE_OPAQUE);
+        if (er == ETERR_OFF)
+            continue;
+        if (er == ETERR_NONE)
+            draw_mesh(mi, (float)c.x + 0.5f, (float)c.y + 0.5f, -1, MODE_OPAQUE,
+                      0, 0.0f, 0, 1.0f, WRECK_YLIFT);
         g_nMesh++;
     }
     g_meshGroundPerVertex = false;

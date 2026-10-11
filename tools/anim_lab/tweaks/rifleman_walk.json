@@ -1,0 +1,9 @@
+{
+  "toward": [
+    {"clip": "Anim_Rifleman_Aim", "amount": 0.5,
+     "bones": ["LeftArm", "LeftForeArm", "LeftHand", "RightArm", "RightForeArm", "RightHand", "Weapon"]}
+  ],
+  "bones": {
+    "Spine": {"rot": [0, 15, 0], "twist": 0.3, "steady": 0.4}
+  }
+}

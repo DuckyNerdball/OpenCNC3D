@@ -146,8 +146,14 @@ static void h6_blit_cameo(unsigned char *dst, int dw, int dh,
                 if ((cellw - 1 - cx) + (cellh - 1 - cy) < H6_CHAMFER) continue;
             }
             d = dst + ((size_t)ty * dw + tx) * 4;
-            d[0] = src[(y*sw+x)*4]; d[1] = src[(y*sw+x)*4+1];
-            d[2] = src[(y*sw+x)*4+2]; d[3] = 255;
+            {
+                const unsigned char *q=src+(y*sw+x)*4;
+                unsigned int a=q[3],ia=255-a;
+                int c;
+                if (!a) continue;
+                for(c=0;c<3;c++) d[c]=(unsigned char)((q[c]*a+d[c]*ia)/255);
+                d[3]=(unsigned char)(a+d[3]*ia/255);
+            }
         }
     }
 }
@@ -774,3 +780,5 @@ void hud640_draw_card(unsigned char *rgba, const H6_Pack *p, const H6_Card *c)
         }
     }
 }
+
+#include "hud_enhanced_impl.h"

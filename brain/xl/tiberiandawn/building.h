@@ -204,8 +204,8 @@ public:
     virtual InfantryType Crew_Type(void) const;
     virtual int Pip_Count(void) const;
     virtual bool Can_Player_Move(void) const;
-    /* CNC3D, additive: may this building take a rally point? */
-    bool CNC3D_Can_Rally(void) const;
+    /* OpenCNC3D, additive: may this building take a rally point? */
+    bool OpenCNC3D_Can_Rally(void) const;
     virtual ActionType What_Action(ObjectClass* target) const;
     virtual ActionType What_Action(CELL cell) const;
     virtual bool Can_Demolish(void) const;

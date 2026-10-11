@@ -1,7 +1,7 @@
-// OpenCNC 3D: headless SCRIPTED INPUT harness.
+// OpenCNC3D: headless SCRIPTED INPUT harness.
 //
 // ===========================================================================================
-//  THE INPUT CONTRACT (measured against this brain, not guessed; see CNC3D_Get_View)
+//  THE INPUT CONTRACT (measured against this brain, not guessed; see OpenCNC3D_Get_View)
 // ===========================================================================================
 //
 //  Coordinate space of CNC_Handle_Input's x1/y1/x2/y2
@@ -37,7 +37,7 @@
 //  ---------
 //  Two independent routes, both proven here:
 //    * CNC_Select_Object(player_id, DllObjectTypeEnum, heap_id). heap_id is the object's
-//      slot in its own heap, i.e. exactly the "id=" field CNC3D_Dump_Objects prints.
+//      slot in its own heap, i.e. exactly the "id=" field OpenCNC3D_Dump_Objects prints.
 //      It refuses anything whose House != PlayerPtr, and returns false in that case.
 //    * CNC_Handle_Input(INPUT_REQUEST_SELECT_AT_POSITION | MOUSE_LEFT_CLICK, pixels)
 //      and INPUT_REQUEST_MOUSE_AREA (x1,y1,x2,y2 = drag rectangle in the same pixels).
@@ -122,26 +122,26 @@ typedef void (*CNC_Handle_Unit_Request_t)(UnitRequestEnum, uint64);
 typedef bool (*CNC_Select_Object_t)(uint64, int, int);
 typedef bool (*CNC_Clear_Object_Selection_t)(uint64);
 typedef void (*CNC_Set_Home_Cell_t)(int, int, uint64);
-typedef int (*CNC3D_Dump_t)(void);
-typedef void (*CNC3D_Get_View_t)(int*);
-typedef bool (*CNC3D_Cell_To_Pixel_t)(int, int, int*, int*);
-typedef int (*CNC3D_Dump_Selection_t)(void);
-typedef int (*CNC3D_Probe_t)(int, int);
-typedef bool (*CNC3D_Sel_Info_t)(int, int*);
-typedef const char* (*CNC3D_Mission_Name_t)(int);
+typedef int (*OpenCNC3D_Dump_t)(void);
+typedef void (*OpenCNC3D_Get_View_t)(int*);
+typedef bool (*OpenCNC3D_Cell_To_Pixel_t)(int, int, int*, int*);
+typedef int (*OpenCNC3D_Dump_Selection_t)(void);
+typedef int (*OpenCNC3D_Probe_t)(int, int);
+typedef bool (*OpenCNC3D_Sel_Info_t)(int, int*);
+typedef const char* (*OpenCNC3D_Mission_Name_t)(int);
 
 static CNC_Advance_t Advance;
 static CNC_Handle_Input_t HandleInput;
 static CNC_Handle_Unit_Request_t HandleUnitRequest;
 static CNC_Select_Object_t SelectObject;
 static CNC_Clear_Object_Selection_t ClearSelection;
-static CNC3D_Dump_t Dump;
-static CNC3D_Get_View_t GetView;
-static CNC3D_Cell_To_Pixel_t CellToPixel;
-static CNC3D_Dump_Selection_t DumpSel;
-static CNC3D_Probe_t Probe;
-static CNC3D_Sel_Info_t SelInfo;
-static CNC3D_Mission_Name_t MissionName;
+static OpenCNC3D_Dump_t Dump;
+static OpenCNC3D_Get_View_t GetView;
+static OpenCNC3D_Cell_To_Pixel_t CellToPixel;
+static OpenCNC3D_Dump_Selection_t DumpSel;
+static OpenCNC3D_Probe_t Probe;
+static OpenCNC3D_Sel_Info_t SelInfo;
+static OpenCNC3D_Mission_Name_t MissionName;
 
 static int g_events = 0;
 static int g_frames = 0;
@@ -164,7 +164,7 @@ static void ev_cb(const EventCallbackStruct& e)
 static void print_view(void)
 {
     if (!GetView) {
-        printf("VIEW| (CNC3D_Get_View not exported)\n");
+        printf("VIEW| (OpenCNC3D_Get_View not exported)\n");
         return;
     }
     int v[11];
@@ -196,7 +196,7 @@ struct ObjState
 };
 
 /* We cannot read the heaps directly from here, so trace uses GAME_STATE_OCCUPIER-free
-** path: we simply re-run CNC3D_Dump_Objects and grep our own stdout. Instead of that
+** path: we simply re-run OpenCNC3D_Dump_Objects and grep our own stdout. Instead of that
 ** hack, the harness prints cells by asking the dylib for the selection dump, which
 ** carries cell + navcom for exactly the objects we ordered. */
 
@@ -257,13 +257,13 @@ int main(int argc, char** argv)
     HandleUnitRequest = (CNC_Handle_Unit_Request_t)dlsym(h, "CNC_Handle_Unit_Request");
     SelectObject = (CNC_Select_Object_t)dlsym(h, "CNC_Select_Object");
     ClearSelection = (CNC_Clear_Object_Selection_t)dlsym(h, "CNC_Clear_Object_Selection");
-    Dump = (CNC3D_Dump_t)dlsym(h, "CNC3D_Dump_Objects");
-    GetView = (CNC3D_Get_View_t)dlsym(h, "CNC3D_Get_View");
-    CellToPixel = (CNC3D_Cell_To_Pixel_t)dlsym(h, "CNC3D_Cell_To_Pixel");
-    DumpSel = (CNC3D_Dump_Selection_t)dlsym(h, "CNC3D_Dump_Selection");
-    Probe = (CNC3D_Probe_t)dlsym(h, "CNC3D_Probe_Object_At");
-    SelInfo = (CNC3D_Sel_Info_t)dlsym(h, "CNC3D_Sel_Info");
-    MissionName = (CNC3D_Mission_Name_t)dlsym(h, "CNC3D_Mission_Name");
+    Dump = (OpenCNC3D_Dump_t)dlsym(h, "OpenCNC3D_Dump_Objects");
+    GetView = (OpenCNC3D_Get_View_t)dlsym(h, "OpenCNC3D_Get_View");
+    CellToPixel = (OpenCNC3D_Cell_To_Pixel_t)dlsym(h, "OpenCNC3D_Cell_To_Pixel");
+    DumpSel = (OpenCNC3D_Dump_Selection_t)dlsym(h, "OpenCNC3D_Dump_Selection");
+    Probe = (OpenCNC3D_Probe_t)dlsym(h, "OpenCNC3D_Probe_Object_At");
+    SelInfo = (OpenCNC3D_Sel_Info_t)dlsym(h, "OpenCNC3D_Sel_Info");
+    MissionName = (OpenCNC3D_Mission_Name_t)dlsym(h, "OpenCNC3D_Mission_Name");
 
     printf("symbols: HandleInput=%p Select=%p GetView=%p CellToPixel=%p DumpSel=%p Probe=%p\n",
            (void*)HandleInput,
@@ -428,7 +428,7 @@ int main(int argc, char** argv)
             int still = 0;
             int steps = 0;
             if (!SelInfo) {
-                printf("CNC3D_Sel_Info missing\n");
+                printf("OpenCNC3D_Sel_Info missing\n");
                 continue;
             }
             int cur[8];

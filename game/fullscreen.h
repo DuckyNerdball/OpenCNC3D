@@ -25,8 +25,8 @@
  *  picks its own whole-number magnification from the height, and the Tier 2 render
  *  targets are resized by fx_rt_init when the size changes. Nothing had to be told.
  * ==================================================================================== */
-#ifndef CNC3D_FULLSCREEN_H
-#define CNC3D_FULLSCREEN_H
+#ifndef OPENCNC3D_FULLSCREEN_H
+#define OPENCNC3D_FULLSCREEN_H
 
 #include <SDL.h>
 #include <stdio.h>
@@ -36,6 +36,18 @@
 #else
 #define FS_MAYBE_UNUSED
 #endif
+
+/* OPENCNC3D_BACKGROUND=1: NEVER TAKE THE DESK. Set by game/gates.sh for everything a suite
+   starts, so a run that is not otherwise "automated" -- the shell started bare on purpose,
+   to prove it reads the player's own files as a player's copy would -- still opens hidden,
+   as a background process (no Dock tile, no focus), and never switches the display mode.
+   It changes nothing else: what the run reads, draws and decides is the same as without
+   it. Only the window stays out of the way of whoever is working at the machine. */
+FS_MAYBE_UNUSED static int fs_background_only(void)
+{
+    const char *e = SDL_getenv("OPENCNC3D_BACKGROUND");
+    return e && e[0] == '1';
+}
 
 /* Set by --fullscreen, read by whoever creates the window. */
 static int fs_start_fullscreen FS_MAYBE_UNUSED = 0;
@@ -78,7 +90,7 @@ FS_MAYBE_UNUSED static int fs_handle_event(const SDL_Event *e)
     return 1;
 }
 
-/* THE THREE DISPLAY MODES, one function for both windows. app/cnc3d.cpp and
+/* THE THREE DISPLAY MODES, one function for both windows. app/opencnc3d.cpp and
    cnc_eyes.cpp each create a window and the two had already drifted (one was resizable
    and the other was not); a mode switch written twice would drift the same way. So the
    flags a window is born with and the switch a live window makes are both here.
@@ -314,4 +326,4 @@ FS_MAYBE_UNUSED static int fs_enum_modes(SDL_Window *win, int *ws, int *hs, int 
     return k;
 }
 
-#endif /* CNC3D_FULLSCREEN_H */
+#endif /* OPENCNC3D_FULLSCREEN_H */

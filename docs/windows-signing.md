@@ -113,7 +113,7 @@ Not costed in detail, because it should not be started before the account exists
   Windows step. `osslsigncode` is the usual way to sign a PE from a Unix host and it is the
   first thing to test. **Settle this before buying anything**: if signing cannot be driven
   from the release script, the rule that a build is one command is what pays for it.
-- **What gets signed**: `C&C3D.exe`, and `TiberianDawn.dll` beside it. `cnc_eyes.exe` is the
+- **What gets signed**: `OpenCNC3D.exe`, and `TiberianDawn.dll` beside it. `cnc_eyes.exe` is the
   verification binary the gate suite drives and nobody double clicks it, so it does not need
   to be signed and signing it would cost a signature per build for nothing.
 - **Where it goes**: after `tools/win/build-win.sh` links and before `make-build-win.sh` zips.
@@ -129,7 +129,7 @@ Not costed in detail, because it should not be started before the account exists
 
 - **A manifest for its own sake.** Adding an application manifest was considered and dropped.
   An `asInvoker` execution level would stop Windows' installer-name heuristics guessing this
-  needs elevation, but the executable is called `C&C3D.exe` and trips no such heuristic. A DPI
+  needs elevation, but the executable is called `OpenCNC3D.exe` and trips no such heuristic. A DPI
   awareness declaration would be a real change to how the window behaves on a scaled display,
   and it cannot be tested from a machine that does not run Windows. Adding an untested
   behaviour change to fix a warning it does not fix is the wrong trade. Registered here rather

@@ -60,7 +60,14 @@ static long ms_played(void *user)
     if (!s->au || !(audio_boot_have_device() || tap_active()))
         return -1;
 
-    heard = s->pushed - (long)cnc_movie_pending(s->au) - (long)audio_backend_latency();
+    /* pushed and pending are both in the movie's own 22050 Hz samples (the mixer
+       upsamples on the way in and reports its ring in source samples); the device's
+       latency is in OUTPUT frames, so it is brought down to the same unit. The one
+       millisecond the upsampler holds back is not counted, on purpose: a stream's
+       last few samples never leave the filter, and counting them would stop
+       `pending` ever reaching zero at the end of a film. */
+    heard = s->pushed - (long)cnc_movie_pending(s->au) -
+            (long)audio_backend_latency() / MIX_STREAM_UP;
     if (heard < 0)
         heard = 0;
     return heard * 2; /* samples -> bytes, 16 bit mono */

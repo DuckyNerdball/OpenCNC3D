@@ -28,8 +28,8 @@
  *  the right answer if anyone ever re-encodes the art with soft edges.
  * ================================================================================== */
 
-#ifndef CNC3D_VERDICT_MOD_H
-#define CNC3D_VERDICT_MOD_H
+#ifndef OPENCNC3D_VERDICT_MOD_H
+#define OPENCNC3D_VERDICT_MOD_H
 
 static GLuint g_vrdWin = 0, g_vrdLose = 0;
 static int    g_vrdW = 0, g_vrdH = 0;       /* padded texture size, e.g. 256x64 */
@@ -164,4 +164,4 @@ static void verdict_free(void)
     g_vrdHave = false;
 }
 
-#endif /* CNC3D_VERDICT_MOD_H */
+#endif /* OPENCNC3D_VERDICT_MOD_H */

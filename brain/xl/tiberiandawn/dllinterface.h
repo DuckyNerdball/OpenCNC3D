@@ -748,7 +748,7 @@ struct CNCMultiplayerOptionsStruct
     bool MPlayerAftermathUnits;
     bool CaptureTheFlag;
     bool DestroyStructures; // New early win condition via destroying all a player's structures
-    bool ShortGame;         // OpenCNC 3D: defences and walls do not keep a player alive
+    bool ShortGame;         // OpenCNC3D: defences and walls do not keep a player alive
     bool ModernBalance;
 };
 
@@ -863,7 +863,7 @@ struct CNCShroudStruct
 
 /**************************************************************************************
 **
-**  OpenCNC 3D XL: the ABI facts block (docs/design-xl-brain.md, abiAndHost).
+**  OpenCNC3D XL: the ABI facts block (docs/design-xl-brain.md, abiAndHost).
 **
 **  The classic host/brain contract worked because both sides defined the same
 **  macros and hoped -- no negotiation, so a struct-sizing mismatch was a silent
@@ -872,10 +872,10 @@ struct CNCShroudStruct
 **  this dylib compiled them; MapStride is the engine's compile-time cell-array
 **  width (MAP_CELL_W = 1024).
 **
-**  Fetched via the exported CNC3D_ABI_Facts(struct CNC3DAbiFactsStruct*).
+**  Fetched via the exported OpenCNC3D_ABI_Facts(struct OpenCNC3DAbiFactsStruct*).
 **
 */
-struct CNC3DAbiFactsStruct
+struct OpenCNC3DAbiFactsStruct
 {
     int AbiVersion;        // CNC_DLL_API_VERSION as compiled
     int MapStride;         // MAP_CELL_W: cells per row of the engine's cell array

@@ -1,0 +1,109 @@
+# G321 leg 2 (game/gate_classic_ui.py reads what this writes): a Desert map in Classic.
+#
+# The Nod base on SCG41EA, whose rock formation and buildings are Desert art: every
+# Classic sprite must decode through DESERT.PAL, not Temperate's. Then GDI's Medium Tank
+# is sent against the Nod Light Tank three cells away, and every tick is shot while the
+# two trade fire, so the checker can take the frames in which a GUNFIRE muzzle flash is
+# on screen and look at it: TranslucentTable turns its white rim into a faint shade of
+# the ground, it is not a white disc.
+
+tick 2
+gfxmode 0
+cam 33 25
+shot shots/g321_desert.png
+cam 50 31
+lclickobj MTNK 2
+orderobj LTNK 1
+deselect
+cursor 1200 700
+tick 1
+shot shots/g321_gf_01.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_02.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_03.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_04.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_05.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_06.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_07.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_08.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_09.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_10.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_11.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_12.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_13.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_14.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_15.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_16.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_17.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_18.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_19.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_20.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_21.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_22.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_23.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_24.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_25.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_26.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_27.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_28.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_29.png
+dosanimprobe
+tick 1
+shot shots/g321_gf_30.png
+dosanimprobe
+quit

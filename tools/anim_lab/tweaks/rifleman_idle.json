@@ -1,0 +1,51 @@
+{
+ "speed": 0.9,
+ "toward": [
+  {
+   "clip": "Anim_Rifleman_Aim",
+   "amount": 0.3,
+   "bones": [
+    "LeftArm",
+    "LeftForeArm",
+    "LeftHand",
+    "RightArm",
+    "RightForeArm",
+    "RightHand",
+    "Weapon"
+   ]
+  }
+ ],
+ "bones": {
+  "Spine": {
+   "rot": [
+    0,
+    17,
+    0
+   ]
+  },
+  "Head": {
+   "sway": [
+    {
+     "axis": "y",
+     "deg": 18,
+     "cycles": 1
+    },
+    {
+     "axis": "x",
+     "deg": 3,
+     "cycles": 2,
+     "phase": 0.25
+    }
+   ]
+  }
+ },
+ "carry": {
+  "pitch": -8.3
+ },
+ "legs": {
+  "width": 35,
+  "stagger": 20,
+  "hips_up": 10,
+  "toe_out": 8
+ }
+}

@@ -3,12 +3,12 @@
  * There used to be two answers to this question and they did not agree, which is a
  * whole class of bug rather than one bug. The renderer's answer (cnc_eyes.cpp) knew
  * about Windows, about the shipped layout where the library sits beside the
- * executable, and about SDL_GetBasePath. The LOBBY's answer (app/cnc3d.cpp,
+ * executable, and about SDL_GetBasePath. The LOBBY's answer (app/opencnc3d.cpp,
  * mp_brain_abi) knew none of those: it probed three hardcoded ".dylib" names with
  * fopen and gave up.
  *
  * WHAT THAT COST, and it is worth writing down because nothing in the code said it.
- * The lobby's probe reads CNC3D_Event_ABI out of the brain and sends it in the HELLO;
+ * The lobby's probe reads OpenCNC3D_Event_ABI out of the brain and sends it in the HELLO;
  * the host refuses any joiner whose value differs (netmatch.c, reason 2, "order-wire
  * layout"). On Windows all three fopen candidates missed, so the probe returned 0 and
  * the joiner announced 0. Against a Mac host holding a real value that is a mismatch,
@@ -32,8 +32,8 @@
  * happens when a build is started from a shortcut rather than from its own folder. The
  * bare name is tried too, for the case where the base path cannot be determined.
  */
-#ifndef CNC3D_BRAIN_PATH_H
-#define CNC3D_BRAIN_PATH_H
+#ifndef OPENCNC3D_BRAIN_PATH_H
+#define OPENCNC3D_BRAIN_PATH_H
 
 #include <SDL.h>
 #include <stdio.h>
@@ -42,24 +42,24 @@
 /* The platform's own name for the brain. Everything that is not an explicit --dylib is
    derived from this, so a shipped build never has to be told where its own brain is. */
 #ifdef _WIN32
-#  define CNC3D_BRAIN_LIB "TiberianDawn.dll"
+#  define OPENCNC3D_BRAIN_LIB "TiberianDawn.dll"
 #else
-#  define CNC3D_BRAIN_LIB "TiberianDawn.dylib"
+#  define OPENCNC3D_BRAIN_LIB "TiberianDawn.dylib"
 #endif
 
 /* The brain lives in one place in the working tree, another in the installed
-   share/OpenCNC 3D tree, and a third beside the binary in a shipped build. Probe all of
+   share/OpenCNC3D tree, and a third beside the binary in a shipped build. Probe all of
    them rather than making the caller care.
 
    NEVER RETURNS NULL. With nothing found it names the platform's own library, so the
    error a player sees is about a file that could plausibly have existed rather than
    about "(none)". */
-static const char* cnc3d_find_brain(const char* explicitPath)
+static const char* opencnc3d_find_brain(const char* explicitPath)
 {
     static const char* candidates[] = {
-        "../brain/lib/" CNC3D_BRAIN_LIB,
-        "../brain/vanilla/build-native/tiberiandawn/" CNC3D_BRAIN_LIB,
-        CNC3D_BRAIN_LIB,
+        "../brain/lib/" OPENCNC3D_BRAIN_LIB,
+        "../brain/vanilla/build-native/tiberiandawn/" OPENCNC3D_BRAIN_LIB,
+        OPENCNC3D_BRAIN_LIB,
         NULL
     };
     static char beside[1024];
@@ -74,14 +74,14 @@ static const char* cnc3d_find_brain(const char* explicitPath)
     {
         char* base = SDL_GetBasePath();
         if (base) {
-            snprintf(beside, sizeof beside, "%s%s", base, CNC3D_BRAIN_LIB);
+            snprintf(beside, sizeof beside, "%s%s", base, OPENCNC3D_BRAIN_LIB);
             SDL_free(base);
             if (access(beside, R_OK) == 0)
                 return beside;
         }
     }
 
-    return CNC3D_BRAIN_LIB;
+    return OPENCNC3D_BRAIN_LIB;
 }
 
-#endif /* CNC3D_BRAIN_PATH_H */
+#endif /* OPENCNC3D_BRAIN_PATH_H */

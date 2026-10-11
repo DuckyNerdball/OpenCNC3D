@@ -1,4 +1,4 @@
-# Multiplayer: how OpenCNC 3D gets real network play, and what 16-24 players costs
+# Multiplayer: how OpenCNC3D gets real network play, and what 16-24 players costs
 
 Investigation and design, 30 Aug 2026. Every claim about the engine is read out of the
 checkout in `brain/vanilla` and `brain/xl` (`brain/patches/UPSTREAM.txt`), and line numbers
@@ -178,7 +178,7 @@ several are live defects today.
 
 ### 3.1 The four input paths that bypass the event queue
 
-Eleven paths mutate the simulation without producing an event. Four are reachable in OpenCNC 3D
+Eleven paths mutate the simulation without producing an event. Four are reachable in OpenCNC3D
 today, and each would change the world on one machine and nowhere else:
 
 | Path | Brain | Reached from |
@@ -211,7 +211,7 @@ The second is the dangerous one. Even where the resulting cell does not matter, 
 draws advance the shared random stream, so two peers diverge permanently from that tick
 onward.
 
-**OpenCNC 3D's current exposure is lower than the general case and must not be relied on.** The
+**OpenCNC3D's current exposure is lower than the general case and must not be relied on.** The
 renderer deliberately never moves `TacticalCoord` (`cnc_eyes.cpp:308`), which is set only at
 scenario start (`dllinterface.cpp:1354-1357`) and restored after the start position sweep
 (`:6390`). So it is currently identical on every machine by accident of the host's design,
@@ -335,7 +335,7 @@ a CVE history.
 The lobby already exists and the precedent for the network version is in the engine's own
 source. `Net_New_Dialog` (`netdlg.cpp:2654`) is Tiberian Dawn's network host lobby: a
 `ColorListClass` roster at the top left, one row per player in that player's colour,
-formatted name-tab-side (`:3063-3070`). That is the widget OpenCNC 3D's skirmish lobby was already
+formatted name-tab-side (`:3063-3070`). That is the widget OpenCNC3D's skirmish lobby was already
 modelled on, per `docs/design-skirmish-lobby.md` section 0.
 
 What the multiplayer version adds over the skirmish one: a network roster with join and
@@ -492,12 +492,12 @@ Mac:
   `gate_lockstep` 25 legs, `gate_netloop` 16 legs over real loopback datagrams, and the
   shipped `netcheck selftest` at `ORDER DIGEST E2668540`, which is the digest this
   document's own handoff predicts. The wire is sound on this machine.
-- **Phase 0's oracle already existed and nobody had noticed.** `CNC3D_Dump_Objects`
+- **Phase 0's oracle already existed and nobody had noticed.** `OpenCNC3D_Dump_Objects`
   (`brain/vanilla/tiberiandawn/dllinterface.cpp:8338`) walks the real object heaps rather
   than the draw intercept, so it works with no art, no window and no renderer, and
   `tools/xl-parity/compare.py` already parses exactly what it prints. It was never wired
   into `brain/host/cnc_host.c`, which resolved ten `CNC_*` symbols and never asked for it.
-  It is wired in now, behind `CNC3D_TICKDUMP`, and the Mac half of Phase 0 has been
+  It is wired in now, behind `OPENCNC3D_TICKDUMP`, and the Mac half of Phase 0 has been
   captured: 20,000 ticks of SCB01EA, run twice, identical at every tick.
 
 **One earlier recipe would have lied.** Comparing the host's END STATE rather than a per
@@ -522,7 +522,7 @@ exactly where a stranger drops mid match. The old Phase 6 is deleted.
 This is the one test that can kill the recommendation, and it is the cheapest thing here.
 `brain/host/cnc_host.c` is dependency free and already builds on macOS, on the 32 bit Windows
 build and on the Win98 box. Build it from one commit on macOS arm64 and on i686 MinGW, run
-the same scripted skirmish for 20,000 ticks with `CNC3D_TICKDUMP=1`, and compare with
+the same scripted skirmish for 20,000 ticks with `OPENCNC3D_TICKDUMP=1`, and compare with
 `tools/xl-parity/compare.py`.
 **GATE:** the per tick digests are byte identical at all 20,000 ticks on both platforms.
 **FAIL** prints the first divergent tick and field, which is bisectable rather than a mystery.
@@ -582,7 +582,7 @@ world mutation is preceded by an event. **SIZE: 2-3 sessions.**
 
 **Phase 2. Two brains, one machine, in lockstep.** No sockets yet. Run two brain instances in
 one process from the same seed, feed both the same order stream through a new
-`CNC3D_Post_Event` export, and compare dumps per tick.
+`OpenCNC3D_Post_Event` export, and compare dumps per tick.
 **GATE:** 20,000 ticks, dumps identical, and an order issued to instance A appears in
 instance B's world on the agreed tick. **SIZE: 1-2 sessions.**
 
@@ -638,7 +638,7 @@ Phases 0 to 3 deliver 8 player multiplayer and are worth shipping on their own. 
 
 1. **Do we run one small always-on service, permanently?** No game server, but connecting
    two players behind home routers needs a third party for a few seconds. It is tiny, and
-   `cnc3dgame.com` already serves `/api/builds`. Say no and multiplayer means typing an IP
+   `opencnc3d.com` already serves `/api/builds`. Say no and multiplayer means typing an IP
    and forwarding a port. **Recommendation: yes, and publish the endpoint list so it can be
    community hosted.**
 2. **Do we pay for a relay for the players who cannot connect directly?** Roughly 15 to 30
@@ -688,7 +688,7 @@ Phases 0 to 3 deliver 8 player multiplayer and are worth shipping on their own. 
 12. **Do the determinism fixes change the campaign, or only a match? DECIDED 1 SEP 2026:
     ONLY A MATCH.** The fixes in section 3 are gated on a lockstep flag. Outside a network
     match the engine takes the 1995 path exactly as it always has, and inside one it takes the
-    deterministic path. The flag is `CNC3D_Lockstep`, false until the `CNC3D_Set_Lockstep`
+    deterministic path. The flag is `OpenCNC3D_Lockstep`, false until the `OpenCNC3D_Set_Lockstep`
     export is called, and nothing in the engine sets it.
     **Why this is the right shape and not a shortcut.** There is one engine, so a fix made for
     multiplayer otherwise lands in the campaign too, and the campaign is what ships today. The

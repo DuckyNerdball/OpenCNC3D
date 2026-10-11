@@ -1,4 +1,4 @@
-"""C&C3D sidebar HUD for 640x480 — 8 build slots, full-size radar.
+"""OpenCNC3D sidebar HUD for 640x480 — 8 build slots, full-size radar.
 
 Composed from the delivered pieces rather than the flattened chassis, because the
 chassis baked in a 116x97 radar opening that can only show the big missions at 1px per

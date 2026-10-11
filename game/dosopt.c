@@ -49,17 +49,25 @@ static const char *const dopt_sl_verb[3] = { "Load", "Save", "Delete" };
 
 /* The Visuals pages. Every label is ours; there is no 1995 string for any of them. */
 static const char *const dopt_vis_label[DOPT_V_COUNT] = {
-    "Classic", "Enhanced", "Advanced...", "OK"
+    "Classic", "N64", "Enhanced", "Advanced...", "OK"
+};
+
+/* The Advanced page's tabs: the same three words, so a player reads one name per mode. */
+static const char *const dopt_tab_label[DOPT_MODE_COUNT] = {
+    "Classic", "N64", "Enhanced"
 };
 
 static const char *const dopt_vis_elem[DOPT_VE_COUNT] = {
-    /* POSITIONAL, like the enum, and nothing checks the pairing: these seven are the seven
-       at the top of DOPT_VisElem in the same order. */
-    "True fullscreen",
+    /* POSITIONAL, like the enum, and checked below: DOPT_VE_COUNT entries exactly. The
+       three display modes share one row of the page, so they are the short words a player
+       uses rather than "True fullscreen" and "Windowed borderless", which did not fit
+       three to a row. */
+    "Fullscreen",
     "Windowed",
-    "Windowed borderless",
+    "Borderless",
     "Resolution",
-    "Reset to defaults",
+    "Vertical sync",
+    "FPS counter",
     "UI scaling",
     "Perspective",
     "Smooth animations",
@@ -67,6 +75,7 @@ static const char *const dopt_vis_elem[DOPT_VE_COUNT] = {
     "Bilinear filtering",
     "Water Shader",
     "3D Trees",
+    "3D Tiberium",
     /* Short, because unlike every other row on this page this one carries a control
        with words in it: the entries all end in "Textures", so the row says which
        textures and the control says which set. "Terrain textures / DOS Textures"
@@ -80,17 +89,95 @@ static const char *const dopt_vis_elem[DOPT_VE_COUNT] = {
     "Dynamic light",
     "Bloom",
     "Colour grade",
-    "CRT"
+    "CRT",
+    "New audio",
+    "3D grass",
+    "Bushes",
+    "Rocks",
+    "3D soldiers",
+    "New 3D models",
+    "New explosions",
+    "Ground patches",
+    "Terrain relief",
+    "Green pointer"
+};
+typedef char dopt_vis_elem_count_check[(sizeof dopt_vis_elem / sizeof dopt_vis_elem[0]
+                                        == DOPT_VE_COUNT) ? 1 : -1];
+
+/* Each Advanced tab edits its mode without switching the active picture. */
+static const int dopt_rows_classic[] = { DOPT_VE_SMOOTH };
+static const int dopt_rows_n64[] = {
+    DOPT_VE_UISCALE, DOPT_VE_SMOOTH, DOPT_VE_NEWHUD, DOPT_VE_BILINEAR, DOPT_VE_TEXSET,
+    DOPT_VE_INFSET
+};
+static const int dopt_rows_enhanced[] = {
+    DOPT_VE_UISCALE, DOPT_VE_PERSPECTIVE, DOPT_VE_SMOOTH, DOPT_VE_NEWHUD, DOPT_VE_BILINEAR,
+    DOPT_VE_WATER, DOPT_VE_TREES, DOPT_VE_TIB3D, DOPT_VE_TEXSET, DOPT_VE_INFSET,
+    DOPT_VE_GAMMA, DOPT_VE_SUPERSAMPLE, DOPT_VE_SHADOWS, DOPT_VE_OCCLUSION, DOPT_VE_LIGHT,
+    DOPT_VE_BLOOM, DOPT_VE_GRADE, DOPT_VE_CRT
 };
 
+int dopt_vis_mode_rows(int mode, int *out)
+{
+    const int *src = dopt_rows_enhanced;
+    int n = (int)(sizeof dopt_rows_enhanced / sizeof dopt_rows_enhanced[0]), i;
+    if (mode == DOPT_MODE_CLASSIC) {
+        src = dopt_rows_classic;
+        n = (int)(sizeof dopt_rows_classic / sizeof dopt_rows_classic[0]);
+    } else if (mode == DOPT_MODE_N64) {
+        src = dopt_rows_n64;
+        n = (int)(sizeof dopt_rows_n64 / sizeof dopt_rows_n64[0]);
+    }
+    if (out)
+        for (i = 0; i < n; i++) out[i] = src[i];
+    return n;
+}
+
+int dopt_vis_in_mode(int elem, int mode)
+{
+    int rows[DOPT_VE_COUNT], n, i;
+    n = dopt_vis_mode_rows(mode, rows);
+    for (i = 0; i < n; i++)
+        if (rows[i] == elem) return 1;
+    return 0;
+}
+
+/* Where a row stands in the tab on screen, counting from the top of the list, or -1 for
+   a row that tab does not have. */
+static int dopt_adv_pos(const DOPT_State *st, int item)
+{
+    int rows[DOPT_VE_COUNT], n, i;
+    n = dopt_vis_mode_rows(st->advTab, rows);
+    for (i = 0; i < n; i++)
+        if (rows[i] == item) return i;
+    return -1;
+}
+
+int dopt_adv_count(const DOPT_State *st)
+{
+    return dopt_vis_mode_rows(st ? st->advTab : DOPT_MODE_ENHANCED, 0);
+}
+
+/* The profile the Advanced page is editing. */
+static DOPT_Profile *dopt_tabprof(DOPT_State *st)
+{
+    return &st->vis.prof[st->advTab >= 0 && st->advTab < DOPT_MODE_COUNT ? st->advTab : 0];
+}
+static const DOPT_Profile *dopt_tabprof_c(const DOPT_State *st)
+{
+    return &st->vis.prof[st->advTab >= 0 && st->advTab < DOPT_MODE_COUNT ? st->advTab : 0];
+}
+
 /* The entries name the ART, and the noun follows the row: the terrain row picks between
-   tile textures and the infantry row between sprites, so "Remastered Textures" under
-   INFANTRY would be simply wrong. Same three choices, same order, same numbering. */
+   tile textures and the infantry row between sprites, so "DOS Textures" under INFANTRY
+   would be simply wrong. Same order, same numbering. The terrain table is indexed by
+   value, and DOPT_TEX_REMASTER's slot is empty because that art is no longer offered:
+   an empty name is what dopt_drop_listed reads as "not in the list". */
 static const char *const dopt_texset_name[DOPT_TEX_COUNT] = {
-    "N64 Textures", "DOS Textures", "Remastered Textures"
+    "N64 Textures", "DOS Textures", "", "Enhanced Textures"
 };
-static const char *const dopt_infset_name[DOPT_TEX_COUNT] = {
-    "N64 Sprites", "DOS Sprites", "Remastered Sprites"
+static const char *const dopt_infset_name[DOPT_INF_COUNT] = {
+    "N64 Sprites", "DOS Sprites"
 };
 
 /* The Gameplay page's labels. All three are ours. Measured against GRAD6FNT: 104, 116
@@ -126,7 +213,7 @@ static const char *const dopt_ctrl_label[DOPT_C_COUNT] = {
  * carry a name: dopt_item_label is what the harness's `optclick LABEL` looks up, so a
  * nameless button is a button no gate can press. */
 static const char *const dopt_snd_label[DOPT_S_COUNT] = {
-    "Music Volume:", "Sound Volume:", "Track List", "Stop", "Play",
+    "Music Volume:", "Sound Volume:", "Ambience:", "Track List", "Stop", "Play",
     "Off", "Off", "Options Menu"
 };
 
@@ -163,6 +250,9 @@ const char *dopt_item_label(const DOPT_State *st, int item)
         return (item >= 0 && item < DOPT_V_COUNT) ? dopt_vis_label[item] : "";
     case DOPT_PAGE_ADVANCED:
         if (item == DOPT_A_OK) return "OK";
+        if (item == DOPT_A_RESET) return "Reset to Defaults";
+        if (item >= DOPT_A_TAB0 && item < DOPT_A_TAB0 + DOPT_MODE_COUNT)
+            return dopt_tab_label[item - DOPT_A_TAB0];
         /* The bar prints nothing; the name is here because the scripted click verb looks
            items up by label, and an item with no name is an item no gate can reach. The
            layout gate exempts it from the printed-label leg by name for that reason. */
@@ -210,23 +300,23 @@ int dopt_item_disabled(const DOPT_State *st, int item)
     case DOPT_PAGE_CONTROLS:
         return 0;
     case DOPT_PAGE_VISUALS:
-        /* THE ONE RULE ON THIS PAGE: there is nothing to configure about a picture you
-           have switched off, so ADVANCED greys out under CLASSIC. It is drawn either
-           way -- 1995 draws a disabled gadget rather than hiding it (gadget.cpp:632) --
-           so the player can see that turning ENHANCED on is what opens it. */
-        if (item == DOPT_V_ADVANCED) return !st->vis.enhanced;
-        return 0;
+        /* Red Alert has no N64 presentation. Keep the row visible in the shared menu,
+           but let the ordinary disabled draw, hit test and keyboard walk refuse it. */
+        return st->n64_unavailable && item == DOPT_V_N64;
     case DOPT_PAGE_ADVANCED:
-        /* UI scaling is Enhanced only AND the new HUD's only (the DOS bar keeps its own
-           zoom), so it greys out with New HUD off; the Resolution row is the desktop's
-           under Windowed Borderless and has nothing to offer with no sizes enumerated.
-           Drawn greyed rather than hidden, as every disabled gadget here is. */
+        if (st->n64_unavailable && item == DOPT_A_TAB0 + DOPT_MODE_N64)
+            return 1;
+        /* A ROW THE TAB ON SCREEN DOES NOT LIST is disabled as well as having no
+           rectangle, so the keyboard walk and the hit test both pass it by. */
+        if (item >= DOPT_VE_GLOBAL_COUNT && item < DOPT_VE_COUNT
+            && !dopt_vis_in_mode(item, st->advTab))
+            return 1;
+        /* UI scaling is the new HUD's only (the DOS bar keeps its own zoom), so it greys
+           out while that mode's New HUD is off; the Resolution row is the desktop's
+           under Borderless and has nothing to offer with no sizes enumerated. Drawn
+           greyed rather than hidden, as every disabled gadget here is. */
         if (item == DOPT_VE_UISCALE)
-            return (!st->vis.enhanced || !st->vis.elem[DOPT_VE_NEWHUD]) ? 1 : 0;
-        /* Perspective is Enhanced only for the reason the terrain art is: CLASSIC is
-           the cartridge's picture, north straight up. */
-        if (item == DOPT_VE_PERSPECTIVE)
-            return st->vis.enhanced ? 0 : 1;
+            return dopt_tabprof_c(st)->elem[DOPT_VE_NEWHUD] ? 0 : 1;
         if (item == DOPT_VE_RESOLUTION)
             return (st->vis.dispmode == DOPT_DISP_BORDERLESS || st->vis.nres <= 0) ? 1 : 0;
         return 0;
@@ -325,6 +415,7 @@ void dopt_settings_init(DOPT_Settings *s)
     s->music = DOPT_VOL_TOP;
     s->sound = DOPT_VOL_TOP;
     s->speech = DOPT_VOL_TOP;
+    s->ambience = DOPT_VOL_TOP;
 }
 
 /* THE CONFIRMATION BOX, measured exactly as msgbox.cpp measures it rather than
@@ -735,7 +826,7 @@ void dopt_layout(DOPT_State *st, const DB_Pack *p)
        runs to the row's edge, rather than at one right-aligned width for all of them.
        One width, taken from the widest art entry, put "Resolution", "UI scaling" and
        "Perspective" under the plate; per row, every label clears its box and every box
-       still holds its widest entry ("Remastered Textures" against the short TERRAIN),
+       still holds its widest entry ("Enhanced Textures" against the short TERRAIN),
        which is goptions.cpp's own measure-the-widest rule applied to both halves. */
     {
         int k;
@@ -765,6 +856,7 @@ void dopt_open(DOPT_State *st, const DB_Pack *p)
     st->drag = -1;
     st->dragdiff = 0;
     st->advTop = 0;
+    st->advTab = st->vis.mode;
     /* -1 and not 0: texdrop names the ROW whose list is open, and 0 is a real row. */
     st->texdrop = -1;
     st->texhot = -1;
@@ -818,16 +910,16 @@ void dopt_set_playing(DOPT_State *st, int playing)
  * ------------------------------------------------------------------------ */
 
 /* The bottom of travel. Floored at zero so a list shorter than its own well is not a
- * special case anywhere else. */
-static int dopt_adv_last(void)
+ * special case anywhere else. The list is the tab on screen's, not every row the page has. */
+static int dopt_adv_last(const DOPT_State *st)
 {
-    const int last = DOPT_VE_COUNT - DOPT_A_VIEW_ROWS;
+    const int last = dopt_adv_count(st) - DOPT_A_VIEW_ROWS;
     return last > 0 ? last : 0;
 }
 
 static void dopt_adv_clamp(DOPT_State *st)
 {
-    const int last = dopt_adv_last();
+    const int last = dopt_adv_last(st);
     if (st->advTop > last)
         st->advTop = last;
     if (st->advTop < 0)
@@ -836,16 +928,18 @@ static void dopt_adv_clamp(DOPT_State *st)
 
 /* SliderClass::Recalc_Thumb, slider.cpp:181-188, vertical: the thumb is the same
  * fraction of the well that the well is of the list, floored at 4 (slider.cpp:185), and
- * its start is pulled back so it cannot hang off the end (slider.cpp:187). */
+ * its start is pulled back so it cannot hang off the end (slider.cpp:187). A list that
+ * fits its well gets a thumb the whole height of it. */
 static void dopt_adv_thumb(const DOPT_State *st, int *ty, int *th)
 {
-    int size = (DOPT_A_BAR_H * DOPT_A_VIEW_ROWS) / DOPT_VE_COUNT;
+    const int n = dopt_adv_count(st) > DOPT_A_VIEW_ROWS ? dopt_adv_count(st) : DOPT_A_VIEW_ROWS;
+    int size = (DOPT_A_BAR_H * DOPT_A_VIEW_ROWS) / n;
     int start;
     if (size < DOPT_A_THUMB_MIN)
         size = DOPT_A_THUMB_MIN;
     if (size > DOPT_A_BAR_H)
         size = DOPT_A_BAR_H;
-    start = (DOPT_A_BAR_H * st->advTop) / DOPT_VE_COUNT;
+    start = (DOPT_A_BAR_H * st->advTop) / n;
     if (start > DOPT_A_BAR_H - size)
         start = DOPT_A_BAR_H - size;
     if (start < 0)
@@ -859,25 +953,43 @@ static void dopt_adv_thumb(const DOPT_State *st, int *ty, int *th)
  * off first and the bar does not jump under the hand at the moment it is seized. */
 static void dopt_adv_drag(DOPT_State *st, int my)
 {
+    const int n = dopt_adv_count(st) > DOPT_A_VIEW_ROWS ? dopt_adv_count(st) : DOPT_A_VIEW_ROWS;
     int top = my - st->dragdiff - DOPT_A_BAR_Y;
     if (top < 0)
         top = 0;
-    st->advTop = (top * DOPT_VE_COUNT) / DOPT_A_BAR_H;
+    st->advTop = (top * n) / DOPT_A_BAR_H;
     dopt_adv_clamp(st);
 }
 
 /* Keep the highlighted row inside the well after the keyboard walk moved it, which is
- * the same job dopt_track_show does for the jukebox. OK and the bar are not in the well,
- * so they leave it where it is. */
+ * the same job dopt_track_show does for the jukebox. The global rows, the tabs, Reset,
+ * OK and the bar are not in the well, so they leave it where it is. */
 static void dopt_adv_show(DOPT_State *st)
 {
-    if (st->selected < 0 || st->selected >= DOPT_VE_COUNT)
+    const int pos = (st->selected >= 0 && st->selected < DOPT_VE_COUNT)
+                        ? dopt_adv_pos(st, st->selected) : -1;
+    if (pos < 0)
         return;
-    if (st->selected < st->advTop)
-        st->advTop = st->selected;
-    if (st->selected >= st->advTop + DOPT_A_VIEW_ROWS)
-        st->advTop = st->selected - DOPT_A_VIEW_ROWS + 1;
+    if (pos < st->advTop)
+        st->advTop = pos;
+    if (pos >= st->advTop + DOPT_A_VIEW_ROWS)
+        st->advTop = pos - DOPT_A_VIEW_ROWS + 1;
     dopt_adv_clamp(st);
+}
+
+int dopt_adv_reveal(DOPT_State *st, int item)
+{
+    const int pos = (st && item >= 0 && item < DOPT_VE_COUNT) ? dopt_adv_pos(st, item) : -1;
+    if (item >= 0 && item < DOPT_VE_GLOBAL_COUNT)
+        return 1;                    /* the global rows are always showing */
+    if (pos < 0)
+        return 0;
+    if (pos < st->advTop)
+        st->advTop = pos;
+    if (pos >= st->advTop + DOPT_A_VIEW_ROWS)
+        st->advTop = pos - DOPT_A_VIEW_ROWS + 1;
+    dopt_adv_clamp(st);
+    return 1;
 }
 
 /* THE RESOLUTION LIST'S OWN SCROLL. It holds up to DOPT_RES_MAX entries and shows
@@ -963,7 +1075,7 @@ void dopt_bind_visuals(DOPT_State *st, void (*applyvis)(void *, const DOPT_Visua
         applyvis(st->bind.user, &st->vis);
 }
 
-void dopt_bind_visuals_reset(DOPT_State *st, void (*resetvis)(void *, DOPT_Visuals *))
+void dopt_bind_visuals_reset(DOPT_State *st, void (*resetvis)(void *, DOPT_Visuals *, int))
 {
     if (!st) return;
     st->bind.resetvis = resetvis;
@@ -975,6 +1087,18 @@ void dopt_set_visuals(DOPT_State *st, const DOPT_Visuals *v)
     if (!v) return;
     st->vis = *v;
     st->vis.from_menu = from;
+    if (st->n64_unavailable && st->vis.mode == DOPT_MODE_N64)
+        st->vis.mode = DOPT_MODE_CLASSIC;
+}
+
+void dopt_set_n64_unavailable(DOPT_State *st, int unavailable)
+{
+    if (!st) return;
+    st->n64_unavailable = unavailable ? 1 : 0;
+    if (st->n64_unavailable && st->vis.mode == DOPT_MODE_N64)
+        st->vis.mode = DOPT_MODE_CLASSIC;
+    if (st->n64_unavailable && st->advTab == DOPT_MODE_N64)
+        st->advTab = DOPT_MODE_CLASSIC;
 }
 
 /* Written the way a switch reads when it is ON, so the row says what turning it on does
@@ -1121,7 +1245,7 @@ void dopt_open_visuals(DOPT_State *st, const DB_Pack *p)
 {
     dopt_open(st, p);
     st->page = DOPT_PAGE_VISUALS;
-    st->selected = st->vis.enhanced ? DOPT_V_ENHANCED : DOPT_V_CLASSIC;
+    st->selected = DOPT_V_CLASSIC + st->vis.mode;
     st->vis.from_menu = 1;
 }
 
@@ -1242,6 +1366,9 @@ int dopt_item_rect(const DOPT_State *st, int item, int *x, int *y, int *w, int *
         case DOPT_S_SOUND:
             *x = DOPT_SND_MVOL_X; *y = DOPT_SND_FXVOL_Y;
             *w = DOPT_SND_VOL_W;  *h = DOPT_SND_VOL_H;  return 1;
+        case DOPT_S_AMBIENCE:
+            *x = DOPT_SND_MVOL_X; *y = DOPT_SND_AMBVOL_Y;
+            *w = DOPT_SND_VOL_W; *h = DOPT_SND_VOL_H; return 1;
         case DOPT_S_LIST:
             *x = DOPT_SND_LIST_X; *y = DOPT_SND_LIST_Y;
             *w = DOPT_SND_LIST_W; *h = DOPT_SND_LIST_H; return 1;
@@ -1274,9 +1401,9 @@ int dopt_item_rect(const DOPT_State *st, int item, int *x, int *y, int *w, int *
             return 1;
         }
         *x = DOPT_V_BTN_X; *w = DOPT_V_BTN_W; *h = DOPT_V_BTN_H;
-        /* CLASSIC, ENHANCED, then a gap, then ADVANCED: the gap says the third one is
-           not a third choice but a way further in. */
-        *y = DOPT_V_TOP + DOPT_V_STEP * item + (item == DOPT_V_ADVANCED ? DOPT_V_GAP : 0);
+        /* Keep N64 in the same row for both games. Red Alert draws it disabled,
+           as requested, while the shared disabled hit test refuses selection. */
+        *y = DOPT_V_MODES_TOP + DOPT_V_STEP * item + (item == DOPT_V_ADVANCED ? DOPT_V_GAP : 0);
         return 1;
     }
 
@@ -1339,11 +1466,27 @@ int dopt_item_rect(const DOPT_State *st, int item, int *x, int *y, int *w, int *
     if (st->page == DOPT_PAGE_ADVANCED) {
         if (item < 0 || item >= DOPT_A_COUNT)
             return 0;
-        if (item == DOPT_A_OK) {
-            *w = st->okw ? st->okw : DOPT_MIN_BTN_W;
-            *h = DOPT_GC_OK_H;
-            *x = (DOPT_SCREEN_W - *w) / 2;
-            *y = DOPT_GC_OK_Y;
+        if (item == DOPT_A_RESET || item == DOPT_A_OK) {
+            /* A CENTRED PAIR, the Game Controls page's own bottom row, with Reset as wide
+               as its label needs (the cheat page's Reset is sized the same way) and OK the
+               ordinary button width. */
+            const int rw = st->chresetw ? st->chresetw : DOPT_MIN_BTN_W;
+            const int ow = DOPT_GC_ROW_BTN_W;
+            const int left = DOPT_AD_X + (DOPT_AD_W - (rw + ow + DOPT_GC_ROW_GAP)) / 2;
+            *h = DOPT_AD_OK_H;
+            *y = DOPT_AD_OK_Y;
+            if (item == DOPT_A_RESET) { *w = rw; *x = left; }
+            else                      { *w = ow; *x = left + rw + DOPT_GC_ROW_GAP; }
+            return 1;
+        }
+        if (item >= DOPT_A_TAB0 && item < DOPT_A_TAB0 + DOPT_MODE_COUNT) {
+            /* Keep the unavailable N64 tab visible and disabled in Red Alert. */
+            const int k = item - DOPT_A_TAB0;
+            const int tw = (DOPT_AD_FULL_W - 2 * (DOPT_MODE_COUNT - 1)) / DOPT_MODE_COUNT;
+            *x = DOPT_AD_BOX_X + k * (tw + 2);
+            *y = DOPT_AD_TAB_Y;
+            *w = tw;
+            *h = DOPT_AD_TAB_H;
             return 1;
         }
         if (item == DOPT_A_BAR) {
@@ -1351,20 +1494,47 @@ int dopt_item_rect(const DOPT_State *st, int item, int *x, int *y, int *w, int *
             *w = DOPT_A_BAR_W; *h = DOPT_A_BAR_H;
             return 1;
         }
+        if (item < DOPT_VE_GLOBAL_COUNT) {
+            /* THE GLOBAL ROWS, on a grid of three columns. The whole cell is the target,
+               not the seven pixel box, and it stops 2 short of the next column. */
+            int col = 0, span = 1, gy = DOPT_AD_G0_Y;
+            switch (item) {
+            case DOPT_VE_FULLSCREEN: col = 0; gy = DOPT_AD_G0_Y; break;
+            case DOPT_VE_WINDOWED:   col = 1; gy = DOPT_AD_G0_Y; break;
+            case DOPT_VE_BORDERLESS: col = 2; gy = DOPT_AD_G0_Y; break;
+            case DOPT_VE_RESOLUTION: col = 0; span = 2; gy = DOPT_AD_G1_Y; break;
+            default:
+                /* VERTICAL SYNC AND THE FPS COUNTER split their row in HALVES, not
+                   thirds: "Vertical sync" prints wider than a third, and in thirds its
+                   ink ran into the FPS counter's box while every rectangle stayed apart. */
+                *x = DOPT_AD_BOX_X + (item == DOPT_VE_FPS ? DOPT_AD_FULL_W / 2 : 0);
+                *y = DOPT_AD_G2_Y;
+                *w = DOPT_AD_FULL_W / 2 - 2;
+                *h = DOPT_A_BOX;
+                return 1;
+            }
+            *x = DOPT_AD_BOX_X + col * DOPT_AD_COL_W;
+            *y = gy;
+            *w = span * DOPT_AD_COL_W - 2;
+            *h = DOPT_A_BOX;
+            return 1;
+        }
         {
             /* A ROW OUTSIDE THE WELL HAS NO RECTANGLE AT ALL, and that is the whole of
                the scrolling. dopt_hit_test skips an item that answers with no rectangle,
                so a row the player cannot see is a row no click can reach; the row loop in
                dopt_draw_advanced skips one too, so nothing is painted outside the well.
-               Both come free rather than needing a clip. */
-            const int row = item - st->advTop;
-            if (row < 0 || row >= DOPT_A_VIEW_ROWS)
+               Both come free rather than needing a clip. A row the tab does not list has
+               no place in the well at all, and so no rectangle either. */
+            const int pos = dopt_adv_pos(st, item);
+            const int row = pos - st->advTop;
+            if (pos < 0 || row < 0 || row >= DOPT_A_VIEW_ROWS)
                 return 0;
             /* The whole row is the target, not just the little box: a checkbox you have
                to hit within seven pixels is a checkbox nobody uses. It stops short of
                the bar, which is list.cpp:566's own `Width -= ScrollGadget.Width`. */
-            *x = DOPT_A_BOX_X;
-            *y = DOPT_A_TOP + DOPT_A_STEP * row;
+            *x = DOPT_AD_BOX_X;
+            *y = DOPT_AD_TOP + DOPT_A_STEP * row;
             *w = DOPT_A_ROW_W;
             *h = DOPT_A_BOX;
             return 1;
@@ -1405,6 +1575,21 @@ int dopt_hit_test(const DOPT_State *st, int mx, int my)
     return -1;
 }
 
+/* THE ADVANCED PAGE'S WALK, top to bottom as it is drawn rather than in item order: the
+   global rows, the three tabs, the tab's own rows in its order, then Reset and OK. The
+   scroll bar is not on it (see below). Returns how many it wrote. */
+static int dopt_adv_walk(const DOPT_State *st, int *out)
+{
+    int n = 0, i, rows[DOPT_VE_COUNT], nr;
+    for (i = 0; i < DOPT_VE_GLOBAL_COUNT; i++) out[n++] = i;
+    for (i = 0; i < DOPT_MODE_COUNT; i++) out[n++] = DOPT_A_TAB0 + i;
+    nr = dopt_vis_mode_rows(st->advTab, rows);
+    for (i = 0; i < nr; i++) out[n++] = rows[i];
+    out[n++] = DOPT_A_RESET;
+    out[n++] = DOPT_A_OK;
+    return n;
+}
+
 int dopt_next_item(const DOPT_State *st, int item, int delta)
 {
     const int n = dopt_page_count(st);
@@ -1412,6 +1597,22 @@ int dopt_next_item(const DOPT_State *st, int item, int delta)
 
     if (delta == 0)
         return item;
+    if (st->page == DOPT_PAGE_ADVANCED) {
+        int walk[DOPT_A_COUNT], nw, at = -1;
+        nw = dopt_adv_walk(st, walk);
+        for (i = 0; i < nw; i++)
+            if (walk[i] == item) at = i;
+        if (at < 0)
+            at = (delta > 0) ? -1 : nw;
+        for (i = 0; i < nw; i++) {
+            at += (delta > 0) ? 1 : -1;
+            if (at >= nw) at = 0;
+            if (at < 0) at = nw - 1;
+            if (!dopt_item_disabled(st, walk[at]))
+                return walk[at];
+        }
+        return item;
+    }
     k = item;
     for (i = 0; i < n; i++) {
         k += (delta > 0) ? 1 : -1;
@@ -1461,6 +1662,7 @@ static int *dopt_ctrl_slot(DOPT_State *st, int ctrl)
     if (st->page == DOPT_PAGE_SOUND) {
         if (ctrl == DOPT_S_MUSIC) return &st->set.music;
         if (ctrl == DOPT_S_SOUND) return &st->set.sound;
+        if (ctrl == DOPT_S_AMBIENCE) return &st->set.ambience;
         return 0;
     }
     switch (ctrl) {
@@ -1613,7 +1815,7 @@ int dopt_press(DOPT_State *st, int mx, int my)
     }
 
     if ((st->page == DOPT_PAGE_CONTROLS && hit < DOPT_C_SOUNDCTRL) ||
-        (st->page == DOPT_PAGE_SOUND && hit <= DOPT_S_SOUND)) {
+        (st->page == DOPT_PAGE_SOUND && hit <= DOPT_S_AMBIENCE)) {
         /* gauge.cpp:288-316: clicking ON the thumb drags it from where it was
            grabbed; clicking anywhere else jumps the value to the pointer. */
         int cur = *dopt_ctrl_slot(st, hit);
@@ -1758,28 +1960,26 @@ static int dopt_activate(DOPT_State *st, int item)
         switch (item) {
         case DOPT_V_CLASSIC:
         case DOPT_V_ENHANCED:
-            /* MUTUALLY EXCLUSIVE, and one of them is always on: this is a pair of radio
-               buttons wearing the dialog's own button look, because the 1995 toolkit has
-               no radio widget and inventing one would be the only unfamiliar thing on
-               the screen. Clicking the one already chosen does nothing rather than
-               turning the picture off. */
-            st->vis.enhanced = (item == DOPT_V_ENHANCED);
-            /* Leaving CLASSIC selected with ADVANCED highlighted would strand the
-               keyboard on a button that just went dead. */
-            if (!st->vis.enhanced && st->selected == DOPT_V_ADVANCED)
-                st->selected = DOPT_V_ENHANCED;
+        case DOPT_V_N64:
+            /* MUTUALLY EXCLUSIVE, and one of them is always on: this is a radio triple
+               wearing the dialog's own button look, because the 1995 toolkit has no radio
+               widget and inventing one would be the only unfamiliar thing on the screen.
+               Clicking the one already chosen changes nothing. Choosing one puts that
+               mode's own settings on screen at once, behind the dialog. */
+            st->vis.mode = item - DOPT_V_CLASSIC;
             dopt_vis_apply(st);
             return DOPT_ACT_NONE;
         case DOPT_V_ADVANCED:
-            if (dopt_item_disabled(st, item))
-                return DOPT_ACT_NONE;     /* gadget.cpp:632, and ENTER has no guard */
             st->page = DOPT_PAGE_ADVANCED;
-            st->selected = 0;
-            /* The page opens at the top of its list, because the selection opens on the
-               first row and the two must agree: row 0 highlighted with the well halfway
-               down is a page with no visible selection on it. */
+            /* THE PAGE OPENS ON THE MODE IN USE, on its first row, at the top of its
+               list: the selection and the well must agree, and the settings a player
+               most likely came for are the ones on screen. */
+            st->advTab = st->vis.mode;
+            st->selected = DOPT_VE_FULLSCREEN;
             st->advTop = 0;
             st->pressed = -1;
+            st->texdrop = -1;
+            st->texhot = -1;
             return DOPT_ACT_NONE;
         default:
             /* OK. Back to wherever this was opened from: the pause dialog in game, or
@@ -1823,6 +2023,9 @@ static int dopt_activate(DOPT_State *st, int item)
     }
 
     if (st->page == DOPT_PAGE_ADVANCED) {
+        /* A disabled row, and ENTER has no guard of its own (gadget.cpp:632). */
+        if (dopt_item_disabled(st, item))
+            return DOPT_ACT_NONE;
         /* THE DISPLAY TRIPLE IS A RADIO: the clicked one is lit and the other two are
            not, and clicking the lit one changes nothing. Applied at once, so the window
            changes while the page is still up and the player can see what they chose. */
@@ -1835,11 +2038,32 @@ static int dopt_activate(DOPT_State *st, int item)
             dopt_vis_apply(st);
             return DOPT_ACT_NONE;
         }
-        if (item == DOPT_VE_RESET) {
+        /* VERTICAL SYNC: off goes to 0 and on to 1. An adaptive 2 set on the tuning panel
+           reads as on and stays 2 until the box is clicked. */
+        if (item == DOPT_VE_VSYNC) {
+            st->vis.vsync = st->vis.vsync ? 0 : 1;
+            dopt_vis_apply(st);
+            return DOPT_ACT_NONE;
+        }
+        if (item == DOPT_VE_FPS) {
+            st->vis.fps = !st->vis.fps;
+            dopt_vis_apply(st);
+            return DOPT_ACT_NONE;
+        }
+        /* A TAB CHANGES WHAT THE PAGE SHOWS AND NOTHING ELSE. It is a view onto another
+           mode's settings, not a way to switch to that mode, so nothing is applied. */
+        if (item >= DOPT_A_TAB0 && item < DOPT_A_TAB0 + DOPT_MODE_COUNT) {
+            st->advTab = item - DOPT_A_TAB0;
+            st->advTop = 0;
+            st->texdrop = -1;
+            st->texhot = -1;
+            return DOPT_ACT_NONE;
+        }
+        if (item == DOPT_A_RESET) {
             st->texdrop = -1;
             st->texhot = -1;
             if (st->bind.resetvis)
-                st->bind.resetvis(st->bind.user, &st->vis);
+                st->bind.resetvis(st->bind.user, &st->vis, st->advTab);
             dopt_vis_apply(st);
             return DOPT_ACT_NONE;
         }
@@ -1877,10 +2101,16 @@ static int dopt_activate(DOPT_State *st, int item)
             st->page = DOPT_PAGE_VISUALS;
             st->selected = DOPT_V_ADVANCED;
             st->pressed = -1;
+            st->texdrop = -1;
+            st->texhot = -1;
             return DOPT_ACT_NONE;
         }
-        if (item >= DOPT_VE_SMOOTH && item < DOPT_VE_COUNT) {
-            st->vis.elem[item] = !st->vis.elem[item];
+        /* A PER-MODE CHECKBOX, in the profile of the mode the tabs point at. The host
+           applies the whole block: a change to the mode in use shows at once, and a
+           change to another mode waits in that mode's settings until it is chosen. */
+        if (item >= DOPT_VE_GLOBAL_COUNT && item < DOPT_VE_COUNT) {
+            DOPT_Profile *pr = dopt_tabprof(st);
+            pr->elem[item] = !pr->elem[item];
             dopt_vis_apply(st);
         }
         return DOPT_ACT_NONE;
@@ -1964,7 +2194,7 @@ static int dopt_activate(DOPT_State *st, int item)
         return DOPT_ACT_NONE;
     case DOPT_VISUALS:
         st->page = DOPT_PAGE_VISUALS;
-        st->selected = st->vis.enhanced ? DOPT_V_ENHANCED : DOPT_V_CLASSIC;
+        st->selected = DOPT_V_CLASSIC + st->vis.mode;
         st->pressed = -1;
         return DOPT_ACT_NONE;
     case DOPT_GAMEPLAY:
@@ -2083,7 +2313,7 @@ int dopt_key(DOPT_State *st, int key)
            handling of its own; this is the obvious keyboard equivalent of dragging
            and it is ours, which is why the step is a plain eighth of travel. */
         if ((st->page == DOPT_PAGE_CONTROLS && st->selected < DOPT_C_SOUNDCTRL) ||
-            (st->page == DOPT_PAGE_SOUND && st->selected <= DOPT_S_SOUND)) {
+            (st->page == DOPT_PAGE_SOUND && st->selected <= DOPT_S_AMBIENCE)) {
             int *slot = dopt_ctrl_slot(st, st->selected);
             int max = dopt_ctrl_max(st, st->selected);
             int step = max > 16 ? max / 8 : 1;
@@ -2251,7 +2481,8 @@ static void dopt_draw_button(DB_Surface *s, const DB_Font *f, const DOPT_State *
     dopt_style_plate(s, x, y, w, h, pressed, disabled);
     if (disabled) {
         for (i = 0; i < 16; i++)
-            fp[i] = (i >= 4) ? DOPT_TEXT_DISABLED : DB_TBLACK;
+            fp[i] = (i >= 4) ? (st->n64_unavailable ? DB_PINK : DOPT_TEXT_DISABLED)
+                              : DB_TBLACK;
     } else {
         db_font_palette_grad(fp, (pressed || on) ? DOPT_TEXT_BRIGHT : DOPT_TEXT_MEDIUM,
                              DB_TBLACK);
@@ -2350,26 +2581,27 @@ static void dopt_draw_check(DB_Surface *s, const DOPT_State *st, int item, int o
  * drawn last it covers the rows beneath it, tested first it takes their clicks back.
  * Nothing else on the page has to know it exists.
  *
- * REMASTERED IS DRAWN EVEN WHEN IT CANNOT BE CHOSEN, in the disabled ink and with a
- * tooltip explaining what would unlock it. That is the page's own rule (see
- * dopt_item_disabled) and 1995's before it: a disabled gadget rather than a missing
- * one, so a player can see the option exists.
+ * AN ENTRY THAT CANNOT BE CHOSEN HERE IS STILL DRAWN, in the disabled ink and with a
+ * tooltip explaining why. That is the page's own rule (see dopt_item_disabled) and
+ * 1995's before it: a disabled gadget rather than a missing one, so a player can see
+ * the option exists.
  */
 
-/* Two lines, because one is wider than the 232-pixel dialog it has to sit inside. */
-/* Three lines, because the sentence is wider than the 232-pixel dialog it sits in and
-   wider than a comfortable share of the 320-pixel screen. Broken at phrase boundaries
-   rather than by measure, so it reads. */
-#define DOPT_TIP_L1 "Available if you have"
-#define DOPT_TIP_L2 "Command & Conquer"
-#define DOPT_TIP_L3 "Remastered Collection installed"
+/* Each tip is three lines, because the sentence is wider than the 232-pixel dialog it
+   sits in and wider than a comfortable share of the 320-pixel screen. Broken at phrase
+   boundaries rather than by measure, so it reads.
 
-/* The DOS entry's own three lines. Two theaters never had a 1995 original, and a pack
+   The DOS entry's own three lines. Two theaters never had a 1995 original, and a pack
    baked before that art existed carries none either; both looked identical from here --
    the entry took the click and the ground did not change. */
 #define DOPT_DTIP_L1 "This map's art pack has"
 #define DOPT_DTIP_L2 "no 1995 tiles for this"
 #define DOPT_DTIP_L3 "theater"
+
+/* The Enhanced entry's, when this map's theater has no Enhanced pack. */
+#define DOPT_ETIP_L1 "No Enhanced textures"
+#define DOPT_ETIP_L2 "for this map's"
+#define DOPT_ETIP_L3 "theater"
 
 /* A resolution entry larger than the desktop's usable room, under WINDOWED. */
 #define DOPT_RTIP_L1 "Larger than the desktop."
@@ -2383,12 +2615,25 @@ const char *dopt_texset_label(int which)
 
 const char *dopt_drop_label(int item, int which)
 {
+    if (item == DOPT_VE_INFSET)
+        return (which >= 0 && which < DOPT_INF_COUNT) ? dopt_infset_name[which] : "";
     if (which < 0 || which >= DOPT_TEX_COUNT) return "";
-    return item == DOPT_VE_INFSET ? dopt_infset_name[which] : dopt_texset_name[which];
+    return dopt_texset_name[which];
+}
+
+/* WHETHER ENTRY `which` IS IN THE ROW'S OPEN LIST. Every entry is, except an art value
+   that is no longer offered, whose name is empty. Such a value keeps its number, so the
+   others keep theirs in a saved file, and it simply has no rectangle. */
+int dopt_drop_listed(int item, int which)
+{
+    if (item == DOPT_VE_TEXSET || item == DOPT_VE_INFSET)
+        return dopt_drop_label(item, which)[0] != 0;
+    return 1;
 }
 
 /* THE THREE LINES OF WHICHEVER TIP APPLIES, or 0 for none. The drawing used to print
-   DOPT_TIP_L1/2/3 by name, which is why there could only ever be one tip on this screen. */
+   one tip's three lines by name, which is why there could only ever be one tip on this
+   screen. */
 int dopt_texset_tip_lines(const DOPT_State *st, int which,
                           const char **l1, const char **l2, const char **l3)
 {
@@ -2405,17 +2650,17 @@ int dopt_texset_tip_lines(const DOPT_State *st, int which,
         }
         return 0;
     }
-    /* The tips are the ART rows' own. The UI scale and perspective lists share the widget
-       and their entry numbers, so a tip keyed on the number alone would grey "-3x"
-       because Remastered is not installed. */
+    /* The tips are the TERRAIN row's own. The UI scale and perspective lists share the
+       widget and their entry numbers, so a tip keyed on the number alone would grey an
+       entry of theirs for a reason that belongs to the art. */
     if (st && (st->texdrop == DOPT_VE_UISCALE || st->texdrop == DOPT_VE_PERSPECTIVE))
         return 0;
-    if (st && which == DOPT_TEX_REMASTER && !st->vis.remaster_ok) {
-        *l1 = DOPT_TIP_L1; *l2 = DOPT_TIP_L2; *l3 = DOPT_TIP_L3;
-        return 1;
-    }
     /* The DOS entry, and only on the TERRAIN row: the infantry sprites are shipped and
        are never missing, so the same value on that row means something else. */
+    if (st && which == DOPT_TEX_ENH && st->texdrop == DOPT_VE_TEXSET && !st->vis.enh_tex_ok) {
+        *l1 = DOPT_ETIP_L1; *l2 = DOPT_ETIP_L2; *l3 = DOPT_ETIP_L3;
+        return 1;
+    }
     if (st && which == DOPT_TEX_DOS && st->texdrop == DOPT_VE_TEXSET && !st->vis.dos_tex_ok) {
         *l1 = DOPT_DTIP_L1; *l2 = DOPT_DTIP_L2; *l3 = DOPT_DTIP_L3;
         return 1;
@@ -2462,7 +2707,10 @@ static int dopt_texset_pickable(const DOPT_State *st, int which)
     const char *a, *b, *c;
     /* PICKABLE IS THE TIP'S OWN ANSWER, so an entry can never be refused without a
        reason or explained without being refused. They were two lists and the DOS entry
-       was about to be added to only one of them. */
+       was about to be added to only one of them. An entry that is not listed is not
+       pickable either; it has no rectangle, so nothing can point at it anyway. */
+    if (!dopt_drop_listed(st->texdrop, which))
+        return 0;
     return !dopt_texset_tip_lines(st, which, &a, &b, &c);
 }
 
@@ -2476,22 +2724,25 @@ static int dopt_is_droprow(int item)
         || item == DOPT_VE_PERSPECTIVE;
 }
 
+/* Resolution is global; the other four are the edited mode's own. */
 static int dopt_drop_value(const DOPT_State *st, int item)
 {
-    if (item == DOPT_VE_INFSET) return st->vis.infset;
+    const DOPT_Profile *pr = dopt_tabprof_c(st);
+    if (item == DOPT_VE_INFSET) return pr->infset;
     if (item == DOPT_VE_RESOLUTION) return st->vis.residx;
-    if (item == DOPT_VE_UISCALE) return st->vis.uiscale;
-    if (item == DOPT_VE_PERSPECTIVE) return st->vis.perspective;
-    return st->vis.texset;
+    if (item == DOPT_VE_UISCALE) return pr->uiscale;
+    if (item == DOPT_VE_PERSPECTIVE) return pr->perspective;
+    return pr->texset;
 }
 
 static void dopt_drop_set(DOPT_State *st, int item, int v)
 {
-    if (item == DOPT_VE_INFSET)          st->vis.infset = v;
+    DOPT_Profile *pr = dopt_tabprof(st);
+    if (item == DOPT_VE_INFSET)          pr->infset = v;
     else if (item == DOPT_VE_RESOLUTION) st->vis.residx = v;
-    else if (item == DOPT_VE_UISCALE)    st->vis.uiscale = v;
-    else if (item == DOPT_VE_PERSPECTIVE) st->vis.perspective = v;
-    else                                 st->vis.texset = v;
+    else if (item == DOPT_VE_UISCALE)    pr->uiscale = v;
+    else if (item == DOPT_VE_PERSPECTIVE) pr->perspective = v;
+    else                                 pr->texset = v;
 }
 
 int dopt_drop_count(const DOPT_State *st, int item)
@@ -2499,6 +2750,7 @@ int dopt_drop_count(const DOPT_State *st, int item)
     if (item == DOPT_VE_RESOLUTION) return (st && st->vis.nres > 0) ? st->vis.nres : 0;
     if (item == DOPT_VE_UISCALE) return DOPT_UI_COUNT;
     if (item == DOPT_VE_PERSPECTIVE) return DOPT_PERSP_COUNT;
+    if (item == DOPT_VE_INFSET) return DOPT_INF_COUNT;
     return DOPT_TEX_COUNT;
 }
 
@@ -2535,12 +2787,12 @@ static int dopt_texset_box_rect_of(const DOPT_State *st, int item,
     if (!dopt_item_rect(st, item, &rx, &ry, &rw, &rh))
         return 0;
     if (st->labw[item] > 0) {
-        /* After this row's own label, to the row's right edge. */
-        *x = DOPT_A_LABEL_X + st->labw[item] + DOPT_A_DROP_GAP;
-        *w = DOPT_A_BOX_X + DOPT_A_ROW_W - *x;
+        /* After this row's own label, to the row's own right edge. */
+        *x = rx + DOPT_A_BOX + 6 + st->labw[item] + DOPT_A_DROP_GAP;
+        *w = rx + rw - *x;
     } else {
         *w = DOPT_A_DROP_W;                       /* no font: nothing prints anyway */
-        *x = DOPT_A_BOX_X + DOPT_A_ROW_W - *w;
+        *x = rx + rw - *w;
     }
     *y = ry - 1;
     *h = DOPT_A_DROP_H;
@@ -2556,12 +2808,20 @@ static int dopt_texset_box_rect_of(const DOPT_State *st, int item,
 static int dopt_texset_item_rect_of(const DOPT_State *st, int item, int i,
                                     int *x, int *y, int *w, int *h)
 {
-    int bx, by, bw, bh, slot = i, shown;
+    int bx, by, bw, bh, slot = 0, shown = 0, k;
     if (st->texdrop != item || i < 0 || i >= dopt_drop_count(st, item))
+        return 0;
+    if (!dopt_drop_listed(item, i))
         return 0;
     if (!dopt_texset_box_rect_of(st, item, &bx, &by, &bw, &bh))
         return 0;
-    shown = dopt_drop_count(st, item);
+    /* THE SLOT IS THE ENTRY'S PLACE AMONG THE LISTED ONES, so a withdrawn value leaves
+       no gap in the list while every value keeps its own number. */
+    for (k = 0; k < dopt_drop_count(st, item); k++)
+        if (dopt_drop_listed(item, k)) {
+            if (k < i) slot++;
+            shown++;
+        }
     if (item == DOPT_VE_RESOLUTION) {
         shown = dopt_res_shown(st);
         slot = i - st->restop;
@@ -2575,11 +2835,11 @@ static int dopt_texset_item_rect_of(const DOPT_State *st, int item, int i,
         /* DOWN when the whole list clears the OK button, else UP from the box: the
            infantry row sits on the well's last visible line, and a list that could only
            open downward there had no entries at all (G202's script found that). */
-        if (by + bh + shown * bh <= DOPT_GC_OK_Y - 1)
+        if (by + bh + shown * bh <= DOPT_AD_OK_Y - 1)
             *y = by + bh + slot * bh;
         else
             *y = by - (shown - slot) * bh;
-        if (*y < DOPT_V_Y + 2)
+        if (*y < DOPT_AD_Y + 2)
             return 0;
     }
     return 1;
@@ -2597,6 +2857,7 @@ int dopt_drop_need_pub(const DOPT_State *st, const DB_Pack *p, int item)
     if (!f || !dopt_is_droprow(item)) return 0;
     n = dopt_drop_count(st, item);
     for (i = 0; i < n; i++) {
+        if (!dopt_drop_listed(item, i)) continue;
         w = db_string_width(f, dopt_drop_text(st, item, i), DB_FONT6_XSPACING);
         if (w > need) need = w;
     }
@@ -2814,47 +3075,62 @@ static void dopt_draw_texset_drop(DB_Surface *s, const DB_Pack *p, const DOPT_St
         dopt_draw_tip(s, p, tipx, tipy, tipl1, tipl2, tipl3);
 }
 
+/* A BUTTON DRAWN HELD DOWN, for the one of a radio set that is chosen. dopt_draw_button
+   only knows about st->pressed, which is a transient mouse state, so the latch is painted
+   over the top: same box, pressed style, then the label again bright. */
+static void dopt_draw_latch(DB_Surface *s, const DB_Font *f, const DOPT_State *st,
+                            int item, const char *label)
+{
+    unsigned char fp[16];
+    int x, y, w, h, tx;
+    if (!f || !dopt_item_rect(st, item, &x, &y, &w, &h))
+        return;
+    dopt_style_plate(s, x, y, w, h, 1, 0);
+    db_font_palette_grad(fp, DOPT_TEXT_BRIGHT, DB_TBLACK);
+    tx = x + (w >> 1) - 1 - (db_string_width(f, label, DB_FONT6_XSPACING) >> 1);
+    db_print(s, f, label, tx, y + 1, fp, DB_FONT6_XSPACING);
+}
+
 /* The two Visuals pages. Everything on them is ours; see dosopt.h. */
 static void dopt_draw_visuals(DB_Surface *s, const DB_Pack *p, const DOPT_State *st)
 {
     const DB_Font *f = db_font(p, "GRAD6FNT");
     unsigned char fp[16];
     int i, x, y, w, h;
+    const int mode = (st->vis.mode >= 0 && st->vis.mode < DOPT_MODE_COUNT) ? st->vis.mode : 0;
 
     dopt_style_dialog(s, DOPT_V_X, DOPT_V_Y, DOPT_V_W, DOPT_V_H);
     dopt_style_caption(s, p, "Visuals", DOPT_V_X, DOPT_V_Y, DOPT_V_W);
 
-    for (i = 0; i < DOPT_V_COUNT; i++)
-        dopt_draw_button(s, f, st, i, dopt_vis_label[i]);
-
-    /* The chosen one of the pair is drawn HELD DOWN. dopt_draw_button only knows about
-       st->pressed, which is a transient mouse state, so the latch is painted over the
-       top: same box, pressed style, then the label again bright. */
-    {
-        const int sel = st->vis.enhanced ? DOPT_V_ENHANCED : DOPT_V_CLASSIC;
-        if (dopt_item_rect(st, sel, &x, &y, &w, &h) && f) {
-            int tx;
-            dopt_style_plate(s, x, y, w, h, 1, 0);
-            db_font_palette_grad(fp, DOPT_TEXT_BRIGHT, DB_TBLACK);
-            tx = x + (w >> 1) - 1
-                 - (db_string_width(f, dopt_vis_label[sel], DB_FONT6_XSPACING) >> 1);
-            db_print(s, f, dopt_vis_label[sel], tx, y + 1, fp, DB_FONT6_XSPACING);
-        }
+    if (f) {
+        db_font_palette_grad(fp, DOPT_TEXT_MEDIUM, DB_TBLACK);
+        db_print(s, f, DOPT_V_HEADING,
+                 DOPT_V_X + (DOPT_V_W >> 1)
+                     - (db_string_width(f, DOPT_V_HEADING, DB_FONT6_XSPACING) >> 1),
+                 DOPT_V_TOP, fp, DB_FONT6_XSPACING);
     }
 
-    /* One line saying what the two words mean, because "Classic" and "Enhanced" do not
-       say it on their own. */
-    if (f) {
-        /* Short enough to fit the 232 wide box at 6 point. The first version did not
-           and ran out of both sides of the dialog. */
-        const char *msg = st->vis.enhanced ? "Lighting, depth and colour."
-                                           : "The cartridge's own picture.";
+    for (i = 0; i < DOPT_V_COUNT; i++)
+        dopt_draw_button(s, f, st, i, dopt_vis_label[i]);
+    dopt_draw_latch(s, f, st, DOPT_V_CLASSIC + mode, dopt_vis_label[DOPT_V_CLASSIC + mode]);
+
+    /* One line saying what the chosen word means, because the three do not say it on
+       their own. Each is short enough to fit the 232 wide box at 6 point; the first
+       version of this line was not and ran out of both sides of the dialog. */
+    if (f && dopt_item_rect(st, DOPT_V_ADVANCED, &x, &y, &w, &h)) {
+        /* in the dialog's mode order: CLASSIC, N64, ENHANCED */
+        static const char *const msg[DOPT_MODE_COUNT] = {
+            "The original 1995 picture.",
+            "The cartridge's own picture.",
+            "New art, models, grass and sound."
+        };
+        const char *description = st->n64_unavailable && mode == DOPT_MODE_CLASSIC
+                                ? "The original 1996 picture." : msg[mode];
         db_font_palette_grad(fp, DOPT_TEXT_MEDIUM, DB_TBLACK);
-        db_print(s, f, msg,
+        db_print(s, f, description,
                  DOPT_V_X + (DOPT_V_W >> 1)
-                     - (db_string_width(f, msg, DB_FONT6_XSPACING) >> 1),
-                 DOPT_V_TOP + DOPT_V_STEP * DOPT_V_ADVANCED + DOPT_V_GAP + 16,
-                 fp, DB_FONT6_XSPACING);
+                     - (db_string_width(f, description, DB_FONT6_XSPACING) >> 1),
+                 y + h + 6, fp, DB_FONT6_XSPACING);
     }
 }
 
@@ -2881,26 +3157,44 @@ static void dopt_draw_adv_bar(DB_Surface *s, const DOPT_State *st)
 static void dopt_draw_advanced(DB_Surface *s, const DB_Pack *p, const DOPT_State *st)
 {
     const DB_Font *f = db_font(p, "GRAD6FNT");
+    const DOPT_Profile *pr = dopt_tabprof_c(st);
     unsigned char fp[16];
     int i, x, y, w, h;
+    const int inuse = (st->vis.mode >= 0 && st->vis.mode < DOPT_MODE_COUNT) ? st->vis.mode : 0;
 
-    dopt_style_dialog(s, DOPT_V_X, DOPT_V_Y, DOPT_V_W, DOPT_V_H);
-    dopt_style_caption(s, p, "Advanced", DOPT_V_X, DOPT_V_Y, DOPT_V_W);
+    dopt_style_dialog(s, DOPT_AD_X, DOPT_AD_Y, DOPT_AD_W, DOPT_AD_H);
+    dopt_style_caption(s, p, "Advanced", DOPT_AD_X, DOPT_AD_Y, DOPT_AD_W);
+
+    /* THE TWO HEADINGS, and beside the second one the mode that is actually on screen,
+       because the tabs under it choose what is EDITED and a player must be able to tell
+       that apart from what is in use. */
+    if (f) {
+        char inuse_s[48];
+        db_font_palette_grad(fp, DOPT_TEXT_MEDIUM, DB_TBLACK);
+        db_print(s, f, DOPT_AD_HEADING_G, DOPT_AD_BOX_X, DOPT_AD_GHEAD_Y, fp,
+                 DB_FONT6_XSPACING);
+        db_print(s, f, DOPT_AD_HEADING_M, DOPT_AD_BOX_X, DOPT_AD_MHEAD_Y, fp,
+                 DB_FONT6_XSPACING);
+        snprintf(inuse_s, sizeof inuse_s, "In use: %s", dopt_tab_label[inuse]);
+        db_print(s, f, inuse_s,
+                 DOPT_AD_BOX_X + DOPT_AD_FULL_W
+                     - db_string_width(f, inuse_s, DB_FONT6_XSPACING),
+                 DOPT_AD_MHEAD_Y, fp, DB_FONT6_XSPACING);
+    }
 
     for (i = 0; i < DOPT_VE_COUNT; i++) {
         int on;
         if (!dopt_item_rect(st, i, &x, &y, &w, &h))
             continue;
-        /* The display triple lights the one that is chosen; Reset draws a raised plate
-           where a box would be, so it reads as a button and not a switch. */
+        /* The display triple lights the one that is chosen. */
         if (i == DOPT_VE_FULLSCREEN)      on = (st->vis.dispmode == DOPT_DISP_FULLSCREEN);
         else if (i == DOPT_VE_WINDOWED)   on = (st->vis.dispmode == DOPT_DISP_WINDOWED);
         else if (i == DOPT_VE_BORDERLESS) on = (st->vis.dispmode == DOPT_DISP_BORDERLESS);
-        else                              on = st->vis.elem[i];
+        else if (i == DOPT_VE_VSYNC)      on = (st->vis.vsync != 0);
+        else if (i == DOPT_VE_FPS)        on = st->vis.fps;
+        else                              on = pr->elem[i];
         if (dopt_is_droprow(i))
             dopt_draw_texset_box(s, p, st, i);
-        else if (i == DOPT_VE_RESET)
-            dopt_style_plate(s, x, y, DOPT_A_BOX, DOPT_A_BOX, st->pressed == i, 0);
         else
             dopt_draw_check(s, st, i, on);
         if (!f)
@@ -2908,9 +3202,13 @@ static void dopt_draw_advanced(DB_Surface *s, const DB_Pack *p, const DOPT_State
         db_font_palette_grad(fp, dopt_item_disabled(st, i) ? DOPT_TEXT_DISABLED
                                : (st->selected == i) ? DOPT_TEXT_BRIGHT
                                                      : DOPT_TEXT_MEDIUM, DB_TBLACK);
-        db_print(s, f, dopt_vis_elem[i], DOPT_A_LABEL_X, y - 1, fp, DB_FONT6_XSPACING);
+        db_print(s, f, dopt_vis_elem[i], x + DOPT_A_BOX + 6, y - 1, fp, DB_FONT6_XSPACING);
     }
+    for (i = 0; i < DOPT_MODE_COUNT; i++)
+        dopt_draw_button(s, f, st, DOPT_A_TAB0 + i, dopt_tab_label[i]);
+    dopt_draw_latch(s, f, st, DOPT_A_TAB0 + st->advTab, dopt_tab_label[st->advTab]);
     dopt_draw_adv_bar(s, st);
+    dopt_draw_button(s, f, st, DOPT_A_RESET, dopt_item_label(st, DOPT_A_RESET));
     dopt_draw_button(s, f, st, DOPT_A_OK, "OK");
     /* LAST, so it covers the rows and the bar beneath it. */
     dopt_draw_texset_drop(s, p, st);
@@ -3076,6 +3374,7 @@ static void dopt_draw_sound(DB_Surface *s, const DB_Pack *p, const DOPT_State *s
     /* sounddlg.cpp:332-343, the two volume rows: caption right-aligned at (x-5, y-2). */
     dopt_draw_slider(s, st, DOPT_S_MUSIC, st->set.music);
     dopt_draw_slider(s, st, DOPT_S_SOUND, st->set.sound);
+    dopt_draw_slider(s, st, DOPT_S_AMBIENCE, st->set.ambience);
     if (f) {
         db_font_palette_grad(fp, DOPT_TEXT_MEDIUM, DB_TBLACK);
         db_print(s, f, "Music Volume:",
@@ -3086,6 +3385,9 @@ static void dopt_draw_sound(DB_Surface *s, const DB_Pack *p, const DOPT_State *s
                  DOPT_SND_MVOL_X - 5
                      - db_string_width(f, "Sound Volume:", DB_FONT6_XSPACING),
                  DOPT_SND_FXVOL_Y - 2, fp, DB_FONT6_XSPACING);
+        db_print(s, f, "Ambience:",
+                 DOPT_SND_MVOL_X - 5 - db_string_width(f, "Ambience:", DB_FONT6_XSPACING),
+                 DOPT_SND_AMBVOL_Y - 2, fp, DB_FONT6_XSPACING);
     }
 
     /* The list well, then its rows. BOXSTYLE_GREEN_BOX around it, list.cpp's own frame. */
@@ -3095,7 +3397,7 @@ static void dopt_draw_sound(DB_Surface *s, const DB_Pack *p, const DOPT_State *s
     if (f) {
         if (st->ntracks <= 0) {
             db_font_palette_grad(fp, DOPT_TEXT_DISABLED, DB_TBLACK);
-            db_print(s, f, "No score tracks are installed.", DOPT_SND_LIST_X + 4,
+            db_print(s, f, "No music is installed.", DOPT_SND_LIST_X + 4,
                      DOPT_SND_LIST_Y + 3, fp, DB_FONT6_XSPACING);
         } else {
             for (row = 0; row < DOPT_SND_ROWS; row++) {

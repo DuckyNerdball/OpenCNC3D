@@ -54,8 +54,8 @@
  *  do with this file. Corrected rather than left standing: a cross-reference to the
  *  wrong gate is worse than none, because it invites someone to trust a green G32.)
  * ==================================================================================== */
-#ifndef CNC3D_FX_POST_H
-#define CNC3D_FX_POST_H
+#ifndef OPENCNC3D_FX_POST_H
+#define OPENCNC3D_FX_POST_H
 
 #include "fx_gl.h"
 #include "fx_state.h"
@@ -85,6 +85,20 @@ static FxCasterFn g_fxCasters = 0;
    into g_fxGNorm and read by the light pass for ground pixels. */
 static FxCasterFn g_fxGroundNormals = 0;
 static FxRT g_fxGNorm;
+/* THE BAKE TARGET: what the CARTRIDGE'S OWN LIGHTING did to each mesh pixel.
+   The world pass writes texture times a per-vertex colour, and that colour is the
+   Nintendo 64's baked shade. This target holds the shade alone, from a second draw of
+   the same meshes with the textures unbound, which is the one piece of information
+   needed to undo the console's lighting and put a real one in its place:
+
+       forward colour = albedo x bakedShade      so      albedo = colour / bakedShade
+
+   Alpha is the class and is 1 exactly where a mesh wrote. Everything else in the frame
+   -- terrain, sprites, water, every decal and every effect -- leaves it at zero and is
+   passed through untouched, which is what keeps this from erasing the things drawn on
+   top of the world. */
+static FxRT g_fxBake;
+static FxCasterFn g_fxMeshBake = 0;
 static float g_fxSunR = 1.0f;           /* the sun box's half-width, in cells */
 /* THE SUN BOX AS NUMBERS, not just as a matrix. fx_sun_matrix already builds an eye, an
    orthonormal basis and a near/far pair on its way to the matrix; keeping them means the
@@ -124,13 +138,39 @@ static float g_fxViewX0 = 0, g_fxViewX1 = 64, g_fxViewZ0 = 0, g_fxViewZ1 = 64;
    faster machine either. A rendered-frame counter would satisfy neither. */
 static float g_fxTime = 0.0f;
 
+/* WHETHER THE LAST LIGHT PASS TOOK THE STRUCTURES GROUP'S PATH (fx_state.h, 12p): one of
+   its dials off neutral and a normal target to tell the structures' pixels by. Read by
+   the host's dump line, never by the chain. */
+static int g_fxStructOn = 0;
+
 /* ---- Internal state -------------------------------------------------------------- */
+
+/* HIGH RANGE: WANTED, AND SEPARATELY, ACHIEVED. The dial says what the player asked
+   for; g_fxHdrLive says what the driver gave, and the tonemap keys off the second. A
+   machine that cannot make a float target gets the picture it had before rather than a
+   tonemap applied to values that were clipped at white before it ever saw them, which
+   would be worse than not having the feature. */
+static int   g_fxHdrLive = 0;
+static int   g_fxHdrSaid  = 0;   /* the report above has been made at least once */
+static inline int fx_hdr_want(void);
 
 static FxRT  g_fxScene;                 /* world colour + depth, ss resolution        */
 static FxRT  g_fxLit;                   /* after shadow/AO/light, ss resolution       */
 static FxRT  g_fxBloomA, g_fxBloomB;    /* half of ss, ping-pong                      */
 static FxRT  g_fxNativeA, g_fxNativeB;  /* window resolution                          */
 static FxRT  g_fxShadow;                /* depth only, square                         */
+static FxRT  g_fxTerrainShadow;         /* terrain-only depth when its strength differs */
+static int   g_fxTerrainShadowLive = 0;
+/* THE 3D SOLDIERS' SUN MAP (fx_state.h, m3inf_shadow). The host sets g_fxInfWant each
+   frame and supplies g_fxInfCasters, which draws the posed soldiers and nothing else;
+   g_fxInfLive says the map was drawn this frame, which is what the shared caster pass
+   reads to leave the soldiers out of its own map. */
+static FxCasterFn g_fxInfCasters = 0;
+static int   g_fxInfWant = 0, g_fxInfLive = 0;
+static int   g_fxInfSoldiers = 0;       /* 3D soldiers may be drawn this frame at all */
+static FxRT  g_fxInfShadow;
+static float g_fxInfSunVP[16];
+static float g_fxInfR = 1.0f, g_fxInfSpan = 1.0f;
 
 static GLuint g_fxPLight, g_fxPBright, g_fxPBlur, g_fxPResolve, g_fxPCrt, g_fxPCopy;
 
@@ -139,7 +179,8 @@ static GLuint g_fxPLight, g_fxPBright, g_fxPBlur, g_fxPResolve, g_fxPCrt, g_fxPC
    and edge width are all applied when it is READ. See fx_cloud.h. */
 static GLuint g_fxCloudTex = 0;
 
-static int   g_fxBooted = 0;        /* programs compiled                              */
+static int   g_fxBooted = 0;        /* booted for this mission                        */
+static int   g_fxBuilt  = 0;        /* programs compiled, once per process            */
 static int   g_fxUsable = 0;        /* the chain can run at all                       */
 static int   g_fxActive = 0;        /* it IS running this frame (world begin said so) */
 static int   g_fxHudRT  = 0;        /* which native RT the HUD is being drawn into    */
@@ -192,6 +233,15 @@ static const char* FX_FS_LIGHT =
     "uniform sampler2D uColor;\n"
     "uniform sampler2D uDepth;\n"
     "uniform sampler2D uShadow;\n"
+    "uniform sampler2D uTerrainShadow, uTerrainVisibility, uTerrainWater;\n"
+    "uniform int uTerrainWaterOn, uTerrainCliffOn;\n"
+    "uniform sampler2D uTerrainCliff;\n"
+    "uniform vec2 uTerrainWaterScale;\n"
+    "uniform float uTerrainDryEdge;\n"
+    "uniform vec2 uTerrainVisSize;\n"
+    "uniform int uTerrainShadowOn, uTerrainGradeOn;\n"
+    "uniform float uTerrainStrength;\n"
+    "uniform vec2 uTerrainGrade;\n"
     "uniform mat4 uSunVP;\n"
     "uniform vec3 uCamPos;\n"
     "uniform vec3 uSunDir;\n"
@@ -199,7 +249,11 @@ static const char* FX_FS_LIGHT =
     "uniform float uSStrength, uSSoft, uSBias, uSTexel;\n"
     "uniform vec3  uSTint;\n"
     "uniform sampler2D uGNorm;\n"
+    "uniform sampler2D uBake;\n"
+    "uniform int   uBakeOn;\n"
+    "uniform float uReRough, uReSun, uReAmb, uReFloor, uReSpec, uReClamp;\n"
     "uniform float uAoFoliage;\n"
+    "uniform float uAoObject;\n"
     "uniform int   uGNormOn;\n"
     "uniform float uSNormOff, uSPen, uAoGround, uSunFloor;\n"
     "uniform int   uSunLambert;\n"
@@ -208,11 +262,25 @@ static const char* FX_FS_LIGHT =
     "uniform float uCStrength, uCEdge, uCWidth, uCInvScale, uCDrift, uCHeight;\n"
     "uniform vec2  uCDir;\n"
     "uniform int   uAoOn, uAoSamples;\n"
+    "uniform int   uCtOn, uCtSteps;\n"
+    "uniform float uCtLen, uCtThick, uCtBias, uCtStrength;\n"
+    "uniform sampler2D uInfShadow;\n"
+    "uniform int   uInfShOn;\n"
+    "uniform mat4  uInfSunVP;\n"
+    "uniform float uInfBias, uInfRad, uInfNOff;\n"
+    "uniform int   uCtSkipInf;\n"     /* 1 only while 3D soldiers are drawn */
+    "uniform vec2  uGNormSize;\n"
     "uniform float uAoRadius, uAoIntensity, uAoBias, uAoPower;\n"
     "uniform int   uNLights;\n"
     "uniform vec4  uLightPos[24];\n"
     "uniform vec4  uLightCol[24];\n"
     "uniform float uLightFalloff;\n"
+    /* THE STRUCTURES GROUP (fx_state.h, 12p). uStOn is 1 only while one of its dials is
+       off neutral, so at the neutral settings its blocks below are a uniform branch not
+       taken. uStGrade is gamma, gain, contrast and saturation on the structure's own
+       colour; uStLight is shade depth, sun strength, self-lit glow and occlusion. */
+    "uniform int   uStOn;\n"
+    "uniform vec4  uStGrade, uStLight;\n"
     /* THE RAIN (rain_mod.h sets these; all zero when it is off, so every rain branch
        below is a uniform branch that costs nothing). uRainWater is the sea's own field,
        its alpha 1 over water: the surface draws its own rain and must not be wetted
@@ -225,7 +293,23 @@ static const char* FX_FS_LIGHT =
     "uniform float uRainRelief, uRainReliefBody, uRainPuddleMirror;\n"
     "uniform float uRainPuddleEdge, uRainPuddleFlat, uRainPuddleSSR;\n"
     "uniform float uRainFog, uRainFogHeight, uRainFogBase, uRainFogInvScale, uRainFogDetail, uRainFogDrift1, uRainFogDrift2;\n"
-    "uniform vec2  uRainFogDir;\n";
+    "uniform vec2  uRainFogDir;\n"
+    /* THE DISTANCE FOG (distfog_mod.h sets these; uFogAmt is zero when it is off, so
+       its block is a uniform branch that costs nothing). uFogNear is the eye's distance
+       to the ground it looks at plus the start dial, uFogInvDepth one over the cells
+       the haze thickens over. */
+    "uniform float uFogAmt, uFogNear, uFogInvDepth;\n"
+    "uniform vec3  uFogCol;\n"
+    /* THE TIBERIUM'S LIGHT AND FOG (tibglow_mod.h sets these; uTibLight and uTibFog are
+       zero when off, so both blocks are uniform branches that cost nothing). uTibField
+       is the whole map, two texels a cell: red the glow for lighting, green the glow for
+       the fog, blue the ground's height between uTibH.x and uTibH.x + uTibH.y. */
+    "uniform sampler2D uTibField;\n"
+    "uniform float uTibInv, uTibLight, uTibLightH, uTibFog, uTibFogH, uTibFogGlow, uTibFogAmb;\n"
+    "uniform float uTibFogWisp, uTibFogDrift, uTibFogTop, uTibPulse, uTibTime;\n"
+    "uniform int   uTibFogSteps;\n"
+    "uniform vec3  uTibCol;\n"
+    "uniform vec2  uTibH;\n";
 
 static const char* FX_FS_LIGHT_BODY =
     "\n"
@@ -279,9 +363,20 @@ static const char* FX_FS_LIGHT_BODY =
        This channel used to answer one question, "is this ground", and it now answers
        two, because they turned out to be different questions:
 
-         0.00  nothing drew here. Units, walls and water keep the flat reconstruction.
+         0.00  nothing drew here. Walls, sprites and water keep the flat reconstruction.
+         0.35  an AUTHORED OBJECT. Use this normal, treat the surface as a hull.
          0.50  FOLIAGE. Use this normal, but it is not ground.
-         1.00  ground. Use this normal AND the ground's own one-sun slope term below.
+         0.78  generated gravel. Ground lighting plus per-pixel wet roughness.
+         0.92  generated rock. Ground lighting plus its dry dielectric material.
+         1.00  other ground. Use this normal and the ground's own one-sun slope.
+
+       THE THIRD BAND WAS ADDED WITHOUT MOVING EITHER OF THE OTHER TWO, deliberately:
+       foliage still writes 0.50 and lands in the foliage test, ground still writes 1.00
+       and lands in the ground test, so a frame that holds no authored model holds the
+       identical picture it held before. The band exists because an authored vehicle is
+       the first thing in this scene carrying a real per-pixel normal that is NOT a
+       field: it wants the normal used, and the occlusion and the wetness of rolled
+       steel, which is what a hull got back when it had no normal at all.
 
        The split exists because a canopy needs the first without the second. The
        reconstruction above is cross(dFdx(P), dFdy(P)), which is right on a hull because
@@ -293,8 +388,90 @@ static const char* FX_FS_LIGHT_BODY =
     "    vec4 gn = texture2D(uGNorm, uv);\n"
     "    float haveN  = (uGNormOn == 1 && gn.a > 0.25) ? 1.0 : 0.0;\n"
     "    float ground = (uGNormOn == 1 && gn.a > 0.75) ? 1.0 : 0.0;\n"
-    "    float foliage = haveN * (1.0 - ground);\n"
+    "    float rock = (uGNormOn == 1 && gn.a > 0.82 && gn.a < 1.0)\n"
+    "                 ? clamp((1.0-gn.a)/0.08,0.0,1.0) : 0.0;\n"
+    "    float gravel = (uGNormOn == 1 && gn.a > 0.755 && gn.a <= 0.82) ? 1.0 : 0.0;\n"
+    "    float foliage = (uGNormOn == 1 && gn.a > 0.40 && gn.a <= 0.75) ? 1.0 : 0.0;\n"
+    "    float object  = haveN * (1.0 - ground) * (1.0 - foliage);\n"
     "    if (haveN > 0.5) { vec3 g = gn.xyz * 2.0 - 1.0; if (dot(g, g) > 0.01) n = normalize(g); }\n"
+    /* A SELF-LIT PIXEL (class 0.15, a remastered building's glowing pool, lit lens or
+       status light, ebld_mod.h): it makes its own light, so the sun's shadow, the back-
+       face term, the contact march, the cloud deck, the relight and the occlusion all
+       leave it as it is; the grade, the rolloff and the bloom after this pass still
+       reach it. Read at the texel's centre so a filtered edge between two classes cannot
+       pass through this band. Everything below is still computed for every pixel and
+       only its effect is withheld, so no derivative is taken inside a branch. */
+    "    float selfLit = 0.0;\n"
+    /* A STRUCTURE'S PIXEL, for the STRUCTURES group, from the same texel-centre read:
+       a remastered surface (0.38) or its self-lit part (0.15), both written by the
+       remasters' own normals (ebld_mod.h), or 0.05, which marks a building or wall the
+       cartridge's model draws (str_draw_class in cnc_eyes.cpp). 0.05 sits under every
+       band above that reads as a normal, so such a pixel keeps the plane rebuilt from
+       depth, as it did before it was marked; and it is only written while the group is
+       in use. Only read while the group is in use, so a frame at its neutral settings
+       computes nothing new. */
+    "    float stc = 0.0;\n"
+    "    if (uGNormOn == 1) {\n"
+    "        float sa = texture2D(uGNorm, (floor(uv * uGNormSize) + 0.5) / uGNormSize).a;\n"
+    "        selfLit = (sa > 0.10 && sa < 0.20) ? 1.0 : 0.0;\n"
+    "        if (uStOn == 1)\n"
+    "            stc = ((sa > 0.03 && sa < 0.08) || selfLit > 0.5\n"
+    "                   || (sa > 0.365 && sa < 0.395)) ? 1.0 : 0.0;\n"
+    "    }\n"
+    /* A cliff tile includes painted shade even where its heightfield is flat.
+       Fade that low-luminance shade on the same dial, preserving hue/detail and
+       source highlights. The host's template mask confines this approximation
+       to Enhanced cliff art; shroud and the shore field still gate its effect. */
+    "    if (uTerrainCliffOn == 1) {\n"
+    "        float tc = texture2D(uGNorm, (floor(uv * uGNormSize) + 0.5) / uGNormSize).a;\n"
+    "        if (tc > 0.75) {\n"
+    "            float cliff = texture2D(uTerrainCliff, P.xz * uTerrainWaterScale).r;\n"
+    "            float vis = texture2D(uTerrainVisibility, (P.xz + 0.5) / uTerrainVisSize).r;\n"
+    "            if (uTerrainWaterOn == 1 && texture2D(uTerrainWater, P.xz * uTerrainWaterScale).r >= uTerrainDryEdge) vis = 0.0;\n"
+    "            float peak = max(col.r, max(col.g, col.b));\n"
+    "            float dark = 1.0 - smoothstep(0.10, 0.25, peak);\n"
+    "            float green = (col.g-max(col.r,col.b))/max(peak,0.001);\n"
+    "            float stone = 1.0 - smoothstep(0.05,0.20,green);\n"
+    "            float shadeGain = inversesqrt(max(peak, 0.04));\n"
+    "            col *= 1.0 + cliff * vis * dark * stone * (1.0-uTerrainStrength) * (shadeGain-1.0);\n"
+    "        }\n"
+    "    }\n"
+    /* Grade only terrain-class pixels, before sun, fire and tiberium lighting.
+       A texel-centre class read keeps a filtered normal edge off adjacent objects.
+       Gate the additive contrast term on visibility so black shroud stays black. */
+    "    if (uTerrainGradeOn == 1) {\n"
+    "        float tc = texture2D(uGNorm, (floor(uv * uGNormSize) + 0.5) / uGNormSize).a;\n"
+    "        if (tc > 0.75) {\n"
+    "            float vis = texture2D(uTerrainVisibility, (P.xz + 0.5) / uTerrainVisSize).r;\n"
+    "            vis *= smoothstep(0.015, 0.150, max(col.r, max(col.g, col.b)));\n"
+    "            if (uTerrainWaterOn == 1 && texture2D(uTerrainWater, P.xz * uTerrainWaterScale).r >= uTerrainDryEdge) vis = 0.0;\n"
+    "            vec3 graded = col;\n"
+    "            if (uTerrainGrade.x != 1.0) graded *= uTerrainGrade.x;\n"
+    "            if (uTerrainGrade.y != 1.0) graded = (graded - 0.5) * uTerrainGrade.y + 0.5;\n"
+    "            col = mix(col, max(graded, vec3(0.0)), vis);\n"
+    "        }\n"
+    "    }\n"
+    /* ---- THE STRUCTURE'S OWN COLOUR (STRUCTURES group) -------------------------------
+       Graded here, before anything lights it, so the sun, the shadow and the occlusion
+       below fall on the graded colour as they fell on the painted one. The order and
+       the luminance weights are the colour grade's (FX_FS_RESOLVE), so the dials read
+       as that grade does, applied to the structures alone. Weighted by the scene's
+       luminance as the other additive terms here are, so the shroud's black over the
+       part of a building it covers stays black when the contrast is lowered. Each step,
+       and each block below, is skipped while its own dial is at 1, so a dial left
+       neutral is exact while another one is moved. */
+    "    if (stc > 0.5 && uStGrade != vec4(1.0)) {\n"
+    "        float stLum = smoothstep(0.015, 0.150, max(col.r, max(col.g, col.b)));\n"
+    "        vec3 g = max(col, vec3(0.0));\n"
+    "        if (uStGrade.x != 1.0) g = pow(g, vec3(1.0 / uStGrade.x));\n"
+    "        if (uStGrade.y != 1.0) g *= uStGrade.y;\n"
+    "        if (uStGrade.z != 1.0) g = (g - 0.5) * uStGrade.z + 0.5;\n"
+    "        if (uStGrade.w != 1.0) {\n"
+    "            float gLum = dot(g, vec3(0.2126, 0.7152, 0.0722));\n"
+    "            g = mix(vec3(gLum), g, uStGrade.w);\n"
+    "        }\n"
+    "        col = mix(col, max(g, vec3(0.0)), stLum);\n"
+    "    }\n"
     /* THE RAIN'S TWO MASKS, read here for the same derivative reason as P and n: the
        puddle mask is the cloud deck's own tiling noise at a finer scale (it is
        histogram equalised, so a threshold on it is a coverage), and the water bit is
@@ -326,10 +503,12 @@ static const char* FX_FS_LIGHT_BODY =
     /* THE RELIEF GOES ON THE WET NORMAL ONLY, never on the one the sun and the
        shadow map use: the ground's own lambert and the shadow lookup are geometry
        questions and this is a surface-detail answer. Ground and foliage get one
-       strength, everything the target does not claim -- hulls, walls, sprites -- gets
-       its own, because a rolled steel plate is smoother than a field. */
+       strength, everything else -- an authored hull, and anything the target does not
+       claim at all, walls and sprites -- gets its own, because a rolled steel plate is
+       smoother than a field. Driven off ground and foliage rather than off haveN so an
+       authored hull, which now DOES carry a normal, still reads as steel. */
     "    if (uRainWet > 0.0) {\n"
-    "        float rel = mix(uRainReliefBody, uRainRelief, haveN);\n"
+    "        float rel = mix(uRainReliefBody, uRainRelief, max(ground, foliage));\n"
     "        nw = normalize(n - relG * rel);\n"
     "    }\n"
     "    if (uRainWet > 0.0) {\n"
@@ -391,13 +570,111 @@ static const char* FX_FS_LIGHT_BODY =
     "            for (int i = 0; i < 12; i++) {\n"
     "                vec2 o = vec2(pd[i].x * ca - pd[i].y * sa, pd[i].x * sa + pd[i].y * ca) * rad;\n"
     "                float dz = texture2D(uShadow, s.xy + o).r;\n"
-    "                sum += (s.z - bias > dz) ? 1.0 : 0.0;\n"
+    "                float blocked = (s.z - bias > dz) ? 1.0 : 0.0;\n"
+    "                if (uTerrainShadowOn == 1) {\n"
+    "                    float td = texture2D(uTerrainShadow, s.xy + o).r;\n"
+    "                    blocked = max(blocked, (s.z - bias > td) ? uTerrainStrength : 0.0);\n"
+    "                }\n"
+    "                sum += blocked;\n"
     "            }\n"
     "            sh = sum / 12.0;\n"
     /* A surface turned away from the sun is unlit whether or not anything stands
        between them. Without this the dark side of a building is as bright as the lit
        one and only the cast shadow reads, which looks like a decal rather than light. */
-    "            sh = max(sh, 1.0 - smoothstep(-0.10, 0.30, ndl));\n"
+    /* Terrain's unlit face must follow the terrain dial too: it can dominate
+       the cast map at max(), otherwise zero still leaves the whole cliff dark.
+       Object and foliage faces retain their own sun shading. */
+    "            float faceShade = 1.0 - smoothstep(-0.10, 0.30, ndl);\n"
+    "            if (ground > 0.5 && uTerrainStrength != 1.0) faceShade *= uTerrainStrength;\n"
+    "            sh = max(sh, faceShade);\n"
+    "        }\n"
+    /* ---- THE 3D SOLDIERS' OWN MAP -------------------------------------------------
+       The same sun and the same test, from a map that holds nothing but the posed
+       soldiers. Its softness is its own texel softness with a one texel floor and
+       nothing more: the penumbra dial above is 0.08 of a cell, right for a cliff or a
+       canopy and wider than a soldier's leg, and through it a man's shadow was a
+       smudge. That is the reason for a second map at all, since one map cannot soften
+       one kind of caster and not another. Folded in with max() like everything else in
+       this block. Eight taps rather than twelve: the kernel is a texel or two wide. */
+    "        if (uInfShOn == 1) {\n"
+    "            vec4 ic = uInfSunVP * vec4(P + n * uInfNOff, 1.0);\n"
+    "            vec3 is = (ic.xyz / ic.w) * 0.5 + 0.5;\n"
+    "            if (is.x > 0.001 && is.x < 0.999 && is.y > 0.001 && is.y < 0.999 && is.z < 1.0) {\n"
+    "                float indl = clamp(dot(n, -uSunDir), 0.0, 1.0);\n"
+    "                float ib = uInfBias * (1.0 + 3.0 * (1.0 - indl));\n"
+    "                float ia = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898,78.233))) * 43758.5453) * 6.2831853;\n"
+    "                float ica = cos(ia), isa = sin(ia);\n"
+    "                float isum = 0.0;\n"
+    "                for (int k = 0; k < 8; k++) {\n"
+    "                    float a = float(k) * 0.785398 + 0.39;\n"
+    "                    float r = (k < 4) ? 0.5 : 1.0;\n"
+    "                    vec2 o = vec2(cos(a) * ica - sin(a) * isa, cos(a) * isa + sin(a) * ica) * r * uInfRad;\n"
+    "                    float dz = texture2D(uInfShadow, is.xy + o).r;\n"
+    "                    isum += (is.z - ib > dz) ? 1.0 : 0.0;\n"
+    "                }\n"
+    "                sh = max(sh, isum / 8.0);\n"
+    "            }\n"
+    "        }\n"
+    /* ---- CONTACT SHADOWS ------------------------------------------------------------
+       The shadow map is one 4096 square fitted to everything the camera can see, so a
+       texel of it is several centimetres of world and its bias is tuned to stop a
+       hillside shadowing itself. Both of those together mean it cannot draw the few
+       pixels of darkness directly under a hull, and that darkness is most of what makes
+       an object look like it is standing on the ground rather than hovering above it.
+       This walks a short way from the surface toward the sun THROUGH THE DEPTH BUFFER
+       and asks whether anything is in the way. It is screen space, so it only knows
+       about what the camera can see, and it reaches a fraction of a cell -- which is
+       exactly the range the shadow map is worst at and the range that matters here.
+
+       INSIDE uShadowOn, so "sun shadows off" still means no sun shadows of any kind and
+       the existing A/B keeps its meaning. OUTSIDE the in-bounds test above, so a pixel
+       beyond the edge of the sun's box still gets one.
+
+       FOLDED IN WITH max(), like the back-face term and the cloud deck, so it cannot
+       double-darken what the shadow map already found: the darkest of the answers wins
+       rather than the product of them.
+
+       The jitter is the same deterministic hash of gl_FragCoord the occlusion uses, so
+       two runs of one script are still one picture. */
+    /* ITS OWN ndl. The one above is declared inside the sun box's in-bounds branch,
+       and this block deliberately sits outside that branch so a pixel beyond the edge
+       of the box still gets a contact shadow. Reaching into the other scope is what
+       made the whole light program fail to compile, which the chain reports and then
+       carries on without -- so every frame came out looking untouched rather than
+       broken. */
+    "        float ctNdl = dot(n, -uSunDir);\n"
+    "        if (uCtOn == 1 && ctNdl > 0.0) {\n"
+    "            float j = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898,78.233)))\n"
+    "                            * 43758.5453);\n"
+    "            vec3  sp = P + n * uCtBias;\n"
+    "            float occ = 0.0;\n"
+    "            for (int i = 0; i < 16; i++) {\n"
+    "                if (i >= uCtSteps) break;\n"
+    "                float t = (float(i) + j) / float(uCtSteps);\n"
+    "                vec3  wp = sp - uSunDir * (t * uCtLen);\n"
+    "                vec4  cp = uVP * vec4(wp, 1.0);\n"
+    "                if (cp.w <= 0.0) continue;\n"
+    "                vec2  suv = (cp.xy / cp.w) * 0.5 + 0.5;\n"
+    "                if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;\n"
+    "                vec3  scene = fx_world(suv, min(texture2D(uDepth, suv).r, 0.999989));\n"
+    /* A 3D SOLDIER IS NOT A BLOCKER HERE. The thickness below is a hull's; a man is a
+       seventh of a cell deep, and taking his silhouette as a 0.6 cell solid drew a
+       hard-edged slab on the ground beside him. His own map above casts him. */
+    /* Read at the texel's centre: the target is linearly filtered, and between a hull's
+       0.35 and the empty 0 a blend passes through the soldier's band at every edge. */
+    "                if (uCtSkipInf == 1 && uGNormOn == 1) {\n"
+    "                    vec2 tc = (floor(suv * uGNormSize) + 0.5) / uGNormSize;\n"
+    "                    float gc = texture2D(uGNorm, tc).a;\n"
+    "                    if (gc > 0.27 && gc < 0.33) continue;\n"
+    "                }\n"
+    /* THE THICKNESS TEST IS WHAT STOPS A SKYLINE SHADOWING THE WHOLE MAP. A depth
+       buffer records a surface, not a solid, so a sample that lands far behind the
+       recorded surface is behind a thin thing and must not count: without this every
+       pixel under the horizon reads as occluded by the horizon. */
+    "                float dz = length(scene - uCamPos) - length(wp - uCamPos);\n"
+    "                if (dz < -0.0005 && dz > -uCtThick) { occ = 1.0; break; }\n"
+    "            }\n"
+    "            sh = max(sh, occ * uCtStrength);\n"
     "        }\n"
     "    }\n"
     "\n"
@@ -444,6 +721,19 @@ static const char* FX_FS_LIGHT_BODY =
        not get darker still when a cloud crosses it -- there is only so much sun to
        take away, and taking it twice is what makes stacked shadow terms read as dirt.
        One tint for both, for the same reason: they are the same sun. */
+    "    sh *= 1.0 - selfLit;\n"
+    "    cl *= 1.0 - selfLit;\n"
+    /* ON A STRUCTURE (STRUCTURES group) the same tint, taken apart into the two things
+       it is: the shadow colour, tint, and what the sun adds above it where it reaches,
+       (1 - a)(1 - tint), so that mix(1, tint, a) = tint + (1 - a)(1 - tint). Shade depth
+       scales how far the shadow colour sits below white, sun strength scales what the
+       sun adds above it; at 1 and 1 this is the line below. A self-lit pixel has a of
+       zero and keeps its colour, as it does there. */
+    "    if (stc > 0.5 && selfLit < 0.5 && (uStLight.x != 1.0 || uStLight.y != 1.0)) {\n"
+    "        float a = max(sh * uSStrength, cl * uCStrength);\n"
+    "        vec3 shc = max(vec3(1.0) - uStLight.x * (vec3(1.0) - uSTint), vec3(0.0));\n"
+    "        col *= shc + uStLight.y * (1.0 - a) * (vec3(1.0) - shc);\n"
+    "    } else\n"
     "    col *= mix(vec3(1.0), uSTint, max(sh * uSStrength, cl * uCStrength));\n"
     /* ONE SUN: the ground's slope shading, once, per pixel, from the smooth normal, and
        normalised to level ground so a flat field keeps exactly the brightness it had
@@ -459,9 +749,99 @@ static const char* FX_FS_LIGHT_BODY =
     "    if (uSunLambert == 1 && ground > 0.5) {\n"
     "        float flatL = max(-uSunDir.y, 0.05);\n"
     "        float lam = clamp(dot(n, -uSunDir), 0.0, 1.0) / flatL;\n"
-    "        col *= clamp(lam, uSunFloor, 1.35);\n"
+    /* Scale only the shaded side. Sun-facing slopes keep their existing boost,
+       and neutral skips the interpolation to preserve the original pixels. */
+    "        float slopeLight = clamp(lam, uSunFloor, 1.35);\n"
+    "        if (slopeLight < 1.0 && uTerrainStrength != 1.0)\n"
+    "            slopeLight = mix(1.0, slopeLight, uTerrainStrength);\n"
+    "        col *= slopeLight;\n"
+    "    }\n"
+    /* Dry cliffs and damp gravel share dielectric lighting. The gravel alpha band
+       carries its authored roughness: compacted wet ruts are smoother, while loose
+       stones keep a broad response. Its per-pixel normal reaches this same pass. */
+    "    if (rock > 0.5 || gravel > 0.5) {\n"
+    "        float roughness = gravel > 0.5 ? clamp((gn.a-0.76)/0.06,0.48,0.82) : 0.82;\n"
+    "        const float metallic = 0.0;\n"
+    "        vec3 V = normalize(uCamPos - P), L = -uSunDir, H = normalize(V + L);\n"
+    "        float NoL = max(dot(n,L),0.0), NoV = max(dot(n,V),0.001), NoH = max(dot(n,H),0.0);\n"
+    "        float VoH = max(dot(V,H),0.0);\n"
+    "        float a = roughness*roughness, a2 = a*a;\n"
+    "        float den = NoH*NoH*(a2-1.0)+1.0;\n"
+    "        float D = a2/max(3.14159265*den*den,0.00001);\n"
+    "        float k = (roughness+1.0)*(roughness+1.0)*0.125;\n"
+    "        float G = (NoL/(NoL*(1.0-k)+k))*(NoV/(NoV*(1.0-k)+k));\n"
+    "        vec3 F0 = mix(vec3(mix(0.04,0.055,gravel)), col, metallic);\n"
+    "        vec3 F = F0+(1.0-F0)*pow(1.0-VoH,5.0);\n"
+    "        float sunlit = 1.0-max(sh*uSStrength,cl*uCStrength);\n"
+    "        col += max(rock,gravel)*F*D*G*NoL*sunlit/max(4.0*NoL*NoV,0.001);\n"
     "    }\n"
     "\n"
+    /* ---- THE RELIGHT: the cartridge's own art, lit by this sun ---------------------
+       Everything above this point darkens or adds to a colour the world pass already
+       finished. For a cartridge mesh that colour is the texture multiplied by the
+       Nintendo 64's baked vertex shade, and no amount of darkening turns a 1995 bake
+       into a light that answers a dial. This replaces it.
+
+           albedo = colour / bakedShade            (the bake target holds the shade)
+           colour = albedo x BRDF(sun, sky, this surface)
+
+       The albedo recovered that way is exactly what the requirement asked for: the
+       asset's own texture as a flat base colour, with roughness and metalness as
+       constants off two dials rather than per-texel maps the cartridge never had.
+
+       WHAT IT DELIBERATELY DOES NOT TOUCH. Alpha in the bake target is 1 only where a
+       TEXTURED MESH TRIANGLE drew. Terrain, sprites, water, decals, the shroud and
+       every effect leave it zero and fall through with the picture they already had, so
+       this cannot erase the things composited over the world -- which is the failure
+       that makes a naive deferred pass unshippable in this renderer.
+
+       THE DIVISION IS FLOORED, not because of a corner case but because the shade goes
+       to almost nothing in the cartridge's own deep shadow, and dividing by almost
+       nothing turns film grain into a supernova.
+
+       THE NORMAL IS THE RECONSTRUCTED ONE. A pack vertex carries no normal and none can
+       be decoded, but cross(dFdx(P), dFdy(P)) is the exact face normal of a flat
+       triangle, and a cartridge hull is a few dozen flat plates. So the hull comes out
+       FACETED, which is a fidelity ceiling and is registered as one. */
+    "    if (uBakeOn == 1) {\n"
+    "        vec4 bk = texture2D(uBake, uv);\n"
+    "        if (bk.a > 0.5 && selfLit < 0.5) {\n"
+    "            vec3 shade = max(bk.rgb, vec3(uReFloor));\n"
+    "            vec3 V2    = normalize(uCamPos - P);\n"
+    "            vec3 L2    = -uSunDir;\n"
+    "            vec3 H2    = normalize(L2 + V2);\n"
+    "            float NoL2 = max(dot(n, L2), 0.0);\n"
+    "            float NoV2 = max(dot(n, V2), 1e-4);\n"
+    "            float NoH2 = max(dot(n, H2), 0.0);\n"
+    "            float VoH2 = max(dot(V2, H2), 0.0);\n"
+    "            float a2   = max(uReRough * uReRough, 1e-4);\n"
+    "            float dd   = NoH2 * NoH2 * (a2 * a2 - 1.0) + 1.0;\n"
+    "            float D2   = (a2 * a2) / max(3.14159265 * dd * dd, 1e-7);\n"
+    "            float gv2  = NoL2 * sqrt(NoV2 * NoV2 * (1.0 - a2 * a2) + a2 * a2);\n"
+    "            float gl2  = NoV2 * sqrt(NoL2 * NoL2 * (1.0 - a2 * a2) + a2 * a2);\n"
+    "            float Vs   = 0.5 / max(gv2 + gl2, 1e-6);\n"
+    "            float F2   = 0.04 + 0.96 * pow(1.0 - VoH2, 5.0);\n"
+    /* The sun arrives already shadowed: sh is what the shadow map, the contact march,
+       the cloud deck and the back-face term between them decided, so a relit hull sits
+       in the same shadow as the ground it stands on rather than in one of its own. */
+    "            float sun2 = (1.0 - sh * uSStrength);\n"
+    "            float lnew = uReSun * NoL2 * sun2\n"
+    "                       + uReAmb * (0.6 + 0.4 * n.y)\n"
+    "                       + F2 * D2 * Vs * NoL2 * sun2 * uReSpec;\n"
+    /* A RATIO, NOT A REPLACEMENT, and that is the whole reason this works at all.
+       The colour in the buffer is gamma encoded -- nothing in the world pass
+       linearises anything -- so computing a linear radiance here and writing it back
+       crushes the picture: measured, it took this frame's buildings to near black.
+       Dividing the console's own shade out and multiplying a new one in leaves the
+       encoding on both sides of the division, where it cancels. What changes is
+       WHERE THE LIGHT COMES FROM, which is the entire point; what does not change is
+       the colour space the frame is in.
+       Clamped, because the baked shade goes to almost nothing in the cartridge's own
+       deep shadow and a ratio against almost nothing is how grain becomes a supernova. */
+    "            vec3 ratio = vec3(lnew) / shade;\n"
+    "            col *= clamp(ratio, vec3(0.0), vec3(uReClamp));\n"
+    "        }\n"
+    "    }\n"
     /* ---- occlusion ---- */
     "    float ao = 1.0;\n"
     "    if (uAoOn == 1) {\n"
@@ -517,11 +897,16 @@ static const char* FX_FS_LIGHT_BODY =
     "        }\n"
     "        if (cnt > 0.0) {\n"
     "            float f = pow(clamp(occ / cnt, 0.0, 1.0), uAoPower) * uAoIntensity\n"
-    "                      * mix(mix(1.0, uAoFoliage, foliage), uAoGround, ground);\n"
+    "                      * mix(mix(mix(1.0, uAoObject, object), uAoFoliage, foliage),\n"
+    "                            uAoGround, ground);\n"
     "            ao = clamp(1.0 - f, 0.0, 1.0);\n"
     "        }\n"
     "    }\n"
-    "    col *= ao;\n"
+    /* the STRUCTURES group's occlusion and glow: the darkening scaled on a structure,
+       and a self-lit structure pixel's colour scaled where the line below leaves it */
+    "    if (stc > 0.5 && uStLight.w != 1.0) ao = clamp(1.0 - (1.0 - ao) * uStLight.w, 0.0, 1.0);\n"
+    "    if (stc > 0.5 && selfLit > 0.5 && uStLight.z != 1.0) col *= uStLight.z;\n"
+    "    col *= mix(ao, 1.0, selfLit);\n"
     "\n"
     /* ---- the rain, part two: what shines off a wet surface --------------------------
        A Fresnel sheen of the overcast sky at grazing angles, a Blinn glint of the sun
@@ -645,6 +1030,81 @@ static const char* FX_FS_LIGHT_BODY =
     "    }\n"
     "    col += add;\n"
     "\n"
+    /* ---- the light a tiberium field gives off ----------------------------------------
+       Read under the pixel from the field texture, so every crystal contributes and the
+       glow follows the field's own outline. It is light from the ground, so it falls off
+       with height above the ground under the pixel (a tank's hull takes it, its turret
+       top less), lands mostly on surfaces that face up, and breathes slowly, each part
+       of the field on its own phase from the cloud deck's noise. Added, like the other
+       lights; gated on luminance so a shrouded cell stays black. */
+    "    if (uTibLight > 0.0) {\n"
+    "        vec4 tf = texture2D(uTibField, P.xz * uTibInv);\n"
+    "        float above = max(P.y - (uTibH.x + tf.b * uTibH.y), 0.0);\n"
+    "        float ph = texture2D(uCloudTex, P.xz * 0.025).r;\n"
+    "        float br = 1.0 - uTibPulse * 0.3 + uTibPulse * 0.3 * sin(6.2831853 * (0.21 * uTibTime + ph));\n"
+    "        float g = tf.r * exp(-above / uTibLightH) * br * uTibLight * (0.40 + 0.60 * max(n.y, 0.0));\n"
+    /* mostly a light ON the surface, so dark grass takes a tint and a pale hull takes
+       more, with a little added on top so it still reads on black */
+    "        col += (col * 2.2 + vec3(0.05)) * uTibCol * (g * rainLum);\n"
+    "    }\n"
+    /* ---- the glowing fog over a field ------------------------------------------------
+       A march along the view ray from where it enters the fog's ceiling down to the
+       surface. The density at each sample is the field's fog spread under it, times a
+       falloff with height above the ground there, times wisps from two octaves of the
+       cloud deck's noise drifting on the engine clock. Each sample is lit by the field's
+       glow under it in the crystals' colour, plus a grey of its own; the light it adds
+       is blocked by the fog in front of it (front to back), and the surface behind is
+       dimmed by all of it. Jittered per pixel by the same deterministic hash the rain
+       fog uses, so a short march reads as grain rather than bands. */
+    "    if (uTibFog > 0.0) {\n"
+    "        vec3 rd = P - uCamPos;\n"
+    "        float len = length(rd);\n"
+    "        rd /= max(len, 1e-4);\n"
+    "        float t0 = 0.0;\n"
+    "        if (uCamPos.y > uTibFogTop && rd.y < -1e-4) t0 = (uTibFogTop - uCamPos.y) / rd.y;\n"
+    "        t0 = clamp(t0, 0.0, len);\n"
+    "        float dt = (len - t0) / float(uTibFogSteps);\n"
+    "        float jit = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898,78.233))) * 43758.5453);\n"
+    "        float trans = 1.0;\n"
+    "        vec3  inl = vec3(0.0);\n"
+    "        vec3  grey = vec3(0.62, 0.66, 0.64) * uTibFogAmb;\n"
+    /* the fog is paler than the light it carries: a glowing mist reads as mist only
+       where it is lighter than the lit ground under it */
+    "        vec3  tibFogC = mix(uTibCol, vec3(1.0), 0.40);\n"
+    "        for (int i = 0; i < 32; i++) {\n"
+    "            if (i >= uTibFogSteps) break;\n"
+    "            vec3 sp = uCamPos + rd * (t0 + (float(i) + jit) * dt);\n"
+    "            vec4 tf = texture2D(uTibField, sp.xz * uTibInv);\n"
+    "            float hgt = sp.y - (uTibH.x + tf.b * uTibH.y);\n"
+    "            float hf = hgt < 0.0 ? 1.0 : exp(-hgt * 1.0986 / uTibFogH);\n"
+    "            vec2 q = sp.xz * 0.06;\n"
+    "            float n1 = texture2D(uCloudTex, q + vec2(uTibFogDrift * 0.031, uTibFogDrift * 0.011)).r;\n"
+    "            float n2 = texture2D(uCloudTex, q * 2.9 - vec2(uTibFogDrift * 0.047, -uTibFogDrift * 0.023)).r;\n"
+    "            float nz = n1 * 0.6 + n2 * 0.4;\n"
+    "            float wisp = mix(1.0, smoothstep(0.38, 0.68, nz) * 2.2, uTibFogWisp);\n"
+    "            float dens = tf.g * hf * wisp * uTibFog;\n"
+    "            float a = 1.0 - exp(-dens * dt);\n"
+    "            vec3 c = grey + tibFogC * (uTibFogGlow * 0.40 * (0.25 + 0.75 * tf.r));\n"
+    "            inl += trans * a * c;\n"
+    "            trans *= 1.0 - a;\n"
+    "        }\n"
+    "        col = mix(col, col * trans + inl, rainLum);\n"
+    "    }\n"
+    "\n"
+    /* ---- the distance fog ------------------------------------------------------------
+       Every lit pixel past a set distance from the eye is drawn toward the theater's
+       haze colour, rising smoothly over a set depth to its fullest. Under this tilted
+       camera the far pixels are the top of the screen, so the top sinks into the haze
+       and the middle keeps its colour; a unit standing out there fades with the ground
+       under it, because the test is on the pixel's own position. Gated on luminance,
+       the same gate the rain uses, so the shroud and the void past the map edge stay
+       black rather than turning into a pale fog bank. */
+    "    if (uFogAmt > 0.0) {\n"
+    "        float fd = clamp((length(P - uCamPos) - uFogNear) * uFogInvDepth, 0.0, 1.0);\n"
+    "        float fog = fd * fd * (3.0 - 2.0 * fd) * uFogAmt * rainLum;\n"
+    "        col = mix(col, uFogCol, fog);\n"
+    "    }\n"
+    "\n"
     /* ---- the rain, part three: the air -----------------------------------------------
        THE GROUND FOG is a short march along the view ray from where it enters the
        fog's ceiling down to the surface, through the cloud deck's own tiling noise
@@ -695,9 +1155,16 @@ static const char* FX_FS_BRIGHT =
     "#version 120\n"
     "varying vec2 uv;\n"
     "uniform sampler2D uTex;\n"
-    "uniform float uThreshold, uKnee;\n"
+    "uniform float uThreshold, uKnee, uClampIn;\n"
     "void main() {\n"
     "    vec3 c = texture2D(uTex, uv).rgb;\n"
+    /* A CEILING ON WHAT MAY BLOOM, which an eight bit buffer used to provide for free at
+       1.0. A microfacet highlight on an authored hull can reach the tens where the
+       specular lobe is narrow and the surface is smooth, and one such texel smeared by
+       four blur passes is a disc across the frame rather than a glint. Clamped rather
+       than thresholded, so the highlight still blooms at full strength; only its
+       runaway tail is cut. */
+    "    c = min(c, vec3(uClampIn));\n"
     "    float l = max(c.r, max(c.g, c.b));\n"
     /* Soft knee, so a slider crossing the threshold fades things in instead of
        switching them on. A hard cut reads as popping when a unit drives into sunlight. */
@@ -746,6 +1213,35 @@ static const char* FX_FS_RESOLVE =
     "uniform float uExposure, uContrast, uSaturation, uTemperature, uTint, uLift, uGain;\n"
     "uniform int   uGammaOn;\n"
     "uniform float uGamma;\n"
+    "uniform int   uToneOn;\n"
+    "uniform float uToneKnee;\n"
+    /* THE HIGHLIGHT ROLLOFF, AND WHY IT IS NOT ACES.
+       A film curve like ACES or AgX maps SCENE RADIANCE onto a screen, and it is only
+       the right transform if the buffer holds radiance. This one does not. Nothing in
+       the world pass linearises anything: the terrain atlas, the 1995 sprites and every
+       pack texture are uploaded and modulated as they were authored, so what lands in
+       the scene target is a gamma-encoded picture that happens now to have room above
+       white. Putting a film curve on that is not colour science, it is a curve chosen
+       by eye, and it costs a fifth of the frame's brightness for nothing: measured on
+       the test map, a fitted ACES curve took the mean from 30.1 to 7.5 and the median
+       to zero.
+       So this is the honest transform for the buffer that actually exists. Below the
+       knee it is the IDENTITY, to the bit, which is what keeps every frame that never
+       exceeds white exactly as it was and what keeps the gates that classify by
+       absolute colour meaning what they meant. Above the knee it bends what used to be
+       clipped flat into the remaining headroom, approaching white without reaching it.
+       Continuous and with slope 1 at the knee, so there is no visible seam where it
+       starts.
+       When the world pass does one day linearise, THIS is the function that should be
+       replaced by a real film curve, and not before. */
+    "float fx_roll1(float x, float k) {\n"
+    "    if (x <= k) return x;\n"
+    "    float s = max(1.0 - k, 1e-4);\n"
+    "    return k + s * (1.0 - exp(-(x - k) / s));\n"
+    "}\n"
+    "vec3 fx_rolloff(vec3 c, float k) {\n"
+    "    return vec3(fx_roll1(c.r, k), fx_roll1(c.g, k), fx_roll1(c.b, k));\n"
+    "}\n"
     "void main() {\n"
     "    vec3 c = vec3(0.0);\n"
     "    if (uTapN <= 1) {\n"
@@ -782,6 +1278,17 @@ static const char* FX_FS_RESOLVE =
     "        float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"
     "        c = mix(vec3(l), c, uSaturation);\n"
     "    }\n"
+    /* THE ROLLOFF IS LAST, immediately before the clamp, and it took a gate to establish
+       that it belongs there. It was first placed between the grade's exposure and its
+       contrast, on the reasoning that a film curve consumes scene light and the rest is
+       a statement about the finished picture. That reasoning is correct for a film
+       curve and this is not one: the contrast and gain that ran after it pushed every
+       highlight it had just rescued straight back onto the clamp, and the measured
+       rescue was ONE PIXEL in a frame with eighteen hundred clipped.
+       Its job is to be the last thing between the pipeline and a display that stops at
+       white. So it goes where the clamp is, and the clamp becomes the thing that only
+       catches what is still out of range afterwards. */
+    "    if (uToneOn == 1) c = fx_rolloff(c, uToneKnee);\n"
     "    c = clamp(c, 0.0, 1.0);\n"
     "    if (uGammaOn == 1) c = pow(c, vec3(uGamma));\n"
     "    gl_FragColor = vec4(c, 1.0);\n"
@@ -840,6 +1347,10 @@ static const char* FX_FS_COPY =
     "uniform sampler2D uTex;\n"
     "void main() { gl_FragColor = vec4(texture2D(uTex, uv).rgb, 1.0); }\n";
 
+/* The host owns theatre and visibility; air volumes run before bloom. */
+static const FxRT* atmosphere_apply(const FxRT* source, int w, int h);
+static void atmosphere_shutdown(void);
+
 /* ---- Boot ------------------------------------------------------------------------ */
 
 /* Generate the cloud mask and hand it to GL, once.
@@ -887,24 +1398,28 @@ static int fx_boot(void)
     g_fxBooted = 1;
     if (!fx_gl_load()) { g_fxUsable = 0; return 0; }
 
-    /* The lighting program is three strings: its uniforms, the shared reconstruction,
-       then its body. Concatenated here because GLSL 1.20 has no #include and a
-       three-source glShaderSource call is harder to read than one buffer. */
-    size_t n = strlen(FX_FS_LIGHT) + strlen(FX_COMMON) + strlen(RAIN_GLSL_RIPPLE)
-             + strlen(RAIN_GLSL_PUDDLE) + strlen(FX_FS_LIGHT_BODY) + 1;
-    char* lit = (char*)malloc(n);
-    if (!lit) return 0;
-    strcpy(lit, FX_FS_LIGHT); strcat(lit, FX_COMMON); strcat(lit, RAIN_GLSL_RIPPLE);
-    strcat(lit, RAIN_GLSL_PUDDLE);
-    strcat(lit, FX_FS_LIGHT_BODY);
+    /* ONCE PER PROCESS, not once per mission: fx_shutdown says why. */
+    if (!g_fxBuilt) {
+        /* The lighting program is three strings: its uniforms, the shared reconstruction,
+           then its body. Concatenated here because GLSL 1.20 has no #include and a
+           three-source glShaderSource call is harder to read than one buffer. */
+        size_t n = strlen(FX_FS_LIGHT) + strlen(FX_COMMON) + strlen(RAIN_GLSL_RIPPLE)
+                 + strlen(RAIN_GLSL_PUDDLE) + strlen(FX_FS_LIGHT_BODY) + 1;
+        char* lit = (char*)malloc(n);
+        if (!lit) return 0;
+        strcpy(lit, FX_FS_LIGHT); strcat(lit, FX_COMMON); strcat(lit, RAIN_GLSL_RIPPLE);
+        strcat(lit, RAIN_GLSL_PUDDLE);
+        strcat(lit, FX_FS_LIGHT_BODY);
 
-    g_fxPLight   = fx_program(lit, "light");
-    free(lit);
-    g_fxPBright  = fx_program(FX_FS_BRIGHT,  "bright");
-    g_fxPBlur    = fx_program(FX_FS_BLUR,    "blur");
-    g_fxPResolve = fx_program(FX_FS_RESOLVE, "resolve");
-    g_fxPCrt     = fx_program(FX_FS_CRT,     "crt");
-    g_fxPCopy    = fx_program(FX_FS_COPY,    "copy");
+        g_fxPLight   = fx_program(lit, "light");
+        free(lit);
+        g_fxPBright  = fx_program(FX_FS_BRIGHT,  "bright");
+        g_fxPBlur    = fx_program(FX_FS_BLUR,    "blur");
+        g_fxPResolve = fx_program(FX_FS_RESOLVE, "resolve");
+        g_fxPCrt     = fx_program(FX_FS_CRT,     "crt");
+        g_fxPCopy    = fx_program(FX_FS_COPY,    "copy");
+        g_fxBuilt = 1;
+    }
 
     g_fxUsable = (g_fxPLight && g_fxPBright && g_fxPBlur &&
                   g_fxPResolve && g_fxPCrt && g_fxPCopy) ? 1 : 0;
@@ -916,25 +1431,46 @@ static int fx_boot(void)
         fprintf(stderr, "FX|unavailable|a program failed to build; the chain stays off\n");
     else
         fprintf(stderr, "FX|ready|shaders and framebuffer objects present\n");
+    /* AND ON STDOUT, WHERE A GATE CAN READ IT. One shader that fails to compile takes
+       the whole chain down, and a chain that is off still draws a complete picture --
+       the Classic one. So the failure looks exactly like "the new feature changed
+       nothing", which is the most expensive way a renderer can lie. This line lets a
+       gate assert that the thing it is measuring was switched on at all. Found the hard
+       way: one variable referenced from the wrong scope in the light program made four
+       separate features appear to do nothing, in the same run, with no failure in
+       sight. */
+    printf("FX|chain|usable=%d|light=%d|bright=%d|blur=%d|resolve=%d|crt=%d|copy=%d\n",
+           g_fxUsable, g_fxPLight ? 1 : 0, g_fxPBright ? 1 : 0, g_fxPBlur ? 1 : 0,
+           g_fxPResolve ? 1 : 0, g_fxPCrt ? 1 : 0, g_fxPCopy ? 1 : 0);
+    fflush(stdout);
     return g_fxUsable;
 }
 
 static void fx_shutdown(void)
 {
     if (!g_fxBooted) return;
+    atmosphere_shutdown();
     fx_rt_free(&g_fxScene);   fx_rt_free(&g_fxLit);
+    fx_rt_free(&g_fxBake);
     fx_rt_free(&g_fxBloomA);  fx_rt_free(&g_fxBloomB);
     fx_rt_free(&g_fxNativeA); fx_rt_free(&g_fxNativeB);
     fx_rt_free(&g_fxShadow);
-    if (fx_glDeleteProgram) {
-        if (g_fxPLight)   fx_glDeleteProgram(g_fxPLight);
-        if (g_fxPBright)  fx_glDeleteProgram(g_fxPBright);
-        if (g_fxPBlur)    fx_glDeleteProgram(g_fxPBlur);
-        if (g_fxPResolve) fx_glDeleteProgram(g_fxPResolve);
-        if (g_fxPCrt)     fx_glDeleteProgram(g_fxPCrt);
-        if (g_fxPCopy)    fx_glDeleteProgram(g_fxPCopy);
-    }
-    g_fxPLight = g_fxPBright = g_fxPBlur = g_fxPResolve = g_fxPCrt = g_fxPCopy = 0;
+    fx_rt_free(&g_fxTerrainShadow);
+    g_fxTerrainShadowLive = 0;
+    fx_rt_free(&g_fxInfShadow);
+    /* THE PROGRAMS OUTLIVE THE MISSION, these six and the atmosphere's two, as the
+       authored models and the Unity explosion already do: the process has one GL
+       context, and they are built from constant source. They used to be deleted here and
+       compiled again by the next mission, and on macOS's Metal-backed OpenGL that cost
+       memory for good: each rebuilt program's first draws compiled render pipeline state
+       inside the driver (under glEnd in fx_fullscreen_quad) that glDeleteProgram never
+       gave back. Measured with malloc stack logging: about 620 KiB of live heap a mission,
+       every mission, all of it under these passes (some 475 KiB the chain's, 145 KiB the
+       atmosphere's), which put the app round trip's sixteen-mission trend at +11347 KiB
+       against its 6000 KiB limit. Carrying a program into the next mission changes
+       nothing it draws: every uniform these programs read is set on every frame that
+       draws with them, which is already what lets one mission's frames follow each
+       other. */
     if (g_fxCloudTex) { glDeleteTextures(1, &g_fxCloudTex); g_fxCloudTex = 0; }
     g_fxBooted = 0; g_fxUsable = 0; g_fxActive = 0;
 }
@@ -970,6 +1506,14 @@ static void fx_capture_camera(void)
    function because the ground's one-sun term wants it whether or not the
    shadow pass runs this frame; with it computed only inside the shadow matrix, a
    chain with shadows off lit every field against no direction at all. */
+/* Does the chain want a float target this frame. Its own function because three
+   allocations ask it and they must never disagree: a scene target in float beside a
+   bloom target in fixed would tonemap one and clip the other. */
+static inline int fx_hdr_want(void)
+{
+    return g_fx.hdr_on ? FX_RT_FLOAT : 0;
+}
+
 static void fx_sun_dir(void)
 {
     const float DEG = 3.14159265358979f / 180.0f;
@@ -1053,6 +1597,12 @@ static void fx_render_shadow_map(void)
     if (!fx_rt_init(&g_fxShadow, res, res, 2, GL_NEAREST)) return;
     if (!g_fxCasters) return;
 
+    /* Neutral retains the original combined map with no second target or fetch.
+       At other strengths draw ground into its own target and objects into the
+       original one. Both use the same sun matrix, bias and PCF taps. */
+    if (g_fx.shadow_terrain && g_fx.terrain_shadow_strength > 0.0f
+        && g_fx.terrain_shadow_strength != 1.0f)
+        g_fxTerrainShadowLive = fx_rt_init(&g_fxTerrainShadow, res, res, FX_RT_DEPTH, GL_NEAREST);
     fx_sun_matrix(g_fxSunVP);
 
     /* The draw and read buffers were set to GL_NONE when this FBO was created and
@@ -1089,6 +1639,84 @@ static void fx_render_shadow_map(void)
 
     glMatrixMode(GL_PROJECTION); glPopMatrix();
     glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+}
+
+/* THE SOLDIERS' BOX: the same sun and the same basis as fx_sun_matrix, centred on the
+   view with no offset and sized to cover it once. The shared box is the view's extent
+   times the span dial and carries an offset, because a wood or a cliff off screen
+   casts into the frame; a soldier off screen casts at most his own shadow's length,
+   which is the margin added here (the tallest of them is 0.55 of a cell, and his
+   shadow reaches that over the tangent of the sun's height). */
+static void fx_inf_sun_matrix(float* out)
+{
+    fx_sun_dir();
+    const float d[3] = { g_fxSunDir[0], g_fxSunDir[1], g_fxSunDir[2] };
+    const float cx = (g_fxViewX0 + g_fxViewX1) * 0.5f;
+    const float cz = (g_fxViewZ0 + g_fxViewZ1) * 0.5f;
+    float ext = (g_fxViewX1 - g_fxViewX0);
+    const float extz = (g_fxViewZ1 - g_fxViewZ0);
+    if (extz > ext) ext = extz;
+    if (ext < 4.0f) ext = 4.0f;
+    const float el = (g_fx.sun_el > 8.0f ? g_fx.sun_el : 8.0f) * 3.14159265f / 180.0f;
+    const float reach = 0.6f / tanf(el);
+    const float R = ext * 0.71f + reach;
+    const float eye[3] = { cx - d[0]*R*3.0f, -d[1]*R*3.0f, cz - d[2]*R*3.0f };
+    float up[3] = { 0.0f, 1.0f, 0.0f };
+    if (fabsf(d[1]) > 0.995f) { up[0] = 0.0f; up[1] = 0.0f; up[2] = -1.0f; }
+    float s[3] = { d[1]*up[2] - d[2]*up[1], d[2]*up[0] - d[0]*up[2], d[0]*up[1] - d[1]*up[0] };
+    const float sl = sqrtf(s[0]*s[0] + s[1]*s[1] + s[2]*s[2]);
+    s[0] /= sl; s[1] /= sl; s[2] /= sl;
+    const float u[3] = { s[1]*d[2] - s[2]*d[1], s[2]*d[0] - s[0]*d[2], s[0]*d[1] - s[1]*d[0] };
+    float V[16];
+    V[0]=s[0]; V[4]=s[1]; V[8] =s[2];  V[12] = -(s[0]*eye[0] + s[1]*eye[1] + s[2]*eye[2]);
+    V[1]=u[0]; V[5]=u[1]; V[9] =u[2];  V[13] = -(u[0]*eye[0] + u[1]*eye[1] + u[2]*eye[2]);
+    V[2]=-d[0];V[6]=-d[1];V[10]=-d[2]; V[14] =  (d[0]*eye[0] + d[1]*eye[1] + d[2]*eye[2]);
+    V[3]=0;    V[7]=0;    V[11]=0;     V[15] = 1.0f;
+    const float nearp = R * 0.5f, farp = R * 5.5f;
+    g_fxInfR = R;
+    g_fxInfSpan = farp - nearp;
+    float P[16];
+    memset(P, 0, sizeof P);
+    P[0]  =  1.0f / R;
+    P[5]  =  1.0f / R;
+    P[10] = -2.0f / (farp - nearp);
+    P[14] = -(farp + nearp) / (farp - nearp);
+    P[15] =  1.0f;
+    fx_mat_mul(P, V, out);
+}
+
+/* Drawn BEFORE the shared map, so the shared caster pass can already see that the
+   soldiers have a map of their own and leave them out of it: one soldier in both would
+   put a smudge around the sharp shadow. Same state as the shared map, same host. */
+static void fx_render_inf_shadow_map(void)
+{
+    g_fxInfLive = 0;
+    if (!g_fxInfWant || !g_fxInfCasters) return;
+    const int res = (int)(g_fx.shadow_res + 0.5f);
+    if (!fx_rt_init(&g_fxInfShadow, res, res, 2, GL_NEAREST)) return;
+
+    fx_inf_sun_matrix(g_fxInfSunVP);
+    fx_glBindFramebuffer(GL_FRAMEBUFFER, g_fxInfShadow.fbo);
+    glViewport(0, 0, res, res);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadMatrixf(g_fxInfSunVP);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(2.0f, 4.0f);
+
+    g_fxCasterPass = FXCAST_SUN;
+    g_fxInfCasters();
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glMatrixMode(GL_PROJECTION); glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+    g_fxInfLive = 1;
 }
 
 /* A MEASURING INSTRUMENT, not a debug leftover. The shadow map is the one buffer in
@@ -1135,7 +1763,10 @@ static void fx_dump_shadow_map(void)
    target and state back exactly as it found them. */
 static void fx_shadow_stage(void)
 {
+    g_fxInfLive = 0;
+    g_fxTerrainShadowLive = 0;
     if (!g_fxActive || !g_fx.shadow_on) return;
+    fx_render_inf_shadow_map();
     fx_render_shadow_map();
     fx_dump_shadow_map();
     fx_rt_bind(&g_fxScene);
@@ -1167,13 +1798,45 @@ static void fx_world_begin(int fbw, int fbh, int* outW, int* outH)
     int rw = (int)(fbw * s + 0.5f), rh = (int)(fbh * s + 0.5f);
     /* A cap, because a 4x buffer on a 5K window is 100 megapixels and the honest
        failure there is "the slider does less than it says", not a stall. */
-    const long MAXPX = 40L * 1000L * 1000L;
+    /* HALVED WHILE THE CHAIN IS IN HIGH RANGE, because every scene-referred target
+       doubles: at four times scale the scene, the lit buffer and the bloom ping-pong
+       together are twice the bytes they were, in a THIRTY TWO BIT process whose driver
+       may keep a system-memory copy of each. The failure this avoids is an allocation
+       that comes back incomplete and switches the whole chain off, which would hand the
+       player the Classic picture -- a far larger change than losing a step of
+       supersampling. The comment above still holds: the slider does less than it says,
+       and says so. */
+    const long MAXPX = (g_fx.hdr_on ? 20L : 40L) * 1000L * 1000L;
     while ((long)rw * rh > MAXPX && s > 1.0f) {
         s -= 0.25f;
         rw = (int)(fbw * s + 0.5f); rh = (int)(fbh * s + 0.5f);
     }
 
-    if (!fx_rt_init(&g_fxScene, rw, rh, 1 | 2, GL_LINEAR)) return;
+    /* THE SCENE TARGET IS WHERE HIGH RANGE BEGINS OR DOES NOT EXIST. Every pass after
+       this one reads it, so asking for float here is what lets a highlight survive as
+       far as the tonemap; with the switch off it is the eight bit target it always was
+       and the whole chain behaves exactly as it did. */
+    if (!fx_rt_init(&g_fxScene, rw, rh, FX_RT_COLOUR | FX_RT_DEPTH | fx_hdr_want(),
+                    GL_LINEAR)) return;
+    /* WHAT THE DRIVER ACTUALLY GAVE, SAID OUT LOUD, ONCE PER CHANGE. A float colour
+       attachment is a request, and a driver that refuses it leaves the scene buffer
+       clipped at white before the rolloff ever sees it: the curve then runs on nothing
+       and the frame with it on is BYTE IDENTICAL to the frame with it off. That is the
+       same lie the usable= line exists to stop, one level down -- the shaders all
+       compiled, the switch is on, and the feature is absent. Printed on the transition
+       rather than per frame, so a log carries it without drowning in it. */
+    if (g_fxScene.hdr != g_fxHdrLive || !g_fxHdrSaid) {
+        printf("FX|hdr|asked=%d|live=%d|%s\n",
+               fx_hdr_want() ? 1 : 0, g_fxScene.hdr,
+               g_fxScene.hdr  ? "float colour attachment granted"
+               : !fx_hdr_want() ? "high range switched off: the scene buffer is the eight "
+                                  "bit one it has always been"
+               : "driver refused a float colour attachment: the scene buffer is eight "
+                 "bit and the highlight rolloff cannot act");
+        fflush(stdout);
+        g_fxHdrSaid = 1;
+    }
+    g_fxHdrLive = g_fxScene.hdr;
 
     fx_rt_bind(&g_fxScene);
     g_fxActive = 1;
@@ -1193,11 +1856,19 @@ static void fx_draw_with(GLuint prog, const FxRT* dst)
    the sea, whose field it binds). Forward-declared here the way the terrain declares
    the coast's hooks: the light program is this file's, the rain's numbers are not. */
 static void rain_light_uniforms(GLuint prog);
+static void distfog_light_uniforms(GLuint prog);   /* distfog_mod.h */
+static void tibglow_light_uniforms(GLuint prog);   /* tibglow_mod.h */
+static void tibglow_light_bind(void);
+static void tibglow_light_unbind(void);
+static int terrain_visibility_bind(GLuint prog); /* atmosphere_mod.h */
 static void rain_light_bind(GLuint prog);
 static void rain_light_unbind(void);
 
+static void (*g_fxAfterResolve)(void) = NULL;
+
 static void fx_world_end(void)
 {
+    g_fxStructOn = 0;
     if (!g_fxActive) return;
 
     const int rw = g_fxScene.w, rh = g_fxScene.h;
@@ -1213,7 +1884,9 @@ static void fx_world_end(void)
        and the fixed pipe's frustum+modelview, or half the ground would fail its own
        depth by a rounding. */
     int gnOn = 0;
-    if (g_fx.terrain_normals && g_fxGroundNormals && g_fxScene.depth
+    const int terrainGrade = g_fx.terrain_brightness != 1.0f || g_fx.terrain_contrast != 1.0f;
+    const int terrainArtShade = fx_texset_get() == FX_TEX_ENH && g_fx.terrain_shadow_strength != 1.0f;
+    if ((g_fx.terrain_normals || terrainGrade || terrainArtShade) && g_fxGroundNormals && g_fxScene.depth
         && fx_rt_init(&g_fxGNorm, rw, rh, 1, GL_LINEAR)) {
         float clearc[4];
         glGetFloatv(GL_COLOR_CLEAR_VALUE, clearc);
@@ -1239,13 +1912,57 @@ static void fx_world_end(void)
         gnOn = 1;
     }
 
+    /* ---- THE BAKE TARGET: the console's own lighting, on its own ------------------
+       The same arrangement as the normals above and for the same reasons: the scene's
+       depth borrowed with LEQUAL and writes off, so only surfaces that actually won the
+       frame contribute, and a hair of polygon offset to cover the rounding between this
+       matrix and the fixed pipeline's. Cleared to zero, which is the class saying "no
+       mesh here" for every pixel the pass does not reach.
+       Eight bit on purpose: it holds a shade the console stored in eight bits. */
+    int bakeOn = 0;
+    if (g_fx.relight_on && g_fxMeshBake && g_fxScene.depth
+        && fx_rt_init(&g_fxBake, rw, rh, FX_RT_COLOUR, GL_LINEAR)) {
+        float clearb[4];
+        glGetFloatv(GL_COLOR_CLEAR_VALUE, clearb);
+        fx_rt_bind(&g_fxBake);
+        fx_glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D,
+                                  g_fxScene.depth, 0);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+        glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadMatrixf(g_fxVP);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_FALSE);
+        glDisable(GL_BLEND);
+        glDisable(GL_ALPHA_TEST);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-1.0f, -2.0f);
+        g_fxMeshBake();
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDepthMask(GL_TRUE);
+        glMatrixMode(GL_PROJECTION); glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+        fx_glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+        glClearColor(clearb[0], clearb[1], clearb[2], clearb[3]);
+        bakeOn = 1;
+    }
+
     /* ---- 1. shadow, occlusion and light ---- */
     const FxRT* litSrc = &g_fxScene;
-    if (fx_rt_init(&g_fxLit, rw, rh, 1, GL_LINEAR)) {
+    if (fx_rt_init(&g_fxLit, rw, rh, FX_RT_COLOUR | fx_hdr_want(), GL_LINEAR)) {
         fx_glUseProgram(g_fxPLight);
         fx_set1i(g_fxPLight, "uColor", 0);
         fx_set1i(g_fxPLight, "uDepth", 1);
         fx_set1i(g_fxPLight, "uShadow", 2);
+        fx_set1i(g_fxPLight, "uTerrainShadow", 8);
+        fx_set1i(g_fxPLight, "uTerrainShadowOn", g_fxTerrainShadowLive);
+        fx_set1f(g_fxPLight, "uTerrainStrength", g_fx.terrain_shadow_strength);
+        fx_set1i(g_fxPLight, "uTerrainCliffOn", 0);
+        const int terrainMaskOn = gnOn && (terrainGrade || terrainArtShade) && terrain_visibility_bind(g_fxPLight);
+        const int terrainGradeOn = terrainMaskOn && terrainGrade;
+        fx_set1i(g_fxPLight, "uTerrainGradeOn", terrainGradeOn);
+        fx_set2f(g_fxPLight, "uTerrainGrade", g_fx.terrain_brightness, g_fx.terrain_contrast);
         fx_setmat(g_fxPLight, "uVP", g_fxVP);
         fx_setmat(g_fxPLight, "uInvVP", g_fxInvVP);
         fx_setmat(g_fxPLight, "uSunVP", g_fxSunVP);
@@ -1267,18 +1984,69 @@ static void fx_world_end(void)
             const float res = g_fxShadow.w > 0 ? (float)g_fxShadow.w : 1.0f;
             const float cellsPerTexel = 2.0f * g_fxSunR / res;
             fx_set1i(g_fxPLight, "uGNorm", 4);
-            fx_set1i(g_fxPLight, "uGNormOn", gnOn);
+            fx_set1i(g_fxPLight, "uBake", 5);
+            fx_set1i(g_fxPLight, "uBakeOn", bakeOn);
+            fx_set1f(g_fxPLight, "uReRough", g_fx.relight_rough);
+            fx_set1f(g_fxPLight, "uReSun",   g_fx.relight_sun);
+            fx_set1f(g_fxPLight, "uReSpec",  g_fx.relight_spec);
+            fx_set1f(g_fxPLight, "uReClamp", g_fx.relight_clamp);
+            fx_set1f(g_fxPLight, "uReAmb",   g_fx.relight_amb);
+            fx_set1f(g_fxPLight, "uReFloor", g_fx.relight_floor);
+            fx_set1i(g_fxPLight, "uGNormOn", gnOn && g_fx.terrain_normals);
             /* SCREEN-SPACE OCCLUSION MEANS LESS ON A CANOPY THAN ON A CREASE. Its
                hemisphere is built from the same reconstructed normal, and with the
                radius against cards packed a cell across nearly every tap lands on
                another leaf. The trees carry occlusion baked from the model that still
                had a million leaves in it, so this one only has to stay out of the way. */
             fx_set1f(g_fxPLight, "uAoFoliage", g_fx.ssao_foliage);
+            fx_set1f(g_fxPLight, "uAoObject",  g_fx.ssao_object);
             fx_set1f(g_fxPLight, "uSNormOff", g_fx.shadow_noff * cellsPerTexel);
             fx_set1f(g_fxPLight, "uSunFloor", g_fx.sun_floor);
             fx_set1f(g_fxPLight, "uSPen", cellsPerTexel > 0.0f ? g_fx.shadow_pen / cellsPerTexel : 0.0f);
             fx_set1f(g_fxPLight, "uAoGround", g_fx.ssao_ground);
             fx_set1i(g_fxPLight, "uSunLambert", (g_fx.sun_lambert && gnOn) ? 1 : 0);
+            /* THE STRUCTURES GROUP. Its pixels are known by their class in the normal
+               target, so with no target there is nothing to tell them by and the group
+               stands down rather than reaching everything. Gamma is passed as it is and
+               inverted in the shader; its floor keeps the inversion finite. */
+            const int stOn = (gnOn && g_fx.terrain_normals && fx_struct_active(&g_fx)) ? 1 : 0;
+            fx_set1i(g_fxPLight, "uStOn", stOn);
+            const float stGrade[4] = { fx_struct_dial(g_fx.st_gamma > 0.05f ? g_fx.st_gamma
+                                                                         : 0.05f),
+                                       fx_struct_dial(g_fx.st_bright),
+                                       fx_struct_dial(g_fx.st_contrast),
+                                       fx_struct_dial(g_fx.st_sat) };
+            const float stLight[4] = { fx_struct_dial(g_fx.st_shade),
+                                       fx_struct_dial(g_fx.st_sun),
+                                       fx_struct_dial(g_fx.st_glow),
+                                       fx_struct_dial(g_fx.st_ao) };
+            fx_set4fv(g_fxPLight, "uStGrade", 1, stGrade);
+            fx_set4fv(g_fxPLight, "uStLight", 1, stLight);
+            g_fxStructOn = stOn;
+        }
+        /* The soldiers' map, in the same units as the shared one: bias in cells over
+           its own depth span, normal offset in its own texels, and a kernel that is
+           its texel softness with a one texel floor. */
+        {
+            const int infOn = (shOn && g_fxInfLive && g_fxInfShadow.depth) ? 1 : 0;
+            const float ires = g_fxInfShadow.w > 0 ? (float)g_fxInfShadow.w : 1.0f;
+            const float icpt = 2.0f * g_fxInfR / ires;
+            fx_set1i(g_fxPLight, "uInfShadow", 6);
+            fx_set1i(g_fxPLight, "uInfShOn", infOn);
+            /* The contact march's soldier test, off whenever no 3D soldier can be on
+               screen, so every other look draws exactly the picture it drew before. */
+            fx_set1i(g_fxPLight, "uCtSkipInf", g_fxInfSoldiers ? 1 : 0);
+            fx_set2f(g_fxPLight, "uGNormSize", (float)(g_fxGNorm.w > 0 ? g_fxGNorm.w : 1),
+                     (float)(g_fxGNorm.h > 0 ? g_fxGNorm.h : 1));
+            fx_setmat(g_fxPLight, "uInfSunVP", g_fxInfSunVP);
+            fx_set1f(g_fxPLight, "uInfBias",
+                     g_fx.shadow_bias / (g_fxInfSpan > 0.001f ? g_fxInfSpan : 1.0f));
+            fx_set1f(g_fxPLight, "uInfNOff", g_fx.shadow_noff * icpt);
+            fx_set1f(g_fxPLight, "uInfRad",
+                     (g_fx.shadow_soft > 1.0f ? g_fx.shadow_soft : 1.0f) / ires);
+            glActiveTexture(GL_TEXTURE6);
+            glBindTexture(GL_TEXTURE_2D, infOn ? g_fxInfShadow.depth : 0);
+            glActiveTexture(GL_TEXTURE0);
         }
 
         /* ---- the weather ----
@@ -1320,6 +2088,12 @@ static void fx_world_end(void)
         fx_set1f(g_fxPLight, "uAoIntensity", g_fx.ssao_intensity);
         fx_set1f(g_fxPLight, "uAoBias", g_fx.ssao_bias);
         fx_set1f(g_fxPLight, "uAoPower", g_fx.ssao_power);
+            fx_set1i(g_fxPLight, "uCtOn", g_fx.contact_on ? 1 : 0);
+            fx_set1i(g_fxPLight, "uCtSteps", (int)(g_fx.contact_steps + 0.5f));
+            fx_set1f(g_fxPLight, "uCtLen", g_fx.contact_len);
+            fx_set1f(g_fxPLight, "uCtThick", g_fx.contact_thick);
+            fx_set1f(g_fxPLight, "uCtBias", g_fx.contact_bias);
+            fx_set1f(g_fxPLight, "uCtStrength", g_fx.contact_strength);
 
         int nl = g_fx.lights_on ? g_fxNLight : 0;
         if (nl > FX_MAX_LIGHTS) nl = FX_MAX_LIGHTS;
@@ -1337,10 +2111,18 @@ static void fx_world_end(void)
         }
         fx_set1f(g_fxPLight, "uLightFalloff", g_fx.light_falloff);
         rain_light_uniforms(g_fxPLight);
-        rain_light_bind(g_fxPLight);          /* unit 5: the sea's field, or nothing */
+        distfog_light_uniforms(g_fxPLight);
+        tibglow_light_uniforms(g_fxPLight);
+        rain_light_bind(g_fxPLight);          /* unit 12: the sea's field, or nothing */
+        tibglow_light_bind();                 /* unit 7: the tiberium's field         */
 
+        glActiveTexture(GL_TEXTURE0 + 8);
+        glBindTexture(GL_TEXTURE_2D, g_fxTerrainShadowLive ? g_fxTerrainShadow.depth : 0);
         glActiveTexture(GL_TEXTURE4);
         glEnable(GL_TEXTURE_2D);
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, bakeOn ? g_fxBake.tex : 0);
+        glActiveTexture(GL_TEXTURE4);
         glBindTexture(GL_TEXTURE_2D, gnOn ? g_fxGNorm.tex : 0);
         glActiveTexture(GL_TEXTURE3);
         glEnable(GL_TEXTURE_2D);
@@ -1362,6 +2144,13 @@ static void fx_world_end(void)
         /* The unbind is not optional: the HUD is drawn with fixed-function state right
            after this and a live unit 3 would modulate it. */
         rain_light_unbind();
+        tibglow_light_unbind();
+        glActiveTexture(GL_TEXTURE0 + 11); glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0 + 10); glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0 + 9); glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0 + 8); glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D);
         glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D);
         glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D);
         glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D);
@@ -1370,16 +2159,23 @@ static void fx_world_end(void)
         litSrc = &g_fxLit;
     }
 
+    litSrc = atmosphere_apply(litSrc, rw, rh);
+
     /* ---- 2. bloom ---- */
     int bloomReady = 0;
     if (g_fx.bloom_on) {
         const int bw = rw / 2 > 1 ? rw / 2 : 1, bh = rh / 2 > 1 ? rh / 2 : 1;
-        if (fx_rt_init(&g_fxBloomA, bw, bh, 1, GL_LINEAR) &&
-            fx_rt_init(&g_fxBloomB, bw, bh, 1, GL_LINEAR)) {
+        /* The bloom ping-pong is scene referred too: the bright pass subtracts a
+           threshold and keeps the remainder, and in eight bits that remainder was
+           whatever survived the clip at white, which is why bloom measured nothing at
+           all on a lit hull. */
+        if (fx_rt_init(&g_fxBloomA, bw, bh, FX_RT_COLOUR | fx_hdr_want(), GL_LINEAR) &&
+            fx_rt_init(&g_fxBloomB, bw, bh, FX_RT_COLOUR | fx_hdr_want(), GL_LINEAR)) {
             glBindTexture(GL_TEXTURE_2D, litSrc->tex);
             fx_glUseProgram(g_fxPBright);
             fx_set1i(g_fxPBright, "uTex", 0);
             fx_set1f(g_fxPBright, "uThreshold", g_fx.bloom_threshold);
+            fx_set1f(g_fxPBright, "uClampIn", g_fx.bloom_clamp);
             fx_set1f(g_fxPBright, "uKnee", g_fx.bloom_knee);
             fx_rt_bind(&g_fxBloomA);
             fx_fullscreen_quad();
@@ -1437,6 +2233,12 @@ static void fx_world_end(void)
     fx_set1i(g_fxPResolve, "uBloomOn", bloomReady);
     fx_set1f(g_fxPResolve, "uBloomI", g_fx.bloom_intensity);
     fx_set1i(g_fxPResolve, "uGradeOn", g_fx.grade_on ? 1 : 0);
+    /* THE CURVE RUNS ONLY WHERE THERE IS A RANGE TO MAP. With the switch off, or on a
+       driver that would not give a float target, the buffer was clipped at white long
+       before this pass and a tonemap on top of it would only crush what survived. */
+    fx_set1i(g_fxPResolve, "uToneOn",
+             (g_fxHdrLive && (int)(g_fx.tonemap + 0.5f) == 1) ? 1 : 0);
+    fx_set1f(g_fxPResolve, "uToneKnee", g_fx.tone_knee);
     fx_set1f(g_fxPResolve, "uExposure", g_fx.exposure);
     fx_set1f(g_fxPResolve, "uContrast", g_fx.contrast);
     fx_set1f(g_fxPResolve, "uSaturation", g_fx.saturation);
@@ -1461,6 +2263,12 @@ static void fx_world_end(void)
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0);
         glDisable(GL_TEXTURE_2D); glActiveTexture(GL_TEXTURE0);
     }
+
+    /* ---- 3b. a layer the host lays over the finished view ----
+       The Unity explosion (unityvfx_mod.h): after the grade and the gamma, because it
+       brings its own tonemap and must not be graded twice, and before the CRT and the
+       sidebar. It may replace g_fxNativeA with a target of the same size and format. */
+    if (g_fxAfterResolve) g_fxAfterResolve();
 
     /* ---- 4. the CRT, if it is NOT covering the sidebar ---- */
     g_fxHudRT = 0;
@@ -1531,4 +2339,4 @@ static void fx_present(void)
     g_fxActive = 0;
 }
 
-#endif /* CNC3D_FX_POST_H */
+#endif /* OPENCNC3D_FX_POST_H */

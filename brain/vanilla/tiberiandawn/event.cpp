@@ -13,13 +13,13 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in September 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
 // Two changes in EventClass::Execute. The REPAIR arm requires the ordering
 // house to own the building, the test the SELL arm always had. A beacon's
 // thirty second kill time is a frame number rather than the Windows wall
 // clock, so peers agree on it and it expires on every platform.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -87,13 +87,14 @@ unsigned char EventClass::EventLength[EventClass::LAST_EVENT] = {
     size_of(EventClass, Data.NavCom),          // ARCHIVE
     size_of(EventClass, Data.Timing),          // TIMING
     size_of(EventClass, Data.ProcessTime),     // PROCESS_TIME
+    size_of(EventClass, Data.Target),          // POWER_SWITCH
 };
 
 const char* EventClass::EventNames[EventClass::LAST_EVENT] = {
     "EMPTY",         "ALLY",          "MEGAMISSION", "IDLE",    "SCATTER", "DESTRUCT",     "DEPLOY",
     "PLACE",         "OPTIONS",       "GAMESPEED",   "PRODUCE", "SUSPEND", "ABANDON",      "PRIMARY",
     "SPECIAL_PLACE", "EXIT",          "ANIMATION",   "REPAIR",  "SELL",    "SPECIAL",      "FRAMESYNC",
-    "MESSAGE",       "RESPONSE_TIME", "FRAMEINFO",   "ARCHIVE", "TIMING",  "PROCESS_TIME",
+    "MESSAGE",       "RESPONSE_TIME", "FRAMEINFO",   "ARCHIVE", "TIMING",  "PROCESS_TIME", "POWER_SWITCH",
 };
 
 /***********************************************************************************************
@@ -380,7 +381,7 @@ void EventClass::Execute(void)
     char txt[80];
     int i;
     //#if (0)
-    if (Type < 0 || Type > PROCESS_TIME) {
+    if (Type < 0 || Type >= LAST_EVENT) {
         char tempbuf[128];
         sprintf(tempbuf, "Packet type %d received\n", Type);
         CCDebugString(tempbuf);
@@ -447,11 +448,16 @@ void EventClass::Execute(void)
     **	Starts or stops repair on the specified object. This event is triggered by the
     **	player clicking the repair wrench on a building.
     */
+    case POWER_SWITCH: {
+        BuildingClass *b=As_Building(Data.Target.Whom);
+        if(b&&b->IsActive&&!b->IsInLimbo&&b->House==Houses.Raw_Ptr(ID))b->Toggle_Power();
+        break;
+    }
     case REPAIR:
         CCDebugString("C&C95 - Repair packet received\n");
         techno = As_Techno(Data.Target.Whom);
         /*
-        **	OpenCNC 3D: the ownership test the SELL arm below has always had and this one never
+        **	OpenCNC3D: the ownership test the SELL arm below has always had and this one never
         **	did. Harmless in 1995 because only the owner's mouse could queue a REPAIR, and
         **	harmless in the shipped campaign because nothing there reaches this arm at all.
         **	It matters the moment orders arrive off a wire, where a peer's bytes name any
@@ -499,7 +505,7 @@ void EventClass::Execute(void)
             /*
             **	Beacons have a 30-second kill time.
             **
-            ** OpenCNC 3D lockstep: the deadline is a FRAME NUMBER, not a wall clock. The old
+            ** OpenCNC3D lockstep: the deadline is a FRAME NUMBER, not a wall clock. The old
             ** code read GetSystemTimeAsFileTime inside #ifdef _WIN32, so a beacon expired
             ** after 30 s of wall time on Windows and NEVER expired anywhere else. That is
             ** real state divergence rather than a cosmetic one, because Delete_This()

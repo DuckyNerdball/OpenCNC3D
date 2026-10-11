@@ -103,6 +103,27 @@ static void dms_music_up(DMS *s, int ms)
                        cnc_audio_get_music_volume(s->cfg.au) * MIX_UNITY / 255, ms);
 }
 
+/* The original Red Alert score has themes outside the Tiberian Dawn index.
+   Keep indexed themes on their existing path and open other disc tracks by name. */
+static int dms_music_is_current(DMS *s)
+{
+    int theme = cnc_music_theme_index(s->cfg.music);
+    if (theme >= 0)
+        return cnc_music_index(s->cfg.au) == theme;
+    char name[40];
+    snprintf(name, sizeof name, "%s.AUD", s->cfg.music);
+    return cnc_music_playing(s->cfg.au) &&
+           strcmp(cnc_music_current(s->cfg.au), name) == 0;
+}
+
+static int dms_music_start(DMS *s)
+{
+    int theme = cnc_music_theme_index(s->cfg.music);
+    if (theme >= 0)
+        return cnc_music_play_index(s->cfg.au, theme);
+    return cnc_music_play_theme(s->cfg.au, s->cfg.music, 1);
+}
+
 static int dms_pot(int v)
 {
     int p = 1;
@@ -124,16 +145,16 @@ static void dms_layout(DMS *s)
     SDL_GetWindowSize(s->win, &pw, &ph);
     s->px = pw > 0 ? (float)w / (float)pw : 1.0f;
     s->py = ph > 0 ? (float)h / (float)ph : 1.0f;
-    if (w < DM_SCREEN_W || h < DM_SCREEN_H) {
+    if (w < s->surf.w || h < s->surf.h) {
         s->scale = 1;
     } else {
-        sc = w / DM_SCREEN_W;
-        if (h / DM_SCREEN_H < sc)
-            sc = h / DM_SCREEN_H;
+        sc = w / s->surf.w;
+        if (h / s->surf.h < sc)
+            sc = h / s->surf.h;
         s->scale = sc < 1 ? 1 : sc;
     }
-    s->vpx = (w - DM_SCREEN_W * s->scale) / 2;
-    s->vpy = (h - DM_SCREEN_H * s->scale) / 2;
+    s->vpx = (w - s->surf.w * s->scale) / 2;
+    s->vpy = (h - s->surf.h * s->scale) / 2;
 }
 
 /* In window POINTS, which is the space SDL mouse events live in. */
@@ -166,14 +187,14 @@ static void dms_pump_audio(DMS *s, int ms)
     audio_frame(s->cfg.au, ms);
 }
 
-static void dms_fade_rgba(unsigned char *dst, const unsigned char *src, int level)
+static void dms_fade_rgba(unsigned char *dst, const unsigned char *src, int level, int count)
 {
     long i;
     if (level < 0)
         level = 0;
     if (level > 256)
         level = 256;
-    for (i = 0; i < (long)DM_SCREEN_W * DM_SCREEN_H; i++) {
+    for (i = 0; i < count; i++) {
         dst[i * 4 + 0] = (unsigned char)((src[i * 4 + 0] * level) >> 8);
         dst[i * 4 + 1] = (unsigned char)((src[i * 4 + 1] * level) >> 8);
         dst[i * 4 + 2] = (unsigned char)((src[i * 4 + 2] * level) >> 8);
@@ -181,15 +202,25 @@ static void dms_fade_rgba(unsigned char *dst, const unsigned char *src, int leve
     }
 }
 
+static void dms_upload_level(DMS *s, const unsigned char *rgba, int level)
+{
+    const int factor = s->cfg.red_alert ? 1 : 2;
+    const int width = s->surf.w * factor, height = s->surf.h * factor;
+    int x, y;
+    for (y = 0; y < height; y++) for (x = 0; x < width; x++)
+        memcpy(s->padded + ((size_t)y*s->tw+x)*4,
+               rgba + ((size_t)(y/factor)*s->surf.w+x/factor)*4, 4);
+    if (s->legal_active)
+        dm_draw_legal_rgba(s->padded, width, height, s->tw, s->pack,
+                           s->st.copyright, level);
+    glBindTexture(GL_TEXTURE_2D, s->tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, s->tw, s->th, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, s->padded);
+}
+
 static void dms_upload(DMS *s, const unsigned char *rgba)
 {
-    int y;
-    for (y = 0; y < DM_SCREEN_H; y++)
-        memcpy(s->padded + (long)y * s->tw * 4, rgba + (long)y * DM_SCREEN_W * 4,
-               (size_t)DM_SCREEN_W * 4);
-    glBindTexture(GL_TEXTURE_2D, s->tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, s->tw, s->th, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 s->padded);
+    dms_upload_level(s, rgba, 256);
 }
 
 static void dms_upload_faded(DMS *s, const unsigned char *rgba, int level)
@@ -198,8 +229,8 @@ static void dms_upload_faded(DMS *s, const unsigned char *rgba, int level)
         dms_upload(s, rgba);
         return;
     }
-    dms_fade_rgba(s->faded, rgba, level);
-    dms_upload(s, s->faded);
+    dms_fade_rgba(s->faded, rgba, level, s->surf.w * s->surf.h);
+    dms_upload_level(s, s->faded, level);
 }
 
 /* One frame on screen. Every piece of state this quad depends on is set here; see the
@@ -247,7 +278,7 @@ void dms_draw(DMS *s)
 #endif
 
     /* 3. the plate, at a whole-number scale, in the middle. */
-    glViewport(s->vpx, s->vpy, DM_SCREEN_W * s->scale, DM_SCREEN_H * s->scale);
+    glViewport(s->vpx, s->vpy, s->surf.w * s->scale, s->surf.h * s->scale);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     glOrtho(0, 1, 1, 0, -1, 1);
@@ -255,8 +286,8 @@ void dms_draw(DMS *s)
     glLoadIdentity();
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, s->tex);
-    u = (float)DM_SCREEN_W / (float)s->tw;
-    v = (float)DM_SCREEN_H / (float)s->th;
+    u = (float)(s->surf.w * (s->cfg.red_alert ? 1 : 2)) / (float)s->tw;
+    v = (float)(s->surf.h * (s->cfg.red_alert ? 1 : 2)) / (float)s->th;
     glBegin(GL_QUADS);
     glTexCoord2f(0, 0);
     glVertex2f(0, 0);
@@ -282,6 +313,15 @@ static void dms_present(DMS *s)
 
 void dms_redraw(DMS *s)
 {
+    s->legal_active = !s->st.red_alert && !s->ops && !s->lobby;
+    const int w = s->st.red_alert && !s->ops && !s->lobby ? 640 : DM_SCREEN_W;
+    const int h = s->st.red_alert && !s->ops && !s->lobby ? 400 : DM_SCREEN_H;
+    if (s->surf.w != w || s->surf.h != h) {
+        db_surface_init(&s->surf, w, h, s->screen);
+        s->mx = w / 2;
+        s->my = h / 2;
+        dms_layout(s);
+    }
     memset(s->screen, DB_TBLACK, sizeof s->screen);
     if (s->ops) {
         /* The title plate is the menu's, so the list screen is the same picture with a
@@ -378,8 +418,8 @@ int dms_open(DMS *s, SDL_Window *win, const DMS_Config *cfg, char *err, int errl
     memset(s, 0, sizeof *s);
     s->win = win;
     s->cfg = *cfg;
-    s->mx = DM_SCREEN_W / 2;
-    s->my = DM_SCREEN_H / 2;
+    s->mx = cfg->red_alert ? 320 : DM_SCREEN_W / 2;
+    s->my = cfg->red_alert ? 200 : DM_SCREEN_H / 2;
 
     s->pack = db_pack_load(cfg->pack, e2, sizeof e2);
     if (!s->pack) {
@@ -387,15 +427,31 @@ int dms_open(DMS *s, SDL_Window *win, const DMS_Config *cfg, char *err, int errl
         return 0;
     }
     dm_state_init(&s->st);
-    s->st.version = cfg->version ? cfg->version : "CNC3D";
+    s->st.red_alert = cfg->red_alert;
+    s->st.version = cfg->version ? cfg->version : "OpenCNC3D";
+    if (cfg->copyright)
+        s->st.copyright = cfg->copyright;
+    s->st.intro_missing = cfg->intro_missing ? 1 : 0;
     s->st.selected = DM_START;
-    db_surface_init(&s->surf, DM_SCREEN_W, DM_SCREEN_H, s->screen);
+    db_surface_init(&s->surf, cfg->red_alert ? 640 : DM_SCREEN_W,
+                    cfg->red_alert ? 400 : DM_SCREEN_H, s->screen);
+    /* EVERY BUTTON'S RECTANGLE AND WHETHER IT IS LIVE, once, in menu pixels, so a gate
+       can find a button in a --menushot picture without a copy of the layout and can
+       read the very flag the draw, the hit test and the keyboard walk all ask. */
+    {
+        int i, bx, by, bw, bh;
+        for (i = 0; i < DM_ITEM_COUNT; i++)
+            if (dm_item_rect(&s->st, i, &bx, &by, &bw, &bh))
+                printf("DMBTN|i=%d|label=%s|disabled=%d|x=%d|y=%d|w=%d|h=%d\n", i,
+                       dm_item_label(i), dm_state_item_disabled(&s->st, i), bx, by, bw, bh);
+        fflush(stdout);
+    }
 
-    s->tw = dms_pot(DM_SCREEN_W);
-    s->th = dms_pot(DM_SCREEN_H);
-    s->rgba = (unsigned char *)calloc((size_t)DM_SCREEN_W * DM_SCREEN_H * 4, 1);
+    s->tw = dms_pot(640);
+    s->th = dms_pot(400);
+    s->rgba = (unsigned char *)calloc((size_t)640 * 400 * 4, 1);
     s->padded = (unsigned char *)calloc((size_t)s->tw * s->th * 4, 1);
-    s->faded = (unsigned char *)calloc((size_t)DM_SCREEN_W * DM_SCREEN_H * 4, 1);
+    s->faded = (unsigned char *)calloc((size_t)640 * 400 * 4, 1);
 
     glGenTextures(1, &s->tex);
     glBindTexture(GL_TEXTURE_2D, s->tex);
@@ -412,8 +468,7 @@ int dms_open(DMS *s, SDL_Window *win, const DMS_Config *cfg, char *err, int errl
        path: the bank finds MAP1 wherever it lives, which on the 1995 discs is
        TRANSIT.MIX and not SCORES.MIX with the rest of the score. */
     if (cfg->au && cfg->music && *cfg->music) {
-        const int t = cnc_music_theme_index(cfg->music);
-        if (t < 0 || !cnc_music_play_index(cfg->au, t))
+        if (!dms_music_start(s))
             fprintf(stderr, "menu: no theme %s on the disc; the menu is silent\n",
                     cfg->music);
         else
@@ -458,9 +513,9 @@ int dms_run(DMS *s)
      * selection: Queue_Song(THEME_MAP1). Starting it only when it is not already the
      * current track keeps a first visit from restarting it a moment after dms_open. */
     if (s->cfg.au && s->cfg.music && *s->cfg.music &&
-        cnc_music_index(s->cfg.au) != cnc_music_theme_index(s->cfg.music)) {
+        !dms_music_is_current(s)) {
         cnc_music_set_playlist(s->cfg.au, 0);
-        cnc_music_play_index(s->cfg.au, cnc_music_theme_index(s->cfg.music));
+        dms_music_start(s);
     }
     dms_music_up(s, DM_FADE_MS);
     dms_layout(s);
@@ -531,6 +586,9 @@ int dms_run(DMS *s)
             }
         }
 
+        /* A disabled button is never chosen, by RETURN on a stale highlight either. */
+        if (chosen >= 0 && dm_state_item_disabled(&s->st, chosen))
+            chosen = DMS_NONE;
         if (chosen >= 0) {
             printf("menu: %s\n", dm_item_label(chosen));
             fflush(stdout);
@@ -552,6 +610,172 @@ int dms_run(DMS *s)
         dms_pump_audio(s, DM_FRAME_MS);
         dms_present(s);
         SDL_Delay(16);
+    }
+}
+
+static void dms_ra_side_redraw(DMS *s, int selected, int pressed)
+{
+    if (s->surf.w != 640 || s->surf.h != 400)
+        db_surface_init(&s->surf, 640, 400, s->screen);
+    memset(s->screen, DB_TBLACK, sizeof s->screen);
+    dm_draw_menu(&s->surf, s->pack, &s->st);
+    dm_draw_ra_side(&s->surf, s->pack, selected, pressed);
+    dm_draw_cursor(&s->surf, s->pack, s->mx, s->my);
+    db_surface_to_rgba(&s->surf, s->pack->pal8, s->rgba, 0);
+    dms_upload(s, s->rgba);
+}
+
+static void dms_ra_difficulty_redraw(DMS *s, int selected, int pressed)
+{
+    memset(s->screen, DB_TBLACK, sizeof s->screen);
+    dm_draw_menu(&s->surf, s->pack, &s->st);
+    dm_draw_ra_difficulty(&s->surf, s->pack, selected, pressed);
+    dm_draw_cursor(&s->surf, s->pack, s->mx, s->my);
+    db_surface_to_rgba(&s->surf, s->pack->pal8, s->rgba, 0);
+    dms_upload(s, s->rgba);
+}
+
+int dms_ra_choose_difficulty(DMS *s, int auto_difficulty, const char *shot)
+{
+    int selected = 1, pressed = -1;
+    SDL_Event e;
+    SDL_ShowCursor(SDL_DISABLE);
+    if (s->surf.w != 640 || s->surf.h != 400)
+        db_surface_init(&s->surf, 640, 400, s->screen);
+    dms_layout(s);
+    dms_ra_difficulty_redraw(s, selected, pressed);
+    dms_present(s);
+    if (shot) dms_write_shot(s, shot);
+    if (auto_difficulty >= 0 && auto_difficulty <= 2)
+        return auto_difficulty;
+    for (;;) {
+        int dirty = 0;
+        while (SDL_PollEvent(&e)) {
+            int x, y, hit;
+            if (fs_handle_event(&e)) { dirty = 1; continue; }
+            switch (e.type) {
+            case SDL_QUIT: return DMS_QUIT;
+            case SDL_KEYDOWN:
+                if (e.key.keysym.sym == SDLK_ESCAPE) return DMS_CANCEL;
+                if (e.key.keysym.sym == SDLK_LEFT && selected > 0)
+                    selected--, dirty = 1;
+                else if (e.key.keysym.sym == SDLK_RIGHT && selected < 2)
+                    selected++, dirty = 1;
+                else if (e.key.keysym.sym == SDLK_RETURN ||
+                         e.key.keysym.sym == SDLK_SPACE) return selected;
+                break;
+            case SDL_MOUSEMOTION:
+                dms_to_menu(s, e.motion.x, e.motion.y, &s->mx, &s->my);
+                hit = dm_ra_difficulty_hit(s->mx, s->my);
+                if (hit >= 0 && hit < 3 && pressed >= 0) selected = hit;
+                dirty = 1;
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+                if (e.button.button != SDL_BUTTON_LEFT) break;
+                dms_to_menu(s, e.button.x, e.button.y, &x, &y);
+                s->mx = x; s->my = y;
+                pressed = dm_ra_difficulty_hit(x, y);
+                if (pressed >= 0 && pressed < 3) selected = pressed;
+                dirty = 1;
+                break;
+            case SDL_MOUSEBUTTONUP:
+                if (e.button.button != SDL_BUTTON_LEFT) break;
+                dms_to_menu(s, e.button.x, e.button.y, &x, &y);
+                hit = dm_ra_difficulty_hit(x, y);
+                if (hit == 3 && pressed == 3) return selected;
+                if (hit >= 0 && hit < 3 && pressed == hit) selected = hit;
+                pressed = -1;
+                dirty = 1;
+                break;
+            case SDL_WINDOWEVENT:
+                if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                    e.window.event == SDL_WINDOWEVENT_EXPOSED) dirty = 1;
+                break;
+            default: break;
+            }
+        }
+        if (dirty) dms_ra_difficulty_redraw(s, selected, pressed);
+        dms_pump_audio(s, DM_FRAME_MS);
+        dms_present(s);
+        SDL_Delay(16);
+    }
+}
+
+int dms_ra_choose_side(DMS *s, int auto_side, const char *shot)
+{
+    int selected = 0, pressed = -1;
+    SDL_Event e;
+    SDL_ShowCursor(SDL_DISABLE);
+    dms_layout(s);
+    dms_ra_side_redraw(s, selected, pressed);
+    dms_present(s);
+    if (shot) dms_write_shot(s, shot);
+    if (auto_side == 0 || auto_side == 1) {
+        int x, y, w, h, wx, wy;
+        dm_ra_side_rect(auto_side, &x, &y, &w, &h);
+        wx = (int)((s->vpx + (x + w/2) * s->scale) / s->px);
+        wy = (int)((s->vpy + (y + h/2) * s->scale) / s->py);
+        memset(&e, 0, sizeof e);
+        e.type = SDL_MOUSEBUTTONDOWN;
+        e.button.button = SDL_BUTTON_LEFT;
+        e.button.x = wx;
+        e.button.y = wy;
+        SDL_PushEvent(&e);
+        e.type = SDL_MOUSEBUTTONUP;
+        SDL_PushEvent(&e);
+    }
+    for (;;) {
+        int dirty = 0;
+        while (SDL_PollEvent(&e)) {
+            int x, y, hit;
+            if (fs_handle_event(&e)) { dirty = 1; continue; }
+            switch (e.type) {
+            case SDL_QUIT:
+                return DMS_QUIT;
+            case SDL_KEYDOWN:
+                if (e.key.keysym.sym == SDLK_ESCAPE) return DMS_CANCEL;
+                if (e.key.keysym.sym == SDLK_LEFT || e.key.keysym.sym == SDLK_RIGHT ||
+                    e.key.keysym.sym == SDLK_TAB) {
+                    selected = 1 - selected;
+                    dirty = 1;
+                } else if (e.key.keysym.sym == SDLK_RETURN ||
+                           e.key.keysym.sym == SDLK_SPACE) {
+                    return selected;
+                }
+                break;
+            case SDL_MOUSEMOTION:
+                dms_to_menu(s, e.motion.x, e.motion.y, &s->mx, &s->my);
+                hit = dm_ra_side_hit(s->mx, s->my);
+                if (hit >= 0) selected = hit;
+                dirty = 1;
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+                if (e.button.button != SDL_BUTTON_LEFT) break;
+                dms_to_menu(s, e.button.x, e.button.y, &x, &y);
+                s->mx = x; s->my = y;
+                pressed = dm_ra_side_hit(x, y);
+                if (pressed >= 0) selected = pressed;
+                dirty = 1;
+                break;
+            case SDL_MOUSEBUTTONUP:
+                if (e.button.button != SDL_BUTTON_LEFT) break;
+                dms_to_menu(s, e.button.x, e.button.y, &x, &y);
+                hit = dm_ra_side_hit(x, y);
+                if (hit >= 0 && hit == pressed) return hit;
+                pressed = -1;
+                dirty = 1;
+                break;
+            case SDL_WINDOWEVENT:
+                if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                    e.window.event == SDL_WINDOWEVENT_EXPOSED) dirty = 1;
+                break;
+            default: break;
+            }
+        }
+        if (dirty) dms_ra_side_redraw(s, selected, pressed);
+        dms_pump_audio(s, DM_FRAME_MS);
+        dms_present(s);
+        SDL_Delay(DM_FRAME_MS);
     }
 }
 
@@ -705,13 +929,15 @@ int dms_write_shot(DMS *s, const char *path)
 {
     unsigned char *big;
     const int scale = 3;
-    const int bw = DM_SCREEN_W * scale, bh = DM_SCREEN_H * scale;
+    const int bw = s->surf.w * scale, bh = s->surf.h * scale;
     int ok;
     if (!s || !path || !*path) return 0;
     db_surface_to_rgba(&s->surf, s->pack->pal8, s->rgba, 0);
     big = (unsigned char *)malloc((size_t)bw * bh * 4);
     if (!big) return 0;
-    png_nearest_scale(s->rgba, DM_SCREEN_W, DM_SCREEN_H, big, scale);
+    png_nearest_scale(s->rgba, s->surf.w, s->surf.h, big, scale);
+    if (s->legal_active)
+        dm_draw_legal_rgba(big, bw, bh, bw, s->pack, s->st.copyright, 256);
     ok = png_write_rgba(path, big, bw, bh);
     if (ok) printf("SHOT|%s|%dx%d\n", path, bw, bh);
     else fprintf(stderr, "shot: could not write %s\n", path);
@@ -897,6 +1123,21 @@ static void dms_lobby_net_push(const SK_State *lob, const struct SK_Map *maps)
    seat table as it was at the last sync, so an action line is written exactly once on
    the edge it describes. Reset when a lobby opens. */
 static int s_chatTaken = 0;
+/* See dms_lobby_seat_auto_closed in the header. s_modesBeforeStart is the host's own
+   screen as last seen before the room started; a seat that reads BLOCK on the wire at
+   STARTED and OPEN here was closed by the START and not by a click. */
+static unsigned char s_modesBeforeStart[SK_ROSTER_ROWS];
+static unsigned char s_autoClosed[SK_ROSTER_ROWS];
+
+int dms_lobby_seat_auto_closed(int seat)
+{
+    return (seat >= 0 && seat < SK_ROSTER_ROWS) ? s_autoClosed[seat] : 0;
+}
+
+void dms_lobby_auto_closed_clear(void)
+{
+    memset(s_autoClosed, 0, sizeof s_autoClosed);
+}
 static int s_chatPrevValid = 0;
 /* THIS PEER'S OWN ROW AS LAST SENT, so only a change goes on the wire. */
 /* MY OWN ROW: what the WIRE last said it is, not what I last sent. The difference is the
@@ -1423,7 +1664,19 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
                     sk_say_room(&lob, nm_lobby_wanted(), nm_lobby_filled(),
                                 nm_lobby_all_ready(), nm_lobby_my_ready(), measuring);
             }
+            if (ls != NM_LOBBY_STARTED && net == 1) {
+                int k;
+                for (k = 0; k < SK_ROSTER_ROWS; k++) s_modesBeforeStart[k] = (unsigned char)lob.mode[k];
+            }
             if (ls == NM_LOBBY_STARTED) {
+                /* WHICH SEATS THE START CLOSED. The wire's setup is the closed one; the
+                   snapshot above is the screen as the host left it. */
+                const NmSetup *ws = nm_lobby_setup();
+                int k;
+                for (k = 0; k < SK_ROSTER_ROWS; k++)
+                    s_autoClosed[k] = (unsigned char)(net == 1 && ws && k < NM_MAX_SEATS
+                                                      && ws->mode[k] == NM_SEAT_BLOCK
+                                                      && s_modesBeforeStart[k] == NM_SEAT_OPEN);
                 /* A GAME THAT HAS STARTED IS NOT AN OPEN GAME. Nothing here withdrew the
                    row, so a relayed game stayed on the public list until its entry expired
                    forty five seconds later, offering every browser a door that refuses
@@ -1475,9 +1728,10 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
 
 void dms_close(DMS *s)
 {
-    if (s->tex)
+    if (s->tex) {
         fx_filter_forget(s->tex);
         glDeleteTextures(1, &s->tex);
+    }
     s->tex = 0;
     /* The audio engine is NOT closed here: the program owns it, not the menu, and
        the menu is opened and closed once per program while missions come and go. */
@@ -2150,6 +2404,7 @@ int dms_multiplayer(DMS *s, struct MP_State *stv, const struct NmSetup *setup,
     int first_list = 1;
     int was_pinging = 0;
 
+    s->legal_active = 0;
     s_mp_ran = 0;
     SDL_ShowCursor(SDL_DISABLE);
     SDL_StartTextInput();          /* the two typed fields; stopped on every exit below */

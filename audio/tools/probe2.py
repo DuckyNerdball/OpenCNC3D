@@ -3,8 +3,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mixlib import Mix, mix_id
 
 import os as _os
-# Repo root, resolved at runtime. CNC3D_ROOT overrides it for an out-of-tree checkout.
-_ROOT = _os.environ.get("CNC3D_ROOT") or _os.path.abspath(
+# Repo root, resolved at runtime. OPENCNC3D_ROOT overrides it for an out-of-tree checkout.
+_ROOT = _os.environ.get("OPENCNC3D_ROOT") or _os.path.abspath(
     _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", ".."))
 DOS = _os.path.join(_ROOT, "data", "dosdata")
 tables = json.load(open(os.path.dirname(os.path.abspath(__file__)) + "/tables.json"))

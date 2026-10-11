@@ -209,8 +209,8 @@ A press that starts on the map and is *released* over the panel still runs `ui_c
 
 ---
 
-## B9. `app/cnc3d.cpp` has its own window and none of this applies to it
-`app/cnc3d.cpp:986` creates the shipping window with its own flags. `playable/Editor.app` runs `./cnc_eyes --edit` (launcher line ~230), so today the editor is entirely on the `cnc_eyes` path and B1-B7 land in the right place. **If the editor ever moves into the shipping binary, every window-level fix above (RESIZABLE, ALLOW_HIGHDPI, the edit-mode default size) must be repeated in `app/cnc3d.cpp`.** Flagging so it does not get silently lost.
+## B9. `app/opencnc3d.cpp` has its own window and none of this applies to it
+`app/opencnc3d.cpp:986` creates the shipping window with its own flags. `playable/Editor.app` runs `./cnc_eyes --edit` (launcher line ~230), so today the editor is entirely on the `cnc_eyes` path and B1-B7 land in the right place. **If the editor ever moves into the shipping binary, every window-level fix above (RESIZABLE, ALLOW_HIGHDPI, the edit-mode default size) must be repeated in `app/opencnc3d.cpp`.** Flagging so it does not get silently lost.
 
 ---
 

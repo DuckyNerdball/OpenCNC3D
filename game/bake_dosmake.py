@@ -79,7 +79,7 @@ sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "menu", "tools")))
 
 from mixshp import MixFile, Shape  # noqa: E402
 
-# The shipped minimal CONQUER.MIX holds exactly the 21 buildups (make_cnc3dmake.py
+# The shipped minimal CONQUER.MIX holds exactly the 21 buildups (make_opencnc3dmake.py
 # regenerates it from the CD). The playable folder is its canonical home.
 CONQUER_CANDIDATES = [
     os.path.join(HERE, "..", "playable", "CONQUER.MIX"),

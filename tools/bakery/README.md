@@ -127,7 +127,7 @@ rather than lit is a deliberate simplification: recorded as a known gap.
 - `pk4mod.py` -- the loader/redirector for that bytecode.
 - `objgraph2.py` -- scene-graph walker (both segments), the turret-round work.
 - `support/` -- the baker's private inputs: `unit_models.json` (code-derived
-  type->mesh table), `vx_rdp.py`, the TLUT/palette maps, and the `share/CNC3D`
+  type->mesh table), `vx_rdp.py`, the TLUT/palette maps, and the `share/OpenCNC3D`
   symlink the bytecode resolves through.
 - `sharecopy/` -- the baker's world: `assets/` (extracted terrain atlases + jsons
   the bake reads), `tools/` (the romdump copies it imports), `eyes/` (the old eyes

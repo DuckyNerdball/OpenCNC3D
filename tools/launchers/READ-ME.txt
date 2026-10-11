@@ -1,11 +1,41 @@
-OpenCNC 3D -- macOS build
-=====================
+OpenCNC3D -- macOS build
+========================
 
 Command & Conquer with the Nintendo 64's camera and 3D models, running on the
 original 1995 Tiberian Dawn game logic (the GPL source, built here as
-TiberianDawn.dylib) with the original MS-DOS sidebar, infantry, music and
-speech. The build number is printed in the bottom right corner of the main
-menu dialog. That is the first thing to quote in a bug report.
+TiberianDawn.dylib) with the original MS-DOS sidebar, infantry and speech, and
+the 1995 movies and music when you choose to download them (see below). The
+build number is printed in the bottom right corner of the main menu dialog.
+That is the first thing to quote in a bug report.
+
+
+THE FIRST START ASKS ABOUT MOVIES AND MUSIC
+-------------------------------------------
+The 1995 cutscenes (428.5 MB) and soundtrack (79.6 MB) are not in this
+download. They are downloaded from the original discs: the movies from the
+Command & Conquer Gold discs, which EA released as freeware in 2007, and the
+music from the Covert Operations disc, the only one that carries the whole
+score. The first time you open OpenCNC3D.app the launcher shows a SETUP screen
+with two boxes, both ticked:
+
+  [x] DOWNLOAD MOVIES        428.5 MB
+  [x] DOWNLOAD MUSIC          79.6 MB
+
+INSTALL downloads what is ticked, with a bar showing the size so far and the
+percent; CANCEL stops it, and the next try carries on from what arrived. Untick
+both and the button reads CONTINUE: the game then has no movies and no music,
+and plays normally without them. QUIT leaves without deciding, and Setup is
+shown again next time.
+
+CHANGING YOUR MIND LATER: the small GEAR button at the right hand end of the
+MODULES heading opens SETTINGS, with the same two boxes showing what you chose
+and what is there. Tick one to download it, untick one to remove it (it asks
+first, naming what goes), then APPLY. A download that did not finish is
+mentioned under the MODULES when the launcher starts, and APPLY in SETTINGS
+finishes it. Updates leave the movies and music alone either way.
+
+The download needs an internet connection. If it fails, the launcher says why
+and offers RETRY, PLAY WITHOUT (start the game as it is) or QUIT.
 
 
 FIRST LAUNCH: MACOS GETS IN THE WAY ONCE
@@ -21,13 +51,13 @@ arrives with macOS's quarantine flag set. That shows up in one of two ways.
       quarantined app from a hidden temporary copy of the app ALONE, without
       the files next to it, so the app opens and then cannot see the game.
 
-AS OF v0.5.9 C&C3D HANDLES BOTH ON ITS OWN. If it finds itself running from
+AS OF v0.5.9 OpenCNC3D HANDLES BOTH ON ITS OWN. If it finds itself running from
 the temporary copy it goes looking for the real folder in the usual places
 (Downloads, Desktop, Applications, your home folder), starts the game from
 there, and clears the quarantine flag so it does not happen again. If it
 cannot find the folder it asks you to point at it, once.
 
-So the expected experience is: double-click C&C3D, approve one prompt if macOS
+So the expected experience is: double-click OpenCNC3D, approve one prompt if macOS
 shows one, and play. If you would rather clear the flag yourself first, this
 is still the route that works on every version of macOS -- in Terminal type
 the line below, then a SPACE, then drag the folder in from the Finder (which
@@ -49,11 +79,12 @@ is the lowest floor this build can have without different SDL binaries. On macOS
 or older the system refuses to load it before the game starts, and the message you
 get will not mention the version.
 
-APPLE SILICON NEEDS ROSETTA 2
------------------------------
-The binaries are x86_64 only. On an M-series Mac, macOS offers to install
-Rosetta 2 the first time you launch one; say yes and it works from then on.
-On an Intel Mac there is nothing to install.
+APPLE SILICON AND INTEL
+-----------------------
+One download runs on both. Every program and library here carries Apple
+Silicon (arm64) and Intel (x86_64) code side by side, and macOS picks the one
+that matches the Mac. Nothing needs installing on either kind; an M-series Mac
+does not need Rosetta 2.
 
 
 HOW TO START IT
@@ -61,7 +92,7 @@ HOW TO START IT
 TWO PROGRAMS SHIP HERE, and which one a launcher runs decides what the picture
 looks like before you touch anything.
 
-  cnc3d      the game: main menu, movies, campaign, score screens. It starts
+  opencnc3d  the game: main menu, movies, campaign, score screens. It starts
              with the ENHANCED picture on.
   cnc_eyes   the renderer on its own, straight into one mission, no menu. It
              starts with the CLASSIC picture, the one this project drew before
@@ -72,7 +103,7 @@ is running, from the Visuals screen described below.
 
     THERE IS ONE THING TO RUN
 
-    C&C3D.app             That is the game. START NEW GAME runs the GDI
+    OpenCNC3D.app         That is the game. START NEW GAME runs the GDI
                           campaign; TEST MAP is the sandbox with the full
                           build list. ESC opens Options.
 
@@ -87,7 +118,7 @@ rather than a feature: two data paths defaulted to folders that exist only in
 the development tree, so nothing could be started without a script passing them
 in. The game now finds its own data and runs with no arguments at all.
 
-The two plain binaries beside the app, cnc3d and cnc_eyes, are what the app runs
+The two plain binaries beside the app, opencnc3d and cnc_eyes, are what the app runs
 and what the verification suite drives. Neither is meant to be double-clicked.
 
 Keep the folder together and start the game from inside it. The packs, the
@@ -120,7 +151,6 @@ the select brackets are the answer the engine would actually give.
   S or X            Stop.       G or Z   Guard.      M   Radar on/off.
   SPACE             Pause.      TAB      Step one frame while paused.
   C                 Switch between the N64 camera and the flat 1995-style one.
-  F5                The Enhanced Visuals tuning panel.
   ESC               Pause menu / options.
 
 
@@ -129,34 +159,29 @@ THE ENHANCED VISUALS
 The Tier 2 presentation chain is supersampling, sun and shadows, bloom,
 ambient occlusion, dynamic light from explosions and gunfire, colour grading,
 and an optional CRT pass. Whether it is running when the window opens depends
-on which entry point you used, and the two lists above are that split. Three
+on which entry point you used, and the two lists above are that split. Two
 ways to change it:
 
   * VISUALS. On the main menu it is its own button; in a mission, press ESC
     and it is on the pause dialog. Classic or Enhanced, with a checkbox per
     element behind Advanced. Live, in either program, either way round -- so
-    a cnc_eyes launcher can be turned Enhanced, and C&C3D.app back to Classic,
+    a cnc_eyes launcher can be turned Enhanced, and OpenCNC3D.app back to Classic,
     without restarting.
 
-  * TUNE-PRESENTATION.command boots with the F5 dial panel already open, every
-    slider live over the running game. Its SAVE button writes cnc3d-fx.cfg into
-    this folder. THAT FILE IS THE DELIVERABLE: send it back and its numbers
-    become the build's defaults.
+  * From Terminal, ./opencnc3d --classic starts with the chain off entirely.
 
-  * From Terminal, ./cnc3d --classic starts with the chain off entirely.
-
-WHAT A SAVED cnc3d-fx.cfg DOES, AND WHAT IT DOES NOT. Only cnc3d reads it, only
+WHAT A SAVED opencnc3d-fx.cfg DOES, AND WHAT IT DOES NOT. Only opencnc3d reads it, only
 at startup, only under that exact name, and only from the folder the game was
 launched in. So it reaches the four entry points in the first list and none of
 the ten in the second: a cnc_eyes launcher ignores the file completely, whether
 it is sitting there or not. And it changes WHICH numbers the chain uses, never
-whether the chain runs. cnc3d is enhanced with or without the file; cnc_eyes is
+whether the chain runs. opencnc3d is enhanced with or without the file; cnc_eyes is
 classic with or without it. To see which happened, read the Terminal window
-behind the game: cnc3d prints either "FX|preset|cnc3d-fx.cfg: 60 applied" or
+behind the game: opencnc3d prints either "FX|preset|opencnc3d-fx.cfg: 60 applied" or
 "FX|no preset ...; enhanced with the shipped defaults", and cnc_eyes prints no
 FX line at all.
 
-No cnc3d-fx.cfg is included here on purpose, so this package and the Windows
+No opencnc3d-fx.cfg is included here on purpose, so this package and the Windows
 package of the same build start from the same numbers.
 
 
@@ -164,7 +189,7 @@ IF IT DOES NOT START
 --------------------
 Open Terminal, drag the folder in after `cd `, press return, then run
 
-    ./cnc3d
+    ./opencnc3d
 
 and send everything it prints. (Running it this way bypasses the app bundle,
 so it also tells you whether the problem is the game or the launcher.) The first few lines are the graphics driver
@@ -174,6 +199,10 @@ this build has not run on before.
 
 WHAT IS NOT IN THIS FOLDER
 --------------------------
+The movies and music, until you download them: see THE FIRST START ASKS ABOUT
+MOVIES AND MUSIC above. They are kept in dosdata/movies and dosdata/ inside
+this folder once they arrive.
+
 The gate suite and its 400-odd proof screenshots. They are how the build is
 verified, they are more than a quarter of a gigabyte, and they are of no use to
 anyone playing the game. They stay in the developer's working copy.

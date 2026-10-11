@@ -9,7 +9,7 @@
 # FootClass, the Units/Infantry heaps, plain initialisation, or the ARCHIVE event posted
 # from exactly one place gated to STRUCT_CONST. So Target_Legal(ArchiveTarget) on a factory
 # is provably false in a vanilla run and every added clause is inert unless our export
-# fires -- the same shape as the accepted CNC3D_InvincibleHouses precedent.
+# fires -- the same shape as the accepted OpenCNC3D_InvincibleHouses precedent.
 #
 # FOUR GATES HAD TO MOVE, NOT THREE. Beyond the two What_Action overloads and
 # Active_Click_With, TechnoClass::What_Action only reaches its ACTION_MOVE arm behind

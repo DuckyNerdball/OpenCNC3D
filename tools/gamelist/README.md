@@ -121,7 +121,7 @@ a game name goes onto other players' screens.
 ## Where it runs
 
 **Settled: a fourth route beside the ones the site already serves**, at
-`https://cnc3dgame.com/api/games`. No new provider, no new domain, no new credential, and
+`https://opencnc3d.com/api/games`. No new provider, no new domain, no new credential, and
 it is the address the game already compiles in, so nothing in the game changes. A separate
 small host would isolate a game-list outage from the website and cost one more thing to
 run; the game learns exactly one string either way, so the choice stays reversible and

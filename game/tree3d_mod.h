@@ -58,6 +58,11 @@ struct Tree3dModel {
     std::vector<float>         uv;    /* 2 per vertex */
     std::vector<unsigned char> col;   /* 4 per vertex: sway, ao, thick, mat */
     std::vector<unsigned int>  idx;
+    /* THE SAME MODEL IN GPU MEMORY, uploaded once on first draw (tree3d_gpu_ensure in
+       cnc_eyes.cpp); zero until then and on any driver without buffer objects, where the
+       arrays above are drawn from as before. Mutable because every draw path holds the
+       model const. */
+    mutable GLuint vbo, ibo;
     /* THE RIG, WHEN THE ARTIST SHIPPED ONE. Two bone indices and the first one's weight
        per vertex, as SHORTS, because glTexCoordPointer rejects GL_UNSIGNED_BYTE outright
        with GL_INVALID_ENUM and does it silently: a byte index would have arrived as a
@@ -155,7 +160,9 @@ static bool tree3d_read_sheet(FILE* f, GLuint tex, bool repeat, const char* what
 /* The reader refuses rather than guesses: a short file, a bad magic or a count that does
    not fit leaves the feature off and the cartridge model drawing, which is the safe
    direction to fail in. */
-static bool tree3d_load(const char* path)
+static bool tree3d_load_into(const char* path, std::vector<Tree3dModel>& models,
+                             std::vector<Tree3dSet>& sets, std::vector<Tree3dCode>& codes,
+                             const char* who)
 {
     FILE* f = fopen(path, "rb");
     if (!f)
@@ -176,24 +183,25 @@ static bool tree3d_load(const char* path)
         return false;
     }
 
-    g_tree3dModel.clear();
+    models.clear();
     for (unsigned int m = 0; m < nmodel; m++) {
         unsigned int nv = 0, nt = 0, set = 0;
         float hr[2] = { 1.0f, 0.5f };
         if (fread(&nv, 4, 1, f) != 1 || fread(&nt, 4, 1, f) != 1 ||
             fread(&set, 4, 1, f) != 1 || fread(hr, 4, 2, f) != 2 ||
             !nv || !nt || nv > 400000 || nt > 400000 || set >= nset) {
-            fclose(f); g_tree3dModel.clear();
+            fclose(f); models.clear();
             fprintf(stderr, "trees: %s model %u is malformed\n", path, m);
             return false;
         }
         Tree3dModel t;
+        t.vbo = t.ibo = 0;
         t.height = hr[0];
         t.radius = hr[1];
         t.set = (int)set;
         std::vector<float> rec((size_t)nv * 12);
         if (fread(&rec[0], 4, rec.size(), f) != rec.size()) {
-            fclose(f); g_tree3dModel.clear(); return false;
+            fclose(f); models.clear(); return false;
         }
         t.pos.resize((size_t)nv * 3); t.nrm.resize((size_t)nv * 3);
         t.uv.resize((size_t)nv * 2);  t.col.resize((size_t)nv * 4);
@@ -211,24 +219,24 @@ static bool tree3d_load(const char* path)
         }
         t.idx.resize((size_t)nt * 3);
         if (fread(&t.idx[0], 4, (size_t)nt * 3, f) != (size_t)nt * 3) {
-            fclose(f); g_tree3dModel.clear(); return false;
+            fclose(f); models.clear(); return false;
         }
         for (size_t i = 0; i < t.idx.size(); i++)
             if (t.idx[i] >= nv) {
-                fclose(f); g_tree3dModel.clear();
+                fclose(f); models.clear();
                 fprintf(stderr, "trees: %s model %u indexes past its own vertices\n",
                         path, m);
                 return false;
             }
         unsigned int rig[2] = { 0, 0 };
         if (fread(rig, 4, 2, f) != 2) {
-            fclose(f); g_tree3dModel.clear(); return false;
+            fclose(f); models.clear(); return false;
         }
         t.nbones  = (int)rig[0];
         t.nframes = (int)rig[1];
         if (t.nbones > 0 && t.nframes > 0) {
             if (t.nbones > TREE3D_MAXBONES || t.nframes > 256) {
-                fclose(f); g_tree3dModel.clear();
+                fclose(f); models.clear();
                 fprintf(stderr, "trees: %s model %u has a rig this shader cannot hold "
                                 "(%d bones, %d frames)\n", path, m, t.nbones, t.nframes);
                 return false;
@@ -237,12 +245,12 @@ static bool tree3d_load(const char* path)
             t.frames.resize((size_t)t.nframes * (size_t)t.nbones * 12);
             if (fread(&t.skin[0], 2, t.skin.size(), f) != t.skin.size() ||
                 fread(&t.frames[0], 4, t.frames.size(), f) != t.frames.size()) {
-                fclose(f); g_tree3dModel.clear(); return false;
+                fclose(f); models.clear(); return false;
             }
             for (size_t i = 0; i < t.skin.size(); i += 3)
                 if (t.skin[i] < 0 || t.skin[i] >= t.nbones ||
                     t.skin[i+1] < 0 || t.skin[i+1] >= t.nbones) {
-                    fclose(f); g_tree3dModel.clear();
+                    fclose(f); models.clear();
                     fprintf(stderr, "trees: %s model %u binds a vertex to a bone it does "
                                     "not have\n", path, m);
                     return false;
@@ -250,54 +258,65 @@ static bool tree3d_load(const char* path)
         } else {
             t.nbones = t.nframes = 0;
         }
-        g_tree3dModel.push_back(t);
+        models.push_back(t);
     }
 
     unsigned int nmap = 0;
-    if (fread(&nmap, 4, 1, f) != 1 || nmap > 256) { fclose(f); g_tree3dModel.clear(); return false; }
-    g_tree3dCode.clear();
+    if (fread(&nmap, 4, 1, f) != 1 || nmap > 256) { fclose(f); models.clear(); return false; }
+    codes.clear();
     for (unsigned int i = 0; i < nmap; i++) {
         Tree3dCode c;
         unsigned int mi = 0;
         if (fread(c.code, 1, 8, f) != 8 || fread(&mi, 4, 1, f) != 1 || mi >= nmodel) {
-            fclose(f); g_tree3dModel.clear(); g_tree3dCode.clear();
+            fclose(f); models.clear(); codes.clear();
             fprintf(stderr, "trees: %s has a bad name map\n", path);
             return false;
         }
         c.code[7] = 0;
         c.model = (int)mi;
-        g_tree3dCode.push_back(c);
+        codes.push_back(c);
     }
 
-    for (size_t i = 0; i < g_tree3dSet.size(); i++)
-        glDeleteTextures(4, g_tree3dSet[i].tex);
-    g_tree3dSet.clear();
+    for (size_t i = 0; i < sets.size(); i++)
+        glDeleteTextures(4, sets[i].tex);
+    sets.clear();
     static const char* WHAT[4] = { "the foliage atlas", "the foliage normals",
                                    "the bark", "the bark normals" };
     static const bool REPEAT[4] = { false, false, true, true };
     for (unsigned int si = 0; si < nset; si++) {
         unsigned int dims[4];
-        if (fread(dims, 4, 4, f) != 4) { fclose(f); g_tree3dModel.clear(); return false; }
+        if (fread(dims, 4, 4, f) != 4) { fclose(f); models.clear(); return false; }
         Tree3dSet st;
         glGenTextures(4, st.tex);
         for (int i = 0; i < 4; i++) {
             if (!tree3d_read_sheet(f, st.tex[i], REPEAT[i], WHAT[i])) {
                 glDeleteTextures(4, st.tex);
                 fclose(f);
-                g_tree3dModel.clear();
+                models.clear();
                 return false;
             }
         }
-        g_tree3dSet.push_back(st);
+        sets.push_back(st);
     }
     fclose(f);
 
     size_t tris = 0;
-    for (size_t i = 0; i < g_tree3dModel.size(); i++)
-        tris += g_tree3dModel[i].idx.size() / 3;
-    fprintf(stderr, "trees: tree3d.pack v4 -- %u model(s), %zu triangles, %u texture "
+    for (size_t i = 0; i < models.size(); i++)
+        tris += models[i].idx.size() / 3;
+    fprintf(stderr, "%s v4 -- %u model(s), %zu triangles, %u texture "
                     "set(s), %u cartridge name(s) mapped\n",
-            nmodel, tris, nset, nmap);
+            who, nmodel, tris, nset, nmap);
+    return true;
+}
+
+/* THE SAME READER SERVES TWO PACKS. tree3d.pack is the trees; foliage3d.pack
+   (foliage3d_mod.h) is the scattered bushes and grass clumps, written in this format by
+   its own baker so that it is read here and drawn with the trees' own shader. */
+static bool tree3d_load(const char* path)
+{
+    if (!tree3d_load_into(path, g_tree3dModel, g_tree3dSet, g_tree3dCode,
+                          "trees: tree3d.pack"))
+        return false;
     g_tree3dHave = true;
     return true;
 }

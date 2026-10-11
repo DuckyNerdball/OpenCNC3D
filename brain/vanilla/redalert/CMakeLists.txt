@@ -1,3 +1,11 @@
+#
+# MODIFIED for OpenCNC3D. This is not EA's original file.
+# Adds the non-Windows compiler flags and Win32 editor-interface selection needed
+# to build the Red Alert remaster library as a headless OpenCNC3D brain on macOS.
+# It does not change the game simulation.
+# The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+# and NOTICE.md lists every modified file.
+#
 set(REDALERT_SRC
     aadata.cpp
     abstract.cpp
@@ -182,6 +190,24 @@ endif()
 
 include(ProductVersion)
 
+# OpenCNC3D: the remaster ABI uses Microsoft integer, calling-convention and export
+# syntax. Clang and GCC accept it with the same flags used by Tiberian Dawn.
+if(BUILD_REMASTERRA AND NOT MSVC)
+    set(OPENCNC3D_RA_MS_FLAGS -fms-extensions)
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(-fdeclspec OPENCNC3D_RA_HAS_FDECLSPEC)
+    if(OPENCNC3D_RA_HAS_FDECLSPEC)
+        list(APPEND OPENCNC3D_RA_MS_FLAGS -fdeclspec)
+    endif()
+endif()
+
+# OpenCNC3D: the map-editor ABI is COM-based and is not part of the headless brain.
+if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(OPENCNC3D_RA_EDITOR_IFACE dllinterfaceeditor.cpp)
+else()
+    set(OPENCNC3D_RA_EDITOR_IFACE "")
+endif()
+
 if(BUILD_REMASTERRA)
     if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
         # Generate windows version info.
@@ -199,13 +225,17 @@ if(BUILD_REMASTERRA)
     endif()
     add_library(RedAlert SHARED 
         dllinterface.cpp
-        dllinterfaceeditor.cpp
+        ${OPENCNC3D_RA_EDITOR_IFACE}
         sidebarglyphx.cpp
         ${REDALERT_SRC}
         ${REDALERT_HEADERS}
         ${REMASTERRA_RC}
     )
     target_compile_definitions(RedAlert PUBLIC $<$<CONFIG:Debug>:_DEBUG> ${REMASTER_DEFS})
+    if(OPENCNC3D_RA_MS_FLAGS)
+        target_compile_options(RedAlert PRIVATE ${OPENCNC3D_RA_MS_FLAGS})
+        target_compile_options(commonr PRIVATE ${OPENCNC3D_RA_MS_FLAGS})
+    endif()
     target_include_directories(RedAlert PUBLIC ${CMAKE_SOURCE_DIR} .)
     target_link_libraries(RedAlert commonr ${REMASTER_LIBS} ${STATIC_LIBS})
     set_target_properties(RedAlert PROPERTIES PREFIX "")

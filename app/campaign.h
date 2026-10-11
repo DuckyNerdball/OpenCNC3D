@@ -47,7 +47,7 @@ struct CncAudio;
    (game/cnc_game.h GameOverInfo carries it); 0 means "not wired by the caller"
    and prints the 1995 minimum, which is 1m (score.cpp:659 adds 1). */
 typedef struct CampScore {
-    int score, leadership, efficiency;
+    int score, leadership, efficiency, base_points;
     int nod_killed, gdi_killed, civ_killed;
     int nod_bldg, gdi_bldg, civ_bldg;
     int credits;
@@ -109,8 +109,9 @@ typedef struct CampEntry {
 enum { CAMP_TXT_GDI = 0, CAMP_TXT_NOD, CAMP_TXT_SEL, CAMP_TXT_COUNT };
 
 typedef struct Camp {
-    CampEntry e[24];
+    CampEntry e[48];
     int n;
+    int red_alert;
     SDL_Window *win;
     struct CncAudio *au;
     void *fonts;                 /* DB_Pack* of dosmenu.pack, for its fonts */
@@ -123,6 +124,8 @@ typedef struct Camp {
                                        commented DOS line). Anything else that
                                        starts using `back` inside camp_score will
                                        make the zoom smear.                     */
+    unsigned char *hi_plate;     /* Win95 Red Alert score screen, 640x400 */
+    int hi_active;
     const unsigned char *pal;    /* active 6-bit palette */
     unsigned char palbuf[768];   /* mutable copy for cycling; pal points here
                                     whenever a screen cycles or fades         */
@@ -209,6 +212,10 @@ int camp_match_score(Camp *c, const CampMatch *m, int side);
    (1995's ScenDir) is tracked inside Camp because the caller passes a fresh 'E'
    each time. Returns 0 chosen, -1 window closed. */
 int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var);
+
+/* Original Red Alert score/map reels and selectable map coordinates. */
+int camp_ra_score(Camp *c, const CampScore *s, int side, int scenario);
+int camp_ra_mapsel(Camp *c, int side, int scenario, char *dir, char *var);
 
 #ifdef __cplusplus
 }

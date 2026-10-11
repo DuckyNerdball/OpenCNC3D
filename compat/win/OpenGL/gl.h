@@ -35,8 +35,8 @@
  *
  * See compat/win/README.md and BUILDING.md.
  */
-#ifndef CNC3D_COMPAT_OPENGL_GL_H
-#define CNC3D_COMPAT_OPENGL_GL_H
+#ifndef OPENCNC3D_COMPAT_OPENGL_GL_H
+#define OPENCNC3D_COMPAT_OPENGL_GL_H
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN 1
@@ -60,10 +60,10 @@ extern "C" {
    which on any machine that can run this at all should not happen; the call then does
    nothing rather than jumping through a null pointer, so a missing entry point shows up
    as a texture drawn without its second unit and not as a crash. */
-static PFNGLACTIVETEXTUREPROC       cnc3d_glActiveTexture_p;
-static PFNGLCLIENTACTIVETEXTUREPROC cnc3d_glClientActiveTexture_p;
-static PFNGLMULTITEXCOORD2FPROC   cnc3d_glMultiTexCoord2f_p;
-static PFNGLMULTITEXCOORD3FPROC   cnc3d_glMultiTexCoord3f_p;
+static PFNGLACTIVETEXTUREPROC       opencnc3d_glActiveTexture_p;
+static PFNGLCLIENTACTIVETEXTUREPROC opencnc3d_glClientActiveTexture_p;
+static PFNGLMULTITEXCOORD2FPROC   opencnc3d_glMultiTexCoord2f_p;
+static PFNGLMULTITEXCOORD3FPROC   opencnc3d_glMultiTexCoord3f_p;
 
 /* BOTH SPELLINGS, CORE FIRST AND THEN ARB, AND THIS IS NOT BELT AND BRACES.
  *
@@ -86,19 +86,19 @@ static PFNGLMULTITEXCOORD3FPROC   cnc3d_glMultiTexCoord3f_p;
  * game black is the worst of both worlds; the old behaviour cost a whole test round
  * because the failure looked like a rendering bug rather than a missing entry point.
  */
-static int cnc3d_gl_mt_checked;
+static int opencnc3d_gl_mt_checked;
 
-static void* cnc3d_gl_proc2(const char* core, const char* arb)
+static void* opencnc3d_gl_proc2(const char* core, const char* arb)
 {
     void* p = (void*)wglGetProcAddress(core);
     if (!p) p = (void*)wglGetProcAddress(arb);
     return p;
 }
 
-static void cnc3d_gl_mt_complain(const char* what)
+static void opencnc3d_gl_mt_complain(const char* what)
 {
-    if (cnc3d_gl_mt_checked) return;
-    cnc3d_gl_mt_checked = 1;
+    if (opencnc3d_gl_mt_checked) return;
+    opencnc3d_gl_mt_checked = 1;
     fprintf(stderr,
             "GL FATAL: %s could not be resolved under either its core or its ARB name.\n"
             "          This driver has no usable multitexture, and the terrain pass needs\n"
@@ -107,14 +107,14 @@ static void cnc3d_gl_mt_complain(const char* what)
     fflush(stderr);
 }
 
-static void cnc3d_gl_activetexture(GLenum tex)
+static void opencnc3d_gl_activetexture(GLenum tex)
 {
-    if (!cnc3d_glActiveTexture_p) {
-        cnc3d_glActiveTexture_p = (PFNGLACTIVETEXTUREPROC)
-            cnc3d_gl_proc2("glActiveTexture", "glActiveTextureARB");
-        if (!cnc3d_glActiveTexture_p) cnc3d_gl_mt_complain("glActiveTexture");
+    if (!opencnc3d_glActiveTexture_p) {
+        opencnc3d_glActiveTexture_p = (PFNGLACTIVETEXTUREPROC)
+            opencnc3d_gl_proc2("glActiveTexture", "glActiveTextureARB");
+        if (!opencnc3d_glActiveTexture_p) opencnc3d_gl_mt_complain("glActiveTexture");
     }
-    if (cnc3d_glActiveTexture_p) cnc3d_glActiveTexture_p(tex);
+    if (opencnc3d_glActiveTexture_p) opencnc3d_glActiveTexture_p(tex);
 }
 
 /* THE CLIENT SIDE SELECTOR, WHICH IS A DIFFERENT SWITCH FROM ITS SERVER SIDE TWIN.
@@ -123,47 +123,47 @@ static void cnc3d_gl_activetexture(GLenum tex)
    arrays that feed a second unit need this one, and setting the wrong switch silently
    points the array at unit zero, which draws the geometry with the first unit's
    coordinates replaced. */
-static void cnc3d_gl_clientactivetexture(GLenum tex)
+static void opencnc3d_gl_clientactivetexture(GLenum tex)
 {
-    if (!cnc3d_glClientActiveTexture_p) {
-        cnc3d_glClientActiveTexture_p = (PFNGLCLIENTACTIVETEXTUREPROC)
-            cnc3d_gl_proc2("glClientActiveTexture", "glClientActiveTextureARB");
-        if (!cnc3d_glClientActiveTexture_p) cnc3d_gl_mt_complain("glClientActiveTexture");
+    if (!opencnc3d_glClientActiveTexture_p) {
+        opencnc3d_glClientActiveTexture_p = (PFNGLCLIENTACTIVETEXTUREPROC)
+            opencnc3d_gl_proc2("glClientActiveTexture", "glClientActiveTextureARB");
+        if (!opencnc3d_glClientActiveTexture_p) opencnc3d_gl_mt_complain("glClientActiveTexture");
     }
-    if (cnc3d_glClientActiveTexture_p) cnc3d_glClientActiveTexture_p(tex);
+    if (opencnc3d_glClientActiveTexture_p) opencnc3d_glClientActiveTexture_p(tex);
 }
 
-static void cnc3d_gl_multitexcoord2f(GLenum tex, GLfloat s, GLfloat t)
+static void opencnc3d_gl_multitexcoord2f(GLenum tex, GLfloat s, GLfloat t)
 {
-    if (!cnc3d_glMultiTexCoord2f_p) {
-        cnc3d_glMultiTexCoord2f_p = (PFNGLMULTITEXCOORD2FPROC)
-            cnc3d_gl_proc2("glMultiTexCoord2f", "glMultiTexCoord2fARB");
-        if (!cnc3d_glMultiTexCoord2f_p) cnc3d_gl_mt_complain("glMultiTexCoord2f");
+    if (!opencnc3d_glMultiTexCoord2f_p) {
+        opencnc3d_glMultiTexCoord2f_p = (PFNGLMULTITEXCOORD2FPROC)
+            opencnc3d_gl_proc2("glMultiTexCoord2f", "glMultiTexCoord2fARB");
+        if (!opencnc3d_glMultiTexCoord2f_p) opencnc3d_gl_mt_complain("glMultiTexCoord2f");
     }
-    if (cnc3d_glMultiTexCoord2f_p) cnc3d_glMultiTexCoord2f_p(tex, s, t);
+    if (opencnc3d_glMultiTexCoord2f_p) opencnc3d_glMultiTexCoord2f_p(tex, s, t);
 }
 
 /* THE THREE COMPONENT FORM, which the water surface uses to send a per vertex colour
    down the third texture unit rather than a coordinate. Same two spellings and the same
    silent-but-loud failure as its sibling above: an unresolved entry point draws without
    that unit instead of jumping through a null pointer. */
-static void cnc3d_gl_multitexcoord3f(GLenum tex, GLfloat s, GLfloat t, GLfloat r)
+static void opencnc3d_gl_multitexcoord3f(GLenum tex, GLfloat s, GLfloat t, GLfloat r)
 {
-    if (!cnc3d_glMultiTexCoord3f_p) {
-        cnc3d_glMultiTexCoord3f_p = (PFNGLMULTITEXCOORD3FPROC)
-            cnc3d_gl_proc2("glMultiTexCoord3f", "glMultiTexCoord3fARB");
-        if (!cnc3d_glMultiTexCoord3f_p) cnc3d_gl_mt_complain("glMultiTexCoord3f");
+    if (!opencnc3d_glMultiTexCoord3f_p) {
+        opencnc3d_glMultiTexCoord3f_p = (PFNGLMULTITEXCOORD3FPROC)
+            opencnc3d_gl_proc2("glMultiTexCoord3f", "glMultiTexCoord3fARB");
+        if (!opencnc3d_glMultiTexCoord3f_p) opencnc3d_gl_mt_complain("glMultiTexCoord3f");
     }
-    if (cnc3d_glMultiTexCoord3f_p) cnc3d_glMultiTexCoord3f_p(tex, s, t, r);
+    if (opencnc3d_glMultiTexCoord3f_p) opencnc3d_glMultiTexCoord3f_p(tex, s, t, r);
 }
 
 #ifdef __cplusplus
 }
 #endif
 
-#define glActiveTexture(t)          cnc3d_gl_activetexture(t)
-#define glClientActiveTexture(t)    cnc3d_gl_clientactivetexture(t)
-#define glMultiTexCoord2f(t, s, u)  cnc3d_gl_multitexcoord2f((t), (s), (u))
-#define glMultiTexCoord3f(t, s, u, v) cnc3d_gl_multitexcoord3f((t), (s), (u), (v))
+#define glActiveTexture(t)          opencnc3d_gl_activetexture(t)
+#define glClientActiveTexture(t)    opencnc3d_gl_clientactivetexture(t)
+#define glMultiTexCoord2f(t, s, u)  opencnc3d_gl_multitexcoord2f((t), (s), (u))
+#define glMultiTexCoord3f(t, s, u, v) opencnc3d_gl_multitexcoord3f((t), (s), (u), (v))
 
 #endif

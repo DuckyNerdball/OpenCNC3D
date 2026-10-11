@@ -1,4 +1,4 @@
-# OpenCNC 3D WEB Mission Editor -- complete feature inventory
+# OpenCNC3D WEB Mission Editor -- complete feature inventory
 
 Files: `tools/heightmap-viewer/public/index.html` (shell + all CSS + SVG icon sheet), `tools/heightmap-viewer/public/app.js` (renderer / read path, 1688 lines), `tools/heightmap-viewer/public/editor.js` (write path, 2365 lines), `tools/heightmap-viewer/serve.py` (companion server).
 
@@ -154,17 +154,17 @@ Walls are not a separate mode -- they're the 5 wall types in the **Overlay** pal
 | **.HGT writer** | 4225 raw corner bytes (65×65), the same payload as `<SCEN>.IMG` after its header | `writeHGT()` editor.js:1605 |
 | **.INI preview** | Toggleable scrolling pre-block of the exact text that will be written | `showINI()` editor.js:1668, `#edIniBtn` |
 | **PLAY** | Saves the three files to `game/authored/` via the server, kicks off a bake, launches the game, polls the job and streams the log | `play()` editor.js:2211; `#playbtn`; **Ctrl+P** |
-| **Server capability probe** | `GET api/hello` at startup; the Play button greys out with an explanatory tooltip when the page is served by anything other than `serve.py`, or when no `cnc3d` binary is built | `probeServer()` editor.js:2168 |
+| **Server capability probe** | `GET api/hello` at startup; the Play button greys out with an explanatory tooltip when the page is served by anything other than `serve.py`, or when no `opencnc3d` binary is built | `probeServer()` editor.js:2168 |
 | **Job log panel** | Live streaming log with a title, error styling, and a close link | `jobLog()`, `#joblog`, `#jobclose` |
 | **Save-state indicator** | Top strip: "No edits yet" / "N edits unsaved", plus transient flash messages ("Saved", "Saved with N problems", "Launched", "Bake failed") | `saveState()` editor.js:531, `flash()` editor.js:1680 |
-| **Autosave** | Objects list serialized to `localStorage['cnc3d-edit-<SCEN>']` after every edit; restored on load | `autosave()`, `restoreIfAny()` editor.js:1447-1466 -- **note: terrain and heights are NOT autosaved** |
+| **Autosave** | Objects list serialized to `localStorage['opencnc3d-edit-<SCEN>']` after every edit; restored on load | `autosave()`, `restoreIfAny()` editor.js:1447-1466 -- **note: terrain and heights are NOT autosaved** |
 | **Revert** | Confirm dialog, clears the autosave key, reloads the page | `#edReset` in `wireChrome()` |
 | **Deep link** | `location.hash` is set to the map id and read on startup; trailing-slash redirect guard so relative data paths resolve | `show()` app.js; inline script at the bottom of index.html |
 | **Server: POST /api/save** | Writes `<SCEN>.INI` (text) + `.BIN`/`.HGT` (base64); strict `^[A-Z0-9]{4,8}$` scenario-name validation; 32MB body cap | `serve.py` `save()`, `check_scen()` |
 | **Server: POST /api/play** | Starts a background job; requires the .INI and .BIN to exist | `serve.py` `play()`, `run_job()` |
 | **Server: GET /api/job?id=** | Returns `{state, log}` | `serve.py` `do_GET()` |
 | **Server: cartridge-data protection** | Editing a shipped mission auto-derives a free name `SCM91EA`…`SCM99EA`, copies the files, and plays the copy; the shipped mission is untouched. Mapping remembered per session. | `serve.py` `is_canon()`, `derive_name()` |
-| **Server: bake + launch** | `sh tools/stage-skirmish-maps.sh --from game/authored <SCEN>` then `playable/cnc3d --scen … --pack …`, launched detached; binds 127.0.0.1 only | `serve.py` `run_job()` |
+| **Server: bake + launch** | `sh tools/stage-skirmish-maps.sh --from game/authored <SCEN>` then `playable/opencnc3d --scen … --pack …`, launched detached; binds 127.0.0.1 only | `serve.py` `run_job()` |
 
 ---
 

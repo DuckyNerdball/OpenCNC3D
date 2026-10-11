@@ -82,7 +82,7 @@ static const char *ds_index_path(void)
 {
     static char p[600];
     if (!g_dsDir[0]) return "";
-    snprintf(p, sizeof p, "%sCNC3DSAV.IDX", g_dsDir);
+    snprintf(p, sizeof p, "%sOPENCNC.IDX", g_dsDir);
     return p;
 }
 

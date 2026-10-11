@@ -13,7 +13,7 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Adds a static bitmask of houses whose super weapons were granted by the
 // cheat menu, with a setter and getter, cleared in HouseClass::Init so the
 // grant dies with the scenario. Uses it in two places: HouseClass::AI no
@@ -25,7 +25,7 @@
 // missing string table previously passed a NULL format to sprintf and
 // crashed the process.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -873,32 +873,32 @@ bool HouseClass::Can_Build(AircraftType aircraft, HousesType house) const
  *   12/07/1994 BR : Created.                                              *
  *   12/17/1994 JLB : Resets tracker bits.                                 *
  *=========================================================================*/
-unsigned HouseClass::CNC3D_CheatSuperHouses = 0;
+unsigned HouseClass::OpenCNC3D_CheatSuperHouses = 0;
 
 /***********************************************************************************************
- * HouseClass::CNC3D_Set_Cheat_Supers -- Marks a house's super weapons as cheat-granted.       *
+ * HouseClass::OpenCNC3D_Set_Cheat_Supers -- Marks a house's super weapons as cheat-granted.       *
  *                                                                                             *
  *    Place_Special_Blast is the only reader. See the comment at the hook there for what it    *
  *    changes and, more to the point, what it deliberately does not.                           *
  *=============================================================================================*/
-void HouseClass::CNC3D_Set_Cheat_Supers(HousesType house, bool on)
+void HouseClass::OpenCNC3D_Set_Cheat_Supers(HousesType house, bool on)
 {
     if (house == HOUSE_NONE || house >= HOUSE_COUNT) {
         return;
     }
     if (on) {
-        CNC3D_CheatSuperHouses |= (1 << house);
+        OpenCNC3D_CheatSuperHouses |= (1 << house);
     } else {
-        CNC3D_CheatSuperHouses &= ~(1 << house);
+        OpenCNC3D_CheatSuperHouses &= ~(1 << house);
     }
 }
 
-bool HouseClass::CNC3D_Cheat_Supers(HousesType house)
+bool HouseClass::OpenCNC3D_Cheat_Supers(HousesType house)
 {
-    if (CNC3D_CheatSuperHouses == 0 || house == HOUSE_NONE || house >= HOUSE_COUNT) {
+    if (OpenCNC3D_CheatSuperHouses == 0 || house == HOUSE_NONE || house >= HOUSE_COUNT) {
         return (false);
     }
-    return ((CNC3D_CheatSuperHouses & (1 << house)) != 0);
+    return ((OpenCNC3D_CheatSuperHouses & (1 << house)) != 0);
 }
 
 void HouseClass::Init(void)
@@ -906,11 +906,11 @@ void HouseClass::Init(void)
     Houses.Free_All();
 
     /*
-    ** OpenCNC 3D: the cheat's super-weapon grant dies with the scenario, exactly as the
+    ** OpenCNC3D: the cheat's super-weapon grant dies with the scenario, exactly as the
     ** invincibility mask and Build Anywhere do. Clear_Scenario() calls this on every
     ** path that begins a scenario.
     */
-    CNC3D_CheatSuperHouses = 0;
+    OpenCNC3D_CheatSuperHouses = 0;
 
     for (HousesType index = HOUSE_FIRST; index < HOUSE_COUNT; index++) {
         HouseTriggers[index].Clear();
@@ -1307,7 +1307,7 @@ void HouseClass::AI(void)
             **	Turn the ion cannon suspension on or off depending on the available
             **	power. Note that one time ion cannon will not be affected by this.
             */
-            IonCannon.Suspend(Power_Fraction() < 1);
+            IonCannon.Suspend(Power_Fraction() < 1 || (!IonCannon.Is_One_Time() && !Find_Building(STRUCT_EYE)));
 
             /*
             **	Process the ion cannon AI and if something changed that would affect
@@ -1363,7 +1363,7 @@ void HouseClass::AI(void)
     */
     if (NukeStrike.Is_Present()) {
         /*
-        ** OpenCNC 3D: a cheat-granted nuke is not swept away.
+        ** OpenCNC3D: a cheat-granted nuke is not swept away.
         **
         ** THIS SWEEP IS HARSHER THAN THE ION CANNON'S DIRECTLY ABOVE, in two ways that
         ** both bite in single player, and between them they made the Unlock
@@ -1379,7 +1379,7 @@ void HouseClass::AI(void)
         ** Recharge, so the charge restarted from zero every time. The sidebar could
         ** still show it -- sampled between the enable and the remove -- while
         ** NukeStrike.Is_Ready() was false whenever the launch event actually landed.
-        ** Measured: "CNC3D|nuke|request|ready=0|cheat=1" on a press the sidebar had
+        ** Measured: "OPENCNC3D|nuke|request|ready=0|cheat=1" on a press the sidebar had
         ** just reported as prog=1.000 ready=1. Reported as a nuke that cannot be fired
         ** after being unlocked from the cheat menu.
         **
@@ -1387,7 +1387,7 @@ void HouseClass::AI(void)
         ** still loses its nuke the moment the Temple goes down.
         */
         if (!(ActiveBScan & STRUCTF_TEMPLE) && (!NukeStrike.Is_One_Time() || GameToPlay == GAME_NORMAL)
-            && !CNC3D_Cheat_Supers(Class->House)) {
+            && !OpenCNC3D_Cheat_Supers(Class->House)) {
 
             /*
             **	Remove the nuke strike when there is no Temple of Nod.
@@ -1404,7 +1404,7 @@ void HouseClass::AI(void)
             **	Turn the nuke strike suspension on or off depending on the available
             **	power. Note that one time nuke strike will not be affected by this.
             */
-            NukeStrike.Suspend(Power_Fraction() < 1);
+            NukeStrike.Suspend(Power_Fraction() < 1 || (!NukeStrike.Is_One_Time() && !OpenCNC3D_Cheat_Supers(Class->House) && !Find_Building(STRUCT_TEMPLE)));
 
             /*
             **	Process the nuke strike AI and if something changed that would affect
@@ -1626,8 +1626,13 @@ void HouseClass::AI(void)
     **	The radar also is turned off when the power gets below 100% capacity.
     */
     if (PlayerPtr == this) {
+        bool radar_powered=false;
+        for(int i=0;i<Buildings.Count();i++){
+            BuildingClass *b=Buildings.Ptr(i);
+            if(b&&b->IsActive&&!b->IsInLimbo&&b->House==this&&!b->IsPowerOff&&(*b==STRUCT_RADAR||*b==STRUCT_EYE))radar_powered=true;
+        }
         if (Map.Is_Radar_Active()) {
-            if (BScan & (STRUCTF_RADAR | STRUCTF_EYE)) {
+            if (radar_powered) {
                 if (Power_Fraction() < 1) {
                     Map.Radar_Activate(0);
                 }
@@ -1635,7 +1640,7 @@ void HouseClass::AI(void)
                 Map.Radar_Activate(0);
             }
         } else {
-            if (BScan & (STRUCTF_RADAR | STRUCTF_EYE)) {
+            if (radar_powered) {
                 if (Power_Fraction() >= 1) {
                     Map.Radar_Activate(1);
                 }
@@ -2764,13 +2769,13 @@ bool HouseClass::Place_Special_Blast(SpecialWeaponType id, CELL cell)
         break;
 
     case SPC_NUCLEAR_BOMB:
-        /* OpenCNC 3D: the nuke is the one special that can refuse silently -- it needs a
+        /* OpenCNC3D: the nuke is the one special that can refuse silently -- it needs a
            Temple of Nod to launch from, and without one it used to return before even
            spending the charge, so the player pressed the button and NOTHING happened,
            not even a wasted shot. This line says which of the three gates it passed. */
-        printf("CNC3D|nuke|request|ready=%d|cheat=%d\n",
+        printf("OPENCNC3D|nuke|request|ready=%d|cheat=%d\n",
                NukeStrike.Is_Ready() ? 1 : 0,
-               CNC3D_Cheat_Supers(Class->House) ? 1 : 0);
+               OpenCNC3D_Cheat_Supers(Class->House) ? 1 : 0);
         fflush(stdout);
         if (NukeStrike.Is_Ready()) {
 
@@ -2815,7 +2820,7 @@ bool HouseClass::Place_Special_Blast(SpecialWeaponType id, CELL cell)
                 **	sent from some off screen source.
                 */
                 /*
-                ** OpenCNC 3D: ... and in single player when the cheat menu handed the player
+                ** OpenCNC3D: ... and in single player when the cheat menu handed the player
                 ** the super weapons: the nuke could not be fired after being unlocked
                 ** from the cheat menu with nothing else unlocked, and with no
                 ** construction yard standing.
@@ -2836,7 +2841,7 @@ bool HouseClass::Place_Special_Blast(SpecialWeaponType id, CELL cell)
                 ** OFF by default and cleared with the scenario, so an ordinary game is
                 ** untouched: without a Temple the nuke still refuses, exactly as 1995.
                 */
-                if (GameToPlay == GAME_NORMAL && !CNC3D_Cheat_Supers(Class->House))
+                if (GameToPlay == GAME_NORMAL && !OpenCNC3D_Cheat_Supers(Class->House))
                     return (false);
 
                 /*
@@ -4119,7 +4124,7 @@ extern void On_Defeated_Message(const char* message, float timeout_seconds);
  *   05/25/1995 BRR : Created.                                             *
  *=========================================================================*/
 /***********************************************************************************************
- * CNC3D_Text_Or -- Text_String() that can never hand a NULL format to printf.                 *
+ * OpenCNC3D_Text_Or -- Text_String() that can never hand a NULL format to printf.                 *
  *                                                                                             *
  *    Text_String() resolves against SystemStrings, and SystemStrings is filled only by the    *
  *    engine's own start-up path. A host that drives the engine through the exported C entry   *
@@ -4143,7 +4148,7 @@ extern void On_Defeated_Message(const char* message, float timeout_seconds);
  *                                                                                             *
  * WARNINGS:   none                                                                            *
  *=============================================================================================*/
-static char const* CNC3D_Text_Or(int string, char const* fallback)
+static char const* OpenCNC3D_Text_Or(int string, char const* fallback)
 {
     char const* text = Text_String(string);
     return (text != NULL) ? text : fallback;
@@ -4220,7 +4225,7 @@ void HouseClass::MPlayer_Defeated(void)
         /*.....................................................................
         Pop up a message showing that I was defeated
         .....................................................................*/
-        sprintf(txt, CNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."), MPlayerName);
+        sprintf(txt, OpenCNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."), MPlayerName);
         // Messages.Add_Message(txt, MPlayerTColors[MPlayerColorIdx], TPF_6PT_GRAD|TPF_USE_GRAD_PAL|TPF_FULLSHADOW, 600,
         // 0, 0);
         Map.Flag_To_Redraw(false);
@@ -4237,14 +4242,14 @@ void HouseClass::MPlayer_Defeated(void)
         ------------------------------------------------------------------------*/
         if (IsHuman) {
             sprintf(txt,
-                    CNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."),
-                    CNC3D_Text_Or(TXT_UNKNOWN, "Unknown"));
+                    OpenCNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."),
+                    OpenCNC3D_Text_Or(TXT_UNKNOWN, "Unknown"));
             id = 0;
             for (i = 0; i < MPlayerCount; i++) {
                 house = MPlayerHouses[i];
                 if (HouseClass::As_Pointer(house) == this) {
                     sprintf(txt,
-                            CNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."),
+                            OpenCNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."),
                             MPlayerNames[i]);
                     id = MPlayerID[i];
                 }
@@ -4956,7 +4961,7 @@ void HouseClass::Check_Pertinent_Structures(void)
 
         if (b && b->IsActive && b->House == this) {
             /*
-            **  OpenCNC 3D SHORT GAME: an armed building is a defence, and a defence is not
+            **  OpenCNC3D SHORT GAME: an armed building is a defence, and a defence is not
             **  a base. With the option on, only a building that could rebuild the
             **  house keeps it in the match; walls never counted either way.
             */
@@ -5102,7 +5107,7 @@ BuildingClass* HouseClass::Find_Building(StructType type, ZoneType zone) const
         */
         for (int index = 0; index < Buildings.Count(); index++) {
             BuildingClass* b = Buildings.Ptr(index);
-            if (b && !b->IsInLimbo && b->House == this && *b == type) {
+            if (b && !b->IsInLimbo && !b->IsPowerOff && b->House == this && *b == type) {
                 if (zone == ZONE_NONE || Which_Zone(b) == zone) {
                     return (b);
                 }

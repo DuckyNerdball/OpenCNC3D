@@ -110,7 +110,7 @@ int w98_open(const char *title, int w, int h, char *err, int errlen)
     wc.hInstance     = GetModuleHandleA(NULL);
     wc.hCursor       = LoadCursorA(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    wc.lpszClassName = "CNC3D_W98";
+    wc.lpszClassName = "OPENCNC3D_W98";
     if (!RegisterClassA(&wc))
     {
         _snprintf(err, errlen, "RegisterClassA failed (%lu)", (unsigned long)GetLastError());
@@ -122,7 +122,7 @@ int w98_open(const char *title, int w, int h, char *err, int errlen)
     r.left = 0; r.top = 0; r.right = w; r.bottom = h;
     AdjustWindowRect(&r, style, FALSE);
 
-    g_wnd = CreateWindowA("CNC3D_W98", title, style,
+    g_wnd = CreateWindowA("OPENCNC3D_W98", title, style,
                           CW_USEDEFAULT, CW_USEDEFAULT,
                           r.right - r.left, r.bottom - r.top,
                           NULL, NULL, wc.hInstance, NULL);

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Install the menu into the playable build folder, so it launches next to the game.
 #
-#   ./install-to-play.sh                     -> ~/Desktop/CNC3D-Play
-#   ./install-to-play.sh /path/to/CNC3D-Play
+#   ./install-to-play.sh                     -> ~/Desktop/OpenCNC3D-Play
+#   ./install-to-play.sh /path/to/OpenCNC3D-Play
 #
 # The play folder's convention is flat and path relative: a binary, its packs, a
 # subfolder for bulk data, and a PLAY-*.command per thing you can start. This follows
@@ -12,7 +12,7 @@
 set -e
 cd "$(dirname "$0")"
 
-DEST="${1:-$HOME/Desktop/CNC3D-Play}"
+DEST="${1:-$HOME/Desktop/OpenCNC3D-Play}"
 [ -d "$DEST" ] || { echo "no such folder: $DEST" >&2; exit 1; }
 [ -x ./preview ] || { echo "build it first: ./build.sh" >&2; exit 1; }
 [ -f ./dosmenu.pack ] || { echo "bake it first: python3 bake_dosmenu.py" >&2; exit 1; }
@@ -32,7 +32,7 @@ cp -f ./READ-ME-MENU.txt "$DEST/READ-ME-MENU.txt"
 
 cat > "$DEST/PLAY-MENU.command" <<'EOF'
 #!/bin/sh
-# OpenCNC 3D: the 1995 MS-DOS main menu, with the logo animation and music.
+# OpenCNC3D: the 1995 MS-DOS main menu, with the logo animation and music.
 # Any key or click skips a movie. Arrows and return work; ESC quits.
 cd "$(dirname "$0")"
 exec ./cnc_menu -p dosmenu.pack \

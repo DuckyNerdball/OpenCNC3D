@@ -8,7 +8,7 @@
  *  choose "Remastered Textures", and the atlas that comes out lives only in memory.
  *  game/remaster.h is what finds the installation; this is what reads it.
  *
- *  WHY THE ATLAS COMES OUT AT 120 AND NOT 128, which is the one number here that looks
+ *  WHY THE BASE ATLAS COMES OUT AT 120, which is the one number here that looks
  *  arbitrary and is not. Every cell in a pack carries four NORMALISED texture
  *  coordinates, baked against the cartridge atlas's 24-texel tile on a 26 pitch. A
  *  second atlas addresses those same coordinates exactly -- not nearly, exactly -- when
@@ -19,8 +19,9 @@
  *  changes nothing else: no second coordinate table, no paging, no pack format change.
  *  The cost is a 128 -> 120 downscale, about 6%, against a cell that occupies roughly
  *  129 screen pixels at 1080p (measured in engine with probecell, two adjacent cells).
- *  Native 128 is possible and needs a paged atlas with its own rectangle table; it buys
- *  very little for a great deal more machinery. k=5 is the chosen scale.
+ *  The Experimental temperate set uses original 256px generated source cells.
+ *  Its atlas uses k=11 and 264px slots on GPUs supporting 16384px textures,
+ *  preserving the same normalized coordinates. Base Remastered stays at k=5.
  *
  *  THE ALPHA IS THE CARTRIDGE'S, NEVER THE REMASTER'S. A transparent texel is not a
  *  colour here, it is a mechanism: it is where draw_water and draw_seabed show through,
@@ -37,8 +38,8 @@
  *                          <Name>/<Shape>, which IS the (template, icon) pair the
  *                          cartridge's own TL4/TL8 tables give for every bank slot
  * ==================================================================================== */
-#ifndef CNC3D_REMASTER_TEX_H
-#define CNC3D_REMASTER_TEX_H
+#ifndef OPENCNC3D_REMASTER_TEX_H
+#define OPENCNC3D_REMASTER_TEX_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,11 +58,352 @@
 #define RT_MAYBE_UNUSED
 #endif
 
-#define RT_K        5                      /* the whole-number scale; see the note above */
-#define RT_TS       (TT_TS * RT_K)         /* 120 */
-#define RT_GUTTER   (TT_GUTTER * RT_K)     /*   5 */
-#define RT_PITCH    (TT_PITCH * RT_K)      /* 130 */
+#define RT_K_BASE   5                      /* 120px base Remastered cells */
+#define RT_K_DETAIL 11                     /* 264px cells carry all 256px generated detail */
 #define RT_SRC      128                    /* what the Remaster actually ships */
+#define RT_OVERRIDE_SRC 256                /* the generated temperate PNGs */
+#define RT_GRASS_ICONS 16
+#define RT_GRASS_BYTES ((size_t)RT_GRASS_ICONS * RT_OVERRIDE_SRC * RT_OVERRIDE_SRC * 3)
+#define RT_ROAD_COUNT 43
+#define RT_ROAD_SHAPES 12
+#define RT_ROAD_HEADER_BYTES (12 + RT_ROAD_COUNT * RT_ROAD_SHAPES * 4)
+#define RT_CLIFF_COUNT 38
+#define RT_CLIFF_SHAPES 6
+#define RT_CLIFF_CELL_BYTES ((size_t)RT_OVERRIDE_SRC * RT_OVERRIDE_SRC * 3)
+#define RT_CLIFF_HEADER_BYTES (12 + RT_CLIFF_COUNT * RT_CLIFF_SHAPES * 4)
+#define RT_SHORE_HEADER_BYTES (12 + TT_TEMPERAT_SLOTS * 4)
+/* Set by the Experimental F5 controls before the Remastered atlas is built. */
+static int rt_generated_temperate_on = 0;
+/* Chosen against GL_MAX_TEXTURE_SIZE before building. 11 needs a 16384-wide
+   color atlas; older GPUs can use 9 or 5 without rejecting the experiment. */
+static int rt_detail_scale = RT_K_DETAIL;
+
+/* The environment variables remain useful for art iteration. In a repo run,
+   locate the approved packs automatically; in a packaged game they can live
+   beside the other .pack files in the working directory. */
+static int rt_override_exists(const char* path)
+{
+    FILE* f = fopen(path, "rb");
+    if (!f) return 0;
+    fclose(f);
+    return 1;
+}
+
+static const char* rt_override_path(const char* env_name,
+                                    const char* packaged,
+                                    const char* repo_root,
+                                    const char* repo_run)
+{
+    const char* path = getenv(env_name);
+    if (path && (!strcmp(path, "off") || !strcmp(path, "none"))) return NULL;
+    if (path && *path) return path;
+    if (rt_override_exists(packaged)) return packaged;
+    if (rt_override_exists(repo_root)) return repo_root;
+    if (rt_override_exists(repo_run)) return repo_run;
+    return NULL;
+}
+
+/* A complete RGB pack of the sixteen CLEAR1 icons, used for local art iteration.
+   The source PNGs stay editable; prepare_tiles.py writes their exact RGB bytes in
+   icon order. A missing or truncated pack leaves the Remastered art intact. */
+static unsigned char* rt_grass_override_read(void)
+{
+    if (!rt_generated_temperate_on && !getenv("OPENCNC3D_GRASS_OVERRIDE")) return NULL;
+    const char* path = rt_override_path(
+        "OPENCNC3D_GRASS_OVERRIDE", "temperate_grass_rgb.bin",
+        "art/generated/temperate_grass/v3_color_matched/grass_rgb.bin",
+        "../art/generated/temperate_grass/v3_color_matched/grass_rgb.bin");
+    FILE* f;
+    unsigned char* rgb;
+    int extra;
+    if (!path || !*path) return NULL;
+    f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "remaster: cannot open grass override %s\n", path);
+        return NULL;
+    }
+    rgb = (unsigned char*)malloc(RT_GRASS_BYTES);
+    if (!rgb) { fclose(f); return NULL; }
+    extra = fread(rgb, 1, RT_GRASS_BYTES, f) == RT_GRASS_BYTES ? fgetc(f) : 0;
+    fclose(f);
+    if (extra != EOF) {
+        fprintf(stderr, "remaster: grass override must be exactly %zu bytes: %s\n",
+                RT_GRASS_BYTES, path);
+        free(rgb);
+        return NULL;
+    }
+    fprintf(stderr, "remaster: loaded 16 CLEAR1 grass replacements from %s\n", path);
+    return rgb;
+}
+
+/* Generated temperate cliff cells are indexed by template S01..S38 and shape
+   0..5. An absent offset means that shape has no replacement. The single pack
+   keeps 157 small files out of the runtime path. */
+typedef struct RtCliffOverride {
+    unsigned char* data;
+    size_t len;
+} RtCliffOverride;
+
+static unsigned int rt_le32(const unsigned char* p)
+{
+    return (unsigned int)p[0] | ((unsigned int)p[1] << 8)
+         | ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24);
+}
+
+static RtCliffOverride rt_cliff_override_read(void)
+{
+    RtCliffOverride pack = {0};
+    if (!rt_generated_temperate_on && !getenv("OPENCNC3D_CLIFF_OVERRIDE")) return pack;
+    const char* path = rt_override_path(
+        "OPENCNC3D_CLIFF_OVERRIDE", "temperate_cliffs_rgb.pack",
+        "art/generated/temperate_cliffs/approved_style_v1/cliffs_rgb_color_matched.pack",
+        "../art/generated/temperate_cliffs/approved_style_v1/cliffs_rgb_color_matched.pack");
+    FILE* f;
+    long size;
+    int i, count = 0;
+    if (!path || !*path) return pack;
+    f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "remaster: cannot open cliff override %s\n", path);
+        return pack;
+    }
+    if (fseek(f, 0, SEEK_END) != 0 || (size = ftell(f)) < RT_CLIFF_HEADER_BYTES
+        || size > 64L * 1024 * 1024 || fseek(f, 0, SEEK_SET) != 0) {
+        fprintf(stderr, "remaster: invalid cliff override size: %s\n", path);
+        fclose(f);
+        return pack;
+    }
+    pack.len = (size_t)size;
+    pack.data = (unsigned char*)malloc(pack.len);
+    if (!pack.data || fread(pack.data, 1, pack.len, f) != pack.len) {
+        free(pack.data); pack.data = NULL; pack.len = 0;
+        fclose(f);
+        return pack;
+    }
+    fclose(f);
+    if (memcmp(pack.data, "C3DCLIFF", 8) != 0 || rt_le32(pack.data + 8) != 2) {
+        fprintf(stderr, "remaster: invalid cliff override header: %s\n", path);
+        free(pack.data); pack.data = NULL; pack.len = 0;
+        return pack;
+    }
+    for (i = 0; i < RT_CLIFF_COUNT * RT_CLIFF_SHAPES; i++) {
+        unsigned int off = rt_le32(pack.data + 12 + i * 4);
+        if (!off) continue;
+        if (off < RT_CLIFF_HEADER_BYTES || (size_t)off > pack.len
+            || RT_CLIFF_CELL_BYTES > pack.len - (size_t)off) {
+            fprintf(stderr, "remaster: invalid cliff cell offset: %s\n", path);
+            free(pack.data); pack.data = NULL; pack.len = 0;
+            return pack;
+        }
+        count++;
+    }
+    fprintf(stderr, "remaster: loaded %d temperate cliff replacements from %s\n",
+            count, path);
+    return pack;
+}
+
+static const unsigned char* rt_cliff_override_cell(const RtCliffOverride* pack,
+                                                   const char* name, int shape)
+{
+    int template_number;
+    unsigned int off;
+    if (!pack->data || shape < 0 || shape >= RT_CLIFF_SHAPES
+        || name[0] != 'S' || name[1] < '0' || name[1] > '9'
+        || name[2] < '0' || name[2] > '9' || name[3]) return NULL;
+    template_number = (name[1] - '0') * 10 + name[2] - '0';
+    if (template_number < 1 || template_number > RT_CLIFF_COUNT) return NULL;
+    off = rt_le32(pack->data + 12
+                  + ((template_number - 1) * RT_CLIFF_SHAPES + shape) * 4);
+    return off ? pack->data + off : NULL;
+}
+
+/* All forty used D01..D43 templates live in one sparse pack. Three XML-only
+   templates have no temperate atlas slot and therefore no replacement cell. */
+static RtCliffOverride rt_road_override_read(void)
+{
+    RtCliffOverride pack = {0};
+    if (!rt_generated_temperate_on) return pack;
+    const char* path = rt_override_path(
+        "OPENCNC3D_ROAD_OVERRIDE", "temperate_roads_rgb.pack",
+        "art/generated/temperate_roads/approved_style_v1/roads_rgb.pack",
+        "../art/generated/temperate_roads/approved_style_v1/roads_rgb.pack");
+    if (!path) return pack;
+    FILE* f = fopen(path, "rb");
+    if (!f) return pack;
+    if (fseek(f, 0, SEEK_END)) { fclose(f); return pack; }
+    long size = ftell(f);
+    if (size < RT_ROAD_HEADER_BYTES || size > 64L*1024*1024
+        || fseek(f, 0, SEEK_SET)) { fclose(f); return pack; }
+    pack.len = (size_t)size;
+    pack.data = (unsigned char*)malloc(pack.len);
+    if (!pack.data || fread(pack.data, 1, pack.len, f) != pack.len) {
+        fclose(f); free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+    }
+    fclose(f);
+    if (memcmp(pack.data, "C3DROAD0", 8) || rt_le32(pack.data+8) != 2) {
+        free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+    }
+    int count = 0;
+    for (int i = 0; i < RT_ROAD_COUNT*RT_ROAD_SHAPES; i++) {
+        unsigned int off = rt_le32(pack.data+12+i*4);
+        if (!off) continue;
+        if (off < RT_ROAD_HEADER_BYTES || (size_t)off > pack.len
+            || RT_CLIFF_CELL_BYTES > pack.len-(size_t)off) {
+            fprintf(stderr, "remaster: invalid road cell offset: %s\n", path);
+            free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+        }
+        count++;
+    }
+    fprintf(stderr, "remaster: loaded %d temperate gravel road replacements from %s\n",
+            count, path);
+    return pack;
+}
+
+static const unsigned char* rt_road_override_cell(const RtCliffOverride* pack,
+                                                  const char* name, int icon)
+{
+    if (!pack->data || icon < 0 || icon >= RT_ROAD_SHAPES
+        || name[0] != 'D' || name[1] < '0' || name[1] > '9'
+        || name[2] < '0' || name[2] > '9' || name[3]) return NULL;
+    int number = (name[1]-'0')*10+name[2]-'0';
+    if (number < 1 || number > RT_ROAD_COUNT) return NULL;
+    unsigned int off = rt_le32(pack->data+12
+                               +((number-1)*RT_ROAD_SHAPES+icon)*4);
+    return off ? pack->data+off : NULL;
+}
+
+/* The shore pack is indexed by Temperate atlas slot. The source sheets follow
+   the Remastered templates; only the cartridge's alpha cutout stays intact. */
+static RtCliffOverride rt_shore_override_read(void)
+{
+    RtCliffOverride pack = {0};
+    if (!rt_generated_temperate_on) return pack;
+    const char* path = rt_override_path(
+        "OPENCNC3D_SHORE_OVERRIDE", "temperate_shores_rgb.pack",
+        "art/generated/temperate_shores/remastered_style_v1/shores_rgb.pack",
+        "../art/generated/temperate_shores/remastered_style_v1/shores_rgb.pack");
+    if (!path) return pack;
+    FILE* f = fopen(path, "rb");
+    if (!f) return pack;
+    if (fseek(f, 0, SEEK_END)) { fclose(f); return pack; }
+    long size = ftell(f);
+    if (size < RT_SHORE_HEADER_BYTES || size > 64L*1024*1024
+        || fseek(f, 0, SEEK_SET)) { fclose(f); return pack; }
+    pack.len = (size_t)size;
+    pack.data = (unsigned char*)malloc(pack.len);
+    if (!pack.data || fread(pack.data, 1, pack.len, f) != pack.len) {
+        fclose(f); free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+    }
+    fclose(f);
+    if (memcmp(pack.data, "C3DSHOR0", 8) || rt_le32(pack.data+8) != 2) {
+        free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+    }
+    int count = 0;
+    for (int i = 0; i < TT_TEMPERAT_SLOTS; i++) {
+        unsigned int off = rt_le32(pack.data+12+i*4);
+        if (!off) continue;
+        if (off < RT_SHORE_HEADER_BYTES || (size_t)off > pack.len
+            || RT_CLIFF_CELL_BYTES > pack.len-(size_t)off) {
+            fprintf(stderr, "remaster: invalid shore cell offset: %s\n", path);
+            free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+        }
+        count++;
+    }
+    fprintf(stderr, "remaster: loaded %d temperate shore replacements from %s\n",
+            count, path);
+    return pack;
+}
+
+static const unsigned char* rt_shore_override_cell(const RtCliffOverride* pack, int slot)
+{
+    if (!pack->data || slot < 0 || slot >= TT_TEMPERAT_SLOTS) return NULL;
+    unsigned int off = rt_le32(pack->data+12+slot*4);
+    return off ? pack->data+off : NULL;
+}
+
+/* Bridge art is indexed by the same Temperate atlas slots as shore art, so
+   the runtime keeps the cartridge's water alpha and map placement intact. */
+static RtCliffOverride rt_bridge_override_read(void)
+{
+    RtCliffOverride pack = {0};
+    if (!rt_generated_temperate_on) return pack;
+    const char* path = rt_override_path(
+        "OPENCNC3D_BRIDGE_OVERRIDE", "temperate_bridges_rgb.pack",
+        "art/generated/temperate_bridges/remastered_style_v1/bridges_rgb.pack",
+        "../art/generated/temperate_bridges/remastered_style_v1/bridges_rgb.pack");
+    if (!path) return pack;
+    FILE* f = fopen(path, "rb");
+    if (!f) return pack;
+    if (fseek(f, 0, SEEK_END)) { fclose(f); return pack; }
+    long size = ftell(f);
+    if (size < RT_SHORE_HEADER_BYTES || size > 64L*1024*1024
+        || fseek(f, 0, SEEK_SET)) { fclose(f); return pack; }
+    pack.len = (size_t)size;
+    pack.data = (unsigned char*)malloc(pack.len);
+    if (!pack.data || fread(pack.data, 1, pack.len, f) != pack.len) {
+        fclose(f); free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+    }
+    fclose(f);
+    if (memcmp(pack.data, "C3DBRID0", 8) || rt_le32(pack.data+8) != 2) {
+        free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+    }
+    int count = 0;
+    for (int i = 0; i < TT_TEMPERAT_SLOTS; i++) {
+        unsigned int off = rt_le32(pack.data+12+i*4);
+        if (!off) continue;
+        if (off < RT_SHORE_HEADER_BYTES || (size_t)off > pack.len
+            || RT_CLIFF_CELL_BYTES > pack.len-(size_t)off) {
+            fprintf(stderr, "remaster: invalid bridge cell offset: %s\n", path);
+            free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+        }
+        count++;
+    }
+    fprintf(stderr, "remaster: loaded %d temperate bridge replacements from %s\n",
+            count, path);
+    return pack;
+}
+
+/* Remastered-led river colour is indexed by atlas slot. The cartridge's
+   per-pixel water cutout remains the placement and alpha authority. */
+static RtCliffOverride rt_river_override_read(void)
+{
+    RtCliffOverride pack = {0};
+    if (!rt_generated_temperate_on) return pack;
+    const char* path = rt_override_path(
+        "OPENCNC3D_RIVER_OVERRIDE", "temperate_rivers_rgb.pack",
+        "art/generated/temperate_rivers/remastered_style_v1/rivers_rgb.pack",
+        "../art/generated/temperate_rivers/remastered_style_v1/rivers_rgb.pack");
+    if (!path) return pack;
+    FILE* f = fopen(path, "rb");
+    if (!f) return pack;
+    if (fseek(f, 0, SEEK_END)) { fclose(f); return pack; }
+    long size = ftell(f);
+    if (size < RT_SHORE_HEADER_BYTES || size > 64L*1024*1024
+        || fseek(f, 0, SEEK_SET)) { fclose(f); return pack; }
+    pack.len = (size_t)size;
+    pack.data = (unsigned char*)malloc(pack.len);
+    if (!pack.data || fread(pack.data, 1, pack.len, f) != pack.len) {
+        fclose(f); free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+    }
+    fclose(f);
+    if (memcmp(pack.data, "C3DRIVR0", 8) || rt_le32(pack.data+8) != 2) {
+        free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+    }
+    int count = 0;
+    for (int i = 0; i < TT_TEMPERAT_SLOTS; i++) {
+        unsigned int off = rt_le32(pack.data+12+i*4);
+        if (!off) continue;
+        if (off < RT_SHORE_HEADER_BYTES || (size_t)off > pack.len
+            || RT_CLIFF_CELL_BYTES > pack.len-(size_t)off) {
+            fprintf(stderr, "remaster: invalid river cell offset: %s\n", path);
+            free(pack.data); pack.data = NULL; pack.len = 0; return pack;
+        }
+        count++;
+    }
+    fprintf(stderr, "remaster: loaded %d temperate river replacements from %s\n",
+            count, path);
+    return pack;
+}
 
 /* ---- MEG V3 ----------------------------------------------------------------------- */
 
@@ -394,12 +736,19 @@ typedef struct RtAtlas {
     int w, h;               /* padded */
     int uw, uh;             /* used, which is what the uv scale divides by */
     int placed, missing;
+    /* The Enhanced sheet's VARIANTS (rt_build_atlas_enh): RT_VAR_INTS ints each, the bank
+       slot, the variant (1 or 2), the template's width and height in cells, and the slot
+       index the variant was placed at, in rows below the used height (uh). */
+    int nvar;
+    int* var;
 } RtAtlas;
+#define RT_VAR_INTS 5
 
 RT_MAYBE_UNUSED static void rt_atlas_free(RtAtlas* a)
 {
     if (!a) return;
     free(a->rgba);
+    free(a->var);
     memset(a, 0, sizeof *a);
 }
 
@@ -422,6 +771,15 @@ RT_MAYBE_UNUSED static int rt_build_atlas(const char* install, const char* theat
     unsigned char* src = NULL;
     unsigned char* small = NULL;
     unsigned char* alpha = NULL;
+    unsigned char* grass_override = NULL;
+    RtCliffOverride road_override = {0};
+    RtCliffOverride cliff_override = {0};
+    RtCliffOverride shore_override = {0};
+    RtCliffOverride bridge_override = {0};
+    RtCliffOverride river_override = {0};
+    const int k = rt_generated_temperate_on && !strcmp(theater, "TEMPERAT")
+                ? rt_detail_scale : RT_K_BASE;
+    const int ts = TT_TS * k, gutter = TT_GUTTER * k, pitch = TT_PITCH * k;
 
     memset(out, 0, sizeof *out);
     memset(&cfg, 0, sizeof cfg);
@@ -486,14 +844,22 @@ RT_MAYBE_UNUSED static int rt_build_atlas(const char* install, const char* theat
     tt_table(theater, &nslots);
     if (nslots <= 0) goto done;
 
-    out->uw = TT_COLS * RT_PITCH;
-    out->uh = ((nslots + TT_COLS - 1) / TT_COLS) * RT_PITCH;
+    out->uw = TT_COLS * pitch;
+    out->uh = ((nslots + TT_COLS - 1) / TT_COLS) * pitch;
     out->w = rt_pot(out->uw); out->h = rt_pot(out->uh);
     out->rgba = (unsigned char*)calloc((size_t)out->w * out->h, 4);
-    src   = (unsigned char*)malloc((size_t)RT_SRC * RT_SRC * 3);
-    small = (unsigned char*)malloc((size_t)RT_TS * RT_TS * 3);
-    alpha = (unsigned char*)malloc((size_t)RT_TS * RT_TS);
+    src   = (unsigned char*)malloc(RT_CLIFF_CELL_BYTES);
+    small = (unsigned char*)malloc((size_t)ts * ts * 3);
+    alpha = (unsigned char*)malloc((size_t)ts * ts);
     if (!out->rgba || !src || !small || !alpha) goto done;
+    if (!strcmp(theater, "TEMPERAT")) {
+        grass_override = rt_grass_override_read();
+        cliff_override = rt_cliff_override_read();
+        road_override = rt_road_override_read();
+        shore_override = rt_shore_override_read();
+        bridge_override = rt_bridge_override_read();
+        river_override = rt_river_override_read();
+    }
 
     {
         const char* p = (const char*)xml;
@@ -506,6 +872,7 @@ RT_MAYBE_UNUSED static int rt_build_atlas(const char* install, const char* theat
             unsigned char* dds;
             unsigned int ddslen = 0;
             int col, row, x0, y0, yy;
+            const unsigned char* cliff_cell;
 
             if (!rt_tag(&p, end, "Shape", shape, sizeof shape)) break;
             if (!rt_tag(&p, end, "Frame", frame, sizeof frame)) { p = q; continue; }
@@ -516,42 +883,69 @@ RT_MAYBE_UNUSED static int rt_build_atlas(const char* install, const char* theat
             slot = tt_slot_of(theater, tid, icon, &sea);
             if (slot < 0 || slot >= nslots) continue;   /* not in the cartridge's bank */
 
-            snprintf(path, sizeof path, "DATA\\ART\\TEXTURES\\SRGB\\%s\\%s",
-                     rootpath, frame);
-            {   /* the XML names .tga; what ships is .DDS */
-                size_t l = strlen(path);
-                if (l > 4 && !strcasecmp(path + l - 4, ".TGA"))
-                    memcpy(path + l - 4, ".DDS", 4);
+            cliff_cell = rt_cliff_override_cell(&cliff_override, name, icon);
+            if (cliff_cell) {
+                memcpy(src, cliff_cell, RT_CLIFF_CELL_BYTES);
+                sw = sh = RT_OVERRIDE_SRC;
+            } else if (const unsigned char* shore_cell =
+                           rt_shore_override_cell(&shore_override, slot)) {
+                memcpy(src, shore_cell, RT_CLIFF_CELL_BYTES);
+                sw = sh = RT_OVERRIDE_SRC;
+            } else if (const unsigned char* bridge_cell =
+                           rt_shore_override_cell(&bridge_override, slot)) {
+                memcpy(src, bridge_cell, RT_CLIFF_CELL_BYTES);
+                sw = sh = RT_OVERRIDE_SRC;
+            } else if (const unsigned char* river_cell =
+                           rt_shore_override_cell(&river_override, slot)) {
+                memcpy(src, river_cell, RT_CLIFF_CELL_BYTES);
+                sw = sh = RT_OVERRIDE_SRC;
+            } else if (const unsigned char* road_cell =
+                           rt_road_override_cell(&road_override, name, icon)) {
+                memcpy(src, road_cell, RT_CLIFF_CELL_BYTES);
+                sw = sh = RT_OVERRIDE_SRC;
+            } else if (grass_override && !strcasecmp(name, "CLEAR1")
+                && icon >= 0 && icon < RT_GRASS_ICONS) {
+                memcpy(src, grass_override + (size_t)icon * RT_CLIFF_CELL_BYTES,
+                       RT_CLIFF_CELL_BYTES);
+                sw = sh = RT_OVERRIDE_SRC;
+            } else {
+                snprintf(path, sizeof path, "DATA\\ART\\TEXTURES\\SRGB\\%s\\%s",
+                         rootpath, frame);
+                {   /* the XML names .tga; what ships is .DDS */
+                    size_t l = strlen(path);
+                    if (l > 4 && !strcasecmp(path + l - 4, ".TGA"))
+                        memcpy(path + l - 4, ".DDS", 4);
+                }
+                for (i = 0; i < ntex && !rec; i++) rec = rt_meg_find(&tex[i], path);
+                if (!rec) {
+                    if (getenv("OPENCNC3D_RT_DEBUG") && out->missing < 8)
+                        fprintf(stderr, "remaster: MISS %s|%d -> %s\n", name, icon, path);
+                    out->missing++; continue;
+                }
+                dds = rt_meg_read(&tex[i - 1], rec, &ddslen);
+                if (!dds) { out->missing++; continue; }
+                if (!rt_dxt(dds, ddslen, &sw, &sh, src, RT_SRC * RT_SRC * 3)
+                    || sw != RT_SRC || sh != RT_SRC) {
+                    free(dds); out->missing++; continue;
+                }
+                free(dds);
             }
-            for (i = 0; i < ntex && !rec; i++) rec = rt_meg_find(&tex[i], path);
-            if (!rec) {
-                if (getenv("CNC3D_RT_DEBUG") && out->missing < 8)
-                    fprintf(stderr, "remaster: MISS %s|%d -> %s\n", name, icon, path);
-                out->missing++; continue;
-            }
-            dds = rt_meg_read(&tex[i - 1], rec, &ddslen);
-            if (!dds) { out->missing++; continue; }
-            if (!rt_dxt(dds, ddslen, &sw, &sh, src, RT_SRC * RT_SRC * 3)
-                || sw != RT_SRC || sh != RT_SRC) {
-                free(dds); out->missing++; continue;
-            }
-            free(dds);
-            rt_box_rgb(src, sw, sh, small, RT_TS, RT_TS);
+            rt_box_rgb(src, sw, sh, small, ts, ts);
 
             col = slot % TT_COLS; row = slot / TT_COLS;
             gx = col * TT_PITCH + TT_GUTTER;                /* the CARTRIDGE rect, for alpha */
             gy = row * TT_PITCH + TT_GUTTER;
             if (gx + TT_TS > caw || gy + TT_TS > cah) { out->missing++; continue; }
-            rt_alpha_up(cart, caw, gx, gy, alpha, RT_TS);
+            rt_alpha_up(cart, caw, gx, gy, alpha, ts);
 
-            x0 = col * RT_PITCH + RT_GUTTER;
-            y0 = row * RT_PITCH + RT_GUTTER;
-            for (yy = 0; yy < RT_TS; yy++) {
+            x0 = col * pitch + gutter;
+            y0 = row * pitch + gutter;
+            for (yy = 0; yy < ts; yy++) {
                 unsigned char* d = out->rgba + ((size_t)(y0 + yy) * out->w + x0) * 4;
-                const unsigned char* s = small + (size_t)yy * RT_TS * 3;
-                const unsigned char* a = alpha + (size_t)yy * RT_TS;
+                const unsigned char* s = small + (size_t)yy * ts * 3;
+                const unsigned char* a = alpha + (size_t)yy * ts;
                 int xx;
-                for (xx = 0; xx < RT_TS; xx++) {
+                for (xx = 0; xx < ts; xx++) {
                     d[xx * 4 + 0] = s[xx * 3 + 0];
                     d[xx * 4 + 1] = s[xx * 3 + 1];
                     d[xx * 4 + 2] = s[xx * 3 + 2];
@@ -562,20 +956,20 @@ RT_MAYBE_UNUSED static int rt_build_atlas(const char* install, const char* theat
                each tile's own edge outward, so a bilinear sample at a cell boundary
                blends the edge with a copy of itself -- which is the clamp the console's
                RDP performs -- instead of with whatever tile the packer put next door. */
-            for (yy = 0; yy < RT_GUTTER; yy++) {
+            for (yy = 0; yy < gutter; yy++) {
                 memcpy(out->rgba + ((size_t)(y0 - 1 - yy) * out->w + x0) * 4,
-                       out->rgba + ((size_t)y0 * out->w + x0) * 4, (size_t)RT_TS * 4);
-                memcpy(out->rgba + ((size_t)(y0 + RT_TS + yy) * out->w + x0) * 4,
-                       out->rgba + ((size_t)(y0 + RT_TS - 1) * out->w + x0) * 4,
-                       (size_t)RT_TS * 4);
+                       out->rgba + ((size_t)y0 * out->w + x0) * 4, (size_t)ts * 4);
+                memcpy(out->rgba + ((size_t)(y0 + ts + yy) * out->w + x0) * 4,
+                       out->rgba + ((size_t)(y0 + ts - 1) * out->w + x0) * 4,
+                       (size_t)ts * 4);
             }
-            for (yy = -RT_GUTTER; yy < RT_TS + RT_GUTTER; yy++) {
+            for (yy = -gutter; yy < ts + gutter; yy++) {
                 unsigned char* rowp = out->rgba + ((size_t)(y0 + yy) * out->w) * 4;
                 int g;
-                for (g = 1; g <= RT_GUTTER; g++) {
+                for (g = 1; g <= gutter; g++) {
                     memcpy(rowp + (size_t)(x0 - g) * 4, rowp + (size_t)x0 * 4, 4);
-                    memcpy(rowp + (size_t)(x0 + RT_TS - 1 + g) * 4,
-                           rowp + (size_t)(x0 + RT_TS - 1) * 4, 4);
+                    memcpy(rowp + (size_t)(x0 + ts - 1 + g) * 4,
+                           rowp + (size_t)(x0 + ts - 1) * 4, 4);
                 }
             }
             out->placed++;
@@ -586,11 +980,272 @@ RT_MAYBE_UNUSED static int rt_build_atlas(const char* install, const char* theat
             theater, out->w, out->h, out->uw, out->uh, out->placed, out->missing);
 
 done:
-    free(src); free(small); free(alpha); free(xml);
+    free(src); free(small); free(alpha); free(grass_override);
+    free(road_override.data); free(cliff_override.data); free(shore_override.data);
+    free(bridge_override.data); free(river_override.data); free(xml);
     rt_meg_close(&cfg);
     for (i = 0; i < ntex; i++) rt_meg_close(&tex[i]);
     if (!ok) rt_atlas_free(out);
     return ok;
 }
 
-#endif /* CNC3D_REMASTER_TEX_H */
+/* ---- THE ENHANCED TEXTURES ----------------------------------------------------------
+ *
+ * The 1995 tiles remastered at 30 texels a cell (tools/art/remaster/textures), shipped as
+ * one pack per theater (tools/bakery/pack_remaster_terrain.py) and built into the same
+ * sheet the Remastered art uses: tile 24k on a 26k pitch at k = 5, so every cell's UVs
+ * address it unchanged. 30 is a quarter of 120, and the cell goes in by bilinear
+ * interpolation, which is how the 30-texel texture would look sampled bilinearly itself.
+ *
+ * A bank slot the pack has no cell for (a template with no art in that theater's 1995
+ * MIX, or one left blank) takes the 1995 cell from the DOS atlas, interpolated the same
+ * way, so the sheet has no holes. Alpha is the cartridge's, as for the Remastered art:
+ * the renderer cuts open water out of the ground and draws its own sea. */
+
+#define RT_ENH_MAGIC "C3DT30\0\0"
+/* The pack says its own cell size. A whole multiple of the 24-texel cell (144 = 24 x 6)
+   goes into a sheet of that k one for one; any other size (the shipped 30) is
+   interpolated into the k = 5 sheet. RT_ENH_KMAX caps the sheet: k = 10 is 240 a cell. */
+#define RT_ENH_KMAX  10
+
+/* Texel centres to texel centres, clamped at the edges: a cell sampled on its own, as
+   the gutter makes the GPU sample it. */
+static void rt_bilinear_rgb(const unsigned char* src, int sw, int sh, int sstride,
+                            unsigned char* dst, int dw, int dh)
+{
+    int y, x, c;
+    for (y = 0; y < dh; y++) {
+        const float fy = ((float)y + 0.5f) * (float)sh / (float)dh - 0.5f;
+        const int y0 = fy < 0 ? 0 : (int)fy, y1 = y0 + 1 < sh ? y0 + 1 : sh - 1;
+        const float wy = fy < 0 ? 0.0f : fy - (float)y0;
+        for (x = 0; x < dw; x++) {
+            const float fx = ((float)x + 0.5f) * (float)sw / (float)dw - 0.5f;
+            const int x0 = fx < 0 ? 0 : (int)fx, x1 = x0 + 1 < sw ? x0 + 1 : sw - 1;
+            const float wx = fx < 0 ? 0.0f : fx - (float)x0;
+            for (c = 0; c < 3; c++) {
+                const float a = src[(size_t)y0 * sstride + x0 * 3 + c], b = src[(size_t)y0 * sstride + x1 * 3 + c];
+                const float d = src[(size_t)y1 * sstride + x0 * 3 + c], e = src[(size_t)y1 * sstride + x1 * 3 + c];
+                const float top = a + (b - a) * wx, bot = d + (e - d) * wx;
+                dst[((size_t)y * dw + x) * 3 + c] = (unsigned char)(top + (bot - top) * wy + 0.5f);
+            }
+        }
+    }
+}
+
+/* One slot's picture and alpha into the sheet, with its gutter replicated outward. */
+static void rt_place(RtAtlas* out, int slot, int ts, int gutter, int pitch,
+                     const unsigned char* rgb, const unsigned char* alpha)
+{
+    const int col = slot % TT_COLS, row = slot / TT_COLS;
+    const int x0 = col * pitch + gutter, y0 = row * pitch + gutter;
+    int yy, xx, g;
+    for (yy = 0; yy < ts; yy++) {
+        unsigned char* d = out->rgba + ((size_t)(y0 + yy) * out->w + x0) * 4;
+        for (xx = 0; xx < ts; xx++) {
+            d[xx * 4 + 0] = rgb[((size_t)yy * ts + xx) * 3 + 0];
+            d[xx * 4 + 1] = rgb[((size_t)yy * ts + xx) * 3 + 1];
+            d[xx * 4 + 2] = rgb[((size_t)yy * ts + xx) * 3 + 2];
+            d[xx * 4 + 3] = alpha[(size_t)yy * ts + xx];
+        }
+    }
+    for (yy = 0; yy < gutter; yy++) {
+        memcpy(out->rgba + ((size_t)(y0 - 1 - yy) * out->w + x0) * 4,
+               out->rgba + ((size_t)y0 * out->w + x0) * 4, (size_t)ts * 4);
+        memcpy(out->rgba + ((size_t)(y0 + ts + yy) * out->w + x0) * 4,
+               out->rgba + ((size_t)(y0 + ts - 1) * out->w + x0) * 4, (size_t)ts * 4);
+    }
+    for (yy = -gutter; yy < ts + gutter; yy++) {
+        unsigned char* rowp = out->rgba + ((size_t)(y0 + yy) * out->w) * 4;
+        for (g = 1; g <= gutter; g++) {
+            memcpy(rowp + (size_t)(x0 - g) * 4, rowp + (size_t)x0 * 4, 4);
+            memcpy(rowp + (size_t)(x0 + ts - 1 + g) * 4, rowp + (size_t)(x0 + ts - 1) * 4, 4);
+        }
+    }
+}
+
+/* Where the theater's pack is, written into buf, or NULL. OPENCNC3D_TERRAINENH (or the older
+   OPENCNC3D_TERRAIN30) names one outright, or turns it "off"; otherwise terrainenh_<TH>.pack,
+   the set the game ships, beside the other packs in the working directory, else in the
+   repository (a repo run), else in the Red Alert module's folder (ra3d/); and only then
+   terrain30_<TH>.pack, the first set at 30 texels a cell, for a folder that has not been
+   rebuilt since. */
+static const char* rt_enh_path(const char* theater, char* buf, size_t n)
+{
+    static const char* const names[2] = { "terrainenh", "terrain30" };
+    const char* env = getenv("OPENCNC3D_TERRAINENH");
+    int k, w;
+    if (!env || !*env) env = getenv("OPENCNC3D_TERRAIN30");
+    if (env && (!strcmp(env, "off") || !strcmp(env, "none"))) return NULL;
+    if (env && *env) return env;
+    for (k = 0; k < 2; k++)
+        for (w = 0; w < 4; w++) {
+            if (w == 0) snprintf(buf, n, "%s_%s.pack", names[k], theater);
+            /* a Red Alert theater's set ships inside the Red Alert module's own folder */
+            else if (w == 3) snprintf(buf, n, "ra3d/%s_%s.pack", names[k], theater);
+            else snprintf(buf, n, "%sart/remaster/textures/%s/%s_%s.pack",
+                          w == 2 ? "../" : "", theater, names[k], theater);
+            if (rt_override_exists(buf)) return buf;
+        }
+    return NULL;
+}
+
+/* The theater's pack, whole, or NULL (rt_enh_path finds it). */
+static unsigned char* rt_enh_read(const char* theater, size_t* len, int* cell)
+{
+    char where[192];
+    const char* path;
+    FILE* f;
+    long size;
+    unsigned char* data;
+    path = rt_enh_path(theater, where, sizeof where);
+    *len = 0;
+    if (!path) return NULL;
+    f = fopen(path, "rb");
+    if (!f) return NULL;
+    if (fseek(f, 0, SEEK_END) != 0 || (size = ftell(f)) < 20 || size > 160L * 1024 * 1024
+        || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return NULL; }
+    data = (unsigned char*)malloc((size_t)size);
+    if (!data || fread(data, 1, (size_t)size, f) != (size_t)size) { free(data); fclose(f); return NULL; }
+    fclose(f);
+    *cell = (int)rt_le32(data + 12);
+    if (memcmp(data, RT_ENH_MAGIC, 8) != 0 || rt_le32(data + 8) != 1 || *cell < TT_TS || *cell > TT_TS * RT_ENH_KMAX) {
+        fprintf(stderr, "enhanced terrain: %s is not a version 1 pack of 24 to %d texels a cell\n",
+                path, TT_TS * RT_ENH_KMAX);
+        free(data);
+        return NULL;
+    }
+    {
+        const size_t n = rt_le32(data + 16);
+        if ((size_t)size != 20 + n * 4 + n * (size_t)*cell * *cell * 3) {
+            fprintf(stderr, "enhanced terrain: %s is truncated or padded\n", path);
+            free(data);
+            return NULL;
+        }
+    }
+    fprintf(stderr, "enhanced terrain: %s, %d texels a cell\n", path, *cell);
+    *len = (size_t)size;
+    return data;
+}
+
+/* Whether a pack exists for the theater: the Visuals dialog greys the entry otherwise. */
+RT_MAYBE_UNUSED static int rt_enh_available(const char* theater)
+{
+    char where[192];
+    if (!theater || !theater[0]) return 0;
+    return rt_enh_path(theater, where, sizeof where) != NULL;
+}
+
+/* Build the theater's Enhanced sheet. cart and dos are the cartridge and DOS atlases as
+   the pack carries them (same packing): alpha from the first, the fallback cells from the
+   second. Returns 1 on success. */
+RT_MAYBE_UNUSED static int rt_build_atlas_enh(const char* theater,
+                                              const unsigned char* cart, int caw, int cah,
+                                              const unsigned char* dos, int daw, int dah,
+                                              RtAtlas* out)
+{
+    size_t len = 0, n, i;
+    int cell = 0;
+    unsigned char* pack = rt_enh_read(theater, &len, &cell);
+    const int k = (cell % TT_TS == 0) ? cell / TT_TS : RT_K_BASE;
+    const int ts = TT_TS * k, gutter = TT_GUTTER * k, pitch = TT_PITCH * k;
+    unsigned char *rgb = NULL, *alpha = NULL, *dosrgb = NULL;
+    const TtSlot* tab;
+    int nslots = 0, s, fallback = 0;
+    const unsigned char** bycell = NULL;
+    memset(out, 0, sizeof *out);
+    if (!pack) return 0;
+    tab = tt_table(theater, &nslots);
+    n = rt_le32(pack + 16);
+    if (nslots <= 0) { free(pack); return 0; }
+
+    out->uw = TT_COLS * pitch;
+    out->uh = ((nslots + TT_COLS - 1) / TT_COLS) * pitch;
+    /* THE VARIANTS: a cell whose icon field carries a variant number above its own eight
+       bits (tools/bakery/pack_remaster_terrain.py) is another painting of the same piece.
+       They go in rows of their own BELOW the used height, which stays the bank's: every
+       cell's texture coordinates still address the first painting unchanged, and the game
+       moves a cell to a variant by the variant's offset in the sheet. */
+    for (i = 0; i < n; i++) {
+        const unsigned char* key = pack + 20 + i * 4;
+        const int icon = key[2] | (key[3] << 8);
+        if (icon >= 256 && tt_slot_of(theater, key[0] | (key[1] << 8), icon & 255, NULL) >= 0) out->nvar++;
+    }
+    if (out->nvar > 0) {
+        out->var = (int*)calloc((size_t)out->nvar, sizeof(int) * RT_VAR_INTS);
+        if (!out->var) goto fail;
+    }
+    /* THE SHEET AT ITS OWN SIZE, not padded to a power of two. At 144 texels a cell the
+       Desert's and Winter's sheets are 4992 x 4836 and 4992 x 4212; padded, both are
+       8192 x 8192, 256 MB in memory twice over (built, then uploaded), against 97 MB.
+       Non-power-of-two textures are core since GL 2.0, and this sheet is Tier 2 only: it
+       has no mipmaps, and every texture coordinate is already scaled by uw / w. */
+    out->w = out->uw;
+    out->h = out->uh + ((out->nvar + TT_COLS - 1) / TT_COLS) * pitch;
+    out->rgba = (unsigned char*)calloc((size_t)out->w * out->h, 4);
+    rgb = (unsigned char*)malloc((size_t)ts * ts * 3);
+    alpha = (unsigned char*)malloc((size_t)ts * ts);
+    dosrgb = (unsigned char*)malloc((size_t)TT_TS * TT_TS * 3);
+    bycell = (const unsigned char**)calloc((size_t)nslots, sizeof *bycell);
+    if (!out->rgba || !rgb || !alpha || !dosrgb || !bycell) goto fail;
+
+    /* each pack cell to its bank slot, and each variant to a slot of its own below */
+    {
+        const int base = (out->uh / pitch) * TT_COLS;
+        int e = 0;
+        for (i = 0; i < n; i++) {
+            const unsigned char* key = pack + 20 + i * 4;
+            const int tmpl = key[0] | (key[1] << 8), icon = key[2] | (key[3] << 8);
+            const int slot = tt_slot_of(theater, tmpl, icon & 255, NULL);
+            const unsigned char* px = pack + 20 + n * 4 + i * (size_t)cell * cell * 3;
+            if (slot < 0 || slot >= nslots) continue;
+            if (icon < 256) { bycell[slot] = px; continue; }
+            if (e >= out->nvar) continue;
+            {
+                int* v = out->var + (size_t)e * RT_VAR_INTS;
+                const int gx = (slot % TT_COLS) * TT_PITCH + TT_GUTTER, gy = (slot / TT_COLS) * TT_PITCH + TT_GUTTER;
+                v[0] = slot; v[1] = (icon >> 8) & 3; v[2] = ((icon >> 10) & 7) + 1; v[3] = ((icon >> 13) & 7) + 1;
+                v[4] = base + e;
+                e++;
+                if (gx + TT_TS > caw || gy + TT_TS > cah) { v[1] = 0; continue; }
+                rt_bilinear_rgb(px, cell, cell, cell * 3, rgb, ts, ts);
+                rt_alpha_up(cart, caw, gx, gy, alpha, ts);   /* the first painting's water cut */
+                rt_place(out, v[4], ts, gutter, pitch, rgb, alpha);
+            }
+        }
+    }
+    for (s = 0; s < nslots; s++) {
+        const int slot = tab[s].slot;
+        const int gx = (slot % TT_COLS) * TT_PITCH + TT_GUTTER, gy = (slot / TT_COLS) * TT_PITCH + TT_GUTTER;
+        if (slot < 0 || slot >= nslots || gx + TT_TS > caw || gy + TT_TS > cah) continue;
+        if (bycell[slot]) {
+            rt_bilinear_rgb(bycell[slot], cell, cell, cell * 3, rgb, ts, ts);   /* 1:1 when cell == ts */
+        } else if (dos && gx + TT_TS <= daw && gy + TT_TS <= dah) {
+            int y, x;
+            for (y = 0; y < TT_TS; y++)
+                for (x = 0; x < TT_TS; x++)
+                    memcpy(dosrgb + ((size_t)y * TT_TS + x) * 3,
+                           dos + ((size_t)(gy + y) * daw + gx + x) * 4, 3);
+            rt_bilinear_rgb(dosrgb, TT_TS, TT_TS, TT_TS * 3, rgb, ts, ts);
+            fallback++;
+        } else {
+            out->missing++;
+            continue;
+        }
+        rt_alpha_up(cart, caw, gx, gy, alpha, ts);
+        rt_place(out, slot, ts, gutter, pitch, rgb, alpha);
+        out->placed++;
+    }
+    fprintf(stderr, "enhanced terrain: %s atlas %dx%d (used %dx%d), %d slots, %d from the pack, "
+                    "%d from the 1995 art, %d missing, %d variant cells\n", theater, out->w, out->h,
+            out->uw, out->uh, nslots, out->placed - fallback, fallback, out->missing, out->nvar);
+    free(pack); free(rgb); free(alpha); free(dosrgb); free(bycell);
+    if (out->placed > 0) return 1;
+    rt_atlas_free(out);
+    return 0;
+fail:
+    free(pack); free(rgb); free(alpha); free(dosrgb); free(bycell);
+    rt_atlas_free(out);
+    return 0;
+}
+
+#endif /* OPENCNC3D_REMASTER_TEX_H */

@@ -203,7 +203,7 @@ int main(int argc, char **argv)
     const char *packpath = "dosmenu.pack";
     const char *outpng = NULL;
     int ops_demo = 0;   /* --ops N: draw the SPECIAL OPS list with row N selected */
-    const char *version = "CNC3D";
+    const char *version = "OpenCNC3D";
     const char *logopath = DM_MOVIE_LOGO;
     const char *intropath = DM_MOVIE_INTRO;
     const char *musicpath = DM_MUSIC_MENU;
@@ -229,6 +229,10 @@ int main(int argc, char **argv)
             scale = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--version-text") && i + 1 < argc)
             version = argv[++i];
+        else if (!strcmp(argv[i], "--copyright-text") && i + 1 < argc)
+            st.copyright = argv[++i];
+        else if (!strcmp(argv[i], "--title-copyright"))
+            st.copyright = "";
         else if (!strcmp(argv[i], "--press") && i + 1 < argc)
             st.pressed = item_by_name(argv[++i]);
         else if (!strcmp(argv[i], "--select") && i + 1 < argc)
@@ -253,6 +257,8 @@ int main(int argc, char **argv)
             fprintf(stderr,
                     "usage: %s [-p pack] [-o out.png] [-s scale]\n"
                     "          [--select ITEM] [--press ITEM] [--cursor] [--version-text S]\n"
+                    "          [--copyright-text TEXT] override the live legal notice\n"
+                    "          [--title-copyright] use the plate's own copyright line\n"
                     "          [--no-logo] [--logo LOGO.VQA] [--intro INTRO2.VQA]\n"
                     "          [--music THEME] [--no-music] [--dosdata DIR]\n"
                     "   ITEM: START LOAD MULTI INTRO EXIT\n",
@@ -278,7 +284,7 @@ int main(int argc, char **argv)
         /* --ops draws the SPECIAL OPS list instead of the menu, over the same plate,
            on a made-up mission list. It is a LOOK check for the screen's layout, not a
            test of the scanner: the real list is built by the app from the missions
-           folder (see specops_scan in app/cnc3d.cpp). */
+           folder (see specops_scan in app/opencnc3d.cpp). */
         static const DO_Mission demo[] = {
             {"SCG22EA", "Blackout", 0},        {"SCG23EA", "Hell's Fury", 0},
             {"SCG30EA", "N64 Special Ops 1", 0},{"SCG32EA", "Test Map: Dynamic", 0},
@@ -336,6 +342,9 @@ int main(int argc, char **argv)
         unsigned char *big = (unsigned char *)malloc(
             (size_t)DM_SCREEN_W * scale * DM_SCREEN_H * scale * 4);
         nearest_scale(rgba, DM_SCREEN_W, DM_SCREEN_H, big, scale);
+        if (!ops_demo)
+            dm_draw_legal_rgba(big, DM_SCREEN_W * scale, DM_SCREEN_H * scale,
+                               DM_SCREEN_W * scale, pack, st.copyright, 256);
         if (!write_png(outpng, big, DM_SCREEN_W * scale, DM_SCREEN_H * scale)) {
             fprintf(stderr, "preview: cannot write %s\n", outpng);
             return 1;
@@ -355,7 +364,7 @@ int main(int argc, char **argv)
     return 1;
 #else
     /* The live window. Everything below is the shipping menu, not a copy of it: one
-     * window, one context, and the same dms_* calls cnc3d.cpp makes. That is the
+     * window, one context, and the same dms_* calls opencnc3d.cpp makes. That is the
      * point of the split -- a change to how the menu behaves lands in both places or
      * in neither. */
     free(rgba);
@@ -383,7 +392,7 @@ int main(int argc, char **argv)
             return 1;
         }
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-        win = SDL_CreateWindow("OpenCNC 3D -- DOS main menu",
+        win = SDL_CreateWindow("OpenCNC3D -- DOS main menu",
                                SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                DM_SCREEN_W * scale, DM_SCREEN_H * scale,
                                SDL_WINDOW_OPENGL);
@@ -423,7 +432,7 @@ int main(int argc, char **argv)
         }
 
         /* Standalone, there is nothing behind the menu, so anything that is not Exit
-         * simply puts it back. In the real program cnc3d.cpp is what decides. */
+         * simply puts it back. In the real program opencnc3d.cpp is what decides. */
         for (;;) {
             choice = dms_run(&menu);
             if (choice == DMS_QUIT || choice == DM_EXIT)

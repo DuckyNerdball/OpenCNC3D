@@ -25,7 +25,7 @@ Put your own cartridge at `data/rom/cnc_eu.z64` (see the README there) and run t
 extraction in `tools/romdump/`. Everything under `assets/` is derived output; nothing in
 here is hand-authored, and nothing is lost by deleting it.
 
-`CNC3D_ROM` overrides where the cartridge is read from.
+`OPENCNC3D_ROM` overrides where the cartridge is read from.
 
 ## One thing that is genuinely missing
 

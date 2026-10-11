@@ -1,0 +1,31 @@
+# G304 (walls). A wall line comes up course by course: a sandbag at 50,54 on SCG01EC, then a
+# second at 54,54, which lays the three between (the wall line, G302); every new piece of
+# the line plays the lab's own placement of its connection mask, the placed piece first.
+tick 20
+cheatset money 1
+cheatset instant 1
+tick 4
+cam 52 55
+zoom max
+build SBAG
+ready SBAG
+startplace SBAG
+place 50 54
+tick 30
+build SBAG
+ready SBAG
+startplace SBAG
+place 54 54
+tick 3
+echo g304 wall3
+eplcdump
+shot shots/g304_wall3.png
+tick 6
+echo g304 wall9
+eplcdump
+shot shots/g304_wall9.png
+tick 30
+echo g304 wall39
+eplcdump
+walldump
+quit

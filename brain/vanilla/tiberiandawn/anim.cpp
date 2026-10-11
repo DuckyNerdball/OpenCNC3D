@@ -13,14 +13,14 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in September 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
 // Two changes in AnimClass. The constructor's drop-zone smoke reveal, which
 // reads PlayerPtr, is withheld in a lockstep network match, where one
 // machine's viewpoint must not decide another machine's missions. AI's kill
 // time compares a beacon's deadline against the frame counter rather than
 // the Windows wall clock, so a beacon expires on every platform.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -657,7 +657,7 @@ AnimClass::AnimClass(AnimType animnum, COORDINATE coord, unsigned char timedelay
     */
     if (*this == ANIM_LZ_SMOKE) {
         /*
-        **	OpenCNC 3D lockstep: the 2019 comment that stood here said "This should be OK as
+        **	OpenCNC3D lockstep: the 2019 comment that stood here said "This should be OK as
         **	it's not used in MP", and that assumption is what this gate replaces.
         **
         **	PlayerPtr is the house of whoever is sitting at THIS machine, and Sight_From
@@ -676,7 +676,7 @@ AnimClass::AnimClass(AnimType animnum, COORDINATE coord, unsigned char timedelay
         **	user map can, and the faithful answer for the day one does is to reveal for
         **	the TRIGGER'S OWN house, which is shared, rather than for this machine's.
         */
-        if (CNC3D_Lockstep) {
+        if (OpenCNC3D_Lockstep) {
             GlyphX_Debug_Print("AnimClass: drop-zone smoke reveals the map for PlayerPtr, the LOCAL "
                                "seat's house, which is not shared between peers. It reveals nothing "
                                "in a network match.");

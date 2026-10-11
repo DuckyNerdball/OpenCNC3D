@@ -65,7 +65,7 @@ one 2x2 block. The 640x480 HUD draws them in **true colour**, no palette step; t
 clock that used to force an 8-bit path is decoded rather than approximated, in
 `h6_clock_fade` in `game/cnc_sidebar.h`. The HUD is an ENHANCED sub-option and the DOS bar
 is unaffected, but Enhanced is what the game BOOTS INTO: `fx_defaults` in `game/fx_state.h`
-sets `new_hud = 1` and `app/cnc3d.cpp` calls `game_visuals_default_enhanced` unless
+sets `new_hud = 1` and `app/opencnc3d.cpp` calls `game_visuals_default_enhanced` unless
 `--classic` is passed. So this is the default sidebar art, not an opt-in.
 
 The baker refuses rather than writing a short pack: a PNG that ignores the naming

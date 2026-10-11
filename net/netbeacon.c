@@ -139,6 +139,12 @@ void nb_announce_close(void)
 static NetSock* s_browse = NULL;
 static NbGame s_games[NB_MAX_GAMES];
 static int s_count = 0;
+/* THIS MACHINE'S OWN ADDRESSES, read when the browser opens. A host on two networks at
+   once (Wi-Fi and a wired adapter, say) announces on both, and a browser on that same
+   machine hears the one game from two of its own addresses. Those are one host, so they
+   are one row. Another machine only ever hears the address on its own network. */
+static char s_self[8][64];
+static int s_nself;
 
 int nb_browse_open(void)
 {
@@ -149,18 +155,22 @@ int nb_browse_open(void)
     s_browse = net_open_shared(NB_PORT);
     if (!s_browse) { net_shutdown(); return 0; }
     s_count = 0;
+    s_nself = net_local_addrs(s_self, (int)(sizeof s_self / sizeof s_self[0]));
     /* ONE DATAGRAM OUT, the moment the browser opens: on a Mac this is what makes the
        system ask whether the game may talk to the local network. A browser only ever
        LISTENED, so the question was first asked by a JOIN, fullscreen, and a dialog
        nobody saw meant every packet to the host was dropped in silence (the first two
-       real-network tests). Six bytes, wrong size and magic for every browser, so nobody
-       lists it. The launcher does the same before any game; this covers a copy started
-       without it. */
+       real-network tests). Ten bytes, far short of NB_BYTES and with no magic, so every
+       browser drops it and nobody lists it. The launcher does the same before any game;
+       this covers a copy started without it. The length comes from the literal, so the
+       two cannot disagree. */
     {
+        static const char probe[] = "OpenCNC3D?";
         NetAddr bc[8];
         int i, n = net_broadcast_addrs(NB_PORT, bc, 8);
         if (net_set_broadcast(s_browse, 1) == 0)
-            for (i = 0; i < n; i++) net_send(s_browse, &bc[i], "CNC3D?", 6);
+            for (i = 0; i < n; i++)
+                net_send(s_browse, &bc[i], probe, (int)(sizeof probe - 1));
     }
     return 1;
 }
@@ -170,11 +180,24 @@ void nb_browse_clear(void) { s_count = 0; }
 /* Same game, or a new row? The pair (address, match port) is the identity: one machine
    can legitimately host two games on two ports, and separate hosts can offer games with
    the same NAME, which is why the name is not part of this. */
+
+static int nb_is_self(const char* addr)
+{
+    int i;
+    for (i = 0; i < s_nself; i++)
+        if (strcmp(s_self[i], addr) == 0) return 1;
+    return 0;
+}
+
 static int nb_find(const char* addr, unsigned short port)
 {
     int i;
     for (i = 0; i < s_count; i++) {
         if (s_games[i].port == port && strcmp(s_games[i].addr, addr) == 0) return i;
+    }
+    if (nb_is_self(addr)) {
+        for (i = 0; i < s_count; i++)
+            if (s_games[i].port == port && nb_is_self(s_games[i].addr)) return i;
     }
     return (-1);
 }

@@ -1,5 +1,5 @@
 /* ================================================================================== *
- *  effects_mod.h -- OpenCNC 3D combat presentation: anims (muzzle flashes, impacts,
+ *  effects_mod.h -- OpenCNC3D combat presentation: anims (muzzle flashes, impacts,
  *  explosions) and bullets in flight.
  *
  *  WHERE THE DATA COMES FROM
@@ -8,7 +8,7 @@
  *    guns, ANIM_MUZZLE_FLASH for cannon), BulletClass spawns its impact anim on
  *    detonation (ANIM_PIFF for small arms), and UnitClass::Take_Damage spawns the
  *    death explosion the unit type declares (ANIM_FRAG1 / ANIM_FBALL1, udata.cpp).
- *    The patched CNC3D_Dump_Objects walks Anims and Bullets and prints one
+ *    The patched OpenCNC3D_Dump_Objects walks Anims and Bullets and prints one
  *    EFX|ANIM / EFX|BULLET line each; this module parses and draws them.
  *
  *  ART STATUS -- THE CARTRIDGE'S REAL EFFECT ART (round r030)
@@ -45,8 +45,8 @@
  *    units but still sit behind hills.
  * ================================================================================== */
 
-#ifndef CNC3D_EFFECTS_MOD_H
-#define CNC3D_EFFECTS_MOD_H
+#ifndef OPENCNC3D_EFFECTS_MOD_H
+#define OPENCNC3D_EFFECTS_MOD_H
 
 #include <set>
 
@@ -55,6 +55,7 @@
    EFX_RECIPE[66] (which sources each anim instantiates and where), and
    EFX_ANIM2RECIPE[85] (the engine's AnimType -> the cartridge's table index). */
 #include "efx_recipes.h"
+#include "efx_enhanced.h"   /* Enhanced mode's own additions, see g_efxEnhOn */
 
 struct EfxAnim {
     int  id, type, stage, start, stages, loops, size, ground, attref, attkind, owner;
@@ -80,6 +81,39 @@ struct EfxBullet {
 static std::vector<EfxAnim>   g_efxAnims;
 static std::vector<EfxBullet> g_efxBullets;
 
+/* A SHOT, as the engine reports it (EFX|FIRE, written by TechnoClass::Fire_At through
+   OpenCNC3D_Note_Fire): who fired (heap id and RTTI kind, the pair an anim's attref/attkind
+   names), which weapon (0 primary, 1 secondary), which barrel of a two-shooter (the
+   engine's IsSecondShot as the shot left: 0 moves it to the facing's west, 1 to its
+   east), the projectile it launched and the point it launched it from. Every shot is
+   reported, visible projectile or not; a line is printed once and the brain forgets it.
+   Nothing here draws it: the hook below hands it to whoever wants shots (the Unity muzzle
+   flashes and projectile trails). */
+struct EfxFire {
+    int id, kind, which, second, bullet, btype;
+    char type[16], bname[16];
+    float wx, wz;
+};
+static void (*g_efxOnFire)(const EfxFire& f) = NULL;
+static int g_efxFiresSeen = 0;
+
+/* A LASER LINE, as the engine reports it (EFX|LINE, written by TechnoClass::Fire_At through
+   OpenCNC3D_Note_Line in the block that sets up the Obelisk's beam). The 1995 engine draws
+   that beam as lines kept on the firer, not as an anim or a projectile, so nothing else in
+   this module ever sees it. The two ends are the engine's own coordinates (Fire_Coord and
+   As_Coord(target)) in world cells; tkind/tid name what was aimed at (RTTI kind and heap
+   id, -1 for a cell); frames is the engine's LineMaxFrames; colour[] and off[] are each
+   line's palette index and its source-end x offset in 1995 pixels from the last line, the
+   core; cx/cz is the firer's Center_Coord when it fired (NAN from a brain that predates
+   the field). Printed once; the hook below (laser_mod.h) keeps it for as long as it shows. */
+struct EfxLine {
+    int id, kind, which, tkind, tid, frames, count;
+    int colour[3], off[3];
+    char type[16];
+    float sx, sz, tx, tz, cx, cz;
+};
+static void (*g_efxOnLine)(const EfxLine& l) = NULL;
+
 /* The mesh side of bullet drawing, implemented in cnc_eyes.cpp AFTER draw_mesh and
    g_pack exist (this header is included before either). Returns the pack mesh index
    for a bullet name, or -1; the draw wraps draw_mesh with the bullet's altitude and
@@ -90,6 +124,13 @@ static int efx_bullet_model(const char* name);
 static bool efx_bullet_lays_flat(const char* name);
 static void efx_bullet_draw_model(int mi, float wx, float ylift, float wz, int face,
                                   bool lay_flat);
+/* WHERE A PROJECTILE REALLY LEFT FROM, when something upstream knows better than the
+   engine. The engine flies a tank shell and an infantry rocket at altitude 0 from a launch
+   point of its own; the Unity muzzle flashes (unityvfx_mod.h) know the barrel. When set and
+   it answers true, the offset is added to where the bullet model is drawn, so the round
+   leaves the barrel its flash played at and its trail runs through it. NULL, or false for
+   a bullet it knows nothing of: drawn where the engine says, as always. */
+static bool (*g_efxBulletOffset)(int id, int type, float wx, float wz, float out[3]) = NULL;
 
 /* THE NUCLEAR STRIKE's mushroom, same split and the same reason: the mesh side needs
    draw_mesh and g_pack, which this header is included before. */
@@ -206,22 +247,101 @@ struct EfxSeq {
 static std::vector<EfxSeq> g_efxSeqs;
 static bool g_efxHaveArt = false;
 
+/* ENHANCED EFFECTS. A second set of sequences out of efx_enh.pack, the remastered art
+   (tools/art/remaster/fx, baked by its make_fx.py), in the same format and under the same
+   names as the cartridge's, plus sheets of its own for single sources (efx_enhanced.h).
+   The host sets g_efxEnhOn once per frame from the Enhanced settings; while it is on,
+   every lookup takes the remastered sequence where the pack has one, the recipes fire
+   Enhanced mode's extra emitters, and particles of a source with a sheet of its own wear
+   it. While it is off nothing here is consulted and the effects are the cartridge's,
+   particle for particle: the extra emitters are the only thing that adds particles, and
+   they only fire while it is on. A missing pack leaves it off. */
+static std::vector<EfxSeq> g_efxSeqsEnh;
+static bool g_efxHaveEnh = false;
+static bool g_efxEnhOn = false;
+
+static const EfxSeq* efx_seq_in(const std::vector<EfxSeq>& v, const char* name)
+{
+    for (size_t i = 0; i < v.size(); i++)
+        if (!strcmp(v[i].name, name))
+            return &v[i];
+    return NULL;
+}
+
+/* Whether a sequence is one of the remastered set's rather than the cartridge's. Asked of
+   the pointer, not the name: both packs use the same names on purpose. */
+static bool efx_seq_is_enh(const EfxSeq* s)
+{
+    return s && !g_efxSeqsEnh.empty()
+        && s >= &g_efxSeqsEnh[0] && s < &g_efxSeqsEnh[0] + g_efxSeqsEnh.size();
+}
+
 static const EfxSeq* efx_seq(const char* name)
 {
-    for (size_t i = 0; i < g_efxSeqs.size(); i++)
-        if (!strcmp(g_efxSeqs[i].name, name))
-            return &g_efxSeqs[i];
-    return NULL;
+    if (g_efxEnhOn) {
+        const EfxSeq* e = efx_seq_in(g_efxSeqsEnh, name);
+        if (e) return e;
+    }
+    return efx_seq_in(g_efxSeqs, name);
+}
+
+/* 1 + the row of efx_enhanced.h's source-sheet table this source wears, or 0 for its
+   system's own sheet. Only while Enhanced effects are on, and only where the remastered
+   pack really carries that sheet, so an older pack degrades to the system's sheet. */
+static unsigned char efx_src_sheet(const char* source)
+{
+    if (!g_efxEnhOn)
+        return 0;
+    for (int i = 0; i < EFX_ENH_NSRCSHEET; i++)
+        if (!strcmp(EFX_ENH_SRCSHEET[i].source, source)
+            && efx_seq_in(g_efxSeqsEnh, EFX_ENH_SRCSHEET[i].sheet))
+            return (unsigned char)(i + 1);
+    return 0;
+}
+
+/* The sheet slot efx_emit's `sheet` takes for a sheet NAMED by a recipe rather than looked
+   up by its source: 1 + the EFX_ENH_SRCSHEET row that draws that sheet on that system, 0
+   for none named (the system's own sheet) and while Enhanced effects are off (as
+   efx_src_sheet answers then), and -1 when no row draws it, so the source's own lookup
+   stands. */
+static int efx_sheet_slot(const char* sheet, unsigned sys)
+{
+    if (!g_efxEnhOn || !sheet || !sheet[0])
+        return 0;
+    for (int i = 0; i < EFX_ENH_NSRCSHEET; i++)
+        if (!strcmp(EFX_ENH_SRCSHEET[i].sheet, sheet) && EFX_ENH_SRCSHEET[i].sys == sys
+            && efx_seq_in(g_efxSeqsEnh, sheet))
+            return i + 1;
+    return -1;
 }
 
 /* Call once with a live GL context (same rule as sb_init: it uploads textures).
    Missing pack = the old procedural billboards, announced, not an error. */
+static bool efx_read_pack(const char* path, std::vector<EfxSeq>& into, const char* what);
+
 static bool efx_load_pack(const char* path)
+{
+    if (!efx_read_pack(path, g_efxSeqs, "N64 art pack"))
+        return false;
+    g_efxHaveArt = true;
+    return true;
+}
+
+/* The remastered art for Enhanced mode. Missing is not an error: Enhanced then draws the
+   cartridge's art, and says so once. */
+static bool efx_load_pack_enh(const char* path)
+{
+    g_efxHaveEnh = efx_read_pack(path, g_efxSeqsEnh, "Enhanced art pack");
+    return g_efxHaveEnh;
+}
+
+static bool efx_read_pack(const char* path, std::vector<EfxSeq>& into, const char* what)
 {
     FILE* f = fopen(path, "rb");
     if (!f) {
-        fprintf(stderr, "effects: no N64 art pack at %s (run bake_efx.py); using "
-                        "procedural billboards\n", path);
+        fprintf(stderr, "effects: no %s at %s; %s\n", what, path,
+                &into == &g_efxSeqs ? "using procedural billboards (run bake_efx.py)"
+                                  : "Enhanced effects keep the cartridge's art");
         return false;
     }
     char magic[8];
@@ -256,12 +376,10 @@ static bool efx_load_pack(const char* path)
                          GL_RGBA, GL_UNSIGNED_BYTE, &buf[0]);
             s.gl.push_back(id);
         }
-        g_efxSeqs.push_back(s);
+        into.push_back(s);
     }
     fclose(f);
-    g_efxHaveArt = true;
-    fprintf(stderr, "effects: N64 art pack %s: %u sequences (cartridge particle "
-                    "textures, resident segment)\n", path, count);
+    fprintf(stderr, "effects: %s %s: %u sequences\n", what, path, count);
     return true;
 }
 
@@ -415,6 +533,45 @@ static void efx_parse_line(char* line)
         now.insert(a.id);
         if (!g_efxLivePrev[a.name].count(a.id))
             g_efxSpawns[a.name]++;
+    } else if (!strcmp(f[1], "FIRE")) {
+        EfxFire s;
+        s.id     = efx_field(f, nf, "id", -1);
+        s.kind   = efx_field(f, nf, "kind", -1);
+        s.which  = efx_field(f, nf, "which", 0);
+        s.second = efx_field(f, nf, "second", 0);
+        s.bullet = efx_field(f, nf, "bullet", -1);
+        s.btype  = efx_field(f, nf, "btype", -1);
+        efx_str_field(f, nf, "type", s.type, sizeof(s.type));
+        efx_str_field(f, nf, "bname", s.bname, sizeof(s.bname));
+        s.wx = (float)efx_field(f, nf, "lx", 0) / 256.0f;
+        s.wz = (float)efx_field(f, nf, "ly", 0) / 256.0f;
+        g_efxFiresSeen++;
+        if (g_efxOnFire) g_efxOnFire(s);
+    } else if (!strcmp(f[1], "LINE")) {
+        EfxLine l;
+        l.id     = efx_field(f, nf, "id", -1);
+        l.kind   = efx_field(f, nf, "kind", -1);
+        l.which  = efx_field(f, nf, "which", 0);
+        l.tkind  = efx_field(f, nf, "tkind", -1);
+        l.tid    = efx_field(f, nf, "tid", -1);
+        l.frames = efx_field(f, nf, "frames", 0);
+        l.count  = efx_field(f, nf, "count", 0);
+        if (l.count > 3) l.count = 3;
+        efx_str_field(f, nf, "type", l.type, sizeof(l.type));
+        l.sx = (float)efx_field(f, nf, "lx", 0) / 256.0f;
+        l.sz = (float)efx_field(f, nf, "ly", 0) / 256.0f;
+        l.tx = (float)efx_field(f, nf, "tlx", 0) / 256.0f;
+        l.tz = (float)efx_field(f, nf, "tly", 0) / 256.0f;
+        const int clx = efx_field(f, nf, "clx", -1), cly = efx_field(f, nf, "cly", -1);
+        l.cx = clx >= 0 ? (float)clx / 256.0f : NAN;
+        l.cz = cly >= 0 ? (float)cly / 256.0f : NAN;
+        char lists[2][48];
+        efx_str_field(f, nf, "colour", lists[0], sizeof(lists[0]));
+        efx_str_field(f, nf, "off", lists[1], sizeof(lists[1]));
+        for (int i = 0; i < 3; i++) { l.colour[i] = -1; l.off[i] = 0; }
+        sscanf(lists[0], "%d,%d,%d", &l.colour[0], &l.colour[1], &l.colour[2]);
+        sscanf(lists[1], "%d,%d,%d", &l.off[0], &l.off[1], &l.off[2]);
+        if (g_efxOnLine && l.count > 0) g_efxOnLine(l);
     } else if (!strcmp(f[1], "BULLET")) {
         EfxBullet b;
         b.id     = efx_field(f, nf, "id", -1);
@@ -906,6 +1063,22 @@ struct EfxPart {
        variant. */
     unsigned char mesh, family, house;
     float scale;
+    /* ENHANCED ONLY: 1 + the efx_enhanced.h source-sheet row this particle wears, set at
+       birth while Enhanced effects are on; 0 = its system's sheet. The draw honours it
+       only while they are still on. */
+    unsigned char sheet;
+    /* ENHANCED ONLY: 1 = lies flat on the ground (a shockwave ring) instead of facing the
+       camera. Only the extra emitters of efx_enhanced.h set it. */
+    unsigned char flat;
+    /* ENHANCED ONLY: 1 = skips off the ground instead of sinking through it (a remastered
+       building's sparks, which fall). Only ebld_mod.h's emitters set it, so every other
+       particle integrates exactly as it did. */
+    unsigned char bounce = 0;
+    /* A CHUNK TRAIL'S EMBER: the step back to where its chunk was one tick before, which
+       is where the ember before it lies (cells). Set at the ember's birth in the chunk
+       integrator and nowhere else, 0 on every other particle; only the Enhanced draw reads
+       it (efx_streak_batched), so the simulation and Classic's draw do not change. */
+    float tx = 0.0f, ty = 0.0f, tz = 0.0f;
 };
 
 /* The two pools. WHICH ONE a particle is in is the only thing that says whether it is a
@@ -1036,7 +1209,7 @@ static std::map<int, EfxLiveAnim> g_efxAnimLive;
 
    The chain. ANIM_FLAME_* is art-less in our data, so AnimTypeClass::Stages resolves
    through Get_Build_Frame_Count(NULL) to 0, AnimClass ends after its first logic pass,
-   and CNC3D_Stage() never leaves 0. The renderer therefore sees each FLAME anim in
+   and OpenCNC3D_Stage() never leaves 0. The renderer therefore sees each FLAME anim in
    exactly ONE dump (measured: 17 FLAME anims in SCG36EA over 449 ticks produced
    `EFXSPAWN|FLAME-SE|particles=14` against `EFXSEEN|FLAME-SE|14`, one particle each),
    fires its one continuous slot once, and that slot's ppt of 1.0715 truncates to 1.
@@ -1142,9 +1315,18 @@ static bool efx_recipe_continuous(const EfxRecipe& rec)
     return false;
 }
 
+/* Lingering emitters (see efx_linger_step), declared here because the pool clears them. */
+struct EfxLinger { int extra, slot; unsigned key; int born, start; float x, y, z; std::string anim; };
+static std::vector<EfxLinger> g_efxLinger;
+/* (anim key, emitter) pairs with a linger running, so an anim sighted again at stage 0
+   (which re-dates it) does not arm a second copy; freed when that linger ends. */
+static std::set<std::pair<unsigned, int> > g_efxLingerArmed;
+
 static void efx_pool_clear(void)
 {
     g_efxNPart = g_efxNChunk = 0;
+    g_efxLinger.clear();
+    g_efxLingerArmed.clear();
     g_efxAnimLive.clear();
     /* Ghosts are keyed by engine heap ids and dated by the engine frame, both of which
        the next mission reuses from this one, so they go the way g_efxAnimLive does. */
@@ -1187,8 +1369,12 @@ static void efx_push(const EfxPart& p)
    The ROM's world axes are ours -- x right, y up, z toward the bottom of the screen,
    north = -z (docs/n64-camera-math.md, and SOURCE_Sam_N's a in [-1,0] gives an
    up-and-north plume) -- so this maps across with no sign flips. */
+/* `sheet` (a remastered building's explosion, ebld_mod.h, whose recipe names the sheet
+   each source wears): the Enhanced sheet slot to wear, 1 + its EFX_ENH_SRCSHEET index, in
+   place of the one the source's name looks up; -1, the default, looks it up. */
 static void efx_emit(const EfxSourceRec& s, float ex, float ey, float ez,
-                     int n, unsigned key, int bornFrame, int slot, int k)
+                     int n, unsigned key, int bornFrame, int slot, int k,
+                     unsigned char flat = 0, int sheet = -1)
 {
     const EfxSeq* seq = efx_seq(EFX_SYS[s.sys].seq);
     for (int i = 0; i < n; i++) {
@@ -1243,6 +1429,8 @@ static void efx_emit(const EfxSourceRec& s, float ex, float ey, float ez,
            the shading, and never touches alpha -- that is the ROM's own ramp. */
         p.r = s.r; p.g = s.g; p.b = s.b; p.a = s.a;
         p.seed = h2;
+        p.sheet = sheet >= 0 ? (unsigned char)sheet : efx_src_sheet(s.name);
+        p.flat = flat;
         efx_push(p);
     }
 }
@@ -1336,6 +1524,8 @@ static void efx_emit_chunks(const EfxSourceRec& s, float ex, float ey, float ez,
             c.a = s.a; c.r = s.r; c.g = s.g; c.b = s.b;
         }
         c.seed = h2;
+        c.sheet = 0;
+        c.flat = 0;
         g_efxChunk[g_efxNChunk++] = c;
         g_efxChunkSpawned++;
     }
@@ -1430,6 +1620,144 @@ static void efx_fire_slot(const EfxAnim& an, const EfxSlot& sl, int slotIdx,
     }
 }
 
+/* ENHANCED MODE'S EXTRA EMITTERS for one recipe (efx_enhanced.h), fired beside the
+   cartridge's own while Enhanced effects are on. The same burst arithmetic as
+   efx_fire_slot, and the same hash: the slot index runs on past the recipe's own
+   (`first`), so an extra never shares a draw with a cartridge slot and the cartridge's
+   particles are exactly what they are without it. The base is the ground under the anim,
+   unless the caller has a better one (the cannon flash's muzzle). A facing is read off
+   the recipe name's last part (GUN_NE), for `ahead`. */
+/* LINGERING EMITTERS: an extra emitter with a `hold` keeps firing on its own clock after
+   it arms, whether or not the engine's anim is still alive, so a building's smoke and
+   embers can outlast its explosion by many seconds. Armed once per (anim, born frame,
+   emitter), fired from efx_step, and gone with the pool. Every draw is still the same
+   pure hash of (anim key, born frame, slot, tick since arming). */
+/* (declared with the pool, which clears them) */
+
+/* Particles Enhanced mode's extra emitters have spawned this mission, on their own
+   clock or the anim's. The cartridge's recipes never add to it, so it stays 0 for as long
+   as Enhanced effects are off. For efxdump. */
+static long g_efxExtraParts = 0;
+
+/* Whether Enhanced mode rebuilds this recipe from scratch (efx_enhanced.h), so its
+   cartridge emitters stand down while Enhanced effects are on. */
+static bool efx_enh_replaces(const char* rname)
+{
+    if (!g_efxEnhOn)
+        return false;
+    for (int i = 0; i < EFX_ENH_NREPLACE; i++)
+        if (!strcmp(EFX_ENH_REPLACE[i], rname))
+            return true;
+    return false;
+}
+
+static void efx_linger_step(int frame)
+{
+    size_t w = 0;
+    for (size_t i = 0; i < g_efxLinger.size(); i++) {
+        const EfxLinger& L = g_efxLinger[i];
+        const EfxExtra& x = EFX_ENH_EXTRA[L.extra];
+        const EfxSourceRec& s = x.src;
+        const int k = frame - L.start - (int)x.stage;   /* ticks since this emitter armed */
+        if (!g_efxEnhOn || (s.burst ? k >= (int)s.burst : k > (int)x.hold)) {
+            g_efxLingerArmed.erase(std::make_pair(L.key, L.extra));
+            continue;                                   /* its time is up: dropped */
+        }
+        if (k >= 0) {
+            float count = s.ppt;
+            if (s.burst) for (int m = 0; m < k; m++) count *= s.mult;
+            const int n = (s.burst || k % (int)x.every == 0) ? (int)count : 0;
+            if (n > 0) {
+                if (s.sys == 2 || s.sys == 3) {
+                    efx_emit_chunks(s, L.x, L.y, L.z, n, L.key, L.born, L.slot, k, g_efxSpawnHouse);
+                    g_efxRecipeChunks[L.anim] += n;
+                } else {
+                    efx_emit(s, L.x, L.y, L.z, n, L.key, L.born, L.slot, k, x.flat);
+                    g_efxRecipeParts[L.anim] += n;
+                }
+                g_efxExtraParts += n;
+            }
+        }
+        g_efxLinger[w++] = L;
+    }
+    g_efxLinger.resize(w);
+}
+
+static void efx_fire_extras(const EfxAnim& an, const char* rname, int first,
+                            unsigned key, int bornFrame, const float* base)
+{
+    if (!g_efxEnhOn)
+        return;
+    static const char* const FACE[8] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+    static const float DIR[8][2] = { {0, -1}, {0.7071f, -0.7071f}, {1, 0}, {0.7071f, 0.7071f},
+                                     {0, 1}, {-0.7071f, 0.7071f}, {-1, 0}, {-0.7071f, -0.7071f} };
+    for (int j = 0; j < EFX_ENH_NEXTRA; j++) {
+        const EfxExtra& x = EFX_ENH_EXTRA[j];
+        const size_t n = strlen(x.recipe);
+        if (x.prefix ? strncmp(rname, x.recipe, n) != 0 : strcmp(rname, x.recipe) != 0)
+            continue;
+        const EfxSourceRec& s = x.src;
+        const int k = an.stage - (int)x.stage;
+        /* ON ITS OWN CLOCK: an emitter with a hold, and EVERY emitter of a recipe Enhanced
+           rebuilds, is armed at the anim's first sighting and fired by efx_linger_step from
+           then on, counting engine ticks from the anim's stage 0. The engine does not count
+           frames for every anim (the building death's FBALL1 is only ever seen at stage 0),
+           and an effect staged over seconds cannot wait on a stage that never comes. */
+        const bool ownClock = x.hold > 0 || efx_enh_replaces(rname);
+        if (!ownClock && k < 0)
+            continue;
+        g_efxRecipeName[an.name] = rname;
+        if (ownClock) {
+            const std::pair<unsigned, int> id(key, j);
+            if (g_efxLingerArmed.count(id))
+                continue;
+            g_efxLingerArmed.insert(id);
+            float lfx = 0.0f, lfz = 0.0f;
+            const size_t ln = strlen(x.recipe);
+            if (x.prefix)
+                for (int f = 0; f < 8; f++)
+                    if (!strcmp(rname + ln, FACE[f])) { lfx = DIR[f][0]; lfz = DIR[f][1]; }
+            EfxLinger L;
+            L.extra = j; L.slot = first + j; L.key = key; L.born = bornFrame;
+            L.start = g_efxStepFrame - an.stage;         /* the anim's stage 0 */
+            L.anim = an.name;
+            L.x = (base ? base[0] : an.wx) + ((float)x.dx + lfx * (float)x.ahead) * EFX_U;
+            L.y = (base ? base[1] : efx_ground(an.wx, an.wz)) + (float)x.dy * EFX_U;
+            L.z = (base ? base[2] : an.wz) + ((float)x.dz + lfz * (float)x.ahead) * EFX_U;
+            g_efxLinger.push_back(L);
+            continue;
+        }
+        if (!s.burst && x.every > 1 && k % (int)x.every != 0)
+            continue;
+        float count = s.ppt;
+        if (s.burst) {
+            if (k >= (int)s.burst) continue;
+            for (int i = 0; i < k; i++) count *= s.mult;
+        }
+        const int cnt = (int)count;
+        if (cnt <= 0)
+            continue;
+        float fx = 0.0f, fz = 0.0f;
+        if (x.prefix)
+            for (int f = 0; f < 8; f++)
+                if (!strcmp(rname + n, FACE[f])) { fx = DIR[f][0]; fz = DIR[f][1]; }
+        const float bx = base ? base[0] : an.wx;
+        const float by = base ? base[1] : efx_ground(an.wx, an.wz);
+        const float bz = base ? base[2] : an.wz;
+        const float ex = bx + ((float)x.dx + fx * (float)x.ahead) * EFX_U;
+        const float ey = by + (float)x.dy * EFX_U;
+        const float ez = bz + ((float)x.dz + fz * (float)x.ahead) * EFX_U;
+        if (s.sys == 2 || s.sys == 3) {            /* wreckage, as SOURCE_Debris throws it */
+            efx_emit_chunks(s, ex, ey, ez, cnt, key, bornFrame, first + j, k, g_efxSpawnHouse);
+            g_efxRecipeChunks[an.name] += cnt;
+        } else {
+            efx_emit(s, ex, ey, ez, cnt, key, bornFrame, first + j, k, x.flat);
+            g_efxRecipeParts[an.name] += cnt;
+        }
+        g_efxExtraParts += cnt;
+    }
+}
+
 /* Which anims still want the old procedural billboard. Everything with a cartridge
    recipe is now drawn by the pool and by nothing else; the -1 rows split in two. */
 static bool efx_proc_fallback(const EfxAnim& a)
@@ -1458,6 +1786,7 @@ static void efx_integrate_once(void)
     int w = 0;
     for (int i = 0; i < g_efxNChunk; i++) {
         EfxPart& c = g_efxChunk[i];
+        const float px = c.x, py = c.y, pz = c.z;    /* its trail's last link, see THE TRAIL */
         c.x += c.vx; c.y += c.vy; c.z += c.vz;
         c.vy += c.ay;
         const float gy = efx_ground(c.x, c.z);
@@ -1506,6 +1835,10 @@ static void efx_integrate_once(void)
             e.arate = c.arate;                   /* the ember is the same 8-frame art */
             e.r = c.r; e.g = c.g; e.b = c.b; e.a = c.a;
             e.seed = h;
+            e.sheet = 0;
+            e.flat = 0;
+            /* the link back to the ember before it, for Enhanced's streak */
+            e.tx = px - c.x; e.ty = py - c.y; e.tz = pz - c.z;
             efx_push(e);
             g_efxChunk[w++] = c;
         }
@@ -1524,6 +1857,17 @@ static void efx_integrate_once(void)
            looks identical to a correct build in every dump that prints the table and
            different in every frame that draws the plume. */
         p.vx += p.ax; p.vy += p.ay; p.vz += p.az;
+        if (p.bounce && p.vy < 0.0f) {
+            /* the viewer's skip: a falling spark that reaches the ground comes back up at
+               three tenths of its speed and loses half of its sideways speed */
+            const float g = efx_ground(p.x, p.z);
+            if (p.y < g) {
+                p.y = g;
+                p.vy *= -0.3f;
+                p.vx *= 0.5f;
+                p.vz *= 0.5f;
+            }
+        }
         p.hw += p.grow;
         if (p.hw < 0.0f) p.hw = 0.0f;
         p.age++;
@@ -1546,6 +1890,16 @@ static void efx_integrate_once(void)
    engine frame cannot double-step the pool. dt is clamped to 4 ticks so that a long
    stall (a movie, a pause dialog, a mission change) cannot make the pool catch up
    over hundreds of ticks inside one frame. */
+/* Set by the host. Returns true for an anim the host draws itself. */
+static bool (*g_efxClaim)(const EfxAnim& an, int frame) = NULL;
+/* Set by the host: particles of its own to emit on this tick, after every anim's recipe
+   has fired and before the pool integrates, so what it emits takes the tick's step exactly
+   as a recipe's particles do (a remastered building's explosion, ebld_mod.h). */
+static void (*g_efxBeforeIntegrate)(int frame) = NULL;
+/* Set by the host. True for a live anim the host already took, so parts drawn straight
+   from the anim list (the nuke's mushroom) stand down too. */
+static bool (*g_efxIsClaimed)(const EfxAnim& an) = NULL;
+
 static void efx_step(int frame)
 {
     if (frame == g_efxStepFrame)
@@ -1574,6 +1928,11 @@ static void efx_step(int frame)
     std::set<int> fbFired;          /* footprints that already got their one FRAG3 */
     for (size_t i = 0; i < g_efxAnims.size(); i++) {
         EfxAnim& an = g_efxAnims[i];      /* mutable: chunkHouse caches on first burst */
+        /* AN ANIM SOMETHING ELSE DRAWS. The host's Unity explosion (unityvfx_mod.h)
+           takes the anims it replaces here, and a taken anim fires no recipe at all, so
+           the two explosions are never drawn on top of each other. */
+        if (g_efxClaim && g_efxClaim(an, frame))
+            continue;
         if (an.type < 0 || an.type >= EFX_ANIM2RECIPE_N) {
             g_efxNoRecipe[an.name]++;
             continue;
@@ -1663,6 +2022,13 @@ static void efx_step(int frame)
                         g_efxRecipeParts[an.name] += n;
                     }
                 }
+                {   /* and under Enhanced, a real flash at the same muzzle */
+                    float mx = an.wx, my = efx_ground(an.wx, an.wz) + 0.10f, mz = an.wz;
+                    if (g_efxMuzzleAt && an.attref >= 0)
+                        g_efxMuzzleAt(an.attref, an.attkind, &mx, &my, &mz);
+                    const float base[3] = { mx, my, mz };
+                    efx_fire_extras(an, rec.name, 1, (unsigned)key, la.bornFrame, base);
+                }
                 g_efxRecipeName[an.name] = "CannonFlash_OURS";
             } else {
                 g_efxEmpty[an.name]++;
@@ -1702,10 +2068,13 @@ static void efx_step(int frame)
             g_efxGhost.erase(std::make_pair(key, an.attref));
         }
 
-        for (int sI = 0; sI < (int)rec.nslot; sI++)
-            efx_fire_slot(an, rec.slot[sI], sI, (unsigned)key, la.bornFrame, rec.name);
+        if (!efx_enh_replaces(rec.name))
+            for (int sI = 0; sI < (int)rec.nslot; sI++)
+                efx_fire_slot(an, rec.slot[sI], sI, (unsigned)key, la.bornFrame, rec.name);
+        efx_fire_extras(an, rec.name, (int)rec.nslot, (unsigned)key, la.bornFrame, NULL);
     }
     g_efxAnimLive.swap(seen);
+    efx_linger_step(frame);
 
     /* --- the art-less anims' own clock -------------------------------------- */
     for (std::map<std::pair<int, int>, EfxGhost>::iterator gi = g_efxGhost.begin();
@@ -1729,7 +2098,7 @@ static void efx_step(int frame)
                the engine's stage 0 and is left exactly as it was, truncated; see EfxGhost
                for the measurement that decided this; the evidence that would settle it
                has not been gathered. */
-            if (!efx_slot_continuous(rec.slot[sI]))
+            if (!efx_slot_continuous(rec.slot[sI]) || efx_enh_replaces(rec.name))
                 continue;
             /* The ANIM key, not the map key: the particle hash must stay the same pure
                function of (anim, bornFrame, slot, tick) it is on the engine path. Two
@@ -1739,6 +2108,9 @@ static void efx_step(int frame)
         }
         ++gi;
     }
+
+    if (g_efxBeforeIntegrate)
+        g_efxBeforeIntegrate(frame);
 
     /* --- integrate ---------------------------------------------------------- */
     for (int t = 0; t < dt; t++)
@@ -1808,10 +2180,60 @@ static void efx_quad_batched(const EfxPart& p, const float* R, const float* U,
     glTexCoord2f(0.0f, 0.0f); glVertex3f(p.x - rx + ux, p.y - ry + uy, p.z - rz + uz);
 }
 
+/* THE EMBER TRAIL AS A STREAK (Enhanced only). A debris chunk drops one ember a tick
+   where it is and flies about 0.09 of a cell a tick, while the ember's speck is about
+   0.07 across, so drawn as squares (the cartridge's way, which Classic keeps) the trail
+   is a dotted chain of orange specks at the game camera. Enhanced draws each trail ember
+   as a streak instead: from where it lies back along its tail to the ember before it, as
+   wide as the square would be, overlapping its neighbours by EFX_STREAK_CAP of its half
+   width at each end, and wearing one row of its frame across it (EFX_STREAK_ROW of the
+   way down the used rows: the speck's widest), so the trail reads as one line that cools
+   along its length, each link still through the strip's frames and the alpha law. The
+   same embers, colours, speed and length. The remaster lab draws them the same way
+   (TRAIL_STREAK in tools/art/remaster/viewer/index.html).
+   Returns false, drawing nothing, for a link too short to see along (a chunk at rest):
+   the caller draws the square. Fixed function, four vertices like any other particle:
+   Tier 1 draws it as it stands. */
+static const float EFX_STREAK_CAP = 0.4f, EFX_STREAK_ROW = 0.47f, EFX_STREAK_MIN = 0.2f;
+static bool efx_streak_batched(const EfxPart& p, const float* R, const float* U,
+                               float u1, float v1, float alpha)
+{
+    /* the tail across the screen: its part along the billboard's right and up */
+    const float ta = p.tx * R[0] + p.ty * R[1] + p.tz * R[2];
+    const float tb = p.tx * U[0] + p.ty * U[1] + p.tz * U[2];
+    const float tl = sqrtf(ta * ta + tb * tb);
+    if (tl <= EFX_STREAK_MIN * p.hw) return false;
+    float A[3], W[3];
+    for (int k = 0; k < 3; k++) {
+        A[k] = (ta * R[k] + tb * U[k]) / tl;
+        /* across it, turned so the quad winds as a square one does */
+        W[k] = (tb * R[k] - ta * U[k]) / tl * p.hw;
+    }
+    const float e = EFX_STREAK_CAP * p.hw;
+    const float a0[3] = { p.x - A[0] * e, p.y - A[1] * e, p.z - A[2] * e };
+    const float a1[3] = { p.x + p.tx + A[0] * e, p.y + p.ty + A[1] * e, p.z + p.tz + A[2] * e };
+    const float v = EFX_STREAK_ROW * v1;
+    glColor4f((float)p.r / 255.0f, (float)p.g / 255.0f, (float)p.b / 255.0f, alpha);
+    glTexCoord2f(0.0f, v); glVertex3f(a0[0] - W[0], a0[1] - W[1], a0[2] - W[2]);
+    glTexCoord2f(u1,   v); glVertex3f(a0[0] + W[0], a0[1] + W[1], a0[2] + W[2]);
+    glTexCoord2f(u1,   v); glVertex3f(a1[0] + W[0], a1[1] + W[1], a1[2] + W[2]);
+    glTexCoord2f(0.0f, v); glVertex3f(a1[0] - W[0], a1[1] - W[1], a1[2] - W[2]);
+    return true;
+}
+
 /* Scratch for the bucket sort. Static so the pass allocates nothing per frame. */
 static short g_efxOrder[EFX_MAX_PART + EFX_MAX_CHUNK];
 static short g_efxBKey[EFX_MAX_PART + EFX_MAX_CHUNK];
-#define EFX_NBUCKET (10 * 16)
+/* Ten systems, then one slot per Enhanced source sheet (efx_enhanced.h), each of 16
+   frames. A sequence of more than 16 frames is drawn at its first 16: the frame is
+   clamped to 15 where the key is built, not only in the draw loop, because a key past a
+   slot's 16 lands in the NEXT slot's buckets, or past the end of the array. */
+#define EFX_NSLOT (10 + EFX_ENH_NSRCSHEET)
+#define EFX_NBUCKET (EFX_NSLOT * 16)
+static const EfxSeq* efx_slot_seq(int slot)
+{
+    return slot < 10 ? efx_seq(EFX_SYS[slot].seq) : efx_seq(EFX_ENH_SRCSHEET[slot - 10].sheet);
+}
 
 /* Draw order: the alpha-blended systems first so the additive fire and glow sit on
    top of the smoke, which is what the reference frames show (p080: the chunks and
@@ -1819,6 +2241,11 @@ static short g_efxBKey[EFX_MAX_PART + EFX_MAX_CHUNK];
 static const unsigned char EFX_DRAW_ORDER[10] = { 6, 2, 3, 8, 0, 1, 4, 5, 7, 9 };
 
 static int g_efxDrawn = 0;             /* particles that survived the cull last frame */
+/* Particle draws this mission, per draw slot, split by where the slot's texture came
+   from: [1] the remastered pack, [0] the cartridge's. One count per particle per drawn
+   frame. This is the renderer's own answer to "which art did the explosions wear", for
+   efxdump, and it is taken where the texture is chosen, so it cannot disagree with it. */
+static long g_efxSlotDrawn[EFX_NSLOT][2];
 
 /* THE DEBRIS CHUNKS, drawn as real meshes.
 
@@ -1883,6 +2310,8 @@ static void efx_draw_nuke_meshes(void)
     for (size_t i = 0; i < g_efxAnims.size(); i++) {
         const EfxAnim& a = g_efxAnims[i];
         if (strcmp(a.name, "ATOMSFX"))
+            continue;
+        if (g_efxIsClaimed && g_efxIsClaimed(a))
             continue;
         /* NO SHROUD CULL ON A SUPERWEAPON. Every other effect in this file is hidden
            when its cell is under shroud, which is right: an explosion in the fog is
@@ -2017,11 +2446,15 @@ static void efx_draw_particles(const float* R, const float* U)
             continue;
         if (p.hw <= 0.0f || efx_hidden(p.x, p.z))
             continue;
-        /* The ember art, for a chunk falling back to a sprite. */
-        const int sysIdx = isChunk ? 8 : (int)p.sys;
-        const EfxSeq* s = efx_seq(EFX_SYS[sysIdx].seq);
+        /* The ember art, for a chunk falling back to a sprite. Under Enhanced, a particle
+           with a sheet of its own takes that sheet's slot. */
+        const int sysIdx = isChunk ? 8
+                         : (g_efxEnhOn && p.sheet && p.sheet <= EFX_ENH_NSRCSHEET) ? 10 + p.sheet - 1
+                         : (int)p.sys;
+        const EfxSeq* s = efx_slot_seq(sysIdx);
         if (!s || s->frames <= 0)
             continue;
+        g_efxSlotDrawn[sysIdx][efx_seq_is_enh(s) ? 1 : 0]++;
         /* THE CARTRIDGE STRETCHES THE WHOLE STRIP ACROSS THE PARTICLE'S LIFE. There is
            no per-template frame RATE: the byte we used to read as one (+0x31) is the
            ALPHA RAMP SLOPE, see the alpha law below. Both the triangle path
@@ -2030,6 +2463,7 @@ static void efx_draw_particles(const float* R, const float* U)
            and apply it as a T offset of frame * 32 texels down a vertical film strip. */
         int fr = (p.life > 0) ? (p.age * s->frames) / p.life : 0;
         if (fr >= s->frames) fr = s->frames - 1;
+        if (fr > 15) fr = 15;
         if (fr < 0) fr = 0;
         g_efxBKey[n] = (short)(sysIdx * 16 + fr);
         g_efxOrder[n] = (short)i;
@@ -2051,14 +2485,23 @@ static void efx_draw_particles(const float* R, const float* U)
 
     glEnable(GL_TEXTURE_2D);
     int lastAdditive = -1;
-    for (int oi = 0; oi < 10; oi++) {
-        const int sys = EFX_DRAW_ORDER[oi];
-        const EfxSeq* s = efx_seq(EFX_SYS[sys].seq);
+    /* Each system in the cartridge's order, and right after it any Enhanced source sheet
+       drawing with that system. */
+    int order[EFX_NSLOT], nOrder = 0;
+    for (int d = 0; d < 10; d++) {
+        order[nOrder++] = EFX_DRAW_ORDER[d];
+        for (int e = 0; e < EFX_ENH_NSRCSHEET; e++)
+            if (EFX_ENH_SRCSHEET[e].sys == EFX_DRAW_ORDER[d]) order[nOrder++] = 10 + e;
+    }
+    for (int oi = 0; oi < nOrder; oi++) {
+        const int slot = order[oi];
+        const int sys = slot < 10 ? slot : (int)EFX_ENH_SRCSHEET[slot - 10].sys;
+        const EfxSeq* s = efx_slot_seq(slot);
         if (!s) continue;
         const float u1 = (float)s->uw / (float)s->w;
         const float v1 = (float)s->uh / (float)s->h;
         for (int fr = 0; fr < s->frames && fr < 16; fr++) {
-            const int k = sys * 16 + fr;
+            const int k = slot * 16 + fr;
             const int lo = bucket[k], hi = bucket[k + 1 > EFX_NBUCKET ? EFX_NBUCKET : k + 1];
             if (hi <= lo) continue;
             if ((int)EFX_SYS[sys].additive != lastAdditive) {
@@ -2089,7 +2532,17 @@ static void efx_draw_particles(const float* R, const float* U)
                 int ai = (int)(p.life - p.age) * (int)p.arate;
                 if (ai > (int)p.a) ai = (int)p.a;
                 if (ai < 0) ai = 0;
-                efx_quad_batched(p, R, U, u1, v1, (float)ai / 255.0f);
+                /* A flat particle lies on the ground: world east and world north as its
+                   axes, which winds it the way a camera-facing one is wound as seen from
+                   above. */
+                static const float FLAT_R[3] = { 1.0f, 0.0f, 0.0f };
+                static const float FLAT_U[3] = { 0.0f, 0.0f, -1.0f };
+                const bool flat = g_efxEnhOn && p.flat;
+                /* a chunk trail's ember under Enhanced: a streak (efx_streak_batched) */
+                if (g_efxEnhOn && i < g_efxNPart && p.sys == 8 && (p.tx != 0.0f || p.ty != 0.0f || p.tz != 0.0f)
+                    && efx_streak_batched(p, R, U, u1, v1, (float)ai / 255.0f))
+                    continue;
+                efx_quad_batched(p, flat ? FLAT_R : R, flat ? FLAT_U : U, u1, v1, (float)ai / 255.0f);
             }
             glEnd();
         }
@@ -2339,7 +2792,16 @@ static void efx_draw(const float* bbRight, const float* bbUp)
         const float y    = efx_ground(b.wx, b.wz) + lift;   /* absolute: the dart below */
         const int mi = efx_bullet_model(b.name);
         if (mi >= 0) {
-            efx_bullet_draw_model(mi, b.wx, lift, b.wz, b.face, efx_bullet_lays_flat(b.name));
+            float off[3];
+            if (g_efxBulletOffset && g_efxBulletOffset(b.id, b.type, b.wx, b.wz, off)) {
+                /* draw_mesh stands the model on the ground under its anchor, so the lift
+                   is taken against the ground where the model is drawn */
+                const float ax = b.wx + off[0], az = b.wz + off[2];
+                const float ly = efx_ground(b.wx, b.wz) + lift + off[1] - efx_ground(ax, az);
+                efx_bullet_draw_model(mi, ax, ly, az, b.face, efx_bullet_lays_flat(b.name));
+            } else {
+                efx_bullet_draw_model(mi, b.wx, lift, b.wz, b.face, efx_bullet_lays_flat(b.name));
+            }
             continue;
         }
         if (g_efxBulletMiss.find(b.name) == g_efxBulletMiss.end()) {
@@ -2469,6 +2931,19 @@ static void efx_dump(void)
             if (per[s])
                 printf("EFXPART|sys=%d|%s|live=%d\n", s, EFX_SYS[s].seq, per[s]);
     }
+    /* ---- which art the particles wore ---- */
+    {
+        long de = 0, dc = 0;
+        for (int k = 0; k < EFX_NSLOT; k++) { dc += g_efxSlotDrawn[k][0]; de += g_efxSlotDrawn[k][1]; }
+        printf("EFXENH|pack=%s|seqs=%zu|on=%d|drawn_enh=%ld|drawn_cart=%ld|extras=%ld\n",
+               g_efxHaveEnh ? "loaded" : "absent", g_efxSeqsEnh.size(), g_efxEnhOn ? 1 : 0,
+               de, dc, g_efxExtraParts);
+        for (int k = 0; k < EFX_NSLOT; k++)
+            if (g_efxSlotDrawn[k][0] || g_efxSlotDrawn[k][1])
+                printf("EFXDRAWSEQ|slot=%d|%s|enh=%ld|cart=%ld\n", k,
+                       k < 10 ? EFX_SYS[k].seq : EFX_ENH_SRCSHEET[k - 10].sheet,
+                       g_efxSlotDrawn[k][1], g_efxSlotDrawn[k][0]);
+    }
     if (g_efxEvicted || g_efxChunkDropped)
         printf("EFXCAP|the pool hit its cap: %ld sprites evicted oldest-first, "
                "%ld chunks refused (caps %d/%d)\n",
@@ -2592,6 +3067,12 @@ static void efx_free(void)
                 glDeleteTextures(1, &g_efxSeqs[i].gl[k]);
     g_efxSeqs.clear();
     g_efxHaveArt = false;
+    for (size_t i = 0; i < g_efxSeqsEnh.size(); i++)
+        for (size_t k = 0; k < g_efxSeqsEnh[i].gl.size(); k++)
+            if (g_efxSeqsEnh[i].gl[k])
+                glDeleteTextures(1, &g_efxSeqsEnh[i].gl[k]);
+    g_efxSeqsEnh.clear();
+    g_efxHaveEnh = false;
     g_efxAnnounced = false;
 
     g_efxAnims.clear();
@@ -2604,6 +3085,8 @@ static void efx_free(void)
     g_efxUnknown.clear();
     g_efxArtUsed.clear();
     g_efxDeathsSeen = 0;
+    memset(g_efxSlotDrawn, 0, sizeof(g_efxSlotDrawn));
+    g_efxExtraParts = 0;
     g_efxCellHidden = 0;
     g_efxDeadFootprint = 0;
     g_efxDeadHouse = 0;
@@ -2616,4 +3099,4 @@ static void efx_free(void)
     efx_pool_clear();
 }
 
-#endif /* CNC3D_EFFECTS_MOD_H */
+#endif /* OPENCNC3D_EFFECTS_MOD_H */

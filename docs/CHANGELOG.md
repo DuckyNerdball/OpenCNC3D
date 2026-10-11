@@ -1,6 +1,175 @@
 # Changelog
 
-## OpenCNC 3D v0.7.1 "On The Level" (2026-09-18)
+## OpenCNC3D v0.8.0 "From The Ground Up" (2026-10-10)
+
+### New features
+
+- Setup downloads the 1995 movies and music: the Windows installer and the launcher's first start offer both as ticked boxes, with a progress bar showing the size downloaded and the percent
+- A gear button in the launcher adds or removes the movies and music at any time
+- Three graphics modes under Visuals, from the main menu and the in-game Options: Classic (the original 1995 picture), N64 (the cartridge's own picture) and Enhanced (new art, models, grass and sound)
+- The new Classic mode is the 1995 MS-DOS game's own flat 320x200 top-down picture, with its sprites, terrain, sidebar, building placement and build-up animations, effects, Nod colours and order flashes
+- SPACE switches to the next graphics mode during play: a line of energy sweeps across the screen revealing the new mode, a whoosh follows it from left to right, and the mode's name appears across the top in the original C&C lettering
+- Under Enhanced every structure is a new hand-painted remastered 3D model in its player's colour, with turning fans, dishes and radar, aiming turrets, a Tiberium Silo that fills up, flashing lights, steam and exhaust, and a Barracks flag that waves in the wind
+- Under Enhanced all 21 vehicles and aircraft are new remastered 3D models in their player's colour: turrets turn, tracks and wheels roll as they drive, front wheels steer, rotors spin up into blur discs, ramps and doors open, gun barrels kick back when they fire, and the harvester docks at the refinery and works its arms
+- Under Enhanced every infantry type is a smoothly shaded remastered 3D model in its own kit and colours: all seven soldier types, the ten townsfolk, Dr. Moebius, Dr. Chan and Agent Delphi
+- The remastered soldiers stand, run leaning in at the low ready, aim and fire from the shoulder with a recoil that settles, lie down, crawl, fire prone, get up and die, shift their weight and look round while standing, play the idles, salutes and gestures the 1995 engine picks, and blend smoothly from one animation into the next
+- Under Enhanced the trees of temperate and desert maps are new hand-painted models: spruces, firs, broadleaf trees and saplings in temperate, saguaro cacti and acacias in the desert, each lit, casting a shadow and swaying gently in the wind
+- Under Enhanced Tiberium is drawn from new models laid out cell by cell the way the 1995 game lays it: dark earth mounds crowned with glowing yellow-green crystals that grow from a bare mound to a sprout to a full cluster, with soft streaks of light rising through them
+- Under Enhanced the ground is the 1995 terrain repainted at 144 texels a cell in Temperate, Desert and Winter and on snow maps made in the editor, each tile blending into its neighbours across the join, the cliff pieces maps repeat side by side painted three ways, and the coast fading into the sea; it is the new Enhanced Textures choice under Advanced > Terrain
+- Under Enhanced a new sidebar: a larger radar with Repair, Sell and Power buttons beside it, and Structures, Infantry, Vehicles and Aircraft tabs that list everything your side can build, with locked items dimmed and what they need shown on hover
+- The Power button on the Enhanced sidebar switches one of your buildings off and on: a switched-off building stops making or using power and stops firing, producing and repairing, and carries an amber bolt until it is switched back on
+- Under Enhanced a new structure builds itself part by part: its slab rises out of the ground in dust and broken earth, then each part comes up through it and unfolds, landing in a puff of dust with a jolt and a rumble; the Construction Yard unfolds out of the MCV and raises its robot-arm crane from the turntable, and a sold structure plays it backwards
+- Placing a building under Enhanced shows a see-through ghost of it centred on the pointer, green where it fits and red where it does not, over a fading grid of glowing marks that shows where the base can grow
+- Under Enhanced, outside online matches, a wall piece placed in line with one of your own walls of the same kind, up to five cells away, fills the gap for free; the cursor previews the whole line, which rises piece by piece in a puff of dust
+- Remastered structures take visible damage: hits chip them on the side they come from, at half health pieces break away and fall, broken parts smoke, spark, burn or pour out water and Tiberium, a crane arm sags and a door jams, and the camera jolts as a building breaks
+- A destroyed remastered structure blows apart into a couple of hundred pieces in its own explosion of flash, towering fireball, shock ring, wreckage trailing streaks of embers, smoke and fire, and the wreck sinks and fades over a scorch mark
+- Under Enhanced the sandbag, chain-link and concrete walls are remastered models that wear down cell by cell as they are damaged, chip while they are shot and collapse in their own dust
+- Under Enhanced every civilian building, the farm fields and haystacks, the oil pump, and the barbed wire and wooden fences are hand-painted remasters that stand on their plots as the 1995 art draws them and wear down, break and blow apart; the oil pump nods, and struggles once damaged
+- Under Enhanced every explosion, hit, fire, flame and smoke is redrawn in new remastered art, the chain guns and cannons fire with a muzzle flash, and the landing-zone smoke is green signal smoke over a burning flare
+- Under Enhanced the Hand of Nod is a sculpted statue: its forearm climbs twisting out of a pit in the rock and catches the globe as it drops, the camouflage net unfurls and the side door, emblem and main gate swing open
+- Under Enhanced the Hand of Nod's gate opens for every soldier it trains, who steps out through it, and the Weapons Factory's door opens for every vehicle it builds, damaged or not
+- A destroyed remastered vehicle breaks into charred, glowing wreckage; an aircraft shot down falls and breaks where it lands, and a wreck that ends on water sinks
+- Under Enhanced fallen soldiers stay where they fell, darkened, up to 200 on a map, ending their fall as a ragdoll that vehicles and soldiers shove, with blood pooled beneath them
+- Under Enhanced explosions tear soldiers apart and tracked vehicles crush them, blood sprays from the wounds onto the ground, vehicles and buildings, and tracks laid through it run red for a while
+- Under Enhanced rifles and pistols flash at the muzzle and throw brass casings that bounce and fade
+- Under Enhanced every cursor is a glowing remastered 3D model, a quarter smaller than the cartridge's and animating exactly as the cartridge's do
+- Under Enhanced temperate and desert maps have ambient sound, with rivers and the sea where they are in view, crossfading as the camera zooms in and out and looping through a smooth crossfade with no gap; a new Ambience slider in Sound Controls sets its volume and the rain's
+- Under Enhanced tanks, artillery, rocket launchers, APCs, harvesters and Humvees are heard as they drive, louder the closer the camera is
+- Under Enhanced soldiers' footsteps are heard as they move: recorded steps that vary in pitch and volume from step to step, louder when the camera is close
+- Under Enhanced a building you place lands with a heavy impact and rumbles as it rises, and damaged and collapsing buildings and walls and destroyed vehicles carry impact sounds of their own
+- Under Enhanced the sidebar's buttons make a sound on hover and on click
+- Under Enhanced every unit and structure being built or queued gets a small card beside the power meter, with its build clock and percentage and one card per type with a count, sliding out from under the sidebar and back
+- Under Enhanced clumps of tall grass grow in wide patches on the open grass of temperate maps and sway in the wind, never on roads, bridges, water, cliffs, Tiberium or under buildings
+- Vehicles flatten the grass clumps they drive over, which then fade away, and a structure going up lays the clumps around it flat
+- Under Enhanced hand-painted stones in each theater's own colours lie at the foot of cliffs and rock faces: a vehicle driving into one shoves it and it rolls or tumbles to rest, and a structure going up throws the rocks near it outward
+- Under Enhanced soft patches of soil, gravel and fallen leaves break up the open ground of temperate maps, and patches of soil and gravel matched to the sand break up the desert, so open fields no longer repeat one tile
+- Under Enhanced the far part of the view, toward the top of the screen, fades into a pale haze on temperate and desert maps
+- Under Enhanced mist drifts low across temperate and winter maps and sand dust blows across desert maps, lit by fires, explosions, muzzle flashes and Tiberium, and fading softly at the edge of the shroud
+- Under Enhanced a glowing fog hangs over every Tiberium field, and the field's glow lights the whole field instead of a few spots
+- Contact shadows under Enhanced, so units, trees and buildings sit on the ground instead of floating over it
+- Under Enhanced a remastered tree that catches fire burns with its own flames, glow, smoke and embers, and is left as a charred snag that smokes until it goes out
+- Under Enhanced the Blossom Trees are new models: a swollen golden bulb on a crooked trunk with dead branches, crowded with glowing pods and painted to suit each theater, rising out of glowing Tiberium cracks in the ground and squeezing out a spray of green spores on an eight-second loop
+- Under Enhanced the desert rocks, both bonus crates and the crashed Orca, lying on its own scorched patch of ground, are hand-painted remasters
+- Under Enhanced vehicles leave tracks on the ground behind them, laid along the path they actually drove, fading on a timer and thinning away a set distance back
+- The thirteen Covert Operations missions, the nine multiplayer maps and the Special Ops bonus missions and test scenarios, which were flat, now have hills, plateaus, cliffs and ramps generated from their own tiles in the N64 and Enhanced pictures, with every multiplayer start on level ground
+- Each graphics mode keeps its own Advanced settings, with a tab per mode to change any of them without switching to it
+- The Advanced page opens with the settings every mode shares: fullscreen, windowed or borderless and resolution, plus new Vertical sync and FPS counter switches
+- A new OpenCNC3D logo on the title screen behind the main menu
+- The main menu states that the game is an unofficial fan project, not affiliated with or endorsed by Electronic Arts
+- The launcher opens on a grid of four module slots, the first of them this game: a module is another game on this engine, started from the launcher
+- Pressing an empty slot in the launcher opens the module browser, which lists nothing yet and says so
+- The changelog moves behind a button of its own in the launcher, which swaps the launcher's panel and swaps back
+- Tree clumps, which the cartridge never drew, are drawn as single trees on the cells they occupy, so nothing invisible refuses a building any more
+
+### Improvements
+
+- Without the music installed the jukebox lists nothing to play, and without the movies Intro & Sneak Peek is greyed out
+- Enhanced's default picture is retuned: softer, finer ambient occlusion, a brighter, warmer and richer colour grade with more contrast, softer terrain shadows, thinner mist, a deeper sea and a wider, gentler glow on bright highlights, which roll off smoothly instead of clipping flat to white
+- Under Enhanced the camera zooms in a quarter closer than the cartridge allows
+- ESC is the pause key; SPACE no longer pauses
+- The cartridge's picture, called Classic in earlier builds, is now N64 under Visuals, and its saved settings carry over
+- Under Enhanced the pointer stays the same size as the camera zooms in and out, on the map and over the sidebar
+- Under Enhanced building aprons are redrawn at higher resolution as packed grey-brown earth and gravel, keeping their ragged outline and blending softly into sand and grass alike
+- Enhanced water is calmer, with a gentler ripple, a more natural colour and only a faint wake behind boats
+- Under Enhanced the Database tab turns the 22 military buildings as repaired cartridge models, complete on every side, with rounder parts and sharper textures
+- The map editor's AUTO HEIGHTMAP runs the new generator: it closes plateaus, settles and carves water, spreads ramps, puts buildings and starts on level ground and rolls the open ground, all in one undo
+- Sound is mixed at 44.1 kHz instead of 22 kHz, so the new Enhanced sounds keep their full top end; the 1995 sounds, music and movie audio play unchanged
+- The target flash is seen by the player who gave the order and their allies, not by the defender
+- A building going up shakes only its owner's camera
+- The launcher's headline is the two build numbers side by side, and the available one carries the version whenever it is known instead of a word
+- The launcher's keyboard walks both rows: up and down move between the module slots and the buttons, and escape leaves the screen you are on
+
+### Performance
+
+- 3D Tiberium fields cost far less to draw
+- Harvesters working a 3D Tiberium field no longer make the game stutter
+- Sun shadows and water reflections cost less to draw under Enhanced, and buildings, vehicles and walls cost less in the N64 picture
+- Switching graphics mode during a mission no longer stalls
+
+### Platforms and builds
+
+- The downloads no longer carry the movies and music; Setup fetches them from archived copies of the original discs
+- Windows has a small web installer that downloads the game itself during setup
+- Builds older than v0.8.0 cannot update themselves to it: download v0.8.0 and install it once; saved games come along
+- The macOS package runs natively on Apple Silicon and Intel Macs in one download; Rosetta 2 is no longer needed
+- The wire version is 12: a v0.8.0 game and an older one refuse each other by name in the lobby instead of parting on the first frame
+
+### Bugs fixed
+
+- Playing several missions in one sitting no longer uses more memory with each one
+- Special Ops and campaign missions refused to start with a missing-file error after a User Map had been played
+- Pressing CTRL+1..0 to assign a control group in an online match no longer ends the match for everyone with THE MACHINES STOPPED AGREEING
+- Queuing several units in an online match no longer loses all but the first
+- A building could vanish for a few seconds, shadow and all, when a vehicle elsewhere on the map was destroyed
+- The User Maps list opened empty even when maps were installed, and could open correctly on one run and empty on the next
+- The User Maps list showed each map's file code instead of its own name
+- On User Maps with raised ground the pointer sat about a cell away from what it was over, so units on high ground could only be selected by aiming well above them
+- Choosing the cartridge's picture under Visuals did not survive a restart: the game came back with the DOS terrain, the new sidebar and texture filtering from Enhanced
+- The haystacks and the wheat, fallow, corn, celery and potato fields that 17 missions lay out as farmland were not drawn; they now stand on the map in N64 and Enhanced
+- Tiberium no longer twitches across the whole field when a cell is harvested or spreads
+- A flamethrower facing north no longer sprays straight up and into the ground
+- The Obelisk of Light's beam is drawn when it fires, in every graphics mode
+- The chat from the previous match no longer shows over a new one
+- Seats left open when a match started are open again in the next room
+
+---
+
+## OpenCNC3D v0.7.3 "Room For More" (2026-09-21)
+
+### New features
+
+- The launcher opens on a grid of four module slots, the first of them OpenCNC3D: a module is another game on this engine, started from the launcher and playing across to the others
+- Pressing an empty slot opens the module browser, which lists nothing yet and says so
+- The changelog moves behind a button of its own, which swaps the launcher's panel and swaps back
+- Vehicles leave tracks on the ground behind them under Enhanced Visuals, laid along the path they actually drove, fading on a timer and thinning away a set distance back
+
+### Improvements
+
+- The launcher's headline is the two build numbers side by side, and the available one now carries the version whenever it is known instead of a word
+- The launcher's keyboard walks both rows: up and down move between the module slots and the buttons, and escape leaves the screen you are on
+
+### Platforms and builds
+
+- CI builds the macOS launcher on every push, which it never did before, so a launcher change is compiled on both platforms before a release is cut
+
+---
+
+---
+
+## OpenCNC3D v0.7.2 "The Machines Agree" (2026-09-20)
+
+### New features
+
+- Tree clumps, which the cartridge never drew, are drawn as single trees on the cells they occupy, so nothing invisible refuses a building any more
+
+### Improvements
+
+- The target flash is seen by the player who gave the order and their allies, not by the defender
+- A building going up shakes only its owner's camera
+- On Windows the Remastered Collection is also looked for under a Steam installed on another drive
+
+### Platforms and builds
+
+- The wire version is 11: a v0.7.1 game and a v0.7.2 game refuse each other by name in the lobby instead of parting on the first frame
+- When a match parts, the log lists every seat's world fingerprint for that frame (`NETDESYNC-SEATS`), so one log says which machine drifted
+- The two loopback match tests assign a control group on the joiner
+- Two new loopback match tests: selling and repairing in a match, and the build queue in a match
+- A release dry run puts the developer build (with F5) back into the play folder when it finishes
+
+### Bugs fixed
+
+- Pressing CTRL+1..0 to assign a control group in an online match no longer ends the match for everyone with THE MACHINES STOPPED AGREEING
+- Queuing several units in an online match no longer loses all but the first
+- The chat from the previous match no longer shows over a new one
+- Seats left open when a match started are open again in the next room
+- Tiberium no longer twitches across the whole field when a cell is harvested or spreads
+- A flamethrower facing north no longer sprays straight up and into the ground
+
+---
+
+---
+
+## OpenCNC3D v0.7.1 "On The Level" (2026-09-18)
 
 ### New features
 
@@ -56,7 +225,7 @@
 
 ---
 
-## OpenCNC 3D v0.6.12 "Step Aside" (2026-09-14)
+## OpenCNC3D v0.6.12 "Step Aside" (2026-09-14)
 
 ### New features
 
@@ -66,7 +235,7 @@
 
 ### Platforms and builds
 
-- The Windows full package lists CHANGELOG.txt, cnc3d-install.txt, BUILD-ID.txt and SDL2.dll last
+- The Windows full package lists CHANGELOG.txt, opencnc3d-install.txt, BUILD-ID.txt and SDL2.dll last
 - The Windows binary-only zip no longer wraps its files in a folder
 - A release stops when the Windows SDL2.dll is not the pinned one
 - The Windows launcher declares UTF-8 as its code page
@@ -85,7 +254,7 @@
 - The launcher finishes an interrupted update before it reads the installed version
 - The Windows installer sets aside an interrupted update's journal before it installs
 - On macOS the app starts the launcher, not the game, while an update is unfinished
-- The launcher changes files only in a folder holding cnc3d-install.txt, and never removes a file there by pattern
+- The launcher changes files only in a folder holding opencnc3d-install.txt, and never removes a file there by pattern
 - A player leaving an online match no longer desyncs it when one machine hears the goodbye a turn later than another
 - A machine that missed a departed player's last orders gets them from the host instead of playing on without them
 - A building that would cover a cell off the edge of the map is refused with CANNOT DEPLOY HERE instead of vanishing into its factory
@@ -94,7 +263,7 @@
 
 ---
 
-## OpenCNC 3D v0.6.11 "Out Of The Box" (2026-09-13)
+## OpenCNC3D v0.6.11 "Out Of The Box" (2026-09-13)
 
 ### Improvements
 
@@ -108,7 +277,7 @@
 
 ---
 
-## OpenCNC 3D v0.6.10 "Bring Your Own Tank" (2026-09-09)
+## OpenCNC3D v0.6.10 "Bring Your Own Tank" (2026-09-09)
 
 ### New features
 
@@ -186,7 +355,7 @@
 
 ---
 
-## OpenCNC 3D v0.6.9 "Ask First" (2026-09-07)
+## OpenCNC3D v0.6.9 "Ask First" (2026-09-07)
 
 ### New features
 
@@ -245,7 +414,7 @@
 
 ---
 
-## OpenCNC 3D v0.6.8 "Another Angle" (2026-09-06)
+## OpenCNC3D v0.6.8 "Another Angle" (2026-09-06)
 
 ### New features
 
@@ -275,7 +444,7 @@
 
 ---
 
-## OpenCNC 3D v0.6.7 "One World" (2026-09-05)
+## OpenCNC3D v0.6.7 "One World" (2026-09-05)
 
 ### New features
 
@@ -315,7 +484,7 @@
 
 ---
 
-## OpenCNC 3D v0.6.6 "In Step" (2026-09-05)
+## OpenCNC3D v0.6.6 "In Step" (2026-09-05)
 
 ### New features
 
@@ -351,7 +520,7 @@
 
 ---
 
-## OpenCNC 3D v0.6.5 "Second Look" (2026-09-01)
+## OpenCNC3D v0.6.5 "Second Look" (2026-09-01)
 
 A pass back over the player board: every open report was read against the code again, and
 this is the half that was cheap, unblocked and needed nobody's permission.
@@ -443,7 +612,7 @@ this is the half that was cheap, unblocked and needed nobody's permission.
 
 ---
 
-## OpenCNC 3D v0.6.4 "Line Of Sight" (2026-08-31)
+## OpenCNC3D v0.6.4 "Line Of Sight" (2026-08-31)
 
 ### New features
 
@@ -512,7 +681,7 @@ this is the half that was cheap, unblocked and needed nobody's permission.
 
 ---
 
-## OpenCNC 3D v0.6.3 "Blast Radius" (2026-08-24)
+## OpenCNC3D v0.6.3 "Blast Radius" (2026-08-24)
 
 ### New features
 
@@ -544,7 +713,7 @@ this is the half that was cheap, unblocked and needed nobody's permission.
 - User Maps on the main menu lists the single player maps in missions/user_maps, ready to play.
 - Your own multiplayer maps are in the skirmish lobby, on a USER MAPS tab beside OFFICIAL.
 - A launcher on both platforms, in the 1995 dialog style: the build you have, the changelog in a scrolling panel, Play, and a greyed-out Editor.
-- The launcher watches the Builds section of cnc3dgame.com. When a newer build is up, Play becomes Update.
+- The launcher watches the Builds section of opencnc3d.com. When a newer build is up, Play becomes Update.
 - Update downloads it with a progress bar and installs it, without leaving the launcher.
 - The changelog in the panel is the one on the website, so it is never out of date.
 - An update takes the small binaries package instead of the whole 500 MB one whenever your game data already matches.
@@ -563,7 +732,7 @@ this is the half that was cheap, unblocked and needed nobody's permission.
 ### Platforms and builds
 
 - The Windows package installs per user, so updates need no administrator prompt.
-- C&C3D.exe is the launcher now and cnc3d.exe beside it is the game.
+- OpenCNC3D.exe is the launcher now and opencnc3d-game.exe beside it is the game.
 
 ### Bugs fixed
 
@@ -578,7 +747,7 @@ this is the half that was cheap, unblocked and needed nobody's permission.
 
 ---
 
-## OpenCNC 3D v0.6.2 "Now You See It" (2026-08-24)
+## OpenCNC3D v0.6.2 "Now You See It" (2026-08-24)
 
 ### Platforms and builds
 
@@ -602,7 +771,7 @@ this is the half that was cheap, unblocked and needed nobody's permission.
 
 ---
 
-## OpenCNC 3D v0.6.1 "Skirmish" (2026-08-23)
+## OpenCNC3D v0.6.1 "Skirmish" (2026-08-23)
 
 ### New features
 
@@ -649,7 +818,7 @@ this is the half that was cheap, unblocked and needed nobody's permission.
 
 ---
 
-## OpenCNC 3D v0.6.0 "Clear Skies" (2026-08-22)
+## OpenCNC3D v0.6.0 "Clear Skies" (2026-08-22)
 
 ### New features
 
@@ -672,7 +841,7 @@ this is the half that was cheap, unblocked and needed nobody's permission.
 ### Platforms and builds
 
 - The macOS build now copies the engine into the package and refuses to build without it
-- Windows now writes cnc3d-log.txt, which the READ-ME has always asked players to send
+- Windows now writes opencnc3d-log.txt, which the READ-ME has always asked players to send
 
 ### Bugs fixed
 

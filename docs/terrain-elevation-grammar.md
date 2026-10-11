@@ -308,7 +308,7 @@ Two departures survive in the shipped data.
    expansion or debug content no retail menu reaches. If they ever look wrong in our build,
    the cartridge looks the same way, and inventing heights for them would be a departure
    that belongs in `known-gap notes` before it belongs in the renderer.
-4. **`app/cnc3d.cpp`'s SPECIAL OPS list is not the cartridge's.** `specops_scan` offers 27
+4. **`app/opencnc3d.cpp`'s SPECIAL OPS list is not the cartridge's.** `specops_scan` offers 27
    missions (everything numbered 20..89 that has a pack); the console offers four. It also
    cannot ever offer SCG90EA, because its probe loop is `for (n = 20; n < 90; n++)` and so
    never forms that name, and `SCG90EA` is separately mislabelled in that file as "the test

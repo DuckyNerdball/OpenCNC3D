@@ -4013,7 +4013,7 @@ extern void On_Defeated_Message(const char* message, float timeout_seconds);
  *   05/25/1995 BRR : Created.                                             *
  *=========================================================================*/
 /***********************************************************************************************
- * CNC3D_Text_Or -- Text_String() that can never hand a NULL format to printf.                 *
+ * OpenCNC3D_Text_Or -- Text_String() that can never hand a NULL format to printf.                 *
  *                                                                                             *
  *    Text_String() resolves against SystemStrings, and SystemStrings is filled only by the    *
  *    engine's own start-up path. A host that drives the engine through the exported C entry   *
@@ -4037,7 +4037,7 @@ extern void On_Defeated_Message(const char* message, float timeout_seconds);
  *                                                                                             *
  * WARNINGS:   none                                                                            *
  *=============================================================================================*/
-static char const* CNC3D_Text_Or(int string, char const* fallback)
+static char const* OpenCNC3D_Text_Or(int string, char const* fallback)
 {
     char const* text = Text_String(string);
     return (text != NULL) ? text : fallback;
@@ -4114,7 +4114,7 @@ void HouseClass::MPlayer_Defeated(void)
         /*.....................................................................
         Pop up a message showing that I was defeated
         .....................................................................*/
-        sprintf(txt, CNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."), MPlayerName);
+        sprintf(txt, OpenCNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."), MPlayerName);
         // Messages.Add_Message(txt, MPlayerTColors[MPlayerColorIdx], TPF_6PT_GRAD|TPF_USE_GRAD_PAL|TPF_FULLSHADOW, 600,
         // 0, 0);
         Map.Flag_To_Redraw(false);
@@ -4131,14 +4131,14 @@ void HouseClass::MPlayer_Defeated(void)
         ------------------------------------------------------------------------*/
         if (IsHuman) {
             sprintf(txt,
-                    CNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."),
-                    CNC3D_Text_Or(TXT_UNKNOWN, "Unknown"));
+                    OpenCNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."),
+                    OpenCNC3D_Text_Or(TXT_UNKNOWN, "Unknown"));
             id = 0;
             for (i = 0; i < MPlayerCount; i++) {
                 house = MPlayerHouses[i];
                 if (HouseClass::As_Pointer(house) == this) {
                     sprintf(txt,
-                            CNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."),
+                            OpenCNC3D_Text_Or(TXT_PLAYER_DEFEATED, "%s has been defeated."),
                             MPlayerNames[i]);
                     id = MPlayerID[i];
                 }
@@ -4850,7 +4850,7 @@ void HouseClass::Check_Pertinent_Structures(void)
 
         if (b && b->IsActive && b->House == this) {
             /*
-            **  OpenCNC 3D SHORT GAME: an armed building is a defence, and a defence is not
+            **  OpenCNC3D SHORT GAME: an armed building is a defence, and a defence is not
             **  a base. With the option on, only a building that could rebuild the
             **  house keeps it in the match; walls never counted either way.
             */

@@ -4,7 +4,7 @@
     python3 tools/launchers/make_editor_icon.py
 
 SAME EAGLE, DIFFERENT PLATE. The icon has one job beyond looking right: telling
-Editor apart from C&C3D at Dock size, where both are a 32-pixel square. So it
+Editor apart from OpenCNC3D at Dock size, where both are a 32-pixel square. So it
 reuses make_icon.py's medallion exactly -- two emblems that drifted apart would
 be worse than one -- and changes everything around it:
 
@@ -109,7 +109,7 @@ def compose():
 
 def main():
     img = compose()
-    iconset = "/tmp/cnc3d-editor.iconset"
+    iconset = "/tmp/opencnc3d-editor.iconset"
     os.makedirs(iconset, exist_ok=True)
     for sz in (16, 32, 64, 128, 256, 512, 1024):
         img.resize((sz, sz), Image.LANCZOS).save("%s/icon_%dx%d.png" % (iconset, sz, sz))

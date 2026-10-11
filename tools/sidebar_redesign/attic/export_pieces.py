@@ -6,7 +6,7 @@ import kit as K, hires as X
 
 T = X.DESIGNS["H1-machined"]
 W, H = X.W, X.H
-ROOT = "cnc3d-hud-pieces"
+ROOT = "opencnc3d-hud-pieces"
 if os.path.isdir(ROOT): shutil.rmtree(ROOT)
 for d in ("pieces", "reference"): os.makedirs(f"{ROOT}/{d}")
 def save(im, n): im.save(f"{ROOT}/pieces/{n}.png"); return im
@@ -118,13 +118,13 @@ print("exported", len(ims), "pieces")
 for nm, im in ims: print("  %-22s %dx%d" % (nm, im.width, im.height))
 
 # ---- the rules doc is WRITTEN BY THIS SCRIPT, so re-running can never lose it again
-README = """# C&C3D sidebar HUD - art pieces and pixel rules
+README = """# OpenCNC3D sidebar HUD - art pieces and pixel rules
 
 Design **H1 "Machined"**, the generated chrome set. These are chrome only: panels,
 frames, buttons, arrows, meter and text. **No cameos and no faction emblem.**
 
 > **Status.** This set has since been superseded in review's externally-generated art.
-> For the layout actually in use, see `LAYOUT.md` in `cnc3d-hud-assembled.zip`, which is
+> For the layout actually in use, see `LAYOUT.md` in `opencnc3d-hud-assembled.zip`, which is
 > measured off that art. The **palette in section 4 below describes THIS generated set
 > only** and does not match the newer dark-gunmetal art. Sections 1, 2, 3, 6 and 7 are
 > general and still apply to any piece you draw.

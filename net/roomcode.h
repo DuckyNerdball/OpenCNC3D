@@ -24,8 +24,8 @@
  * the hostname charset makes the two grammars disjoint by construction rather than by
  * guesswork, and the host's screen prints the exact string to type, sigil included.
  */
-#ifndef CNC3D_ROOMCODE_H
-#define CNC3D_ROOMCODE_H
+#ifndef OPENCNC3D_ROOMCODE_H
+#define OPENCNC3D_ROOMCODE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,4 +58,4 @@ unsigned long rc_draw_peer_id(void);
 #ifdef __cplusplus
 }
 #endif
-#endif /* CNC3D_ROOMCODE_H */
+#endif /* OPENCNC3D_ROOMCODE_H */

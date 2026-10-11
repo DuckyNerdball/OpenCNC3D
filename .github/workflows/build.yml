@@ -22,8 +22,43 @@ jobs:
           # needs more than the single commit a default checkout fetches.
           fetch-depth: 0
 
-      - name: Install SDL2
-        run: brew install sdl2
+      # THE MAC BUILD IS UNIVERSAL (arm64 + x86_64), so it links the SDL that
+      # tools/mac/setup-sdl-mac.sh builds for both, not Homebrew's bottle, which carries
+      # only the runner's CPU and which the build scripts now refuse. Cached on the
+      # script's own contents: the versions and hashes are pinned in it, so a change to
+      # either is a change to the key.
+      - name: Cache the universal SDL
+        id: macsdk
+        uses: actions/cache@v4
+        with:
+          path: ~/.opencnc3d-macsdk
+          key: macsdk-${{ runner.os }}-${{ hashFiles('tools/mac/setup-sdl-mac.sh', 'tools/mac/deployment-target.sh') }}
+
+      - name: Build the universal SDL (SDL3 + sdl2-compat)
+        run: |
+          brew install ninja || true
+          tools/mac/setup-sdl-mac.sh
+
+      # PILLOW, BECAUSE game/build.sh BAKES BEFORE IT COMPILES. Its first act is
+      # tools/bakery/pack_experimental_terrain.py, which assembles the temperate
+      # experiment's cliff maps out of committed PNGs and imports PIL to do it. The
+      # runner image has python3 and no Pillow, so the renderer step died on a
+      # ModuleNotFoundError before clang was ever reached, and the failure read as a
+      # build break rather than a missing package.
+      #
+      # INSTALLED RATHER THAN MADE OPTIONAL, deliberately. A bake that is allowed to
+      # skip itself produces a build whose terrain art is quietly absent, which is the
+      # class of silent gap this project keeps having to re-find. If the bake is worth
+      # running before every compile then the dependency is worth installing.
+      #
+      # The fallback covers PEP 668: a Homebrew-managed interpreter refuses a plain
+      # pip install into itself, and which of the two the runner has changes with the
+      # image.
+      - name: Install the Python packages the bakes need
+        run: |
+          python3 -m pip install --quiet pillow numpy ||
+            python3 -m pip install --quiet --break-system-packages pillow numpy
+          python3 -c "from PIL import Image; import numpy; print('Pillow', Image.__version__, 'NumPy', numpy.__version__)"
 
       # brain/vanilla is COMMITTED SOURCE, not something to clone.
       #
@@ -51,42 +86,105 @@ jobs:
       # second copy of that line here could only drift, and the failure it drifts into is
       # invisible at compile time: dyld refuses a Mach-O whose minos is newer than the
       # running system, so the binary builds and then will not launch.
-      - name: Build the brain (TiberianDawn library)
+      - name: Build the brains (TiberianDawn and RedAlert libraries)
         run: tools/mac/build-brain-mac.sh
+
+      # RedAlert is a bootstrap/test brain for now, not a second library in the OpenCNC3D
+      # play folder. Exercise it straight from CMake's output so this gate cannot turn
+      # the temporary module into a release payload by accident.
+      - name: "Gate: the Red Alert bootstrap is deterministic on macOS"
+        run: |
+          mkdir -p build/ra3d
+          tools/ra3d/gate-ra-bootstrap.sh \
+            brain/vanilla/build-native/redalert/RedAlert.dylib \
+            build/ra3d/ra-bootstrap-macos.txt
+
+      - name: "Gate: an original Red Alert mission exports deterministic objects on macOS"
+        run: |
+          tools/ra3d/gate-ra-mission.sh \
+            brain/vanilla/build-native/redalert/RedAlert.dylib \
+            build/ra3d/ra-mission-macos.txt
 
       - name: Build the renderer (game/build.sh -> cnc_eyes)
         run: cd game && ./build.sh
 
-      - name: Build the program (app/build.sh -> cnc3d)
+      - name: Build the program (app/build.sh -> opencnc3d)
         run: cd app && ./build.sh
+
+      # THE LAUNCHER IS THE FOURTH BINARY AND WAS THE ONE CI NEVER BUILT. It is the
+      # program a player double-clicks, it is the only one that can be changed from the
+      # Windows machine without a Mac to try it on, and until this step existed a change
+      # that did not compile on macOS reached main and was found by whoever next cut a
+      # release. The Windows half has been compiled on every push since the cross job
+      # existed; this is the same guarantee for the other half.
+      - name: Build the launcher (launcher/build.sh -> opencnc3d-launcher)
+        run: cd launcher && ./build.sh
 
       - name: "Sanity: both binaries start and report usage"
         run: |
           ./game/cnc_eyes --help | head -5
-          ./app/cnc3d --help | head -5 || true
+          ./app/opencnc3d --help | head -5 || true
+          ./launcher/opencnc3d-launcher --help | head -5
+
+      # THE BUILD MARK is what tools/release.sh reads off every binary it ships to prove the
+      # build number and the cook: one string from game/opencnc3d_build.h, force-included
+      # into cnc_eyes by game/build.sh and included by app/opencnc3d.cpp. A CI build is a
+      # developer build, so each carries one mark and neither ends "|cooked".
+      - name: "Sanity: both programs carry a build mark, uncooked"
+        run: |
+          for f in game/cnc_eyes app/opencnc3d; do
+            marks=$(strings -a "$f" | grep '^OPENCNC3D|build|v' | sort -u)
+            echo "$f: $marks"
+            [ "$(printf '%s\n' "$marks" | grep -c .)" = "1" ] \
+              || { echo "$f should carry exactly one build mark"; exit 1; }
+            case "$marks" in *"|cooked") echo "$f is cooked in a developer build"; exit 1 ;; esac
+          done
 
       # A binary that asks for a newer macOS than the player has is refused by dyld before
       # main(), so "it compiled" is not the same claim as "it launches". The floor comes
       # from tools/mac/deployment-target.sh, which game/make-build.sh also asserts over the
       # assembled play folder, so CI and the release agree by construction.
-      - name: "Sanity: all three declare the macOS floor, not the runner's SDK"
+      - name: "Sanity: both programs and both brains declare the macOS floor"
         run: |
           . tools/mac/deployment-target.sh
           rc=0
-          for f in game/cnc_eyes app/cnc3d game/TiberianDawn.dylib; do
+          for f in game/cnc_eyes app/opencnc3d game/TiberianDawn.dylib \
+                   brain/vanilla/build-native/redalert/RedAlert.dylib; do
             min=$(otool -l "$f" | awk '/LC_BUILD_VERSION/{f=1} f&&/^ *minos/{print $2; exit}')
             echo "$f minos ${min:-none}"
-            [ "$min" = "$CNC3D_MACOS_MIN" ] || rc=1
+            [ "$min" = "$OPENCNC3D_MACOS_MIN" ] || rc=1
           done
-          [ "$rc" = "0" ] || { echo "expected minos $CNC3D_MACOS_MIN on all three"; exit 1; }
+          [ "$rc" = "0" ] || { echo "expected minos $OPENCNC3D_MACOS_MIN on all four"; exit 1; }
+
+      # BOTH CPUS. The runner is one of them, so the binaries above ran on it and prove
+      # nothing about the other slice's presence; lipo does.
+      - name: "Sanity: every Mac binary carries both Apple Silicon and Intel code"
+        run: |
+          . tools/mac/deployment-target.sh
+          rc=0
+          for f in game/cnc_eyes app/opencnc3d launcher/opencnc3d-launcher launcher/opencnc3d-launch \
+                   game/TiberianDawn.dylib game/libSDL2-2.0.0.dylib game/libSDL3.dylib; do
+            echo "$f: $(lipo -archs "$f")"
+            lipo "$f" -verify_arch $OPENCNC3D_MAC_ARCHS || rc=1
+          done
+          [ "$rc" = "0" ] || { echo "expected $OPENCNC3D_MAC_ARCHS in every file"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cnc3d-macos-${{ github.sha }}
+          name: opencnc3d-macos-${{ github.sha }}
           path: |
             game/cnc_eyes
-            app/cnc3d
+            app/opencnc3d
             game/TiberianDawn.dylib
+
+      # Kept separate from the OpenCNC3D artifact on purpose. The report is an input to the
+      # equivalence job below; RedAlert.dylib remains a build-only Phase 2 product.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ra3d-bootstrap-macos-${{ github.sha }}
+          path: |
+            build/ra3d/ra-bootstrap-macos.txt
+            build/ra3d/ra-mission-macos.txt
 
   # ------------------------------------------------------------------------------------
   #  THE WINDOWS HALF.
@@ -96,18 +194,31 @@ jobs:
   #  fails with the filename in the message if the Mac build has grown a source the Windows
   #  build does not compile. That guard is the entire reason a second recipe exists.
   #
-  #  Cross compiled on Linux rather than on a Windows runner: mingw-w64 is one apt
-  #  package, the toolchain is then the same arrangement the Mac uses, and a green run
-  #  here means the local build-win.sh will work too. A Windows runner would prove
-  #  something slightly different from what ships.
+  #  Cross compiled on Linux: mingw-w64 is one apt package, the toolchain is then the
+  #  same arrangement the Mac uses, and a green run here means the local build-win.sh
+  #  will work too. The native Windows job below executes these exact cross-built test
+  #  artifacts rather than replacing the shipping recipe with a second compiler setup.
   # ------------------------------------------------------------------------------------
   windows:
     runs-on: ubuntu-latest
     steps:
+      # THE LAB'S ART STAYS OUT OF THIS CHECKOUT. art/remaster and art/refinery are the
+      # remaster lab's working pictures (about 6 GB of the 8 GB tree) and no part of the
+      # Windows build reads them; checked out whole, the tree and its pack left the runner
+      # without the 1.3 GB the toolchain needs, and apt stopped with "not enough free
+      # space". blob:none fetches only the files the sparse pattern keeps.
       - uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/art/remaster/
+            !/art/refinery/
 
       - name: Install the cross toolchain
         run: |
+          df -h / | tail -1
           sudo apt-get update
           sudo apt-get install -y mingw-w64 cmake zip
 
@@ -140,25 +251,36 @@ jobs:
       - name: Build for Windows (tools/win/build-win.sh -> build/win/)
         run: tools/win/build-win.sh
 
-      # A cross build cannot be run here, so assert what can be asserted: the output is a
-      # 32-bit PE, the brain still exports the CNC3D_ entry points the patch adds, and
-      # nothing but SDL2.dll is needed beside the binary. The last one catches a link that
-      # pulls in something no stock Windows ships, such as libwinpthread-1.dll.
+      # Assert the binary shape before the native Windows job runs the bootstrap. This
+      # keeps an architecture or export failure distinct from a simulation failure, and
+      # the dependency check catches a link that pulls in something no stock Windows ships.
       - name: "Sanity: the right kind of binary, with the right dependencies"
         run: |
           set -e
-          file build/win/cnc3d.exe | grep -q "PE32 executable" || { echo "not a PE32"; exit 1; }
-          file build/win/cnc3d.exe | grep -q "80386"          || { echo "not 32-bit"; exit 1; }
-          for sym in CNC_Advance_Instance CNC3D_Dump_Objects CNC3D_Sel_Info; do
+          file build/win/opencnc3d-game.exe | grep -q "PE32 executable" || { echo "not a PE32"; exit 1; }
+          file build/win/opencnc3d-game.exe | grep -q "80386"          || { echo "not 32-bit"; exit 1; }
+          for sym in CNC_Advance_Instance OpenCNC3D_Dump_Objects OpenCNC3D_Sel_Info; do
             x86_64-w64-mingw32-objdump -p build/win/TiberianDawn.dll | grep -q "$sym" \
               || { echo "brain is missing $sym"; exit 1; }
+          done
+          for f in build/win/RedAlert.dll build/win/ra_bootstrap.exe; do
+            file "$f" | grep -q "PE32" || { echo "$f is not a PE32 binary"; exit 1; }
+            file "$f" | grep -q "80386" || { echo "$f is not 32-bit"; exit 1; }
+          done
+          for sym in CNC_Version CNC_Init CNC_Config CNC_Add_Mod_Path \
+                     CNC_Start_Custom_Instance CNC_Advance_Instance \
+                     CNC_Get_Game_State CNC_Start_Mission_Timer; do
+            x86_64-w64-mingw32-objdump -p build/win/RedAlert.dll | grep -q "$sym" \
+              || { echo "Red Alert brain is missing $sym"; exit 1; }
           done
           # netcheck.exe is in this loop because it SHIPS: it is copied into the
           # Windows package beside the game, so a dependency it cannot resolve is a
           # dependency a player meets. It is also the one binary here whose whole
           # purpose is networking, which makes it the one where a stray link is most
           # likely and least excusable.
-          for exe in build/win/cnc3d.exe build/win/cnc_eyes.exe build/win/netcheck.exe; do
+          for binary in build/win/opencnc3d-game.exe build/win/cnc_eyes.exe build/win/netcheck.exe \
+                        build/win/ra_bootstrap.exe build/win/TiberianDawn.dll \
+                        build/win/RedAlert.dll; do
             # msvcrt.dll is on this list because it IS a Windows system DLL, present on
             # every Windows since NT, and because Ubuntu's mingw-w64 is the MSVCRT
             # variant while Homebrew's is the UCRT one. So CI links against msvcrt and
@@ -180,9 +302,9 @@ jobs:
             # System32 on every Windows since 98, and it is what the internet game list is
             # fetched and published through: using the one the OS already trusts is why
             # there is no second SSL stack to ship and nothing for a player to install.
-            extra=$(x86_64-w64-mingw32-objdump -p $exe | grep "DLL Name" \
+            extra=$(x86_64-w64-mingw32-objdump -p "$binary" | grep "DLL Name" \
                     | grep -viE "api-ms-win-crt|msvcrt|KERNEL32|USER32|SHELL32|OPENGL32|WINMM|OLEAUT32|ADVAPI32|GDI32|WS2_32|WININET|SDL2" || true)
-            [ -z "$extra" ] || { echo "$exe needs a DLL that Windows 11 does not ship:"; echo "$extra"; exit 1; }
+            [ -z "$extra" ] || { echo "$binary needs a DLL that Windows 11 does not ship:"; echo "$extra"; exit 1; }
           done
           echo "PE32 i686, brain exports present, SDL2.dll is the only extra dependency"
 
@@ -198,9 +320,79 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cnc3d-windows-${{ github.sha }}
+          name: opencnc3d-windows-${{ github.sha }}
           path: |
-            build/win/cnc3d.exe
+            build/win/opencnc3d-game.exe
             build/win/cnc_eyes.exe
             build/win/SDL2.dll
             build/win/TiberianDawn.dll
+
+      # These are test inputs, not Windows release contents. Keeping them in their own
+      # artifact makes the native runtime boundary explicit and leaves the OpenCNC3D artifact
+      # and tools/win/make-build-win.sh unchanged.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ra3d-bootstrap-windows-binaries-${{ github.sha }}
+          path: |
+            build/win/RedAlert.dll
+            build/win/ra_bootstrap.exe
+
+  windows-runtime:
+    needs: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ra3d-bootstrap-windows-binaries-${{ github.sha }}
+          path: build/win
+
+      - name: "Gate: the Red Alert bootstrap is deterministic on Windows"
+        run: |
+          New-Item -ItemType Directory -Force build/ra3d | Out-Null
+          py -3 tools/ra3d/run-bootstrap-gate.py --host build/win/ra_bootstrap.exe --brain build/win/RedAlert.dll --fixture brain/tests/ra3d --report build/ra3d/ra-bootstrap-windows.txt
+
+      - name: "Gate: an original Red Alert mission exports deterministic objects on Windows"
+        run: |
+          py -3 tools/ra3d/run-mission-gate.py --host build/win/ra_bootstrap.exe --brain build/win/RedAlert.dll --data data/radata --expected brain/tests/ra3d/expected-mission-report.txt --report build/ra3d/ra-mission-windows.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ra3d-bootstrap-windows-${{ github.sha }}
+          path: |
+            build/ra3d/ra-bootstrap-windows.txt
+            build/ra3d/ra-mission-windows.txt
+
+  # The two runtime gates each prove repeatability on one architecture. This job proves
+  # that the canonical state transition is identical across the native macOS and PE32
+  # builds, which is the property RA3D multiplayer will depend on.
+  ra3d-equivalence:
+    needs: [macos, windows-runtime]
+    runs-on: ubuntu-latest
+    steps:
+      # Only the comparison script is needed here. A whole checkout carries the game data
+      # and is larger than the free disk of a hosted runner, which then dies mid-job.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/ra3d
+          filter: blob:none
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ra3d-bootstrap-macos-${{ github.sha }}
+          path: build/ra3d/macos
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ra3d-bootstrap-windows-${{ github.sha }}
+          path: build/ra3d/windows
+
+      - name: "Gate: macOS and Windows Red Alert reports are equivalent"
+        run: |
+          python3 tools/ra3d/compare-bootstrap-reports.py \
+            build/ra3d/macos/ra-bootstrap-macos.txt \
+            build/ra3d/windows/ra-bootstrap-windows.txt
+          python3 tools/ra3d/compare-bootstrap-reports.py \
+            build/ra3d/macos/ra-mission-macos.txt \
+            build/ra3d/windows/ra-mission-windows.txt

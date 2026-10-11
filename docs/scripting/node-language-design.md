@@ -286,7 +286,7 @@ Never hash the payload for comparison. Two runs of the identical deterministic s
 
 ### v2: exact trace (needs the project owner's go-ahead, brain change)
 
-Extend `CNC3D_Dump_Objects` with `TRIG|` and `TEAM|` lines. Triggers are free: every field is public and `Name_From_Event`/`Name_From_Action` already exist, so it is about fifteen lines. Teams need one accessor for `CurrentMission` and the `Member` chain, with `AnimClass::CNC3D_Stage()` as precedent. Cost is a two-platform brain rebuild and a growth of `brain/patches/vanilla-cnc3d.patch`.
+Extend `OpenCNC3D_Dump_Objects` with `TRIG|` and `TEAM|` lines. Triggers are free: every field is public and `Name_From_Event`/`Name_From_Action` already exist, so it is about fifteen lines. Teams need one accessor for `CurrentMission` and the `Member` chain, with `AnimClass::OpenCNC3D_Stage()` as precedent. Cost is a two-platform brain rebuild and a growth of `brain/patches/vanilla-opencnc3d.patch`.
 
 With that, the graph becomes the debugger: a timeline scrubber under the canvas, nodes flashing as they fire, the Cancel edge animating when a latch is cut, a per-rule "fired at tick N" annotation, and a red "never fired in 27,900 ticks" badge that would have caught all 16 dead shipped triggers.
 
@@ -304,7 +304,7 @@ I considered embedding the graph as `;` comment lines inside the INI and rejecte
 
 ```jsonc
 {
-  "format": "cnc3d.mgraph/1",
+  "format": "opencnc3d.mgraph/1",
   "scenario": "SCG15EB",
   "ini_sha256": "…",          // carrier bytes at last successful compile
   "semantic_digest": "…",      // canonical hash of Layer 1 only

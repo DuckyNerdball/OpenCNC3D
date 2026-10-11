@@ -24,6 +24,7 @@
 #include "../audio/audioboot.h"
 /* CMD+F / ALT+ENTER on the mission briefing, score and map screens too. */
 #include "../game/fullscreen.h"
+#include "userdir.h"   /* where HALLFAME.DAT and RAHALLFAME.DAT live */
 
 /* THE SCORE SCREEN'S FACTION LOGO BOX, in 320x200 PLATE pixels.
 
@@ -359,7 +360,8 @@ static void camp_load_strings(Camp *c)
         fprintf(stderr, "campaign: no dosdata folder -- CONQUER.ENG text unavailable\n");
         return;
     }
-    snprintf(path, sizeof path, "%s/LOCAL.MIX", dd);
+    snprintf(path, sizeof path, "%s/%s", dd,
+             c->red_alert ? "RA_LOCAL.MIX" : "LOCAL.MIX");
     mx = mixfile_open(path, err, (int)sizeof err);
     if (!mx) {
         fprintf(stderr, "campaign: %s: %s -- CONQUER.ENG text unavailable\n", path, err);
@@ -382,14 +384,16 @@ static void camp_load_strings(Camp *c)
     c->eng = blob; /* retained: score/map read their strings by TXT_ index */
     c->englen = size;
 
-    for (i = 0; i < CAMP_TXT_COUNT; i++)
-        if (!camp_eng_string(blob, size, want[i], c->txt[i], (int)sizeof c->txt[0])) {
-            fprintf(stderr, "campaign: CONQUER.ENG has no string %d\n", want[i]);
-            ok = 0;
-        }
-    c->txt_ok = ok;
-    if (ok)
-        printf("CAMPAIGN|strings|%s|%s|%s\n", c->txt[0], c->txt[1], c->txt[2]);
+    if (!c->red_alert) {
+        for (i = 0; i < CAMP_TXT_COUNT; i++)
+            if (!camp_eng_string(blob, size, want[i], c->txt[i], (int)sizeof c->txt[0])) {
+                fprintf(stderr, "campaign: CONQUER.ENG has no string %d\n", want[i]);
+                ok = 0;
+            }
+        c->txt_ok = ok;
+        if (ok)
+            printf("CAMPAIGN|strings|%s|%s|%s\n", c->txt[0], c->txt[1], c->txt[2]);
+    }
 }
 
 int camp_open(Camp *c, SDL_Window *win, struct CncAudio *au,
@@ -398,6 +402,7 @@ int camp_open(Camp *c, SDL_Window *win, struct CncAudio *au,
     memset(c, 0, sizeof(*c));
     c->win = win;
     c->au = au;
+    c->red_alert = strstr(campack, "ra3d/") != NULL;
     c->fade = 256;
     c->pal = c->palbuf;
     c->mapdir = 'E';
@@ -415,7 +420,7 @@ int camp_open(Camp *c, SDL_Window *win, struct CncAudio *au,
         fclose(f);
         return 0;
     }
-    if (!camp_read(f, &ver, 4) || !camp_read(f, &n, 4) || ver != 2 || n > 24) {
+    if (!camp_read(f, &ver, 4) || !camp_read(f, &n, 4) || ver != 2 || n > 48) {
         snprintf(err, (size_t)errlen, "%s: format v%u, need v2 (re-run bake_campaign.py)",
                  campack, ver);
         fclose(f);
@@ -485,7 +490,7 @@ int camp_open(Camp *c, SDL_Window *win, struct CncAudio *au,
 
     /* The score screen's 3D faction logos, from beside campaign.pack. Never
        fatal: without the pack the score screen is exactly the 1995 one. */
-    {
+    if (!c->red_alert) {
         char lp[512], lerr[256];
         const char *slash = strrchr(campack, '/');
         size_t n = slash ? (size_t)(slash - campack) + 1 : 0;
@@ -513,6 +518,7 @@ void camp_close(Camp *c)
         free(c->e[i].acc);
     }
     free(c->eng);
+    free(c->hi_plate);
     if (c->fonts)
         db_pack_free((DB_Pack *)c->fonts);
     if (c->tex)
@@ -536,8 +542,71 @@ static const CampEntry *camp_entry(const Camp *c, const char *name)
    the same discipline every screen in this program follows. c->fade scales the
    palette 0..256: the transcription of Fade_Palette_To, since a from-black fade is
    a brightness ramp of the target palette. */
+static void camp_draw_hi(Camp *c)
+{
+    /* Keep each texture at 256x256, including the partial right/bottom tiles.
+       That size also works on the fixed-function cards supported by Tier 1. */
+    static unsigned char rgba[256 * 256 * 4];
+    int fbw = 0, fbh = 0;
+    SDL_GL_GetDrawableSize(c->win, &fbw, &fbh);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_SCISSOR_TEST);
+    glViewport(0, 0, fbw, fbh);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0, fbw, fbh, 0, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    float scale = (float)fbw / 640.0f < (float)fbh / 400.0f
+                  ? (float)fbw / 640.0f : (float)fbh / 400.0f;
+    if (scale <= 0.0f) scale = 1.0f;
+    const float x0 = ((float)fbw - 640.0f * scale) * 0.5f;
+    const float y0 = ((float)fbh - 400.0f * scale) * 0.5f;
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, c->tex);
+    glColor3f(1, 1, 1);
+    for (int ty = 0; ty < 400; ty += 256) {
+        for (int tx = 0; tx < 640; tx += 256) {
+            const int th = ty + 256 <= 400 ? 256 : 400 - ty;
+            const int tw = tx + 256 <= 640 ? 256 : 640 - tx;
+            memset(rgba, 0, sizeof rgba);
+            for (int y = 0; y < th; y++) {
+                for (int x = 0; x < tw; x++) {
+                    const unsigned v = c->hi_plate[(ty + y) * 640 + tx + x];
+                    unsigned char *o = &rgba[(y * 256 + x) * 4];
+                    o[0] = (unsigned char)(((c->pal[v * 3] << 2) * c->fade) >> 8);
+                    o[1] = (unsigned char)(((c->pal[v * 3 + 1] << 2) * c->fade) >> 8);
+                    o[2] = (unsigned char)(((c->pal[v * 3 + 2] << 2) * c->fade) >> 8);
+                    o[3] = 255;
+                }
+            }
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0,
+                         GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+            const float dx = x0 + tx * scale, dy = y0 + ty * scale;
+            const float u = (float)tw / 256.0f, v = (float)th / 256.0f;
+            glBegin(GL_QUADS);
+            glTexCoord2f(0, 0); glVertex2f(dx, dy);
+            glTexCoord2f(u, 0); glVertex2f(dx + tw * scale, dy);
+            glTexCoord2f(u, v); glVertex2f(dx + tw * scale, dy + th * scale);
+            glTexCoord2f(0, v); glVertex2f(dx, dy + th * scale);
+            glEnd();
+        }
+    }
+    glDisable(GL_TEXTURE_2D);
+}
+
 static void camp_draw(Camp *c)
 {
+    if (c->hi_active && c->hi_plate) {
+        camp_draw_hi(c);
+        return;
+    }
     static unsigned char rgba[512 * 256 * 4]; /* POT pad for the 320x200 plate */
     static unsigned char comp[320 * 200];     /* plate + pointer; never the plate */
     const unsigned char *pal = c->pal;
@@ -1002,7 +1071,7 @@ static void camp_sfx(Camp *c, const char *name, int vol)
  * build and is shared by concurrent gate runs, so the default is the platform's
  * per-user data directory via SDL_GetPrefPath, which nests org/app: measured on this
  * machine as
- *     ~/Library/Application Support/Slipgate Ironworks/CNC3D/HALLFAME.DAT
+ *     ~/Library/Application Support/Slipgate Ironworks/OpenCNC3D/HALLFAME.DAT
  * (%APPDATA%\... on Windows, ~/.local/share/... on Linux). SDL creates the directory
  * as a side effect and can return NULL on a locked-down system, which degrades to
  * "no persistence" rather than a crash. --famefile overrides the whole thing for
@@ -1044,7 +1113,7 @@ static const char *camp_fame_path(void)
         return camp_fame_file;
     if (buf[0])
         return buf;
-    pref = SDL_GetPrefPath("Slipgate Ironworks", "CNC3D");
+    pref = SDL_GetPrefPath(OPENCNC3D_PREF_ORG, OPENCNC3D_PREF_APP);
     if (!pref)
         return NULL; /* locked-down system: degrade to "no persistence", not a crash */
     snprintf(buf, sizeof buf, "%sHALLFAME.DAT", pref);
@@ -1765,11 +1834,11 @@ static int camp_input_name(CampCtx *k, char *str, int xpos, int ypos,
     /* What the harness types. It has to be a fixed script, not a timeout: the gates
        have watchdogs, not patience, and a blocking prompt with nobody at the keyboard
        would wedge G14/G15/G16. The 'X' then backspace exercises the erase path too,
-       so one gate run covers all three branches; the committed name is "CNC3D".
+       so one gate run covers all three branches; the committed name is "OPENCNC3D".
        Injected one key per loop pass, exactly like Keyboard->Get(), and the loop is
        driven by camp_ctx_tick, which under autopilot advances the synthetic clock by
        exactly one tick per pass -- fully deterministic. */
-    static const char autokeys[] = "CNCX\b3D\r";
+    static const char autokeys[] = "OPENCNCX\b3D\r";
     /* One key every CAMP_AUTOKEY_HOLD passes, not one per pass. A key on every pass
        re-enters the `index != curlast` branch every time, which resets the blink to
        OFF and means the cursor NEVER lights up -- the harness would drive the name
@@ -2785,7 +2854,7 @@ int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
         return 0;
     if (scenario >= lastscen) {
         /* lastscenario: 1995 swaps EUROPE for the BOSNIA reel and CLICK_EB; that
-           reel is not baked (registered gap) and cnc3d.cpp ends the campaign after
+           reel is not baked (registered gap) and opencnc3d.cpp ends the campaign after
            15 anyway. Hand back choice 0 so the flow stays whole. */
         fprintf(stderr, "campaign: last-scenario BOSNIA reel is a registered gap\n");
         *dir = row->dir[d][0] ? row->dir[d][0] : 'E';
@@ -2992,4 +3061,420 @@ closed:
         cnc_music_stop(c->au);
     c->fade = 256;
     return -1;
+}
+
+/* Red Alert mapsel.cpp MapCoords, indexed by the scenario just completed.
+   The map reel itself contains the world art and target markers; these rectangles
+   are the original 11x9 pixel areas that choose the next mission variation. */
+static const short ra_map_spots[2][14][3][2] = {
+    {
+        {{185,123},{-1,-1},{-1,-1}}, {{173,112},{-1,-1},{-1,-1}},
+        {{196,100},{200,112},{-1,-1}}, {{175,113},{-1,-1},{-1,-1}},
+        {{187,91},{202,93},{206,105}}, {{207,161},{212,172},{-1,-1}},
+        {{172,92},{-1,-1},{-1,-1}}, {{132,119},{146,125},{-1,-1}},
+        {{199,73},{205,86},{-1,-1}}, {{236,114},{-1,-1},{-1,-1}},
+        {{219,64},{225,76},{-1,-1}}, {{256,69},{-1,-1},{-1,-1}},
+        {{262,77},{-1,-1},{-1,-1}}, {{249,97},{-1,-1},{-1,-1}}
+    },
+    {
+        {{178,105},{-1,-1},{-1,-1}}, {{163,101},{163,113},{-1,-1}},
+        {{160,89},{-1,-1},{-1,-1}}, {{142,101},{142,117},{-1,-1}},
+        {{212,163},{-1,-1},{-1,-1}}, {{155,133},{171,144},{-1,-1}},
+        {{216,103},{-1,-1},{-1,-1}}, {{132,145},{154,154},{-1,-1}},
+        {{122,117},{-1,-1},{-1,-1}}, {{117,130},{-1,-1},{-1,-1}},
+        {{99,107},{109,146},{-1,-1}}, {{134,125},{-1,-1},{-1,-1}},
+        {{32,156},{46,171},{-1,-1}}, {{108,97},{-1,-1},{-1,-1}}
+    }
+};
+
+static void camp_ra_hi_shape(Camp *c, const CampEntry *e, int frame, int x, int y)
+{
+    if (!e || !c->hi_plate) return;
+    if (frame < 0) frame = 0;
+    if (frame >= e->frames) frame = e->frames - 1;
+    const unsigned char *src = e->px + (size_t)frame * e->w * e->h;
+    for (int yy = 0; yy < e->h; yy++) {
+        const int dy = y + yy;
+        if (dy < 0 || dy >= 400) continue;
+        for (int xx = 0; xx < e->w; xx++) {
+            const int dx = x + xx;
+            if (dx >= 0 && dx < 640 && src[yy * e->w + xx])
+                c->hi_plate[dy * 640 + dx] = src[yy * e->w + xx];
+        }
+    }
+}
+
+static void camp_ra_hi_print(Camp *c, const char *text, int x, int y,
+                             const unsigned char pal[16])
+{
+    const DB_Font *font = c->fonts ? db_font((DB_Pack *)c->fonts, "SCOREHI") : NULL;
+    if (!font || !c->hi_plate || !text) return;
+    /* Buffer_Print replaces the background and foreground classes with the
+       TBLACK arguments used by the score screen. The source palette tables
+       retain nonzero values in these slots, but they must not fill the glyph
+       cells when printing onto the Win95 background art. */
+    unsigned char ink[16];
+    memcpy(ink, pal, sizeof ink);
+    ink[0] = ink[1] = 0;
+    DB_Surface surface;
+    surface.w = 640; surface.h = 400; surface.px = c->hi_plate;
+    surface.cx0 = 0; surface.cy0 = 0; surface.cx1 = 639; surface.cy1 = 399;
+    db_print(&surface, font, text, x * 2, y * 2, ink, 0);
+}
+
+static void camp_ra_hi_string(Camp *c, int id, int x, int y,
+                              const unsigned char pal[16])
+{
+    char label[80];
+    if (camp_string(c, id, label, sizeof label))
+        camp_ra_hi_print(c, label, x, y, pal);
+}
+
+/* score.cpp Do_GDI_Graph uses a shared maximum, with five pixels per loss
+   when both sides lost fewer than twenty objects. Frame 119 is its flash
+   frame; the finished bar uses 0..118. */
+static int camp_ra_bar_frame(int count, int other)
+{
+    if (count <= 0) return 0;
+    const int biggest = count > other ? count : other;
+    const int frame = biggest < 20 ? count * 5 : count * 118 / biggest;
+    return frame > 118 ? 118 : frame;
+}
+
+static void camp_ra_hi_frame(Camp *c, const CampEntry *bg, const CampScore *s,
+                             int side, int ticks, int continue_prompt)
+{
+    static const unsigned char green[16] = {
+        0x70,0x71,0x7C,0x73,0x7D,0x75,0x7E,0x77,
+        0x7F,0x79,0x7A,0x7B,0x7C,0x7D,0x7C,0x7F
+    };
+    static const unsigned char blue[16] = {
+        0xC0,0xC1,0xC1,0xC3,0xC2,0xC5,0xC3,0xC7,
+        0xC4,0xC9,0xCA,0xCB,0xCC,0xCD,0xC0,0xCF
+    };
+    static const unsigned char red[16] = {
+        0xD0,0xD1,0xD7,0xD3,0xD9,0xD5,0xDA,0xD7,
+        0xDB,0xD9,0xDA,0xDB,0xDC,0xDD,0xD6,0xDF
+    };
+    static const unsigned char yellow[16] = {
+        0x0,0x0,0xEC,0x0,0xEB,0x0,0xEA,0x0,
+        0xE9,0x0,0x0,0x0,0x0,0x0,0xED,0x0
+    };
+    const CampEntry *time = camp_entry(c, "TIMEHR");
+    const CampEntry *hi1 = camp_entry(c, "HISC1HR");
+    const CampEntry *hi2 = camp_entry(c, "HISC2HR");
+    const CampEntry *barblue = camp_entry(c, "BAR3BHR");
+    const CampEntry *barred = camp_entry(c, "BAR3RHR");
+    const CampEntry *creds = camp_entry(c, side ? "CREDSUHR" : "CREDSAHR");
+    const int allied_losses = s->gdi_killed + s->civ_killed;
+    const int soviet_losses = s->nod_killed;
+    const int allied_buildings = s->gdi_bldg + s->civ_bldg;
+    const int soviet_buildings = s->nod_bldg;
+    char value[64];
+    memcpy(c->hi_plate, bg->px, 640 * 400);
+    camp_ra_hi_shape(c, time, (ticks / 4 + 1) % 30, 238 * 2, 2 * 2);
+    camp_ra_hi_shape(c, hi1, (ticks / 4 + 1) % 10, 4 * 2, 89 * 2);
+    camp_ra_hi_shape(c, hi2, (ticks / 4 + 1) % 10, 4 * 2, 180 * 2);
+    camp_ra_hi_string(c, 271, 204, 9, green);
+    camp_ra_hi_string(c, 272, 164, 26, green);
+    camp_ra_hi_string(c, 273, 164, 38, green);
+    camp_ra_hi_string(c, 274, 164, 50, green);
+    if (s->minutes >= 60)
+        snprintf(value, sizeof value, "%dh %dm", s->minutes / 60, s->minutes % 60);
+    else
+        snprintf(value, sizeof value, "%dm", s->minutes > 0 ? s->minutes : 1);
+    camp_ra_hi_print(c, value, 275, 9, green);
+    snprintf(value, sizeof value, "%3d%%", s->leadership);
+    camp_ra_hi_print(c, value, 244, 26, green);
+    snprintf(value, sizeof value, "%3d%%", s->efficiency);
+    camp_ra_hi_print(c, value, 244, 38, green);
+    snprintf(value, sizeof value, "x %5d", s->base_points);
+    camp_ra_hi_print(c, value, 274, 26, green);
+    camp_ra_hi_print(c, value, 274, 38, green);
+    for (int x = 274 * 2; x <= 313 * 2; x++)
+        c->hi_plate[48 * 2 * 640 + x] = 0x70;
+    snprintf(value, sizeof value, "%5d", s->score);
+    camp_ra_hi_print(c, value, 286, 50, green);
+    camp_ra_hi_string(c, 275, 144, 78, green);
+    camp_ra_hi_string(c, 277, 144, 126, green);
+    camp_ra_hi_string(c, 280, 28, 110, green);
+    for (int row = 0; row < 2; row++) {
+        const int allied = side ? row == 1 : row == 0;
+        const unsigned char *fp = allied ? blue : red;
+        const CampEntry *bar = allied ? barblue : barred;
+        const int losses = allied ? allied_losses : soviet_losses;
+        const int buildings = allied ? allied_buildings : soviet_buildings;
+        const int barframe = camp_ra_bar_frame(losses,
+                                               allied ? soviet_losses : allied_losses);
+        const int bldgframe = camp_ra_bar_frame(buildings,
+                                                allied ? soviet_buildings : allied_buildings);
+        camp_ra_hi_string(c, allied ? 473 : 474, 135, 90 + row * 12, fp);
+        camp_ra_hi_string(c, allied ? 473 : 474, 135, 138 + row * 12, fp);
+        if (losses > 0)
+            camp_ra_hi_shape(c, bar, barframe, 174 * 2, (89 + row * 12) * 2);
+        if (buildings > 0)
+            camp_ra_hi_shape(c, bar, bldgframe, 174 * 2, (137 + row * 12) * 2);
+        snprintf(value, sizeof value, "%d", losses);
+        camp_ra_hi_print(c, value, 297, 91 + row * 12, fp);
+        snprintf(value, sizeof value, "%d", buildings);
+        camp_ra_hi_print(c, value, 297, 139 + row * 12, fp);
+    }
+    camp_ra_hi_string(c, 281, 182, side ? 62 : 167, green);
+    camp_ra_hi_shape(c, creds, (ticks / 2 + 1) % 32, 276 * 2,
+                     (side ? 58 : 173) * 2);
+    snprintf(value, sizeof value, "%d", s->credits);
+    camp_ra_hi_print(c, value, side ? 236 : 228, side ? 74 : 177, green);
+    if (continue_prompt) camp_ra_hi_string(c, 496, 149, 190, yellow);
+}
+
+/* Red Alert score.cpp stores seven 24-byte records, with a faction per row.
+   Keep its hall separate from Tiberian Dawn's 20-byte HALLFAME.DAT. */
+typedef struct CampRaFame {
+    char name[CAMP_FAMENAME_LEN];
+    int score, level, side;
+} CampRaFame;
+
+static const char *camp_ra_fame_path(void)
+{
+    static char path[1024];
+    char *pref;
+    if (camp_fame_file && camp_fame_file[0]) return camp_fame_file;
+    if (path[0]) return path;
+    pref = SDL_GetPrefPath(OPENCNC3D_PREF_ORG, OPENCNC3D_PREF_APP);
+    if (!pref) return NULL;
+    snprintf(path, sizeof path, "%sRAHALLFAME.DAT", pref);
+    SDL_free(pref);
+    return path;
+}
+
+static void camp_ra_fame_io(CampRaFame rows[CAMP_NUMFAMENAMES], int save)
+{
+    const char *path;
+    FILE *fp;
+    int i, j;
+    if (!camp_fame_enabled() || !(path = camp_ra_fame_path())) return;
+    fp = fopen(path, save ? "wb" : "rb");
+    if (!fp) return;
+    for (i = 0; i < CAMP_NUMFAMENAMES; i++) {
+        unsigned char raw[24];
+        if (save) {
+            const int nums[3] = {rows[i].score, rows[i].level, rows[i].side};
+            memset(raw, 0, sizeof raw);
+            memcpy(raw, rows[i].name, CAMP_FAMENAME_LEN);
+            for (j = 0; j < 3; j++) {
+                unsigned n = (unsigned)nums[j];
+                raw[12+j*4] = (unsigned char)n;
+                raw[13+j*4] = (unsigned char)(n >> 8);
+                raw[14+j*4] = (unsigned char)(n >> 16);
+                raw[15+j*4] = (unsigned char)(n >> 24);
+            }
+            if (fwrite(raw, 1, sizeof raw, fp) != sizeof raw) break;
+        } else {
+            if (fread(raw, 1, sizeof raw, fp) != sizeof raw) break;
+            memcpy(rows[i].name, raw, CAMP_FAMENAME_LEN);
+            rows[i].name[CAMP_FAMENAME_LEN-1] = 0;
+            rows[i].score = (int)((unsigned)raw[12] | (unsigned)raw[13]<<8 |
+                                  (unsigned)raw[14]<<16 | (unsigned)raw[15]<<24);
+            rows[i].level = (int)((unsigned)raw[16] | (unsigned)raw[17]<<8 |
+                                  (unsigned)raw[18]<<16 | (unsigned)raw[19]<<24);
+            rows[i].side = (int)((unsigned)raw[20] | (unsigned)raw[21]<<8 |
+                                 (unsigned)raw[22]<<16 | (unsigned)raw[23]<<24);
+        }
+    }
+    fclose(fp);
+}
+
+static void camp_ra_fame_draw(Camp *c, const CampRaFame rows[CAMP_NUMFAMENAMES],
+                              int active, int cursor)
+{
+    static const unsigned char blue[16] = {
+        0xC0,0xC1,0xC1,0xC3,0xC2,0xC5,0xC3,0xC7,
+        0xC4,0xC9,0xCA,0xCB,0xCC,0xCD,0xC0,0xCF};
+    static const unsigned char red[16] = {
+        0xD0,0xD1,0xD7,0xD3,0xD9,0xD5,0xDA,0xD7,
+        0xDB,0xD9,0xDA,0xDB,0xDC,0xDD,0xD6,0xDF};
+    char number[24];
+    int i;
+    for (i = 0; i < CAMP_NUMFAMENAMES; i++) {
+        const unsigned char *ink = rows[i].side ? red : blue;
+        const int y = 120 + i*8;
+        camp_ra_hi_print(c, rows[i].name, 11, y, ink);
+        if (rows[i].score) {
+            snprintf(number, sizeof number, "%d", rows[i].level);
+            camp_ra_hi_print(c, number, 77, y, ink);
+            snprintf(number, sizeof number, "%d", rows[i].score);
+            camp_ra_hi_print(c, number, 95, y, ink);
+        }
+    }
+    if (active >= 0 && cursor >= 0) {
+        const int x = (11 + cursor*6)*2, y = (120 + active*8 + 7)*2;
+        if (x >= 0 && x+10 < 640 && y >= 0 && y+1 < 400)
+            for (i = 0; i < 11; i++) {
+                c->hi_plate[y*640+x+i] = 0xCF;
+                c->hi_plate[(y+1)*640+x+i] = 0xCF;
+            }
+    }
+}
+
+int camp_ra_score(Camp *c, const CampScore *s, int side, int scenario)
+{
+    const CampEntry *reel = camp_entry(c, side ? "SOV-TRAN" : "ALI-TRAN");
+    const CampEntry *bg = camp_entry(c, side ? "SOVBACKH" : "ALIBACKH");
+    CampCtx k;
+    int f, shot_once = 0, fame_shot_once = 0;
+    if (!reel || !bg || !c->fonts || !db_font((DB_Pack *)c->fonts, "SCOREHI"))
+        return -1;
+    c->logo_side = -1;
+    camp_ctx_init(&k, c);
+    camp_show_mouse(c, 0);
+    if (c->au) {
+        cnc_music_stop(c->au);
+        cnc_music_play_theme(c->au, "SCORE", 1);
+    }
+    memset(c->plate, 0, sizeof c->plate);
+    c->fade = 256;
+    for (f = 0; f < reel->frames; f++) {
+        camp_blit(c, reel, f);
+        if (!camp_ctx_delay(&k, 2)) return -1;
+    }
+    /* Win95 replaces the WSA's 320x200 final frame with the original
+       ALIBACKH/SOVBACKH 640x400 PCX and the HIRES SCOREFNT. */
+    if (!c->hi_plate)
+        c->hi_plate = (unsigned char *)malloc(640 * 400);
+    if (!c->hi_plate) return -1;
+    camp_use_pal(c, bg->pal);
+    c->hi_active = 1;
+    camp_ra_hi_frame(c, bg, s, side, 0, 1);
+    printf("CAMPAIGN|ra-score|scen=%d|side=%s|score=%d|leadership=%d|economy=%d\n",
+           scenario, side ? "SOVIET" : "ALLIED", s->score, s->leadership, s->efficiency);
+    fflush(stdout);
+    camp_shot(c, "flow_ra_score.png", &shot_once);
+    k.clickx = -1; k.keyed = 0;
+    for (f = 0;; f++) {
+        camp_ra_hi_frame(c, bg, s, side, f, 1);
+        if (!camp_ctx_tick(&k)) {
+            c->hi_active = 0;
+            return -1;
+        }
+        if (k.clickx >= 0 || k.keyed || (camp_autopilot && f >= 45)) break;
+    }
+    {
+        CampRaFame rows[CAMP_NUMFAMENAMES];
+        int rank = CAMP_NUMFAMENAMES, i, pos = 0, auto_step = 0, hold = 0;
+        static const char auto_name[] = "OpenCNC3D\r";
+        memset(rows, 0, sizeof rows);
+        camp_ra_fame_io(rows, 0);
+        if (rows[CAMP_NUMFAMENAMES-1].score >= s->score)
+            rows[CAMP_NUMFAMENAMES-1].score = 0;
+        for (i = 0; i < CAMP_NUMFAMENAMES; i++) {
+            if (s->score > rows[i].score) {
+                int j;
+                for (j = CAMP_NUMFAMENAMES-1; j > i; j--) rows[j] = rows[j-1];
+                memset(&rows[i], 0, sizeof rows[i]);
+                rows[i].score = s->score;
+                rows[i].level = scenario;
+                rows[i].side = side;
+                rank = i;
+                break;
+            }
+        }
+        k.keyed = 0; k.clickx = -1;
+        if (rank < CAMP_NUMFAMENAMES) {
+            if (!camp_autopilot) SDL_StartTextInput();
+            camp_key_clear(c);
+            for (f = 0;; f++) {
+                int ch;
+                camp_ra_hi_frame(c, bg, s, side, f, 0);
+                camp_ra_fame_draw(c, rows, rank, (f / 5) & 1 ? pos : -1);
+                if (!camp_ctx_tick(&k)) {
+                    if (!camp_autopilot) SDL_StopTextInput();
+                    c->hi_active = 0;
+                    return -1;
+                }
+                if (camp_autopilot) {
+                    if (++hold < 8) continue;
+                    hold = 0;
+                    ch = auto_name[auto_step] ? auto_name[auto_step++] : '\r';
+                } else ch = camp_key_pop(c);
+                if (ch == '\r') break;
+                if (ch == '\b') {
+                    if (pos) rows[rank].name[--pos] = 0;
+                } else if (ch >= ' ' && ch <= '~' && pos < CAMP_FAMENAME_LEN-1) {
+                    if (ch >= 'a' && ch <= 'z') ch -= 'a' - 'A';
+                    rows[rank].name[pos++] = (char)ch;
+                    rows[rank].name[pos] = 0;
+                    camp_sfx(c, "KEYSTROK.AUD", 255);
+                }
+            }
+            if (!camp_autopilot) SDL_StopTextInput();
+            camp_ra_fame_io(rows, 1);
+            printf("CAMPAIGN|ra-fame|rank=%d|name=%s|score=%d|level=%d|side=%d\n",
+                   rank+1, rows[rank].name, rows[rank].score, rows[rank].level, side);
+            fflush(stdout);
+        } else {
+            for (f = 0;; f++) {
+                camp_ra_hi_frame(c, bg, s, side, f, 1);
+                camp_ra_fame_draw(c, rows, -1, -1);
+                if (!camp_ctx_tick(&k)) { c->hi_active = 0; return -1; }
+                if (k.clickx >= 0 || k.keyed || (camp_autopilot && f >= 45)) break;
+            }
+        }
+        camp_ra_hi_frame(c, bg, s, side, f, 0);
+        camp_ra_fame_draw(c, rows, -1, -1);
+        camp_shot(c, "flow_ra_fame.png", &fame_shot_once);
+    }
+    c->hi_active = 0;
+    camp_show_mouse(c, 0);
+    return 0;
+}
+
+int camp_ra_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
+{
+    char tag[16];
+    CampCtx k;
+    int f, pick = -1, wait = 0, shot_once = 0;
+    if (scenario < 1 || scenario > 13) return -1;
+    snprintf(tag, sizeof tag, "MS%c%c", side ? 'S' : 'A', 'A' + scenario);
+    const CampEntry *reel = camp_entry(c, tag);
+    if (!reel) return -1;
+    c->logo_side = -1;
+    camp_ctx_init(&k, c);
+    camp_show_mouse(c, 0);
+    if (c->au) {
+        cnc_music_stop(c->au);
+        cnc_music_play_theme(c->au, "MAP", 1);
+    }
+    memset(c->plate, 0, sizeof c->plate);
+    c->fade = 256;
+    for (f = 0; f < reel->frames; f++) {
+        camp_blit(c, reel, f);
+        if (!camp_ctx_delay(&k, 2)) return -1;
+    }
+    camp_show_mouse(c, 1);
+    camp_shot(c, "flow_ra_map.png", &shot_once);
+    k.clickx = -1; k.keyed = 0;
+    while (pick < 0) {
+        if (!camp_ctx_tick(&k)) return -1;
+        if (camp_autopilot && ++wait >= 45) {
+            pick = 0;
+        } else if (k.clickx >= 0) {
+            int i;
+            for (i = 0; i < 3; i++) {
+                const int x = ra_map_spots[side][scenario][i][0];
+                const int y = ra_map_spots[side][scenario][i][1];
+                if (x >= 0 && k.clickx >= x && k.clickx <= x + 11 &&
+                    k.clicky >= y && k.clicky <= y + 9) {
+                    pick = i;
+                    break;
+                }
+            }
+            k.clickx = -1;
+        }
+    }
+    *var = (char)('A' + pick);
+    camp_show_mouse(c, 0);
+    printf("CAMPAIGN|ra-map|scen-won=%d|reel=%s|picked=%d|dir=%c|var=%c\n",
+           scenario, tag, pick, *dir, *var);
+    fflush(stdout);
+    return 0;
 }

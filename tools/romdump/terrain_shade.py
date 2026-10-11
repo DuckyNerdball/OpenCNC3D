@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- the console's PER-VERTEX TERRAIN SHADE, recovered from the cartridge.
+OpenCNC3D -- the console's PER-VERTEX TERRAIN SHADE, recovered from the cartridge.
 
 WHAT THIS IS
 ------------

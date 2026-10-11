@@ -13,7 +13,7 @@
 #
 #  The three buttons at the top:
 #
-#    SAVE       writes cnc3d-fx.cfg NEXT TO THIS FILE. THAT IS THE FILE TO SEND
+#    SAVE       writes opencnc3d-fx.cfg NEXT TO THIS FILE. THAT IS THE FILE TO SEND
 #               BACK. Its numbers become the game's new defaults.
 #    DEFAULTS   puts the numbers back without switching anything off
 #    ALL OFF    the picture the game shipped with, for an instant A/B
@@ -44,12 +44,12 @@ cd "$(dirname "$0")"
 
 echo "======================================================"
 echo "  F5 opens and closes the tuning panel"
-echo "  SAVE writes cnc3d-fx.cfg here. Send that file back."
+echo "  SAVE writes opencnc3d-fx.cfg here. Send that file back."
 echo "======================================================"
 echo
 
-exec ./cnc3d --menupack dosmenu.pack \
+exec ./opencnc3d --menupack dosmenu.pack \
      --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack \
      --dylib ./TiberianDawn.dylib --dir ./missions/ --content ./content/ \
      --w 1280 --h 720 \
-     --gfx --gfxpanel --gfxsave cnc3d-fx.cfg
+     --gfx --gfxpanel --gfxsave opencnc3d-fx.cfg

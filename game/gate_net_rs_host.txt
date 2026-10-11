@@ -1,0 +1,19 @@
+tick 2
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 250
+build NUKE
+tick 300
+startplace NUKE
+place auto
+tick 60
+sellmode 1
+lclickobj NUKE:@me
+tick 100
+objdump
+hurtobj FACT:Multi1
+objdump
+tick 10
+tick 390
+objdump
+quit

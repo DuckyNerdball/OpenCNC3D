@@ -1,6 +1,6 @@
 # Notices
 
-OpenCNC 3D is a faithful PC recreation of the Nintendo 64 presentation of
+OpenCNC3D is a faithful PC recreation of the Nintendo 64 presentation of
 Command & Conquer: Tiberian Dawn. It is assembled from parts with different
 origins, and this file says which is which.
 
@@ -17,10 +17,10 @@ licensed as a whole under the GPL accordingly.
 
 ## Third-party code: the game logic
 
-`brain/vanilla/` is a checkout of the Tiberian Dawn game logic released by
-Electronic Arts Inc. in 2020 under GPL version 3, with additional terms under
-GPL Section 7. Those terms are not reproduced here in summary because a
-summary is not the licence: read them in full in
+`brain/vanilla/` is a checkout of the Tiberian Dawn and Red Alert game logic
+released by Electronic Arts Inc. in 2020 under GPL version 3, with additional
+terms under GPL Section 7. Those terms are not reproduced here in summary
+because a summary is not the licence: read them in full in
 
     brain/vanilla/License.txt
 
@@ -35,24 +35,34 @@ corresponds to is pinned in `brain/patches/UPSTREAM.txt`.
 **This program contains modified versions of EA's GPL source.** There are TWO
 modified copies in this repository and both are covered here.
 
-**1. `brain/vanilla/`, the engine the shipped game loads.** 42 files are modified:
+**1. `brain/vanilla/`, the source used by the standard brain builds.** 54 upstream
+files are modified:
 
     common/CMakeLists.txt             common/load.cpp
-    common/mixfile.h                  tiberiandawn/CMakeLists.txt
+    common/mixfile.h
+    redalert/CMakeLists.txt           redalert/display.cpp
+    redalert/dllinterface.cpp         redalert/dllinterface.h
+    redalert/idata.cpp                redalert/init.cpp
+    redalert/map.cpp                  redalert/rules.cpp
+    redalert/startup.cpp
+    tiberiandawn/CMakeLists.txt
     tiberiandawn/aadata.cpp
     tiberiandawn/aircraft.cpp         tiberiandawn/anim.cpp
     tiberiandawn/anim.h               tiberiandawn/bbdata.cpp
     tiberiandawn/bdata.cpp            tiberiandawn/building.cpp
-    tiberiandawn/building.h           tiberiandawn/bullet.h
+    tiberiandawn/building.h           tiberiandawn/bullet.cpp
+    tiberiandawn/bullet.h
     tiberiandawn/const.cpp            tiberiandawn/defines.h
     tiberiandawn/dialog.cpp           tiberiandawn/display.cpp
     tiberiandawn/display.h            tiberiandawn/dllinterface.cpp
     tiberiandawn/dllinterface.h       tiberiandawn/drive.cpp
     tiberiandawn/event.cpp            tiberiandawn/event.h
-    tiberiandawn/externs.h            tiberiandawn/globals.cpp
+    tiberiandawn/externs.h
+    tiberiandawn/factory.cpp          tiberiandawn/globals.cpp
     tiberiandawn/hdata.cpp            tiberiandawn/house.cpp
     tiberiandawn/house.h              tiberiandawn/idata.cpp
-    tiberiandawn/infantry.cpp         tiberiandawn/ipxmgr.h
+    tiberiandawn/infantry.cpp         tiberiandawn/infantry.h
+    tiberiandawn/ipxmgr.h
     tiberiandawn/object.cpp           tiberiandawn/object.h
     tiberiandawn/saveload.cpp         tiberiandawn/scenario.cpp
     tiberiandawn/session.h            tiberiandawn/special.h
@@ -60,7 +70,7 @@ modified copies in this repository and both are covered here.
     tiberiandawn/techno.h             tiberiandawn/udata.cpp
     tiberiandawn/unit.cpp
 
-**All 42 now carry a dated modification block in the file itself**, and each
+**All 54 now carry a dated modification block in the file itself**, and each
 one says what THAT file's change is rather than repeating a summary. 33 got
 theirs on 1 Sep 2026; before that date only 9 did, and those 9 all carried the
 sentence "the change is additive and does not alter the game simulation", which
@@ -69,27 +79,46 @@ retracted. They have been corrected individually. Seven more files (anim.cpp,
 event.cpp, event.h, infantry.cpp, scenario.cpp, special.h, unit.cpp) were in the
 patch but carried no block and were not listed here until 17 Sep 2026, when
 they got both, and aircraft.cpp and common/mixfile.h joined the patch the same day
-with their blocks.
+with their blocks. Seven Red Alert files joined the modified-source inventory on
+22 Sep 2026 with file-specific blocks for the Phase 2 bootstrap; two more
+(redalert/dllinterface.h, redalert/idata.cpp) and tiberiandawn/infantry.h, which
+were in the patch without a block, got theirs on 3 Oct 2026. tiberiandawn/factory.cpp,
+in the patch without a block since 7 Oct 2026, got its block and its line here
+on 8 Oct 2026.
+
+Two files copied into `brain/vanilla/` are project-authored additions rather
+than modifications of upstream files: `common/wwkeyboard_null.cpp` and
+`tiberiandawn/opencnc3d_compat.h`. They are not included in the 54-file count. The
+Phase 2 host `brain/host/ra_bootstrap.c`, the files in `brain/tests/ra3d/`, and
+the gate scripts in `tools/ra3d/` are also project-authored. `RA3DBOOT.mpr` is
+not a modified EA scenario and contains no original Red Alert game data.
 
 Every change is additive in the sense that nothing upstream was deleted, but it
 is NOT true that none of them touch the simulation and an earlier version of
 this notice said so wrongly: the changes add cheat-granted super weapons, widen
 the playable house set to eight, and export state the renderer reads.
 
-Read against the diff file by file, **24 of the 42 change what the engine
-computes** and 18 do not. The 24 that do:
+Read against the diff file by file, **31 of the 54 change what the engine
+computes** and 23 do not. The 31 that do:
 
+    redalert/display.cpp
+    redalert/dllinterface.cpp
+    redalert/idata.cpp
+    redalert/init.cpp
+    redalert/rules.cpp
     tiberiandawn/CMakeLists.txt
     tiberiandawn/aadata.cpp
     tiberiandawn/aircraft.cpp
     tiberiandawn/anim.cpp
     tiberiandawn/bdata.cpp
     tiberiandawn/building.cpp
+    tiberiandawn/bullet.cpp
     tiberiandawn/defines.h
     tiberiandawn/display.cpp
     tiberiandawn/dllinterface.cpp
     tiberiandawn/drive.cpp
     tiberiandawn/event.cpp
+    tiberiandawn/factory.cpp
     tiberiandawn/globals.cpp
     tiberiandawn/hdata.cpp
     tiberiandawn/house.cpp
@@ -106,7 +135,7 @@ computes** and 18 do not. The 24 that do:
 
 Those are the ones a reader checking whether this is still EA's game should
 start with (special.h only adds a switch, but the engine computes differently
-when it is on). The remaining 18 add build plumbing, read-only accessors,
+when it is on). The remaining 23 add build plumbing, read-only accessors,
 exported state the renderer consumes, portability shims, the network wire
 format (event.h), or a refusal of a damaged data file where the original
 dereferenced it (common/mixfile.h).
@@ -118,18 +147,29 @@ is a second modified version of EA's program in its own right, and
 `brain/xl/DIVERGENCE.md` records every divergence and why it exists.
 
 The complete diff of the unforked copy against upstream is committed as
-`brain/patches/vanilla-cnc3d.patch`, and `tools/check-brain-checkout.sh`
+`brain/patches/vanilla-opencnc3d.patch`, and `tools/check-brain-checkout.sh`
 verifies that upstream plus that patch reproduces `brain/vanilla/` byte for
 byte, so the record cannot silently drift from the code.
 
 This is a modified version of EA's program and is not the original program.
 
+## Third-party art committed here
+
+`data/mottle/mottle.pack` is built from a purchased DAZ Studio content set, Ground Decal
+Materials, and holds fifteen ground patches the Enhanced renderer lays over plain terrain.
+The art is not ours and is not the cartridge's; the licence for it is held.
+`data/mottle/README.md` carries the provenance, the hashes and the terms.
+
+`data/trees/tree3d.pack` is built from Poly Haven models, which are CC0. The baker that
+builds it, `game/bake_tree3d.py`, records that and what it had to decode.
+
 ## What is not in this repository
 
-No game data is redistributed here: not the Nintendo 64 cartridge, not the
-1995 MS-DOS disc content, and nothing extracted from either. Those are not
-ours to distribute, and they are not covered by the GPL. Supply your own; see
-`BUILDING.md` and the README in each empty data directory.
+No original or proprietary game data is redistributed here: not the Nintendo
+64 cartridge, not the 1995 MS-DOS disc content, and nothing extracted from
+either. The project-authored `RA3DBOOT.mpr` test fixture is synthetic. Original
+game data is not ours to distribute and is not covered by the GPL. Supply your
+own; see `BUILDING.md` and the README in each empty data directory.
 
 Command & Conquer, Tiberian Dawn, Westwood Studios and related marks belong to
 their respective owners. This project is not affiliated with or endorsed by

@@ -254,13 +254,13 @@
  *      GL_DEPTH_WRITEMASK, GL_BLEND_SRC, GL_BLEND_DST, GL_POLYGON_OFFSET_FACTOR,
  *      GL_POLYGON_OFFSET_UNITS and GL_CURRENT_COLOR.
  * ==================================================================================== */
-#ifndef CNC3D_GRASS_DRAW_H
-#define CNC3D_GRASS_DRAW_H
+#ifndef OPENCNC3D_GRASS_DRAW_H
+#define OPENCNC3D_GRASS_DRAW_H
 
-#ifndef CNC3D_GRASS_BAKE_H
+#ifndef OPENCNC3D_GRASS_BAKE_H
 #error "grass_draw.h consumes grass_bake.h; include grass_bake.h first"
 #endif
-#ifndef CNC3D_GRASS_CRUSH_FIELD_H
+#ifndef OPENCNC3D_GRASS_CRUSH_FIELD_H
 #error "grass_draw.h consumes grass_field.h; include grass_field.h first"
 #endif
 
@@ -302,7 +302,7 @@
  *
  *  FROM grass_field.h
  *    grass_crush_ready()  1 when the field exists
- *    grass_crush_tex()    the RGBA16F field: R tread, G cover, B shroud, A reserved
+ *    grass_crush_tex()    the RGBA16F field: R press, G cover, B shroud, A trample
  *
  *  WHY THE SHROUD RIDES IN THAT FIELD RATHER THAN IN DRAW ORDER. The shroud blanket
  *  rides 0.11 world units above the ground (SHROUD_BLACK_Y 0.050 at
@@ -341,14 +341,15 @@ static const char* GRASS_VS =
     "uniform float uTouchR;\n"       /* how far that reaches, in cells                       */
     /* the fields */
     "uniform sampler2D uGround;\n"        /* unit 0: per cell, rgb ground, a coverage   */
-    "uniform sampler2D uCrush;\n"         /* unit 1: r tread, g cover, b shroud         */
+    "uniform sampler2D uCrush;\n"         /* unit 1: r press, g cover, b shroud, a trample */
     "uniform vec2  uFieldScale;\n"        /* 1/gridW, 1/gridH, both fields              */
     "uniform float uLit;\n"               /* the light draw_terrain sends this frame    */
     /* the LOD and the colour patch */
     "uniform vec2  uCamXZ;\n"             /* the eye on the ground plane, in cells      */
     "uniform vec2  uFade;\n"              /* x the last cell with a blade, y 1 / band   */
     "uniform float uDensity;\n"           /* the dial in blades a cell, clamped         */
-    "uniform float uCrushGone;\n"         /* where the last of a pressed blade vanishes */
+    "uniform float uTrampleLife;\n"       /* seconds the trample clock runs, achieved   */
+    "uniform float uTrampleFade;\n"       /* seconds of it that are the fade out        */
     "uniform float uPatchLen;\n"          /* cells between colour patches               */
     /* out */
     "varying vec4  vShape;\n"             /* x b2t, y side, z keep, w patch             */
@@ -384,6 +385,7 @@ static const char* GRASS_VS =
     "    float tread  = clamp(crs.r, 0.0, 1.0);\n"
     "    float cover  = clamp(crs.g, 0.0, 1.0);\n"
     "    float shroud = clamp(crs.b, 0.0, 1.0);\n"
+    "    float trample = clamp(crs.a, 0.0, 1.0);\n"
     /* THE LIGHT IS THE GROUND'S OWN, NOT A SECOND ONE. draw_terrain sends
        (oneSun ? 160/255 : terrain_shade) times the shroud byte as its vertex alpha
        (game/cnc_eyes.cpp:6809-6815), and under ENHANCED with the shipped dials that is
@@ -420,8 +422,16 @@ static const char* GRASS_VS =
            exactly s for all 128 slots and the two sides of the LOD share one integer
            axis. It stays exact if the bake ever stores a plain 2s instead.
          THE COVER: a building or a hull has claimed this ground.
-         THE TREAD: the last of a pressed blade shrinks away rather than lying flat, so
-           a track shows soil instead of a green mat.
+         THE TRAMPLE: ground a hull has stood on. The field holds a clock there, 1.0
+           while the hull is on it and falling at a fixed rate once it has gone, so its
+           age is (1 - a) times the clock's life in simulated seconds. The blade, already
+           laid flat by the press channel, fades out over the first uTrampleFade seconds
+           of that and then grows back over the rest, linearly, which is the same shape
+           the cover channel has always regrown with. At a = 0 nothing has touched the
+           ground, or it has fully regrown, and the term is 1 either way. Under the hull
+           itself the age is 0 and the blade stands at full strength, lying flat where the
+           hull hides it; that is what keeps it out of the silhouette without removing it,
+           so the fade the player watches starts when the vehicle leaves.
          THE SKIRT: sd is the baked distance to the nearest static silhouette edge, and
            uSkirt is the ground run a live blade's own screen height covers at the
            camera's tilt, which is a cotangent and not a secant of it. Fading
@@ -432,7 +442,13 @@ static const char* GRASS_VS =
     "    kd = kd * kd * (3.0 - 2.0 * kd);\n"
     "    float keep = clamp(uDensity * kd - floor(slot * 127.5 + 0.25), 0.0, 1.0);\n"
     "    keep *= 1.0 - cover;\n"
-    "    keep *= 1.0 - smoothstep(uCrushGone, 1.0, tread);\n"
+    "    if (trample > 0.0) {\n"
+    "        float age = (1.0 - trample) * uTrampleLife;\n"
+    "        keep *= age < uTrampleFade\n"
+    "              ? 1.0 - smoothstep(0.0, uTrampleFade, age)\n"
+    "              : clamp((age - uTrampleFade) / max(uTrampleLife - uTrampleFade, 1.0e-4),\n"
+    "                      0.0, 1.0);\n"
+    "    }\n"
     "    keep *= smoothstep(0.0, max(uSkirt, 1.0e-4), sd);\n"
     "    if (keep <= 0.0) {\n"
     /* OFF THE CLIP VOLUME, NOT A DISCARD. All four corners take the same point, so the
@@ -504,8 +520,12 @@ static const char* GRASS_VS =
     "    off.y    -= uArc * tb * tb;\n"
     "\n"
     /* CRUSHED, WHICH IS A ROTATION ABOUT THE ROOT AND NOT A SCALE. A scaled blade reads
-       as mown; a rotated one reads as crushed. It falls along its OWN bearing, so a
-       tread leaves a chaotic mat rather than a combed one. */
+       as mown; a rotated one reads as crushed. Under a hull the press channel climbs to
+       1.0 over the flatten clock, so the blade goes down over a fraction of a second
+       rather than in a frame, and it stays down while the trample clock fades it out.
+       It falls along its OWN bearing, so a track leaves a chaotic mat rather than a
+       combed one. Combing it away from the vehicle would need the heading stored per
+       texel, and all four channels of the field are spoken for. */
     "    if (tread > 0.0) {\n"
     "        float th = tread * 1.5707963;\n"
     "        off.xz += fwd * (off.y * sin(th));\n"
@@ -546,7 +566,7 @@ static const char* GRASS_FS =
     "    a *= smoothstep(0.0, uRootAlpha, b2t);\n"
     "    a *= vShape.z;\n"
     /* The only discard, and it is a bandwidth backstop rather than a shape: a blade the
-       LOD, the tread or the skirt has already taken to nothing costs no blend. Grass
+       LOD, the trample or the skirt has already taken to nothing costs no blend. Grass
        writes no depth, so the early depth TEST is unaffected by it. */
     "    if (a < 0.004) discard;\n"
     /* THE ROOT FADE IS COLOUR FIRST AND ALPHA SECOND, AND MOSTLY COLOUR. At b2t = 0 the
@@ -969,7 +989,12 @@ static bool grass_draw(void)
         fx_set2f(prog, "uFade", far_, invBand);
         fx_set1f(prog, "uDensity", den);
     }
-    fx_set1f(prog, "uCrushGone", 0.80f);
+    /* The trample clock, as the field achieved it. The fade is floored a hair above zero
+       because smoothstep with equal edges is undefined in GLSL, and at a fade of 0 the
+       blade then goes on the first tick the hull has left it, which is what 0 means. */
+    fx_set1f(prog, "uTrampleLife", grass_crush_trample_life());
+    fx_set1f(prog, "uTrampleFade", grass_crush_trample_fade() > 1.0e-3f
+                                       ? grass_crush_trample_fade() : 1.0e-3f);
     fx_set1f(prog, "uPatchLen", g_fx.grass_patch_len > 0.5f ? g_fx.grass_patch_len : 0.5f);
 
     /* colour and shape */
@@ -1189,4 +1214,4 @@ static bool grass_draw(void)
  *  ground field, which is that file's call and not this one's. Registered, not hidden.
  * ---------------------------------------------------------------------------------- */
 
-#endif /* CNC3D_GRASS_DRAW_H */
+#endif /* OPENCNC3D_GRASS_DRAW_H */

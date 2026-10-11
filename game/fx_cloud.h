@@ -53,8 +53,8 @@
  *  agree. The MOVEMENT is not in here; it is a uniform the host computes from the
  *  simulation clock, and fx_post.h owns that.
  * ==================================================================================== */
-#ifndef CNC3D_FX_CLOUD_H
-#define CNC3D_FX_CLOUD_H
+#ifndef OPENCNC3D_FX_CLOUD_H
+#define OPENCNC3D_FX_CLOUD_H
 
 #include <stdlib.h>
 #include <string.h>
@@ -247,4 +247,4 @@ static unsigned char* fxc_bake(int* out_levels, int* out_offset)
     return tex;
 }
 
-#endif /* CNC3D_FX_CLOUD_H */
+#endif /* OPENCNC3D_FX_CLOUD_H */

@@ -8,7 +8,7 @@ the captured hashes from each machine, named by platform, commit, scenario and t
 ## The recipe, identical on either platform
 
 ```
-CNC3D_TICKDUMP=1 <cncbrain> content/ missions/ SCB01EA 20000 > capture.log
+OPENCNC3D_TICKDUMP=1 <cncbrain> content/ missions/ SCB01EA 20000 > capture.log
 python3 tools/phase0/tickhash.py capture.log > <platform>-<commit>-SCB01EA-20000.sha256
 ```
 

@@ -50,8 +50,8 @@
  *  EVERY NUMBER IS A DIAL in fx_state.h ("3d  RAIN  (ours)"). rain_fx 0 draws nothing
  *  and sets every rain uniform to zero, which is the gate's trap.
  * ==================================================================================== */
-#ifndef CNC3D_RAIN_MOD_H
-#define CNC3D_RAIN_MOD_H
+#ifndef OPENCNC3D_RAIN_MOD_H
+#define OPENCNC3D_RAIN_MOD_H
 
 #include "rain_glsl.h"
 
@@ -641,11 +641,22 @@ static void rain_light_uniforms(GLuint prog)
     }
 }
 
-/* THE SEA'S OWN MASK for the light pass, on unit 5 (free there: 0 colour, 1 depth,
-   2 shadow, 3 cloud, 4 ground normal). The shore field's alpha is 1 over water, and the
+/* THE SEA'S OWN MASK for the light pass, on unit 12, which nothing else in that pass
+   uses: 0 colour, 1 depth, 2 shadow, 3 cloud, 4 ground normal, 5 the sky bake, 6 the
+   soldiers' shadow, 7 the tiberium field, 8 the terrain shadow, 9 to 11 the terrain
+   visibility, water and cliff masks. The shore field's alpha is 1 over water, and the
    light pass zeroes the wet term where it reads 1. The field only exists once the
    Enhanced sea has built it for this map; with no field the pass is told so and the
-   sea, if any, is wetted like ground, which is the pre-existing gap and not a new one. */
+   sea, if any, is wetted like ground, which is the pre-existing gap and not a new one.
+
+   IT MUST NOT SHARE A UNIT. This mask once sat on unit 5 and the sky bake was later
+   given the same unit, bound after this call, so on every map with a sea the wet term
+   read the bake (or an empty unit, whose alpha is also 1) as water everywhere: the
+   darkening, the glint, the sheen, the relief and the puddles all vanished from the
+   ground with no error anywhere. The rain's per-term gate is what saw it. No glEnable
+   here: the unit is read by a shader, and fixed-function enables stop at fewer units
+   than this on some drivers. */
+#define RAIN_WATER_UNIT 12
 static void rain_light_bind(GLuint prog)
 {
     /* AND IT MUST BE THIS MAP'S FIELD. Nothing rebuilds or frees the shore field
@@ -656,18 +667,17 @@ static void rain_light_bind(GLuint prog)
     const int on = (rain_wetness() > 0.0f && g_waterFieldTex && g_gridW > 0 && g_gridH > 0
                     && water_fx_wanted()
                     && !strcmp(g_waterFieldScen, g_pack.scen)) ? 1 : 0;
-    fx_set1i(prog, "uRainWater", 5);
+    fx_set1i(prog, "uRainWater", RAIN_WATER_UNIT);
     fx_set1i(prog, "uRainWaterOn", on);
     fx_set2f(prog, "uRainWaterScale", g_gridW > 0 ? 1.0f / (float)g_gridW : 0.0f,
                                        g_gridH > 0 ? 1.0f / (float)g_gridH : 0.0f);
-    glActiveTexture(GL_TEXTURE5);
-    glEnable(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE0 + RAIN_WATER_UNIT);
     glBindTexture(GL_TEXTURE_2D, on ? g_waterFieldTex : 0);
     glActiveTexture(GL_TEXTURE0);
 }
 static void rain_light_unbind(void)
 {
-    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE0 + RAIN_WATER_UNIT); glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);
 }
 
@@ -701,4 +711,4 @@ static void rain_water_uniforms(GLuint prog)
     fx_set3f(prog, "uRainSky", 0.62f, 0.66f, 0.72f);
 }
 
-#endif /* CNC3D_RAIN_MOD_H */
+#endif /* OPENCNC3D_RAIN_MOD_H */

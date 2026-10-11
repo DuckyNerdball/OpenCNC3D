@@ -250,14 +250,14 @@ void DriveClass::Overrun_Square(CELL cell, bool threaten)
             int crushed = false;
             while (object) {
                 /*
-                **	CNC3D_Is_Invincible is tested here as well as in Take_Damage because this
+                **	OpenCNC3D_Is_Invincible is tested here as well as in Take_Damage because this
                 **	is the ONE way an object dies without damage being applied to it: crushing
                 **	does not call Take_Damage at all, it goes straight to Record_The_Kill,
                 **	Limbo and delete a few lines below. Without this term an invincible house
                 **	would still lose every infantryman a tracked vehicle drove over.
                 */
                 if (object->Class_Of().IsCrushable && !House->Is_Ally(object)
-                    && !object->CNC3D_Is_Invincible() && Distance(object->Center_Coord()) < 0x80) {
+                    && !object->OpenCNC3D_Is_Invincible() && Distance(object->Center_Coord()) < 0x80) {
                     ObjectClass* next = object->Next;
                     crushed = true;
 

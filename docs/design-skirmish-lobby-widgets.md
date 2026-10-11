@@ -464,7 +464,7 @@ Return convention (`menu/dosmenu_shell.h:39-47`):
 The header already records that `DMS_CANCEL` and `DMS_QUIT` were the same number until
 v0.6.0 and that Cancel therefore closed the game. Do not add a third meaning to `-2`.
 
-The caller side is `app/cnc3d.cpp:1024-1070`. Today the `DM_MULTI` arm scans for maps, calls
+The caller side is `app/opencnc3d.cpp:1024-1070`. Today the `DM_MULTI` arm scans for maps, calls
 `camp_side_select(&camp)` (`:1039`) for the side, then `dms_special` (`:1043`) for the map,
 then copies the scenario and pack into static buffers because `opt.scen` outlives the
 screen, and sets `opt.skirmish`, `opt.side`, `opt.build` and `g_camp.active = 0`. A lobby
@@ -508,7 +508,7 @@ int dms_lobby(DMS* s, const SK_Map* maps, int count, SK_Lobby* out);
 
 `SK_Lobby` holds exactly the fields of the skirmish block of `GameOpts`
 (`game/cnc_game.h:66-86`), and the caller copies them across. It must not hold pointers into
-the map list, for the reason `app/cnc3d.cpp:1050-1058` already records: `opt.scen` outlives
+the map list, for the reason `app/opencnc3d.cpp:1050-1058` already records: `opt.scen` outlives
 the screen because the match can be restarted from the pause dialog, and the next visit to
 the list frees what a pointer would point into. Copy the strings.
 
@@ -517,9 +517,9 @@ the list frees what a pointer would point into. Copy the strings.
 Two mechanisms already exist and both should be used.
 
 * **At the menu level**, `dms_item_window_rect` (`menu/dosmenu_shell.c:92`) returns an
-  item's rectangle in window points, and `harness_click` (`app/cnc3d.cpp:455`) pushes a
+  item's rectangle in window points, and `harness_click` (`app/opencnc3d.cpp:455`) pushes a
   synthetic `SDL_MOUSEBUTTONDOWN` / `UP` pair at a point. That is how `--harness` clicks
-  Test Map (`app/cnc3d.cpp:934-937`) and how `--flowtest` clicks Start
+  Test Map (`app/opencnc3d.cpp:934-937`) and how `--flowtest` clicks Start
   (`:949-953`). A lobby wants the equivalent of `dms_item_window_rect` for its own items.
 * **At the dialog level**, the script verbs `optclick LABEL` (`cnc_eyes.cpp:14135-14159`)
   and `optslider LABEL FRACTION` (`:14160`) look an item up by its printed label through
@@ -642,7 +642,7 @@ items only: Start and Cancel. Draw with `dm_green_dialog` and `dm_green_button`.
 Add `dms_lobby` to `dosmenu_shell.c` as a copy of `dms_special` (`:511`), and a second
 pointer beside `s->ops` with a second branch in `dms_redraw` (`:238`).
 
-Point the `DM_MULTI` arm (`app/cnc3d.cpp:1024`) at it, keeping the existing scan and the
+Point the `DM_MULTI` arm (`app/opencnc3d.cpp:1024`) at it, keeping the existing scan and the
 existing `camp_side_select` / `dms_special` calls behind it for now so nothing regresses.
 
 **Provable now:** Multiplayer Game opens it, Cancel returns to the menu without closing the
@@ -664,7 +664,7 @@ thing that can see the failure mode this screen is most likely to hit.
 
 ### Step 3. The map list
 
-Move the rows the caller already builds (`app/cnc3d.cpp:1032-1044`, `g_skirmishRows`) into
+Move the rows the caller already builds (`app/opencnc3d.cpp:1032-1044`, `g_skirmishRows`) into
 the lobby. The list body is `do_draw`'s (`menu/dosops.c:135-172`) or the jukebox's
 (`dopt_draw_track`, `dosopt.c:1230`); take the jukebox's, because it has tab stops and a
 playing marker and the lobby will want columns.
@@ -676,7 +676,7 @@ is the cheapest possible assertion and the existing skirmish gates already make 
 
 Lift the latched pair from `dopt_draw_visuals` (`dosopt.c:1126-1139`) and the exclusivity
 rule from `dopt_activate` (`:691-706`). Delete the `camp_side_select` call from the
-`DM_MULTI` arm (`app/cnc3d.cpp:1039`); it stays where it is for the campaign.
+`DM_MULTI` arm (`app/opencnc3d.cpp:1039`); it stays where it is for the campaign.
 
 **Provable now:** a gate that picks Nod in the lobby and asserts the `HOUSE` line the brain
 reports, against a run that sets `--side 1` from the command line. Two paths, one answer.

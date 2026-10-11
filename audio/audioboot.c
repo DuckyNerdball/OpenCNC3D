@@ -118,6 +118,23 @@ CncAudio *audio_boot(const AudioBootOpts *o)
     snprintf(path, sizeof path, "%s/transit/TRANSIT.MIX", dir);
     bank_add_mix(cnc_audio_bank(au), path, err, sizeof err);
 
+    /* NEW AUDIO lives beside dosdata, in newaudio/. Through a symlinked dosdata that is
+       the repo's data/newaudio; in an unzipped package it is the folder next to it. The
+       switch itself starts off, and the F5 panel turns it on. The folder's README is
+       what proves it is there, because opening a directory is not portable C. */
+    snprintf(path, sizeof path, "%s/../newaudio/README.txt", dir);
+    {
+        FILE *probe = fopen(path, "rb");
+        if (probe) {
+            fclose(probe);
+            snprintf(path, sizeof path, "%s/../newaudio", dir);
+            bank_set_new_audio_dir(cnc_audio_bank(au), path);
+            printf("AUDIO|newaudio|folder %s\n", path);
+        } else {
+            printf("AUDIO|newaudio|no folder beside %s: the switch will do nothing\n", dir);
+        }
+    }
+
     cnc_audio_set_music_volume(au, o->music_vol255 >= 0 ? o->music_vol255 : 255);
     cnc_audio_set_sound_volume(au, o->sound_vol255 >= 0 ? o->sound_vol255 : 255);
 

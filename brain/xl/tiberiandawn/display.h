@@ -185,7 +185,7 @@ public:
 #ifdef USE_RA_AI
     bool Passes_Proximity_Check(ObjectTypeClass const* object, HousesType house, short const* list, CELL trycell) const;
     /*
-    ** OpenCNC 3D: the cheat menu's "Build Anywhere". A house bit here lifts the base
+    ** OpenCNC3D: the cheat menu's "Build Anywhere". A house bit here lifts the base
     ** ADJACENCY rule for that house and nothing else -- see the comment at the
     ** hook inside Passes_Proximity_Check for why terrain stays illegal.
     **
@@ -194,9 +194,9 @@ public:
     ** a player at slot 32 rather than by a compiler. It costs nothing today: 1ULL is
     ** the shift that is correct at both house counts.
     */
-    static uint64_t CNC3D_BuildAnywhereHouses;
-    static void CNC3D_Set_Build_Anywhere(HousesType house, bool on);
-    static bool CNC3D_Build_Anywhere(HousesType house);
+    static uint64_t OpenCNC3D_BuildAnywhereHouses;
+    static void OpenCNC3D_Set_Build_Anywhere(HousesType house, bool on);
+    static bool OpenCNC3D_Build_Anywhere(HousesType house);
 #endif
     ObjectClass* Cell_Object(CELL cell, int x = 0, int y = 0);
     ObjectClass* Next_Object(ObjectClass* object);

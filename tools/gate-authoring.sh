@@ -162,7 +162,7 @@ printf '%s' "$WG" | grep -q 'OPTIONS|abort|to-editor|edit=1' \
 [ -n "$WMAP" ] && rm -f "missions/user_maps/$WMAP".*
 
 # SNOW. The fourth theater is RA's snow LOOK on the TD template set; its INI says
-# Theater=WINTER to the brain and CNC3DTheater=SNOW to everything of ours, so this leg
+# Theater=WINTER to the brain and OpenCNC3DTheater=SNOW to everything of ours, so this leg
 # proves the whole aliasing chain: New Map onto the snow donor, the SNOW pack loads,
 # the brain still boots (as WINTER), and the playtest aborts home.
 printf 'newmap 1 3 0\ntick 2\neditplay play\ntick 20\noptions\noptclick Abort Mission\noptclick Abort\neditmenu check\nquit\n' \
@@ -183,7 +183,7 @@ printf '%s' "$SG" | grep -q 'OPTIONS|abort|to-editor|edit=1' \
     || { say "FAIL the snow playtest did not come home"; fail=1; }
 [ -n "$SMAP" ] && rm -f "missions/user_maps/$SMAP".*
 
-# SAND. Arrakis: Theater=DESERT to the brain, CNC3DTheater=SAND to ours.
+# SAND. Arrakis: Theater=DESERT to the brain, OpenCNC3DTheater=SAND to ours.
 printf 'newmap 1 4 0\ntick 2\neditplay play\ntick 20\noptions\noptclick Abort Mission\noptclick Abort\neditmenu check\nquit\n' \
     > /tmp/sandgate.script
 AG=$(./cnc_eyes --edit --editmode 1 --scen "$SCEN" --pack SCG01EA.pack --reskin \

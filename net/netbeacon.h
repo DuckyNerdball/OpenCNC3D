@@ -25,8 +25,8 @@
  * must never report "no games found" as "the network is broken", because on a quiet LAN
  * those look identical and only one of them is true.
  */
-#ifndef CNC3D_NETBEACON_H
-#define CNC3D_NETBEACON_H
+#ifndef OPENCNC3D_NETBEACON_H
+#define OPENCNC3D_NETBEACON_H
 
 #ifdef __cplusplus
 extern "C" {

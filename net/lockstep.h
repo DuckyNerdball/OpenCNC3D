@@ -36,8 +36,8 @@
  * action resolves differently on each. Orders run seat 0 first, then seat 1, and within
  * one seat in the order that peer queued them. Nothing here ever sorts by arrival.
  */
-#ifndef CNC3D_LOCKSTEP_H
-#define CNC3D_LOCKSTEP_H
+#ifndef OPENCNC3D_LOCKSTEP_H
+#define OPENCNC3D_LOCKSTEP_H
 
 
 /* THE RENDERER IS C++ AND THIS FILE IS C, so the declarations below have to be marked as
@@ -333,4 +333,4 @@ unsigned ls_send_turn(const LsState* s);
 }   /* extern "C" */
 #endif
 
-#endif /* CNC3D_LOCKSTEP_H */
+#endif /* OPENCNC3D_LOCKSTEP_H */

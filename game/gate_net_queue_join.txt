@@ -1,0 +1,30 @@
+tick 5
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 250
+tick 300
+tick 30
+tick 300
+tick 60
+tick 1200
+tick 4
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 1
+objdump
+tick 3000
+objdump
+quit

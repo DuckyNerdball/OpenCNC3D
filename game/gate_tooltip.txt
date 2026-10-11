@@ -22,22 +22,30 @@
 # Nothing depended on it before the tooltip.
 tick 20
 
-# TWO PROBES, because the DOS bar and the 640 HUD have DIFFERENT GEOMETRY, different row
-# counts and different scroll state -- measured, the same Medium Tank sits at 1200,370 on
-# one and 1230,230 on the other. One coordinate cannot serve both, and a gate that used
-# one would quietly test a single HUD. The suite runs this script against both, and each
-# run is expected to match on exactly one of the two probes.
+# TWO PROBES, because the DOS bar and the Enhanced HUD have DIFFERENT GEOMETRY, different
+# row counts and different scroll state -- measured, the same Medium Tank sits at 1200,370
+# on the DOS bar and, once the VEHICLES category is showing, at 1156,348 on the Enhanced
+# HUD (column 0, row 1 of that category at 1280x720). One coordinate cannot serve both,
+# and a gate that used one would quietly test a single HUD. The suite runs this script
+# against both, and each run is expected to match on exactly one of the two probes.
+# sbcategory only selects which list the Enhanced HUD shows; the DOS bar has no
+# categories and ignores it.
 echo G94-1 a cameo gives its name and its price
 cursor 1200 370
 shot shots/g94_0.png
 sbtip
-cursor 1230 230
+sbcategory vehicles
+cursor 1156 348
 shot shots/g94_0b.png
 sbtip
 
 echo G94-2 a chrome button gives a name and NO price
 cursor 1200 300
 shot shots/g94_1.png
+sbtip
+# the Enhanced HUD's Sell button, in the tool wing left of its minimap
+cursor 1071 111
+shot shots/g94_1b.png
 sbtip
 
 echo G94-3 off the panel gives nothing at all

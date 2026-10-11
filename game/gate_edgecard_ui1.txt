@@ -5,13 +5,13 @@ group 1 2
 tick 1
 unitcard
 cam 45 45
-edgeat 2 958 20
+edgeat 2 1438 20
 cam 45 45
-edgeat 100 958 20
+edgeat 100 1438 20
 cam 45 45
-edgeat 2 800 20
+edgeat 2 1340 20
 cam 45 45
-edgeat 600 958 20
+edgeat 1200 1438 20
 cam 45 45
 edgeat 2 300 20
 quit

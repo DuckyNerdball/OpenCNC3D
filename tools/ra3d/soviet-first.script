@@ -1,0 +1,13 @@
+# The wounded Soviet rifleman becomes visible after the opening trigger.
+# Select the original sprite and move him on the engine's 128-cell map.
+cam 44 79
+tick 90
+lclickobj E1:USSR 0
+expectsel 1
+cursorcell 43 80
+expectcursor move
+cursor 496 456
+order 43 80
+tick 60
+expectcell E1:USSR 0 43 80
+quit

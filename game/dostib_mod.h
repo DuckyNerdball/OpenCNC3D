@@ -21,8 +21,8 @@
  *  to the old procedural crystals -- absent art must never look like working art.
  * ================================================================================== */
 
-#ifndef CNC3D_DOSTIB_MOD_H
-#define CNC3D_DOSTIB_MOD_H
+#ifndef OPENCNC3D_DOSTIB_MOD_H
+#define OPENCNC3D_DOSTIB_MOD_H
 
 struct DostibSlot { unsigned short sheet, x0, y0; };
 
@@ -144,4 +144,4 @@ static void dostib_free(void)
     g_dostibHave = false;
 }
 
-#endif /* CNC3D_DOSTIB_MOD_H */
+#endif /* OPENCNC3D_DOSTIB_MOD_H */

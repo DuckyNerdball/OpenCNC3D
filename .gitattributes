@@ -27,7 +27,7 @@ tools/win/editor-bundle-README.txt  text eol=crlf
 *.command  text eol=lf
 *.script   text eol=lf
 
-# The F5 panel's saved presets. Undeclared until now, which is how the tuned preset came
+# The tuning panel's saved presets. Undeclared until now, which is how the tuned preset came
 # to be CRLF from one machine and LF from the other: a file the panel rewrites in full on
 # every SAVE is the worst possible shape for that drift, because each save from the other
 # platform arrives as a whole-file rewrite rather than as the handful of dials that moved.
@@ -47,7 +47,42 @@ tools/win/editor-bundle-README.txt  text eol=crlf
 *.MIX      -text
 *.SHP      -text
 *.VQA      -text
+*.VQP      -text
+*.BIN      binary
 *.AUD      -text
 *.IMG      -text
 *.PAL      -text
 *.pack     -text
+*.bin      binary
+
+# A MAP'S TERRAIN AND ITS HEIGHTMAP, and an authored model, are bytes too. They had no
+# rule until now and survived on luck: a blank .HGT is 4225 copies of one byte that
+# happens not to be a line feed, so git guessed text and got away with it. The first
+# corner at elevation 10 would have been a carriage return inserted on every Windows
+# checkout, in a file nothing reads as text and no diff would show.
+*.BIN      -text
+*.HGT      -text
+*.c3m      -text
+# An Enhanced building file is the same: little-endian counts, floats and raw RGBA,
+# where any byte can be a line feed. Declared before the first one is committed rather
+# than after the first Windows checkout rewrites one.
+*.ebld     -text
+*.eplc     -text
+# And a remastered vehicle's (game/evhc), which shares its records.
+*.evhc     -text
+
+# Reference scans are binary source files; do not normalize or text-diff PDFs.
+*.pdf      binary
+
+# A generated unified diff has a single-space prefix on empty context lines.
+# Those spaces are patch syntax, not trailing source whitespace.
+brain/patches/vanilla-opencnc3d.patch text eol=lf whitespace=-blank-at-eol
+
+# Blender checkpoints and their exact-byte archive parts.
+*.blend binary
+*.blend.part[0-9][0-9][0-9] binary
+
+# Soundly imports preserve exact stereo PCM bytes on every checkout.
+*.wav binary
+
+*.flac binary

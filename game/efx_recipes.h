@@ -3,8 +3,8 @@
    cartridge's own: anim table ROM 0x1B6444, source table ROM 0x1B41C0, visual
    sub-records ROM 0xA2C2C+. Units are WORLD UNITS, 256 to the cell (the JSON's
    _meta string says 192; it is wrong, see this file's generator header). */
-#ifndef CNC3D_EFX_RECIPES_H
-#define CNC3D_EFX_RECIPES_H
+#ifndef OPENCNC3D_EFX_RECIPES_H
+#define OPENCNC3D_EFX_RECIPES_H
 
 struct EfxSourceRec {
     const char*   name;         /* the ROM's own SOURCE_* string, minus prefix */
@@ -39,7 +39,8 @@ static const EfxSourceRec EFX_SRC[65] = {
   { "Gun_SW", 0, 1, 6.000000f, 0.800000f, 2, 5.000000f, 4.000000f, 2, 5, 30.000000f, 0.000000f, 0.000000f, 1.000000f, -1.000000f, 0.000000f, 0.400000f, 0.000000f, 255, 150, 150, 150, 0x10 },
   { "Gun_W", 0, 1, 6.000000f, 0.800000f, 2, 5.000000f, 4.000000f, 2, 5, 30.000000f, 0.000000f, -0.500000f, 0.500000f, -1.000000f, 0.000000f, 0.400000f, 0.000000f, 255, 150, 150, 150, 0x10 },
   { "Gun_NW", 0, 1, 6.000000f, 0.800000f, 2, 5.000000f, 4.000000f, 2, 5, 30.000000f, 0.000000f, -1.000000f, 0.000000f, -1.000000f, 0.000000f, 0.400000f, 0.000000f, 255, 150, 150, 150, 0x10 },
-  { "Flame_N", 9, 1, 1.071499f, 176.768173f, 0, 11.974000f, 5.000000f, 15, 5, 32.000000f, 8.000000f, -2.000000f, -0.010000f, 0.010000f, 0.000000f, 0.400000f, 2.000000f, 255, 255, 127, 102, 0x10 },
+  /* corrected: the ROM reads a -2.00..-0.01 b 0.01..0.00 here, see the generator */
+  { "Flame_N", 9, 1, 1.071499f, 176.768173f, 0, 11.974000f, 5.000000f, 15, 5, 32.000000f, 8.000000f, -1.010000f, -0.990000f, -0.010000f, 0.010000f, 0.400000f, 2.000000f, 255, 255, 127, 102, 0x10 },
   { "Flame_NE", 9, 1, 1.071499f, 176.768173f, 0, 11.974000f, 5.000000f, 15, 5, 32.000000f, 8.000000f, -1.010000f, -0.990000f, 0.990000f, 1.010000f, 0.400000f, 2.000000f, 255, 255, 127, 102, 0x10 },
   { "Flame_E", 9, 1, 1.071499f, 176.768173f, 0, 11.974000f, 5.000000f, 15, 5, 32.000000f, 8.000000f, -0.010000f, 0.010000f, 0.990000f, 1.010000f, 0.400000f, 2.000000f, 255, 255, 127, 102, 0x10 },
   { "Flame_SE", 9, 1, 1.071499f, 176.768173f, 0, 11.974000f, 5.000000f, 15, 5, 32.000000f, 8.000000f, 0.990000f, 1.010000f, 0.990000f, 1.010000f, 0.400000f, 2.000000f, 255, 255, 127, 102, 0x10 },
@@ -303,4 +304,4 @@ static const signed char EFX_ANIM2RECIPE[85] = {
 };
 static const int EFX_ANIM2RECIPE_N = 85;
 
-#endif /* CNC3D_EFX_RECIPES_H */
+#endif /* OPENCNC3D_EFX_RECIPES_H */

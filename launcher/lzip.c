@@ -24,14 +24,23 @@
  * them separately (lz_is_link). */
 #define LZ_LSTAT(p, st) stat(p, st)
 #define LZ_NAP() Sleep(50)
+/* OFFSETS INTO THE ARCHIVE ARE 64-BIT. The Windows launcher is a 32-bit program, where
+ * a C `long` is 32 bits, so fseek and ftell on their own stop at 2 GiB: a full package
+ * past that size read its index from a negative offset and failed as "not a zip
+ * file". The zip format's own 32-bit fields reach 4 GiB, and these reach all of it. */
+#define LZ_FSEEK(f, o, w) _fseeki64(f, (__int64)(o), w)
+#define LZ_FTELL(f) ((long long)_ftelli64(f))
 #else
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/file.h>
 #include <unistd.h>
 #define LZ_MKDIR(p) mkdir(p, 0755)
 #define LZ_SEP '/'
 #define LZ_LSTAT(p, st) lstat(p, st)
 #define LZ_NAP() usleep(50000)
+#define LZ_FSEEK(f, o, w) fseeko(f, (off_t)(o), w)
+#define LZ_FTELL(f) ((long long)ftello(f))
 #endif
 
 /* ======================================================================== *
@@ -299,7 +308,7 @@ static int lz_walk_cd(const char *zip, LZ_Walk fn, void *user, char *err, int er
 {
     FILE *f = fopen(zip, "rb");
     unsigned char *tail = NULL, *cd = NULL;
-    long size, tailn, eocd = -1;
+    long long size, tailn, eocd = -1;
     unsigned int entries, cdsize, cdoff, i, off = 0;
     int ok = 0;
 
@@ -307,8 +316,12 @@ static int lz_walk_cd(const char *zip, LZ_Walk fn, void *user, char *err, int er
         snprintf(err, (size_t)errlen, "could not open the download");
         return 0;
     }
-    fseek(f, 0, SEEK_END);
-    size = ftell(f);
+    LZ_FSEEK(f, 0, SEEK_END);
+    size = LZ_FTELL(f);
+    if (size < 0) {
+        snprintf(err, (size_t)errlen, "could not read the download");
+        goto done;
+    }
 
     /* The end of central directory record sits within the last 64 KB plus
      * whatever comment the zip carries, so that is how far back to look. */
@@ -318,14 +331,14 @@ static int lz_walk_cd(const char *zip, LZ_Walk fn, void *user, char *err, int er
         snprintf(err, (size_t)errlen, "out of memory");
         goto done;
     }
-    fseek(f, size - tailn, SEEK_SET);
+    LZ_FSEEK(f, size - tailn, SEEK_SET);
     if (fread(tail, 1, (size_t)tailn, f) != (size_t)tailn) {
         snprintf(err, (size_t)errlen, "could not read the download");
         goto done;
     }
     for (i = (unsigned int)tailn; i >= 4; i--) {
         if (lz_u32(tail + i - 4) == 0x06054b50u) {
-            eocd = size - tailn + (long)i - 4;
+            eocd = size - tailn + (long long)i - 4;
             break;
         }
     }
@@ -350,7 +363,7 @@ static int lz_walk_cd(const char *zip, LZ_Walk fn, void *user, char *err, int er
         snprintf(err, (size_t)errlen, "out of memory");
         goto done;
     }
-    fseek(f, (long)cdoff, SEEK_SET);
+    LZ_FSEEK(f, (long long)cdoff, SEEK_SET);
     if (fread(cd, 1, cdsize, f) != cdsize) {
         snprintf(err, (size_t)errlen, "the archive's index is truncated");
         goto done;
@@ -410,12 +423,13 @@ done:
 static int lz_seek_data(FILE *f, unsigned int lho, char *err, int errlen)
 {
     unsigned char lh[30];
-    fseek(f, (long)lho, SEEK_SET);
-    if (fread(lh, 1, 30, f) != 30 || lz_u32(lh) != 0x04034b50u) {
+    if (LZ_FSEEK(f, (long long)lho, SEEK_SET) != 0 || fread(lh, 1, 30, f) != 30
+        || lz_u32(lh) != 0x04034b50u) {
         snprintf(err, (size_t)errlen, "the archive's file headers are damaged");
         return 0;
     }
-    fseek(f, (long)lho + 30 + (long)lz_u16(lh + 26) + (long)lz_u16(lh + 28), SEEK_SET);
+    LZ_FSEEK(f, (long long)lho + 30 + (long long)lz_u16(lh + 26) + (long long)lz_u16(lh + 28),
+             SEEK_SET);
     return 1;
 }
 
@@ -509,7 +523,7 @@ static int lz_store(FILE *in, FILE *out, unsigned int csize, uLong *crc, unsigne
 
 typedef struct
 {
-    char root[256]; /* "CNC3D-windows-v0.6.11/", slash included */
+    char root[256]; /* "OpenCNC3D-windows-v0.6.11/", slash included */
     size_t n;
     int wrapped;
 } LZ_Wrap;
@@ -570,7 +584,7 @@ int lz_wrapped(const char *zip)
  *    folder is also faster, since reading a file is cheaper than inflating it.
  *
  * 2. A CHANGED FILE IS REPLACED BY TWO RENAMES, NEVER WRITTEN OVER. The new bytes
- *    go to "<name>.cnc3d-new" and are checked there. Only then is the existing
+ *    go to "<name>.opencnc3d-new" and are checked there. Only then is the existing
  *    file renamed to "<name>.old" (".old2" to ".old9" while the name before it
  *    is taken, whatever holds it) and the new one renamed onto the name that frees
  *    up. Windows allows a loaded DLL or a running .exe to be RENAMED, and whatever has it
@@ -581,7 +595,7 @@ int lz_wrapped(const char *zip)
  *    moment between the two renames, nothing, then the whole new file, already
  *    checked and, on POSIX, already executable. That matters most for the files
  *    the recovery needs in order to run at all. On Windows nothing in the launcher
- *    can repair a half-written C&C3D.exe or SDL2.dll, because the launcher cannot
+ *    can repair a half-written OpenCNC3D.exe or SDL2.dll, because the launcher cannot
  *    start from them; on macOS the app starts the game rather than the launcher
  *    when the launcher is not executable.
  *
@@ -608,7 +622,7 @@ int lz_wrapped(const char *zip)
  *    stepped aside, so its old copy is still on disk: a failure part way (a file
  *    that cannot be stepped aside, a full disk, a damaged entry, the window
  *    closed mid-install) removes what this extraction wrote and renames the old
- *    copies back, newest first. Without it the release order, cnc3d.exe before
+ *    copies back, newest first. Without it the release order, opencnc3d-game.exe before
  *    TiberianDawn.dll, can leave a new game binary beside the old engine. A
  *    staging folder swapped in at the end would give the same guarantee with
  *    twice the disk and a folder swap Windows refuses while any file inside is
@@ -645,11 +659,11 @@ int lz_wrapped(const char *zip)
  *    (lz_is_install). And the only files the launcher removes that it did not just
  *    write are the copies a journal line records its update making, each by the
  *    exact name the line gives (lz_settle_names): "<name>.old<n>" for "A <n>" and
- *    for the undo's "S <n>", and "<name>.cnc3d-new" for "A" and "N". Each of those
+ *    for the undo's "S <n>", and "<name>.opencnc3d-new" for "A" and "N". Each of those
  *    names is free when its line is written: lz_free_old passes over a taken .old
- *    name rather than freeing it, and lz_put fails a file whose .cnc3d-new is taken
+ *    name rather than freeing it, and lz_put fails a file whose .opencnc3d-new is taken
  *    rather than removing it. Nothing is looked for by pattern, not even beside a
- *    file the update carries: a player's own "cnc3d.old" or "notes.txt.old" is left
+ *    file the update carries: a player's own "opencnc3d.old" or "notes.txt.old" is left
  *    where it is.
  * ------------------------------------------------------------------------ */
 
@@ -679,11 +693,11 @@ typedef struct
 } LZ_Ext;
 
 /* Where rule 2 writes a new copy before it takes its name. */
-#define LZ_NEW ".cnc3d-new"
+#define LZ_NEW ".opencnc3d-new"
 
 /* The install record. Both release packagers write it into every package, and an
  * update rewrites it as its last file. */
-#define LZ_RECORD "cnc3d-install.txt"
+#define LZ_RECORD "opencnc3d-install.txt"
 
 /* Extractions running in this process. lz_settle stands down while there is one:
  * every copy it would look at belongs to that extraction's undo. */
@@ -808,6 +822,21 @@ static void lz_way_err(char *err, int errlen, const char *verb, const char *rel,
                  verb, rel);
 }
 
+int lz_name_safe(const char *rel)
+{
+    return lz_name_ok(rel);
+}
+
+int lz_inside(const char *dir, const char *rel, char *out, size_t outlen)
+{
+    return lz_join(out, outlen, dir, rel);
+}
+
+int lz_is_symlink(const char *path)
+{
+    return lz_is_link(path);
+}
+
 static void lz_old_name(char *out, size_t outlen, const char *path, int n)
 {
     if (n <= 1)
@@ -833,14 +862,17 @@ static size_t lz_old_base(const char *name)
     return 0;
 }
 
-/* A name the launcher keeps for itself: the journals, the download and the lock at
- * the top of the folder, and anywhere, a copy an update keeps beside a file. An
- * archive entry on one of those would be taken for the launcher's own bookkeeping
- * and removed by it, so it is refused instead. No release carries such a name. */
+/* A name the launcher keeps for itself: the journals, the download, the lock and the
+ * movies-and-music record at the top of the folder, and anywhere, a copy an update
+ * keeps beside a file and a part of a download still arriving (".ocpart"). An archive
+ * entry on one of those would be taken for the launcher's own bookkeeping, and the
+ * record in particular says what the player chose, which no update may write over or
+ * remove, so each is refused instead. No release carries such a name. */
 static int lz_reserved(const char *rel)
 {
-    static const char *const own[] = {LZ_JOURNAL, LZ_DONE, "cnc3d-update.zip",
-                                      "cnc3d-update.zip.part", ".cnc3d-launcher.lock", NULL};
+    static const char *const own[] = {LZ_JOURNAL, LZ_DONE, "opencnc3d-update.zip",
+                                      "opencnc3d-update.zip.part", ".opencnc3d-launcher.lock",
+                                      LZ_MEDIA_RECORD, NULL};
     const char *base = rel, *p;
     size_t n;
     int i;
@@ -853,6 +885,8 @@ static int lz_reserved(const char *rel)
             return 1;
     n = strlen(base);
     if (n > sizeof LZ_NEW - 1 && lz_same_name(base + n - (sizeof LZ_NEW - 1), LZ_NEW))
+        return 1;
+    if (n > sizeof LZ_PART - 1 && lz_same_name(base + n - (sizeof LZ_PART - 1), LZ_PART))
         return 1;
     return lz_old_base(base) != 0;
 }
@@ -910,7 +944,7 @@ static int lz_drop(const char *path)
 /* Rule 6's removal, for the lines of a journal whose update is over: exactly the copy
  * each line records its update making beside the file it names, and nothing else
  * there. "A <n>" made "<name>.old<n>", "S <j>" (the undo's spare) made
- * "<name>.old<j>", and "A" and "N" made "<name>.cnc3d-new". Each of those names was
+ * "<name>.old<j>", and "A" and "N" made "<name>.opencnc3d-new". Each of those names was
  * free when its line was written (lz_free_old, lz_put, lz_undo), so what is on it is
  * that update's copy. Called only where no unfinished update can be relying on one
  * (lz_close, lz_recover). Nothing is removed while <name> itself is missing: such a
@@ -1579,7 +1613,7 @@ int lz_extract(const LZ_Lock *install, const char *zip, int strip, const char *c
     }
     remove(jpath); /* a new journal is a new file, never written through the old name */
     x.journal = fopen(jpath, "wb");
-    if (!x.journal || fputs("cnc3d update journal 1\n", x.journal) < 0 || !lz_sync(x.journal)) {
+    if (!x.journal || fputs("opencnc3d update journal 1\n", x.journal) < 0 || !lz_sync(x.journal)) {
         if (x.journal) {
             fclose(x.journal);
             remove(jpath);
@@ -1650,7 +1684,9 @@ void lz_settle(const LZ_Lock *install)
  *
  * IT IS ONLY EVER TAKEN ON AN INSTALL (rule 6). lz_is_install is asked before
  * anything else, so a folder that is not one gets no lock file, and no recovery,
- * settling or extraction, since each of those needs a held lock.
+ * settling or extraction, since each of those needs a held lock. The one exception
+ * is lz_lock_new, which the first install of the game into a folder takes, because
+ * that folder has no record until the install writes one; nothing else calls it.
  *
  * On Windows it is a hidden file opened with no sharing at all and deleted on
  * close, so a second open fails with a sharing violation and a launcher that
@@ -1661,18 +1697,190 @@ void lz_settle(const LZ_Lock *install)
  * since refusing every update there would be worse than the race it guards.
  * ------------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------------ *
+ * One file out of an archive: see lzip.h.
+ * ------------------------------------------------------------------------ */
+
+typedef struct
+{
+    const char *want; /* the entry, as it reads after stripping */
+    int strip;
+    const char *part; /* where it is written first */
+    int found, ok;
+} LZ_One;
+
+static int lz_one_cb(void *user, FILE *f, const LZ_Entry *e, char *err, int errlen)
+{
+    LZ_One *o = (LZ_One *)user;
+    const char *rel = lz_strip(e->name, o->strip);
+    FILE *out;
+    uLong crc = crc32(0L, Z_NULL, 0);
+    unsigned long size = 0;
+    int ok;
+
+    if (!rel || !lz_same_name(rel, o->want))
+        return 1;
+    o->found = 1;
+    if (e->method != 0 && e->method != 8) {
+        snprintf(err, (size_t)errlen, "%s is packed in a way this launcher cannot unpack", rel);
+        return -1;
+    }
+    if (!lz_seek_data(f, e->lho, err, errlen))
+        return -1;
+    remove(o->part);
+    out = fopen(o->part, "wb");
+    if (!out) {
+        snprintf(err, (size_t)errlen, "the disk would not take %s", rel);
+        return -1;
+    }
+    ok = e->method == 8 ? lz_inflate(f, out, e->csize, &crc, &size, err, errlen)
+                        : lz_store(f, out, e->csize, &crc, &size, err, errlen);
+    if (fclose(out) != 0 && ok) {
+        snprintf(err, (size_t)errlen, "the disk would not take %s", rel);
+        ok = 0;
+    }
+    if (ok && ((unsigned int)crc != e->crc || size != e->usize)) {
+        snprintf(err, (size_t)errlen, "%s did not come out of the archive intact", rel);
+        ok = 0;
+    }
+    if (!ok) {
+        remove(o->part);
+        return -1;
+    }
+    o->ok = 1;
+    return 0;
+}
+
+int lz_extract_one(const LZ_Lock *lock, const char *zip, int strip, const char *name,
+                   char *err, int errlen)
+{
+    char dest[1200], part[1240];
+    LZ_One o;
+
+    if (!lock || !lock->held) {
+        snprintf(err, (size_t)errlen, "the game folder is not locked");
+        return 0;
+    }
+    if (lz_reserved(name) || !lz_join(dest, sizeof dest, lock->dir, name)) {
+        snprintf(err, (size_t)errlen, "could not write %s into the game folder", name);
+        return 0;
+    }
+    if (lz_exists(dest)) {
+        snprintf(err, (size_t)errlen, "%s is already in the game folder, so it was left alone",
+                 name);
+        return 0;
+    }
+    snprintf(part, sizeof part, "%s%s", dest, LZ_PART);
+    memset(&o, 0, sizeof o);
+    o.want = name;
+    o.strip = strip;
+    o.part = part;
+    err[0] = '\0';
+    if (!lz_walk_cd(zip, lz_one_cb, &o, err, errlen) && !err[0])
+        snprintf(err, (size_t)errlen, "the download could not be read");
+    if (!o.ok) {
+        if (!o.found && !err[0])
+            snprintf(err, (size_t)errlen, "the download does not carry %s", name);
+        return 0;
+    }
+    if (rename(part, dest) != 0) {
+        remove(part);
+        snprintf(err, (size_t)errlen, "%s arrived but could not be put in place", name);
+        return 0;
+    }
+    return 1;
+}
+
+/* THE LOCKS THIS PROCESS HOLDS, so a second job in the same launcher can ask whether
+ * the folder is already its own. Taking the lock a second time from inside the process
+ * that holds it would be refused like any other launcher's attempt (a second flock on
+ * the folder, a second open of the lock file with no sharing), so the movies and music
+ * download, which runs beside the update's state in the window, asks here first.
+ *
+ * THE TABLE HAS A LOCK OF ITS OWN, because it is shared between threads: the media
+ * worker asks it while the window's thread, or the updater's worker, takes or drops
+ * a lock. Without one, a question could read a slot while it was being cleared and
+ * follow a pointer to a lock that was just released. The lock needs no setting up,
+ * so the first caller cannot race the setting up: a static mutex on POSIX, and on
+ * Windows a word swapped with an interlocked exchange, whose wait is only ever as
+ * long as the few lines below. */
+#define LZ_HELD_MAX 8
+static const LZ_Lock *lz_held[LZ_HELD_MAX];
+
+#ifdef _WIN32
+static volatile LONG lz_held_mx;
+static void lz_held_lock(void)
+{
+    while (InterlockedExchange(&lz_held_mx, 1) != 0)
+        Sleep(0);
+}
+static void lz_held_unlock(void)
+{
+    InterlockedExchange(&lz_held_mx, 0);
+}
+#else
+static pthread_mutex_t lz_held_mx = PTHREAD_MUTEX_INITIALIZER;
+static void lz_held_lock(void)
+{
+    pthread_mutex_lock(&lz_held_mx);
+}
+static void lz_held_unlock(void)
+{
+    pthread_mutex_unlock(&lz_held_mx);
+}
+#endif
+
+static void lz_hold(const LZ_Lock *lock)
+{
+    int i;
+    lz_held_lock();
+    for (i = 0; i < LZ_HELD_MAX; i++)
+        if (!lz_held[i]) {
+            lz_held[i] = lock;
+            break;
+        }
+    lz_held_unlock();
+}
+
+static void lz_release(const LZ_Lock *lock)
+{
+    int i;
+    lz_held_lock();
+    for (i = 0; i < LZ_HELD_MAX; i++)
+        if (lz_held[i] == lock)
+            lz_held[i] = NULL;
+    lz_held_unlock();
+}
+
+int lz_held_here(const char *dir)
+{
+    int i, here = 0;
+    if (!dir)
+        return 0;
+    lz_held_lock();
+    for (i = 0; i < LZ_HELD_MAX && !here; i++)
+        if (lz_held[i] && lz_held[i]->held && lz_same_name(lz_held[i]->dir, dir))
+            here = 1;
+    lz_held_unlock();
+    return here;
+}
+
+/* A real folder, not a link to one and not a file: the one test lz_lock_new makes in
+ * place of lz_is_install. */
+static int lz_real_dir(const char *dir)
+{
+    struct stat st;
+    return dir && *dir && LZ_LSTAT(dir, &st) == 0 && S_ISDIR(st.st_mode) && !lz_is_link(dir);
+}
+
 #ifdef _WIN32
 
-int lz_lock(const char *dir, LZ_Lock *lock)
+static int lz_take(const char *dir, LZ_Lock *lock)
 {
     char path[1200];
     int tries;
 
-    memset(lock, 0, sizeof *lock);
-    lock->fd = -1;
-    if (!lz_is_install(dir))
-        return -2;
-    if (strlen(dir) >= sizeof lock->dir || !lz_join(path, sizeof path, dir, ".cnc3d-launcher.lock"))
+    if (strlen(dir) >= sizeof lock->dir || !lz_join(path, sizeof path, dir, ".opencnc3d-launcher.lock"))
         return -1;
     for (tries = 0; tries < 5; tries++) {
         HANDLE h = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_ALWAYS,
@@ -1684,6 +1892,7 @@ int lz_lock(const char *dir, LZ_Lock *lock)
             lock->handle = (void *)h;
             snprintf(lock->dir, sizeof lock->dir, "%s", dir);
             lock->held = 1;
+            lz_hold(lock);
             return 1;
         }
         why = GetLastError();
@@ -1700,6 +1909,7 @@ int lz_lock(const char *dir, LZ_Lock *lock)
 
 void lz_unlock(LZ_Lock *lock)
 {
+    lz_release(lock);
     if (lock->handle) {
         CloseHandle((HANDLE)lock->handle);
         lock->handle = NULL;
@@ -1709,17 +1919,13 @@ void lz_unlock(LZ_Lock *lock)
 
 #else
 
-int lz_lock(const char *dir, LZ_Lock *lock)
+static int lz_take(const char *dir, LZ_Lock *lock)
 {
     int flags = O_RDONLY, e;
 
 #ifdef O_CLOEXEC
     flags |= O_CLOEXEC; /* the game the launcher starts must not inherit the lock */
 #endif
-    memset(lock, 0, sizeof *lock);
-    lock->fd = -1;
-    if (!lz_is_install(dir))
-        return -2;
     if (strlen(dir) >= sizeof lock->dir)
         return -1;
     lock->fd = open(dir, flags);
@@ -1733,6 +1939,7 @@ int lz_lock(const char *dir, LZ_Lock *lock)
     ) {
         snprintf(lock->dir, sizeof lock->dir, "%s", dir);
         lock->held = 1;
+        lz_hold(lock);
         return 1;
     }
     close(lock->fd);
@@ -1742,6 +1949,7 @@ int lz_lock(const char *dir, LZ_Lock *lock)
 
 void lz_unlock(LZ_Lock *lock)
 {
+    lz_release(lock);
     if (lock->fd >= 0) {
         close(lock->fd);
         lock->fd = -1;
@@ -1750,3 +1958,21 @@ void lz_unlock(LZ_Lock *lock)
 }
 
 #endif
+
+int lz_lock(const char *dir, LZ_Lock *lock)
+{
+    memset(lock, 0, sizeof *lock);
+    lock->fd = -1;
+    if (!lz_is_install(dir))
+        return -2;
+    return lz_take(dir, lock);
+}
+
+int lz_lock_new(const char *dir, LZ_Lock *lock)
+{
+    memset(lock, 0, sizeof *lock);
+    lock->fd = -1;
+    if (!lz_real_dir(dir))
+        return -2;
+    return lz_take(dir, lock);
+}

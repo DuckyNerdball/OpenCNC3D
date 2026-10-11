@@ -249,7 +249,7 @@ def write_obj(path, code, tris, texlist, texnames):
     """OBJ + MTL. Loses the pivots (OBJ has no node transforms) and says so."""
     mtl = os.path.splitext(path)[0] + ".mtl"
     with open(path, "w") as f:
-        f.write("# %s -- Command & Conquer (N64), exported by CNC3D\n" % code)
+        f.write("# %s -- Command & Conquer (N64), exported by OpenCNC3D\n" % code)
         f.write("# axes x=east y=up z=south, 1 map cell = 1024 units\n")
         f.write("# NOTE OBJ carries no pivots: a turret's rotation origin is lost here.\n")
         f.write("#      Use the FBX export if the model has to go back into the game.\n")
@@ -339,7 +339,7 @@ def write_gltf(path, code, tris, texlist, texnames):
             extensions={"KHR_materials_unlit": {}}))
     g = dict(
         asset=dict(version="2.0",
-                   generator="OpenCNC 3D model gallery (from the game's own baked pack)"),
+                   generator="OpenCNC3D model gallery (from the game's own baked pack)"),
         extensionsUsed=["KHR_materials_unlit"],
         scene=0, scenes=[dict(nodes=[0])],
         nodes=[dict(mesh=0, name=code)],

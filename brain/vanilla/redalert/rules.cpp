@@ -12,6 +12,12 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D. This is not EA's original file.
+// Enforces enough dynamic rule-heap capacity for every compiled built-in weapon
+// and warhead. Larger content or mod values remain authoritative.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
 
 /* $Header: /CounterStrike/RULES.CPP 1     3/03/97 10:25a Joe_bostic $ */
 /***********************************************************************************************
@@ -626,6 +632,8 @@ bool RulesClass::Heap_Maximums(CCINIClass& ini)
     **	Special case: double maximum animations to accomodate lots of action
     */
     AnimMax = max(AnimMax, 200);
+    WeaponMax = max(WeaponMax, (int)WEAPON_COUNT);
+    WarheadMax = max(WarheadMax, (int)WARHEAD_COUNT);
 
     /*
     **	Any heaps that use the maximums that were just loaded, must
@@ -1022,11 +1030,13 @@ bool RulesClass::Objects(CCINIClass& ini)
  *=============================================================================================*/
 bool RulesClass::Difficulty(CCINIClass& ini)
 {
-#ifndef REMASTER_BUILD
+    /* OpenCNC3D runs the original RA simulation. The remaster branch normally waits
+       for CNC_Config to inject these values; that path supplied neutral biases
+       and made the original Easy/Normal/Hard rules unreachable. Read the disc's
+       RULES.INI in this fork so scenario handicaps retain their 1996 behavior. */
     Difficulty_Get(ini, Diff[DIFF_EASY], "Easy");
     Difficulty_Get(ini, Diff[DIFF_NORMAL], "Normal");
     Difficulty_Get(ini, Diff[DIFF_HARD], "Difficult");
-#endif
     return (true);
 }
 

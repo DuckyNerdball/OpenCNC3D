@@ -223,35 +223,34 @@ typedef struct
 {
     int selected;   /* curbutton: the one button that is Turn_On()            */
     int pressed;    /* the item held under the mouse, or -1                   */
+    int red_alert;  /* original RA five-button title layout and color scheme  */
     const char *version;   /* menus.cpp:814, printed bottom right of the dialog   */
     const char *copyright; /* the bottom line; NULL for none. See below.          */
+    /* Non-zero when the movie behind Intro & Sneak Peek is not installed. The movies
+     * are an optional download, and a button that opens nothing is drawn the way 1995
+     * draws any button it cannot act on: disabled, never clicked, stepped over by the
+     * arrow keys. 0 (what dm_state_init leaves) is the ordinary menu. */
+    unsigned char intro_missing;
 } DM_State;
 
-/* The 1995 plate had its copyright line painted into the art. The replacement plate
- * has that strip blanked at bake time and the line is printed here instead, so it can
- * be changed without touching the picture.
- *
- * The font is SCOREFNT, which is the font the 1995 plate's own copyright line was set
- * in: correlated against the art's own pixels it beats every other font on the discs.
- * 6 point and 3 point were both wrong, which is what was seen.
- *
- * Letter spacing is +1 rather than the -1 that matched the art's ink density. The art
- * is a rendered image and its glyphs are a shade narrower than the font's, so at the
- * density that matched, real SCOREFNT glyphs touch and the line turns to mush. +1 is
- * the spacing at which it reads, and it is closer to how the 1995 line looks.
- *
- * SCOREFNT is a wide face, so a long credit is word wrapped onto a second row rather
- * than clipped. Each row is 6 pixels; two of them occupy 186..198. */
-/* Index 246, (97,97,97): the exact flat grey the 1995 plate's copyright line is
- * painted in. That line is one colour, not a shaded one; 355 of its 371 ink pixels
- * are this index and the rest are stray antialiasing. */
-#define DM_COPYRIGHT_COLOUR 246
+/* Legal notice uses the same GRAD6FNT glyphs and native spacing as the menu
+ * buttons. Render at 640-wide presentation resolution in the existing footer
+ * seat, while the menu's 320x200 layout and hit areas remain unchanged. */
+#define DM_COPYRIGHT_COLOUR 14
 #define DM_COPYRIGHT_Y 186
-#define DM_COPYRIGHT_LINE_STEP 7
-#define DM_COPYRIGHT_XSPACING 1
-#define DM_COPYRIGHT_MARGIN 4
-#define DM_COPYRIGHT_DEFAULT                                                             \
-    "Copyright 1995, 2026 Westwood Studios Inc. Created by freschism"
+#define DM_COPYRIGHT_LINE_STEP 10
+#define DM_COPYRIGHT_XSPACING DB_FONT6_XSPACING
+#define DM_COPYRIGHT_MARGIN 12
+#define DM_LEGAL_W (DM_SCREEN_W * 2)
+#define DM_LEGAL_H ((DM_SCREEN_H - DM_COPYRIGHT_Y) * 2)
+#define DM_COPYRIGHT_DEFAULT \
+    "Open CnC 3D is an unofficial fan project, not affiliated with or endorsed by Electronic Arts.\n" \
+    "Command & Conquer is a trademark of Electronic Arts Inc. Created by freschism"
+
+/* Paint live legal glyphs into a presented RGBA menu, including fade modulation.
+ * stride is the texture row width in pixels; width/height are the content size. */
+void dm_draw_legal_rgba(unsigned char *rgba, int width, int height, int stride,
+                        const DB_Pack *p, const char *text, int fade);
 
 void dm_state_init(DM_State *st);
 
@@ -277,6 +276,11 @@ const char *dm_item_label(int item);
  * item cannot be reached by mouse or keyboard. */
 int dm_item_disabled(int item);
 
+/* The same question asked of one menu: the table's own flag, or an item whose content
+ * is not installed (Intro & Sneak Peek with no intro movie). The draw, the hit test and
+ * the keyboard walk all ask this one. */
+int dm_state_item_disabled(const DM_State *st, int item);
+
 /* The first item that is not disabled, or -1 if the whole menu is dead. This is the
  * boot selection, the engine's curbutton at menus.cpp:731-735. */
 int dm_first_enabled(void);
@@ -293,6 +297,11 @@ void dm_draw_plate(DB_Surface *s, const DB_Pack *p);
 
 /* Draws the whole 320x200 menu: title screen, dialog, filigree, version, buttons. */
 void dm_draw_menu(DB_Surface *s, const DB_Pack *p, const DM_State *st);
+void dm_draw_ra_side(DB_Surface *s, const DB_Pack *p, int selected, int pressed);
+void dm_draw_ra_difficulty(DB_Surface *s, const DB_Pack *p, int selected, int pressed);
+int  dm_ra_difficulty_hit(int x, int y);
+int dm_ra_side_hit(int x, int y);
+void dm_ra_side_rect(int side, int *x, int *y, int *w, int *h);
 
 /* The DOS mouse pointer (MOUSE.SHP frame 0), drawn at its hotspot. Optional: the
  * renderer may prefer the host cursor. */

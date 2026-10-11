@@ -13,7 +13,7 @@
  *
  * WHAT PICKS THE MODEL is the engine's own ActionType for the cell under the pointer --
  * "what would happen if you clicked here" -- and the handoff recorded getting that as the
- * blocker. It is not one: CNC3D_Probe_Object_At is already exported by the deployed DLL
+ * blocker. It is not one: OpenCNC3D_Probe_Object_At is already exported by the deployed DLL
  * and RETURNS the ActionType as its int return value. The PROBE| line it prints is a side
  * effect, not the channel, so there is no dump round trip.
  *

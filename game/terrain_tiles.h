@@ -4454,6 +4454,10 @@ static const TtSlot TT_SAND[TT_SAND_N] = {
     { 215, 3, 993, 0 },
 };
 
+/* Red Alert's banks, keyed by Red Alert's own template numbers
+   (tools/ra3d/bake_ra_terrain3d.py writes them). */
+#include "ra_terrain_tiles.h"
+
 /* WHICH BANK, BY NAME. Not by the TheaterType enum: that is DESERT=0, JUNGLE=1,
    TEMPERATE=2, WINTER=3 (defines.h:2058) and getting it backwards drew a desert
    map out of the temperate bank -- same slot numbers, different tiles, and the
@@ -4461,6 +4465,12 @@ static const TtSlot TT_SAND[TT_SAND_N] = {
    carries its theater as a STRING, which cannot be silently off by one. */
 static inline const TtSlot* tt_table(const char* theater, int* n)
 {
+    /* Red Alert's: RA plus the theater, its own template numbers. */
+    if (theater && theater[0] == 'R' && theater[1] == 'A') {
+        if (theater[2] == 'T') { *n = TT_RATEMP_N; return TT_RATEMP; }
+        if (theater[2] == 'I') { *n = TT_RAINT_N; return TT_RAINT; }
+        *n = TT_RASNOW_N; return TT_RASNOW;
+    }
     if (theater && (theater[0] == 'D' || theater[0] == 'd')) {
         *n = TT_DESERT_N; return TT_DESERT;
     }

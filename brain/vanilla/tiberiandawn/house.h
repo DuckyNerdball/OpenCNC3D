@@ -13,12 +13,12 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Declares, on HouseClass, a static bitmask of houses whose super weapons
 // were granted by the cheat menu plus a setter and a getter for it.
 // Declarations only; the behaviour that reads the flag lives in house.cpp.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -479,14 +479,14 @@ public:
     void Sell_Wall(CELL cell);
     bool Flag_To_Die(void);
     /*
-    ** OpenCNC 3D: which houses hold their super weapons because the cheat menu granted them
+    ** OpenCNC3D: which houses hold their super weapons because the cheat menu granted them
     ** rather than because they built the launch building. Read by Place_Special_Blast,
     ** where a nuke with no Temple of Nod would otherwise refuse to fire in single
-    ** player. Set by CNC3D_Grant_Superweapons; cleared by Init with the scenario.
+    ** player. Set by OpenCNC3D_Grant_Superweapons; cleared by Init with the scenario.
     */
-    static unsigned CNC3D_CheatSuperHouses;
-    static void CNC3D_Set_Cheat_Supers(HousesType house, bool on);
-    static bool CNC3D_Cheat_Supers(HousesType house);
+    static unsigned OpenCNC3D_CheatSuperHouses;
+    static void OpenCNC3D_Set_Cheat_Supers(HousesType house, bool on);
+    static bool OpenCNC3D_Cheat_Supers(HousesType house);
 
     bool Flag_To_Win(void);
     bool Flag_To_Lose(void);

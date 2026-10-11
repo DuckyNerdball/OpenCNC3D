@@ -18,7 +18,7 @@ Coverage measured with these: TEMPERAT 758/758, DESERT 973/973, WINTER 838/840.
 Quick check against an install:
 
 ```
-CNC3D_REMASTER_DIR=... python3 -c "import rmatlas; print(rmatlas.build('TEMPERAT')[3])"
+OPENCNC3D_REMASTER_DIR=... python3 -c "import rmatlas; print(rmatlas.build('TEMPERAT')[3])"
 ```
 
 THE ONE TRAP, and it is the expensive one: **never construct a terrain filename.** Read it

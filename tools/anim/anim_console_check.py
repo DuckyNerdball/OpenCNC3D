@@ -56,7 +56,7 @@ import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.environ.get("CNC3D_ROOT") or os.path.normpath(os.path.join(HERE, "..", ".."))
+ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.normpath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools", "bakery"))
 sys.path.insert(0, HERE)
 from n64emu import Mem, CPU                     # noqa: E402

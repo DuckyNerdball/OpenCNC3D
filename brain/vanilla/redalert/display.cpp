@@ -12,6 +12,13 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D. This is not EA's original file.
+// Lets asset-free headless scenarios use a zero palette and an omitted MapPack,
+// while retaining the original behavior whenever those assets are present.
+// It changes error handling but not Red Alert gameplay rules for complete content.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
 
 /* $Header: /CounterStrike/DISPLAY.CPP 3     3/09/97 8:04p Joe_bostic $ */
 /***********************************************************************************************
@@ -86,6 +93,8 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+
+extern bool OpenCNC3DHeadless;
 #include "vortex.h"
 #include "xpipe.h"
 #include "common/fading.h"
@@ -378,7 +387,11 @@ void DisplayClass::Init_Theater(TheaterType theater)
         assert(TheaterData != NULL);
 
         bool theaterload = TheaterData->Cache(TheaterBuffer);
-        assert(theaterload);
+        if (!theaterload && OpenCNC3DHeadless) {
+            GlyphX_Debug_Print("RA3D|stage|theater.archive-missing");
+        } else {
+            assert(theaterload);
+        }
         //		LastTheater = Scen.Theater;
     }
 
@@ -389,7 +402,14 @@ void DisplayClass::Init_Theater(TheaterType theater)
     sprintf(fullname, "%s.PAL", Theaters[theater].Root);
     PaletteClass const* ptr = (PaletteClass*)MFCD::Retrieve(fullname);
 
-    GamePalette = *ptr;
+    if (ptr != NULL) {
+        GamePalette = *ptr;
+    } else if (OpenCNC3DHeadless) {
+        memset(&GamePalette[0], 0, 768);
+        GlyphX_Debug_Print("RA3D|stage|theater.palette-missing");
+    } else {
+        assert(ptr != NULL);
+    }
 
     OriginalPalette = GamePalette;
 
@@ -4801,8 +4821,15 @@ void DisplayClass::Read_INI(CCINIClass& ini)
     */
     static char const* const MAPPACK = "MapPack";
     len = ini.Get_UUBlock(MAPPACK, _staging_buffer, sizeof(_staging_buffer));
-    BufferStraw bstraw(_staging_buffer, len);
-    Map.Read_Binary(bstraw);
+    if (len > 0) {
+        BufferStraw bstraw(_staging_buffer, len);
+        Map.Read_Binary(bstraw);
+    } else if (OpenCNC3DHeadless) {
+        GlyphX_Debug_Print("RA3D|stage|map.clear-template-grid");
+    } else {
+        BufferStraw bstraw(_staging_buffer, len);
+        Map.Read_Binary(bstraw);
+    }
 
     LastTheater = Scen.Theater;
 }

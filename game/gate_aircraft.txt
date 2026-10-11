@@ -1,6 +1,6 @@
 # AIRCRAFT (v0.6.0): the heap the dump walked past for the whole life of the project.
 #
-# WHAT WAS WRONG, and it was one missing loop. CNC3D_Dump_Objects walked Infantry, Units,
+# WHAT WAS WRONG, and it was one missing loop. OpenCNC3D_Dump_Objects walked Infantry, Units,
 # Buildings and Terrains and stopped. The Aircraft heap was never exported, so no aircraft
 # of any kind had EVER reached the renderer, and ObjKind had no member to hold one. Four
 # player-visible symptoms came out of that single omission:

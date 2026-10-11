@@ -24,7 +24,7 @@
 **
 */
 
-#include "cnc3d_compat.h"   // OpenCNC 3D: Win32 shims for non-Windows builds
+#include "opencnc3d_compat.h"   // OpenCNC3D: Win32 shims for non-Windows builds
 #include <stdio.h>
 
 #include "function.h"
@@ -787,7 +787,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Clear_Object_Selection(uint64 
 
     Unselect_All();
 
-    /* OpenCNC 3D: RESTORE THE AllowVoice INVARIANT AT THE GESTURE BOUNDARY.
+    /* OpenCNC3D: RESTORE THE AllowVoice INVARIANT AT THE GESTURE BOUNDARY.
      *
      * AllowVoice is the 1995 engine's "one voice per user gesture" latch: TRUE at rest,
      * a batch sets it false after the first object speaks, and the batch restores it on
@@ -917,7 +917,7 @@ void GlyphX_Assign_Houses(void)
     HouseClass* housep2;
 
     /*
-    ** OpenCNC 3D lockstep: no wall clock seeds this function. The start-position shuffle
+    ** OpenCNC3D lockstep: no wall clock seeds this function. The start-position shuffle
     ** below now draws from Scen.RandomNumber (Random_Pick), the same synchronised
     ** stream the house-selection loop already uses a few lines down. Every peer holds
     ** the identical stream state here because Init_Random is never reached in the DLL
@@ -1442,7 +1442,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Custom_Instance(const ch
     Clear_Scenario();
 
     /*
-    ** OpenCNC 3D: THE CLOCK STARTS AT ZERO FOR A NEW SCENARIO.
+    ** OpenCNC3D: THE CLOCK STARTS AT ZERO FOR A NEW SCENARIO.
     **
     ** Clear_Scenario() empties the world but leaves Frame where the last mission stopped,
     ** because in 1995 the reset lives in Select_Game() (init.cpp:737) under the comment
@@ -1782,7 +1782,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Advance_Instance(uint64 player
     ** Very rarely, the human players will get a message from the computer.
     */
     /*
-    ** OpenCNC 3D lockstep: this used IRandom, which is libc rand(), so a Mac peer and a
+    ** OpenCNC3D lockstep: this used IRandom, which is libc rand(), so a Mac peer and a
     ** Windows peer disagreed even from an identical seed.
     **
     ** It does NOT move to NonCriticalRandomNumber. That generator is not peer identical
@@ -3817,11 +3817,11 @@ extern "C" __declspec(dllexport) void __cdecl CNC_Handle_Input(InputRequestEnum 
 
         if (Map.Pixel_To_Coord(x1, y1)) {
             /*
-            **	OpenCNC 3D lockstep: a wall sale is a SELL event with a cell target, which is the
+            **	OpenCNC3D lockstep: a wall sale is a SELL event with a cell target, which is the
             **	form display.cpp's Mouse_Left_Release always queued and the SELL arm already
             **	understands (Is_Target_Cell). Direct only outside a match.
             */
-            if (CNC3D_Lockstep) {
+            if (OpenCNC3D_Lockstep) {
                 OutList.Add(EventClass(EventClass::SELL, ::As_Target(cell)));
             } else {
                 PlayerPtr->Sell_Wall(cell);
@@ -4730,14 +4730,14 @@ bool DLLExportClass::Passes_Proximity_Check(CELL cell_in,
     short const* occupy_list = placement_type->Occupy_List(true);
 
     /*
-    ** OpenCNC 3D: the cheat menu's Build Anywhere. This routine is what fills in the
+    ** OpenCNC3D: the cheat menu's Build Anywhere. This routine is what fills in the
     ** PassesProximityCheck flag the placement cursor reads, so it has to agree with
     ** DisplayClass::Passes_Proximity_Check or the cursor would show red over ground
     ** the engine would happily accept. In_Radar is still required of every cell the
     ** foundation covers -- "anywhere" means anywhere ON THE MAP.
     */
     const bool anywhere =
-        DisplayClass::CNC3D_Build_Anywhere((PlayerPtr != NULL) ? PlayerPtr->Class->House
+        DisplayClass::OpenCNC3D_Build_Anywhere((PlayerPtr != NULL) ? PlayerPtr->Class->House
                                                               : HOUSE_NONE);
 
     while (*occupy_list != REFRESH_EOL) {
@@ -5213,14 +5213,14 @@ bool DLLExportClass::MP_Construction_Action(SidebarRequestEnum construction_acti
                                 /*
                                 ** Execute immediately so we get the sidebar feedback
                                 **
-                                **	OpenCNC 3D lockstep: NOT in a match. This pumps the queue from inside
+                                **	OpenCNC3D lockstep: NOT in a match. This pumps the queue from inside
                                 **	an input handler so the PRODUCE above executes now rather than at
                                 **	the frame boundary, on this machine only. Under lockstep the
                                 **	order goes out through the drain like every other and the sidebar
                                 **	link appears when it executes everywhere at once. The Sidebar
                                 **	recalc that follows the normal pump in the same tick still runs.
                                 */
-                                if (!CNC3D_Lockstep) {
+                                if (!OpenCNC3D_Lockstep) {
                                     DLLExportClass::Glyphx_Queue_AI();
                                 }
                                 return true;
@@ -5373,7 +5373,7 @@ bool DLLExportClass::Place(uint64 player_id, int buildable_type, int buildable_i
             /*
             ** Call the place directly instead of queueing it, so we can evaluate the return code.
             **
-            **	OpenCNC 3D lockstep: queue the PLACE event instead, the way DisplayClass::
+            **	OpenCNC3D lockstep: queue the PLACE event instead, the way DisplayClass::
             **	Mouse_Left_Release always did, and clear the placement cursor at once the way
             **	it always did too. The return code the comment above wants was only ever used
             **	to clear PlacementType, which is presentation state the host re-reads on its
@@ -5387,7 +5387,7 @@ bool DLLExportClass::Place(uint64 player_id, int buildable_type, int buildable_i
             **	says it ignores exactly that case. The only way round it is a second building
             **	completing inside the same few frames, which needs the instant-build cheat.
             */
-            if (CNC3D_Lockstep) {
+            if (OpenCNC3D_Lockstep) {
                 OutList.Add(EventClass(EventClass::PLACE, building->What_Am_I(), (CELL)(cell + Map.ZoneOffset)));
                 PlacementType[CurrentLocalPlayerIndex] = NULL;
             } else if (PlayerPtr->Place_Object(building->What_Am_I(), cell + Map.ZoneOffset)) {
@@ -5729,7 +5729,7 @@ bool DLLExportClass::Get_Shroud_State(uint64 player_id, unsigned char* buffer_in
             CNCShroudEntryStruct& shroud_entry = shroud->Entries[entry_index];
 
             /*
-            ** OpenCNC 3D: THE UNSHROUD DEBUG FLAG REACHES THIS EXPORT TOO. Carried across from
+            ** OpenCNC3D: THE UNSHROUD DEBUG FLAG REACHES THIS EXPORT TOO. Carried across from
             ** the unforked engine, where the full account of why sits beside the same two
             ** lines. In short: every other answer to "can the player see this" already
             ** folds in Debug_Unshroud, and this one did not, so with the fog cheat on the
@@ -6222,18 +6222,18 @@ void DLLExportClass::Glyphx_Queue_AI(void)
     //	DoList (the list of events to execute).
     //------------------------------------------------------------------------
     /*
-    **	OpenCNC 3D lockstep: in a match this loop MUST NOT RUN. An order that goes straight from
+    **	OpenCNC3D lockstep: in a match this loop MUST NOT RUN. An order that goes straight from
     **	OutList to DoList here is an order that executes on this machine and nowhere else,
     **	which is the whole desync in one statement. Under lockstep the host takes them out
-    **	with CNC3D_Drain_Events, sends them to every peer INCLUDING ITSELF, and puts them
-    **	back with CNC3D_Post_Event stamped for an agreed future frame.
+    **	with OpenCNC3D_Drain_Events, sends them to every peer INCLUDING ITSELF, and puts them
+    **	back with OpenCNC3D_Post_Event stamped for an agreed future frame.
     **
     **	Outside a match this is exactly the code that was always here, discard and all.
     **	(The discard is EA's: a full DoList drops the order through an empty statement. It
     **	is left alone here because making it loud is a separate change with its own gate,
     **	and one that would fire in the campaign.)
     */
-    if (!CNC3D_Lockstep) {
+    if (!OpenCNC3D_Lockstep) {
         while (OutList.Count) {
             OutList.First().IsExecuted = false;
             if (!DoList.Add(OutList.First())) {
@@ -6256,7 +6256,7 @@ void DLLExportClass::Glyphx_Queue_AI(void)
     */
 
     /*
-    **	OpenCNC 3D lockstep: execute in a CANONICAL order rather than in arrival order.
+    **	OpenCNC3D lockstep: execute in a CANONICAL order rather than in arrival order.
     **
     **	Arrival order is fine for one machine and fatal for several. Two peers receive the
     **	same orders over UDP in whatever sequence the network hands them over, so executing
@@ -6272,7 +6272,7 @@ void DLLExportClass::Glyphx_Queue_AI(void)
     **	This is O(n squared) in the ready set. DoList holds 2048 and a tick's ready set is a
     **	handful, so the simple version is the right one until something measures otherwise.
     */
-    if (CNC3D_Lockstep) {
+    if (OpenCNC3D_Lockstep) {
         for (;;) {
             int best = -1;
             for (int j = 0; j < DoList.Count; j++) {
@@ -6292,7 +6292,7 @@ void DLLExportClass::Glyphx_Queue_AI(void)
         }
     }
 
-    for (int i = 0; CNC3D_Lockstep == false && i < MPlayerCount; i++) {
+    for (int i = 0; OpenCNC3D_Lockstep == false && i < MPlayerCount; i++) {
 
         HousesType house;
         HouseClass* housep;
@@ -6748,7 +6748,7 @@ void DLLExportClass::Repair(uint64 player_id, int object_id)
                 if (building && building->Can_Repair() && building->House
                     && building->House->Class->House == PlayerPtr->Class->House) {
                     /*
-                    **	OpenCNC 3D lockstep: this click becomes an ORDER rather than an act. The
+                    **	OpenCNC3D lockstep: this click becomes an ORDER rather than an act. The
                     **	direct call below changes this machine's world and no other, which is
                     **	the whole desync in one line. Under lockstep the REPAIR event EA already
                     **	compiled into event.cpp is queued instead, drained by the host, sent to
@@ -6756,7 +6756,7 @@ void DLLExportClass::Repair(uint64 player_id, int object_id)
                     **	above still run here, at click time, exactly as before; the arm carries
                     **	its own ownership test as well, added with this change.
                     */
-                    if (CNC3D_Lockstep) {
+                    if (OpenCNC3D_Lockstep) {
                         OutList.Add(EventClass(EventClass::REPAIR, building->As_Target()));
                     } else {
                         building->Repair(-1);
@@ -6819,14 +6819,14 @@ void DLLExportClass::Sell(uint64 player_id, int object_id)
             } else {
                 if (building->House && building->House->Class->House == PlayerPtr->Class->House) {
                     /*
-                    **	OpenCNC 3D lockstep: queue the SELL event instead of selling here, for the
+                    **	OpenCNC3D lockstep: queue the SELL event instead of selling here, for the
                     **	reason given at Repair above. ONE DELIBERATE DIFFERENCE, confined to a
                     **	match: the event arm calls Sell_Back(-1), which TOGGLES, where this direct
                     **	call passes 1, which forces. So in a match a second click on a building
                     **	being sold cancels the sale, which is the 1995 gesture; the campaign keeps
                     **	the GlyphX behaviour where it does nothing.
                     */
-                    if (CNC3D_Lockstep) {
+                    if (OpenCNC3D_Lockstep) {
                         OutList.Add(EventClass(EventClass::SELL, building->As_Target()));
                     } else {
                         building->Sell_Back(1);
@@ -7603,7 +7603,7 @@ void DLLExportClass::Computer_Message(bool last_player_taunt)
 
     if (ai_player_count) {
         /*
-        ** OpenCNC 3D lockstep: same reasoning as the caller. IRandom is libc rand(), which
+        ** OpenCNC3D lockstep: same reasoning as the caller. IRandom is libc rand(), which
         ** does not agree across platforms, and neither of the alternatives is safe: the
         ** non-critical generator's stream position is itself peer dependent, and the
         ** synchronised one would shift every later random event in every skirmish to
@@ -8025,14 +8025,14 @@ void DLL_Decode_Pointers(void)
     DLLExportClass::Decode_Pointers();
 }
 /**************************************************************************************************
- * CNC3D_Dump_Objects -- TEMPORARY INSTRUMENTATION (project CNC3D).
+ * OpenCNC3D_Dump_Objects -- TEMPORARY INSTRUMENTATION (project OpenCNC3D).
  *
  * Walks the engine's real object heaps (Infantry/Units/Buildings/Terrains) and prints
  * type, owner, cell, health for every live object. Unlike GAME_STATE_LAYERS this does
  * NOT go through the Draw_It intercept, so it works with no art loaded.
  * Output is one machine-readable line per object on stdout, prefixed "OBJ|".
  **************************************************************************************************/
-static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
+static void OpenCNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
 {
     if (obj == NULL || !obj->IsActive)
         return;
@@ -8056,7 +8056,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D geometry block. The renderer needs three things the old dump did not carry:
+    **	OpenCNC3D geometry block. The renderer needs three things the old dump did not carry:
     **
     **	  lx/ly     the exact lepton position (256 leptons per cell), so moving units are not
     **	            snapped to cell centres and so sub-cell placement is honest.
@@ -8096,7 +8096,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D: is this object selected BY THE LOCAL PLAYER right now. The renderer draws its
+    **	OpenCNC3D: is this object selected BY THE LOCAL PLAYER right now. The renderer draws its
     **	selection brackets from this field rather than from a list of its own, so what the
     **	player sees bracketed is by construction what the engine will actually order about.
     **	IsSelectedMask is the multiplayer-safe form; IsSelected alone is only maintained in
@@ -8108,7 +8108,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D flash. FlasherClass is a base of TechnoClass (techno.h:52).
+    **	OpenCNC3D flash. FlasherClass is a base of TechnoClass (techno.h:52).
     **	TechnoClass::Clicked_As_Target (techno.cpp:1871) sets FlashCount to 7 on the
     **	object a MegaMission is aimed at (event.cpp:586); FlasherClass::Process
     **	(flasher.cpp:78), run once a tick from TechnoClass::AI (techno.cpp:2053),
@@ -8133,7 +8133,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D cloak state, so a Stealth Tank can be DRAWN cloaked. Without these two the
+    **	OpenCNC3D cloak state, so a Stealth Tank can be DRAWN cloaked. Without these two the
     **	renderer has no way to know a unit is cloaking at all, and draws every stealth
     **	tank fully opaque through its whole cycle.
     **
@@ -8174,7 +8174,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D combat presentation. A dying infantryman is NOT deleted at the moment of
+    **	OpenCNC3D combat presentation. A dying infantryman is NOT deleted at the moment of
     **	death: Take_Damage() assigns a death Do (DO_GUN_DEATH etc., infantry.cpp) and the
     **	object stays in the heap playing that animation until Doing_AI() reaches the last
     **	stage and calls Delete_This(). The renderer therefore needs three more facts to
@@ -8187,7 +8187,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     int dying = 0;
     int makecnt = -1;
     /*
-    **	OpenCNC 3D door presentation. TechnoClass derives from DoorClass, and the war factory
+    **	OpenCNC3D door presentation. TechnoClass derives from DoorClass, and the war factory
     **	drives its door through it (Mission_Unload: Open_Door(2, 11), so Stages == 10 and
     **	Door_Stage() runs 0..9 out and 9..0 back). The N64's own war-factory draw arm is
     **	`clipFrame = Door_Stage() * (59/9)`, i.e. it maps exactly those ten stages onto
@@ -8196,7 +8196,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     */
     int doorstage = -1;
     /*
-    **	OpenCNC 3D SAM presentation. MissionClass::Status is the mission state machine's own
+    **	OpenCNC3D SAM presentation. MissionClass::Status is the mission state machine's own
     **	step, and the N64's SAM-site draw arm (RAM 0x8003DE24) branches on it directly:
     **	states 2, 3 and 6 (SAM_READY, SAM_FIRING, SAM_LOCKING) draw the launcher TRACKING,
     **	from PrimaryFacing; every other state draws it rising or lowering, from the stage
@@ -8215,7 +8215,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D construction presentation. For a building, `doing` is its BState and
+    **	OpenCNC3D construction presentation. For a building, `doing` is its BState and
     **	`dostage` its Fetch_Stage(). While BState == BSTATE_CONSTRUCTION the 1995 draw
     **	(building.cpp Draw_It) shows MAKE.SHP frame Fetch_Stage() -- REVERSED when
     **	Mission == MISSION_DECONSTRUCTION (selling), which the renderer can see from
@@ -8247,7 +8247,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     obj->Class_Of().Dimensions(dimw, dimh);
 
     /*
-    **	OpenCNC 3D targeting. tcx/tcy is Coord_Cell(Target_Coord()) -- the cell the ENGINE files
+    **	OpenCNC3D targeting. tcx/tcy is Coord_Cell(Target_Coord()) -- the cell the ENGINE files
     **	this object under when something is ordered to shoot it. For a BUILDING that is not
     **	the anchor cell x/y above, and that difference is the whole reason this field exists.
     **
@@ -8276,7 +8276,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D pip row. The console draws these from its own copy of exactly this
+    **	OpenCNC3D pip row. The console draws these from its own copy of exactly this
     **	arithmetic: the per-object overlay arm at RAM 0x801D0A60 calls Draw_Pips
     **	(RAM 0x801D4530 / ROM 0x176320), which takes the count from the object's
     **	Pip_Count virtual and the maximum from the TYPE's Max_Pips virtual. One field pair
@@ -8328,7 +8328,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     **	handle to carry per-unit animation phase across ticks.
     */
     /*
-    **	OpenCNC 3D: HOW HIGH IT IS FLYING. AircraftClass::Altitude (aircraft.h:254), in the same
+    **	OpenCNC3D: HOW HIGH IT IS FLYING. AircraftClass::Altitude (aircraft.h:254), in the same
     **	leptons everything else here uses. Zero for every other heap, so a reader can add
     **	it unconditionally: the cartridge does exactly that, lifting the health bar and the
     **	pip row by Altitude*10 for RTTI_AIRCRAFT and by nothing for anything else
@@ -8341,7 +8341,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D: WHICH SIDE THIS OBJECT FIGHTS FOR, as opposed to which house owns it.
+    **	OpenCNC3D: WHICH SIDE THIS OBJECT FIGHTS FOR, as opposed to which house owns it.
     **
     **	The owner field above is HouseTypeClass::IniName, and in a multiplayer game that is
     **	Multi1..Multi6 rather than GoodGuy or BadGuy. A reader that picks its house colour,
@@ -8365,7 +8365,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D REPAIR FEEDBACK, so a structure that is repairing itself can SAY so. The
+    **	OpenCNC3D REPAIR FEEDBACK, so a structure that is repairing itself can SAY so. The
     **	1995 game draws a wrench over such a building and blinks it, and a reader given
     **	only the strength cannot reconstruct either half: a building whose health is
     **	climbing might be repairing, or might be sitting on a repair bay, and neither of
@@ -8396,7 +8396,7 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
     }
 
     /*
-    **	OpenCNC 3D PRIMARY FACTORY, so a reader can say WHICH of a house's factories the next
+    **	OpenCNC3D PRIMARY FACTORY, so a reader can say WHICH of a house's factories the next
     **	unit walks out of. Nothing already on this line answers it. The flag is not a
     **	mission, not a status and not a strength, and a reader watching two barracks has no
     **	way to derive it short of building a unit and seeing where it appears.
@@ -8478,14 +8478,14 @@ static void CNC3D_Print_One(const char* kind, ObjectClass* obj, int heapid)
 }
 
 /**************************************************************************************
- * CNC3D_ABI_Facts -- the XL brain states its compiled ABI geometry.
+ * OpenCNC3D_ABI_Facts -- the XL brain states its compiled ABI geometry.
  *
  * The host asserts these at dlopen (docs/design-xl-brain.md, abiAndHost) so a
  * dylib compiled with different struct sizing is refused loudly instead of
  * smashing memory through a GetGameState fetch. Pure reads of compile-time
  * facts; safe before CNC_Init.
  **************************************************************************************/
-extern "C" __declspec(dllexport) void __cdecl CNC3D_ABI_Facts(struct CNC3DAbiFactsStruct* out)
+extern "C" __declspec(dllexport) void __cdecl OpenCNC3D_ABI_Facts(struct OpenCNC3DAbiFactsStruct* out)
 {
     if (out == NULL) {
         return;
@@ -8500,7 +8500,7 @@ extern "C" __declspec(dllexport) void __cdecl CNC3D_ABI_Facts(struct CNC3DAbiFac
     out->SizeofShroudEntry = (int)sizeof(CNCShroudEntryStruct);
 }
 
-extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Objects(void)
 {
     int total = 0;
 
@@ -8514,26 +8514,26 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
 
     for (int i = 0; i < Infantry.Count(); i++) {
         InfantryClass* p = Infantry.Ptr(i);
-        CNC3D_Print_One("INFANTRY", p, Infantry.ID(p));
+        OpenCNC3D_Print_One("INFANTRY", p, Infantry.ID(p));
         total++;
     }
     for (int i = 0; i < Units.Count(); i++) {
         UnitClass* p = Units.Ptr(i);
-        CNC3D_Print_One("UNIT", p, Units.ID(p));
+        OpenCNC3D_Print_One("UNIT", p, Units.ID(p));
         total++;
     }
     for (int i = 0; i < Buildings.Count(); i++) {
         BuildingClass* p = Buildings.Ptr(i);
-        CNC3D_Print_One("BUILDING", p, Buildings.ID(p));
+        OpenCNC3D_Print_One("BUILDING", p, Buildings.ID(p));
         total++;
     }
     for (int i = 0; i < Terrains.Count(); i++) {
         TerrainClass* p = Terrains.Ptr(i);
-        CNC3D_Print_One("TERRAIN", p, Terrains.ID(p));
+        OpenCNC3D_Print_One("TERRAIN", p, Terrains.ID(p));
         total++;
     }
     /*
-    **	OpenCNC 3D: THE AIRCRAFT HEAP, which this dump walked past until v0.6.0.
+    **	OpenCNC3D: THE AIRCRAFT HEAP, which this dump walked past until v0.6.0.
     **
     **	Every other heap was here from the first version and this one never was, so no
     **	aircraft of any kind had ever reached the renderer: an Orca built on a helipad was
@@ -8542,17 +8542,17 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
     **	transport, and the pip row could not show Orca ammo. Four separate symptoms, one
     **	missing loop.
     **
-    **	CNC3D_Print_One takes an ObjectClass*, so nothing else here needed changing; the
+    **	OpenCNC3D_Print_One takes an ObjectClass*, so nothing else here needed changing; the
     **	one field aircraft need that the others do not is alt=, added above.
     */
     for (int i = 0; i < Aircraft.Count(); i++) {
         AircraftClass* p = Aircraft.Ptr(i);
-        CNC3D_Print_One("AIRCRAFT", p, Aircraft.ID(p));
+        OpenCNC3D_Print_One("AIRCRAFT", p, Aircraft.ID(p));
         total++;
     }
 
     /*
-    **	OpenCNC 3D transport presentation. A unit riding a transport is neither deleted nor
+    **	OpenCNC3D transport presentation. A unit riding a transport is neither deleted nor
     **	moved: CargoClass::Attach (cargo.cpp:82) calls object->Limbo(), which unselects it,
     **	takes it off the map layer and sets IsInLimbo -- but never touches Coord. A
     **	reinforcement passenger was never Unlimbo'd at all (reinf.cpp attaches the cargo and
@@ -8629,7 +8629,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
     }
 
     /*
-    **	OpenCNC 3D combat presentation: the Anims heap IS the engine's own effect layer --
+    **	OpenCNC3D combat presentation: the Anims heap IS the engine's own effect layer --
     **	muzzle flashes (ANIM_GUN_N/ANIM_MUZZLE_FLASH, spawned by TechnoClass::Fire_At),
     **	projectile impacts (ANIM_PIFF..., spawned by BulletClass on detonation) and
     **	vehicle death explosions (ANIM_FRAG1/ANIM_FBALL1, UnitClass::Take_Damage).
@@ -8637,7 +8637,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
     **	  type    AnimType enum value (defines.h:1405)
     **	  name    AnimTypeClass IniName, the DOS art name ("PIFF", "FBALL1", "GUNFIRE")
     **	  lx/ly   Center_Coord in absolute leptons (256 per cell), same space as OBJ lx
-    **	  stage   the private StageClass counter via the CNC3D_Stage() accessor; the
+    **	  stage   the private StageClass counter via the OpenCNC3D_Stage() accessor; the
     **	          engine draws shape (Start + stage) of Stages total
     **	  attref  heap id of the techno this anim rides (muzzle flashes attach to their
     **	          shooter and follow it), -1 when free-standing; attkind = its RTTI
@@ -8668,7 +8668,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
             }
         }
         /*
-        **	OpenCNC 3D biggest: AnimTypeClass::Biggest, the frame at which the animation is at
+        **	OpenCNC3D biggest: AnimTypeClass::Biggest, the frame at which the animation is at
         **	its largest (adata.cpp). The renderer needs it for the one class of anim the
         **	engine cannot count frames for -- an art-less one, where Stages is 0 and
         **	AnimClass::Stage never advances, which is every FLAME-* the flamethrower
@@ -8681,7 +8681,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
                c.IniName,
                (int)cc.Sub.X,
                (int)cc.Sub.Y,
-               a->CNC3D_Stage(),
+               a->OpenCNC3D_Stage(),
                c.Start,
                c.Stages,
                (int)a->Loops,
@@ -8715,7 +8715,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
                (int)cc.Sub.X,
                (int)cc.Sub.Y,
                (int)(unsigned char)b->PrimaryFacing.Current(),
-               b->CNC3D_Altitude(),
+               b->OpenCNC3D_Altitude(),
                (int)b->Class->IsInvisible,
                (int)b->Class->IsArcing,
                (int)b->Class->IsHoming);
@@ -8740,7 +8740,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
     }
 
     /*
-    **	OpenCNC 3D tiberium presentation. The renderer draws tiberium from the engine's
+    **	OpenCNC3D tiberium presentation. The renderer draws tiberium from the engine's
     **	own cell table: one line per cell whose Overlay is a tiberium patch, with
     **	OverlayData (the growth stage the DOS draw uses as its frame). x/y are in
     **	the same 64-wide cell space as the OBJ lines' x/y fields.
@@ -8756,7 +8756,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
     }
 
     /*
-    **	OpenCNC 3D wall presentation. Walls are terrain OVERLAY cells, not techno objects, so
+    **	OpenCNC3D wall presentation. Walls are terrain OVERLAY cells, not techno objects, so
     **	they live in none of the heaps the OBJ| lines above walk -- the same gap tiberium
     **	had before TIB| landed. One line per wall cell:
     **
@@ -8794,7 +8794,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
         int cx = Cell_X((CELL)cell);
         int cy = Cell_Y((CELL)cell);
         /*
-        **	OpenCNC 3D owner: which house BUILT this wall cell. CellClass::Owner (cell.h:131)
+        **	OpenCNC3D owner: which house BUILT this wall cell. CellClass::Owner (cell.h:131)
         **	is HOUSE_NONE by default (cell.cpp:136) and is set only when a wall is placed
         **	by a player (overlay.cpp:243), which is exactly the test the sell path makes
         **	(house.cpp:4715). So a wall painted into a scenario's [OVERLAY] reports None
@@ -8814,7 +8814,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
     }
 
     /*
-    **	OpenCNC 3D SMUDGES: the scorch marks, craters and building aprons.
+    **	OpenCNC3D SMUDGES: the scorch marks, craters and building aprons.
     **
     **	  SMUDGE|<x>|<y>|<type>|<data>
     **
@@ -8846,7 +8846,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
     }
 
     /*
-    **	OpenCNC 3D start view. Scen.Views[0] is the scenario's own opening view cell
+    **	OpenCNC3D start view. Scen.Views[0] is the scenario's own opening view cell
     **	(scenarioini.cpp reads it from the INI; single player has no useful
     **	HomeCellX/Y -- those are MultiplayerStartPositions). The renderer centres
     **	its camera here ONCE, on the first dump; reprints are idempotent data.
@@ -8859,7 +8859,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
 }
 
 /**************************************************************************************************
- * CNC3D_Get_View -- TEMPORARY INSTRUMENTATION (project CNC3D).
+ * OpenCNC3D_Get_View -- TEMPORARY INSTRUMENTATION (project OpenCNC3D).
  *
  * Reports the engine's own tactical viewport. This is the coordinate space that
  * CNC_Handle_Input's x1/y1/x2/y2 live in: DisplayClass::Pixel_To_Coord does
@@ -8872,7 +8872,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Objects(void)
  *
  * out[] must have room for 11 ints.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) void __cdecl CNC3D_Get_View(int* out)
+extern "C" __declspec(dllexport) void __cdecl OpenCNC3D_Get_View(int* out)
 {
     if (out == NULL)
         return;
@@ -8890,14 +8890,14 @@ extern "C" __declspec(dllexport) void __cdecl CNC3D_Get_View(int* out)
 }
 
 /**************************************************************************************************
- * CNC3D_Cell_To_Pixel -- TEMPORARY INSTRUMENTATION (project CNC3D).
+ * OpenCNC3D_Cell_To_Pixel -- TEMPORARY INSTRUMENTATION (project OpenCNC3D).
  *
  * Exact inverse of DisplayClass::Pixel_To_Coord for the centre of a cell. Returns false if
  * the resulting pixel would be rejected by Pixel_To_Coord's view-constraint test, and also
  * round-trips its own answer through Pixel_To_Coord so the caller is told the truth rather
  * than a hopeful calculation.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Cell_To_Pixel(int cell_x, int cell_y, int* px, int* py)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Cell_To_Pixel(int cell_x, int cell_y, int* px, int* py)
 {
     int lx = Cell_To_Lepton(cell_x) + (CELL_LEPTON_W / 2) - (int)Coord_X(Map.TacticalCoord);
     int ly = Cell_To_Lepton(cell_y) + (CELL_LEPTON_H / 2) - (int)Coord_Y(Map.TacticalCoord);
@@ -8920,13 +8920,13 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Cell_To_Pixel(int cell_x, in
 }
 
 /**************************************************************************************************
- * CNC3D_Dump_Selection -- TEMPORARY INSTRUMENTATION (project CNC3D).
+ * OpenCNC3D_Dump_Selection -- TEMPORARY INSTRUMENTATION (project OpenCNC3D).
  *
  * Prints what the current player actually has selected, plus each selected object's
  * NavCom / TarCom, so a move order can be proven to have reached the object and not
  * merely to have been "sent".
  **************************************************************************************************/
-extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Selection(void)
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Selection(void)
 {
     printf("SEL-BEGIN count=%d frame=%d\n", CurrentObject.Count(), (int)Frame);
     for (int i = 0; i < CurrentObject.Count(); i++) {
@@ -8990,14 +8990,14 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Dump_Selection(void)
 }
 
 /**************************************************************************************************
- * CNC3D_Sel_Info -- TEMPORARY INSTRUMENTATION (project CNC3D).
+ * OpenCNC3D_Sel_Info -- TEMPORARY INSTRUMENTATION (project OpenCNC3D).
  *
  * Machine readable version of one SEL| line, so a harness can watch a unit every single
  * frame without drowning stdout. out[] needs room for 8 ints:
  *   cell, cell_x, cell_y, lepton_x, lepton_y, mission, navcell, tarcell
  * Returns false if there is no selected object at that index.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Sel_Info(int index, int* out)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Sel_Info(int index, int* out)
 {
     if (out == NULL || index < 0 || index >= CurrentObject.Count())
         return false;
@@ -9029,18 +9029,18 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Sel_Info(int index, int* out
     return true;
 }
 
-extern "C" __declspec(dllexport) const char* __cdecl CNC3D_Mission_Name(int mission)
+extern "C" __declspec(dllexport) const char* __cdecl OpenCNC3D_Mission_Name(int mission)
 {
     return MissionClass::Mission_Name((MissionType)mission);
 }
 
 /**************************************************************************************************
- * CNC3D_Probe_Object_At -- TEMPORARY INSTRUMENTATION (project CNC3D).
+ * OpenCNC3D_Probe_Object_At -- TEMPORARY INSTRUMENTATION (project OpenCNC3D).
  *
  * Answers "what does the engine think is under these input pixels, and what action would
  * the current selection take there". Pure query, changes nothing.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) int __cdecl CNC3D_Probe_Object_At(int x, int y)
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Probe_Object_At(int x, int y)
 {
     COORDINATE coord = Map.Pixel_To_Coord(x, y);
     if (coord == 0) {
@@ -9069,8 +9069,8 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Probe_Object_At(int x, int y)
 }
 
 /**************************************************************************************************
- * CNC3D_Event_ABI -- fingerprint the order wire, so a mismatched peer is refused at the door
- *                    rather than corrupting a match (project CNC3D).
+ * OpenCNC3D_Event_ABI -- fingerprint the order wire, so a mismatched peer is refused at the door
+ *                    rather than corrupting a match (project OpenCNC3D).
  *
  * WHY A FINGERPRINT AND NOT A SIZE. EventClass IS the wire unit: lockstep copies it whole. Its
  * size is asserted at 22 bytes beside the class, and that assertion passes in BOTH brains while
@@ -9090,9 +9090,9 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Probe_Object_At(int x, int y)
  * architectures; a struct would add its own padding question to the very thing being checked.
  * The count grows at the end only, so an older host reading fewer slots still reads them correctly.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) int __cdecl CNC3D_Event_ABI(unsigned int* out, int count)
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Event_ABI(unsigned int* out, int count)
 {
-    unsigned int slot[CNC3D_EVENT_ABI_SLOTS];
+    unsigned int slot[OPENCNC3D_EVENT_ABI_SLOTS];
     int i;
 
     /*
@@ -9117,31 +9117,31 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Event_ABI(unsigned int* out, 
     slot[9] = (unsigned int)EventClass::LAST_EVENT;     /* number of event types */
     slot[10] = hash;                                    /* the deciding value */
 
-    for (i = 0; i < count && i < CNC3D_EVENT_ABI_SLOTS; i++) {
+    for (i = 0; i < count && i < OPENCNC3D_EVENT_ABI_SLOTS; i++) {
         out[i] = slot[i];
     }
-    return (CNC3D_EVENT_ABI_SLOTS);
+    return (OPENCNC3D_EVENT_ABI_SLOTS);
 }
 
 /**************************************************************************************************
- * CNC3D_Drain_Events -- take this peer's pending orders out for the wire (project CNC3D).
+ * OpenCNC3D_Drain_Events -- take this peer's pending orders out for the wire (project OpenCNC3D).
  *
  * Copies up to `max` events out of OutList and REMOVES them, stamping each one the way the classic
  * network path did before the GlyphX conversion replaced it: a frame far enough ahead that every
  * peer can have received it by then, and the originating house index.
  *
  * THE TRAP THIS EXPORT IS BUILT AROUND. Removing the local copy is correct ONLY because the host
- * sends these bytes to every peer INCLUDING ITSELF and posts them back through CNC3D_Post_Event. A
+ * sends these bytes to every peer INCLUDING ITSELF and posts them back through OpenCNC3D_Post_Event. A
  * host that drains and does not loop back loses every order the player gives, and it looks exactly
  * like a network fault: the game runs, the other side moves, and your own clicks do nothing. That
  * is a morning lost to tcpdump. So the drain REFUSES to run unless lockstep is on, and a host that
- * has not called CNC3D_Set_Lockstep gets -1 rather than an empty queue that reads as "no orders".
+ * has not called OpenCNC3D_Set_Lockstep gets -1 rather than an empty queue that reads as "no orders".
  *
  * Returns the number of events written, or -1 if lockstep is off, or -2 on a bad argument.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) int __cdecl CNC3D_Drain_Events(void* out, int max, int frame_delay)
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Drain_Events(void* out, int max, int frame_delay)
 {
-    if (!CNC3D_Lockstep) {
+    if (!OpenCNC3D_Lockstep) {
         return (-1);
     }
     if (out == NULL || max <= 0 || frame_delay < 0) {
@@ -9164,7 +9164,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Drain_Events(void* out, int m
 }
 
 /**************************************************************************************************
- * CNC3D_Post_Event -- inject a received order at its stamped frame (project CNC3D).
+ * OpenCNC3D_Post_Event -- inject a received order at its stamped frame (project OpenCNC3D).
  *
  * The other half of the drain. Every peer posts every peer's orders, its own included, so all
  * machines put the identical set into DoList and execute it at the identical frame.
@@ -9176,9 +9176,9 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Drain_Events(void* out, int m
  * Returns 1 on success, 0 if DoList is full, -1 if lockstep is off, -2 on a bad argument,
  * -3 if the frame has already passed, -4 if the house index is out of range.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) int __cdecl CNC3D_Post_Event(const void* in)
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Post_Event(const void* in)
 {
-    if (!CNC3D_Lockstep) {
+    if (!OpenCNC3D_Lockstep) {
         return (-1);
     }
     if (in == NULL) {
@@ -9203,7 +9203,7 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Post_Event(const void* in)
 }
 
 /**************************************************************************************************
- * CNC3D_Set_Lockstep -- put this brain into deterministic lockstep mode (project CNC3D).
+ * OpenCNC3D_Set_Lockstep -- put this brain into deterministic lockstep mode (project OpenCNC3D).
  *
  * WHY THIS EXPORT EXISTS. A network match needs every machine to compute one identical world.
  * The campaign needs the behaviour players remember. In a handful of places those two wants
@@ -9220,21 +9220,21 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Post_Event(const void* in)
  * the whole simulation, and a per-player flag would invite exactly the split-brain state this
  * exists to prevent.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) void __cdecl CNC3D_Set_Lockstep(bool on)
+extern "C" __declspec(dllexport) void __cdecl OpenCNC3D_Set_Lockstep(bool on)
 {
-    CNC3D_Lockstep = on;
+    OpenCNC3D_Lockstep = on;
 }
 
 /**************************************************************************************************
- * CNC3D_Get_Lockstep -- report the flag, so a host can assert what it asked for took.
+ * OpenCNC3D_Get_Lockstep -- report the flag, so a host can assert what it asked for took.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Get_Lockstep(void)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Get_Lockstep(void)
 {
-    return CNC3D_Lockstep;
+    return OpenCNC3D_Lockstep;
 }
 
 /**************************************************************************************************
- * CNC3D_Set_Invincible -- Damage immunity for one player, for the cheat menu (project CNC3D).
+ * OpenCNC3D_Set_Invincible -- Damage immunity for one player, for the cheat menu (project OpenCNC3D).
  *
  * WHY THIS EXPORT EXISTS. The exported debug interface covers everything a tester needs
  * except this. CNC_Handle_Debug_Request has DEBUG_REQUEST_ADD_RESOURCES for money,
@@ -9274,7 +9274,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Get_Lockstep(void)
 **	does not consult the id at all, and every other mode walks GlyphxPlayerIDs. Returns
 **	HOUSE_NONE when the id is in neither.
 */
-static HousesType CNC3D_House_Of_Player(uint64 player_id)
+static HousesType OpenCNC3D_House_Of_Player(uint64 player_id)
 {
     if (GameToPlay == GAME_NORMAL) {
         return (PlayerPtr != NULL) ? PlayerPtr->Class->House : HOUSE_NONE;
@@ -9289,7 +9289,7 @@ static HousesType CNC3D_House_Of_Player(uint64 player_id)
 }
 
 /**************************************************************************************************
- * CNC3D_Player_To_AI -- Hands one player's house to the computer (project CNC3D).
+ * OpenCNC3D_Player_To_AI -- Hands one player's house to the computer (project OpenCNC3D).
  *
  * WHY THIS EXISTS. When somebody leaves a network match the room's AI TAKEOVER option says
  * their base should carry on under the computer rather than blow up. The engine already
@@ -9308,9 +9308,9 @@ static HousesType CNC3D_House_Of_Player(uint64 player_id)
  * Returns false when player_id names nobody, or when the house is already the computer's.
  **************************************************************************************************/
 /**************************************************************************************************
- * CNC3D_Player_Is_AI -- Is this player's house being played by the computer? (project CNC3D)
+ * OpenCNC3D_Player_Is_AI -- Is this player's house being played by the computer? (project OpenCNC3D)
  *
- * The read that makes CNC3D_Player_To_AI checkable. CNCPlayerInfoStruct carries an IsAI
+ * The read that makes OpenCNC3D_Player_To_AI checkable. CNCPlayerInfoStruct carries an IsAI
  * field, but Get_Player_Info_State never fills it -- it is an INPUT to
  * CNC_Set_Multiplayer_Data and nothing more -- so there was no way to ask the engine
  * afterwards whether a house is human or computer.
@@ -9318,9 +9318,9 @@ static HousesType CNC3D_House_Of_Player(uint64 player_id)
  * Returns 1 for the computer, 0 for a person, -1 when player_id names nobody.
  **************************************************************************************************/
 /**************************************************************************************************
- * CNC3D_Player_Blowup -- Destroys one player's house, the way a disconnect does (project CNC3D).
+ * OpenCNC3D_Player_Blowup -- Destroys one player's house, the way a disconnect does (project OpenCNC3D).
  *
- * WHY NOT CNC3D_Force_Verdict(player, false). Flag_To_Lose raises IsToLose, and
+ * WHY NOT OpenCNC3D_Force_Verdict(player, false). Flag_To_Lose raises IsToLose, and
  * HouseClass::AI only acts on IsToLose "if (GameToPlay == GAME_NORMAL)" (house.cpp).
  * In a GlyphX multiplayer match -- which is every match this game plays -- that flag is
  * therefore read by nobody: the departed player's base stood there untouched, being
@@ -9336,9 +9336,9 @@ static HousesType CNC3D_House_Of_Player(uint64 player_id)
  * Returns whatever the flag returns: false when the house is already winning, losing or
  * dying, so a second goodbye for one seat cannot restart the explosion.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Player_Blowup(uint64 player_id)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Player_Blowup(uint64 player_id)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE) {
         return false;
     }
@@ -9351,9 +9351,9 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Player_Blowup(uint64 player_
     return hptr->Flag_To_Die();
 }
 
-extern "C" __declspec(dllexport) int __cdecl CNC3D_Player_Is_AI(uint64 player_id)
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Player_Is_AI(uint64 player_id)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE) {
         return -1;
     }
@@ -9366,9 +9366,9 @@ extern "C" __declspec(dllexport) int __cdecl CNC3D_Player_Is_AI(uint64 player_id
     return hptr->IsHuman ? 0 : 1;
 }
 
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Player_To_AI(uint64 player_id)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Player_To_AI(uint64 player_id)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE) {
         return false;
     }
@@ -9404,35 +9404,35 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Player_To_AI(uint64 player_i
     return true;
 }
 
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Set_Invincible(uint64 player_id, bool on)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Set_Invincible(uint64 player_id, bool on)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE) {
         return false;
     }
 
-    ObjectClass::CNC3D_Set_Invincible(house, on);
+    ObjectClass::OpenCNC3D_Set_Invincible(house, on);
     return true;
 }
 
 /**************************************************************************************************
- * CNC3D_Get_Invincible -- Reports the invincibility bit for one player (project CNC3D).
+ * OpenCNC3D_Get_Invincible -- Reports the invincibility bit for one player (project OpenCNC3D).
  *
  * The switch has no other reader, so a cheat menu that wants to redraw its own checkbox after
  * a scenario change (which clears the mask) has to be able to ask. Pure query: it changes
  * nothing, not even the engine's idea of who the local player is.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Get_Invincible(uint64 player_id)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Get_Invincible(uint64 player_id)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE || house >= HOUSE_COUNT) {
         return false;
     }
-    return ((ObjectClass::CNC3D_InvincibleHouses & (1ULL << house)) != 0);
+    return ((ObjectClass::OpenCNC3D_InvincibleHouses & (1ULL << house)) != 0);
 }
 
 /**************************************************************************************************
- * CNC3D_Set_Build_Anywhere -- Lifts the base adjacency rule for one player (project CNC3D).
+ * OpenCNC3D_Set_Build_Anywhere -- Lifts the base adjacency rule for one player (project OpenCNC3D).
  *
  * WHY THIS EXPORT EXISTS. The debug interface has no switch for placement at all. Its nearest
  * relative, DEBUG_REQUEST_UNLOCK_BUILDABLES, unlocks WHAT you may build and says nothing about
@@ -9450,24 +9450,24 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Get_Invincible(uint64 player
  *
  * Returns false when player_id names nobody in this match, in which case nothing changed.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Set_Build_Anywhere(uint64 player_id, bool on)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Set_Build_Anywhere(uint64 player_id, bool on)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE) {
         return false;
     }
 
-    DisplayClass::CNC3D_Set_Build_Anywhere(house, on);
+    DisplayClass::OpenCNC3D_Set_Build_Anywhere(house, on);
     return true;
 }
 
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Get_Build_Anywhere(uint64 player_id)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Get_Build_Anywhere(uint64 player_id)
 {
-    return DisplayClass::CNC3D_Build_Anywhere(CNC3D_House_Of_Player(player_id));
+    return DisplayClass::OpenCNC3D_Build_Anywhere(OpenCNC3D_House_Of_Player(player_id));
 }
 
 /**************************************************************************************************
- * CNC3D_Proximity_Ok -- Would this building type pass the proximity check on this cell?
+ * OpenCNC3D_Proximity_Ok -- Would this building type pass the proximity check on this cell?
  *
  * A PURE QUERY. IT ANSWERS THE CURSOR ROUTINE, NOT THE COMMIT ROUTINE. There are THREE copies
  * of the adjacency rule in this engine and they are not the same rule:
@@ -9481,12 +9481,12 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Get_Build_Anywhere(uint64 pl
  * Returns false for an unknown type name or an unknown player, which are indistinguishable from
  * "not allowed" on purpose: a caller that cannot spell the type has no business getting a yes.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Proximity_Ok(uint64 player_id,
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Proximity_Ok(uint64 player_id,
                                                                  const char* type_name,
                                                                  int cell_x,
                                                                  int cell_y)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE || type_name == NULL) {
         return false;
     }
@@ -9503,7 +9503,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Proximity_Ok(uint64 player_i
 }
 
 /**************************************************************************************************
- * CNC3D_Force_Verdict -- Ends the mission now, won or lost, for one player (project CNC3D).
+ * OpenCNC3D_Force_Verdict -- Ends the mission now, won or lost, for one player (project OpenCNC3D).
  *
  * WHY IT IS Flag_To_Win / Flag_To_Lose AND NOT A SHORTCUT. Those two are the engine's own
  * ending, the same pair every winning trigger and every "you have no buildings left" path
@@ -9515,9 +9515,9 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Proximity_Ok(uint64 player_i
  * Returns false when player_id names nobody in this match, or when the house is already
  * flagged, in which case nothing changed.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Force_Verdict(uint64 player_id, bool win)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Force_Verdict(uint64 player_id, bool win)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE) {
         return false;
     }
@@ -9531,7 +9531,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Force_Verdict(uint64 player_
 }
 
 /**************************************************************************************************
- * CNC3D_Grant_Superweapons -- Gives one player every super weapon, ready now (project CNC3D).
+ * OpenCNC3D_Grant_Superweapons -- Gives one player every super weapon, ready now (project OpenCNC3D).
  *
  * WHY THIS EXPORT EXISTS, when the debug interface already looks like it covers this.
  * CNC_Handle_Debug_Request has DEBUG_REQUEST_SUPERWEAPON_RECHARGE, and it calls
@@ -9565,7 +9565,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Force_Verdict(uint64 player_
 **	are the game's own: GLYPHX multiplayer has a per-player sidebar and everything else
 **	has the one local strip.
 */
-static void CNC3D_Add_Special(HouseClass* hptr, SpecialWeaponType spc)
+static void OpenCNC3D_Add_Special(HouseClass* hptr, SpecialWeaponType spc)
 {
     if (GameToPlay == GAME_GLYPHX_MULTIPLAYER) {
         if (hptr->IsHuman) {
@@ -9579,9 +9579,9 @@ static void CNC3D_Add_Special(HouseClass* hptr, SpecialWeaponType spc)
     }
 }
 
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Grant_Superweapons(uint64 player_id, bool on)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Grant_Superweapons(uint64 player_id, bool on)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE) {
         return false;
     }
@@ -9618,15 +9618,15 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Grant_Superweapons(uint64 pl
            inserting (sidebar.cpp:1471-1476), so re-adding cannot grow the strip. */
         if (hptr->IonCannon.Enable(true, false, true)) {
             changed = true;
-            CNC3D_Add_Special(hptr, SPC_ION_CANNON);
+            OpenCNC3D_Add_Special(hptr, SPC_ION_CANNON);
         }
         if (hptr->NukeStrike.Enable(true, false, true)) {
             changed = true;
-            CNC3D_Add_Special(hptr, SPC_NUCLEAR_BOMB);
+            OpenCNC3D_Add_Special(hptr, SPC_NUCLEAR_BOMB);
         }
         if (hptr->AirStrike.Enable(true, false, true)) {
             changed = true;
-            CNC3D_Add_Special(hptr, SPC_AIR_STRIKE);
+            OpenCNC3D_Add_Special(hptr, SPC_AIR_STRIKE);
         }
         /* And THIS is the countdown. Unconditional, every call, so a strike that was just
            spent is ready again on the next tick. */
@@ -9651,12 +9651,12 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Grant_Superweapons(uint64 pl
 }
 
 /***********************************************************************************************
- * CNC3D_Spring_Trigger -- Fires one named trigger's ACTION on demand (project CNC3D).
+ * OpenCNC3D_Spring_Trigger -- Fires one named trigger's ACTION on demand (project OpenCNC3D).
  *
  * WHY THIS EXPORT EXISTS.
  *
  * Tiberian Dawn's trigger is one event paired with one action: no AND, no OR, no counters
- * (trigger.h:41-108). OpenCNC 3D's editor offers richer conditions in "Enhanced mode", and the
+ * (trigger.h:41-108). OpenCNC3D's editor offers richer conditions in "Enhanced mode", and the
  * only sane way to give them the game's real effects -- Create Team with its ScenarioInit
  * bracket, Reinforce with Do_Reinforcements' edge resolution, Allow Win with its Blockage
  * accounting -- is to let the engine run its OWN action bodies rather than reimplement
@@ -9693,7 +9693,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Grant_Superweapons(uint64 pl
  * WARNINGS: none. A missing name is a false, not a crash -- which is the normal case
  *           after a volatile carrier has fired once.
  *=============================================================================================*/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Spring_Trigger(const char* name)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Spring_Trigger(const char* name)
 {
     if (name == NULL || *name == '\0') {
         return false;
@@ -9706,7 +9706,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Spring_Trigger(const char* n
 }
 
 /***********************************************************************************************
- * CNC3D_Trigger_Info -- Reads one trigger's live state (project CNC3D).
+ * OpenCNC3D_Trigger_Info -- Reads one trigger's live state (project OpenCNC3D).
  *
  * The host's Enhanced evaluator has to know whether a carrier is still there before it
  * fires it, and the editor's trace wants to know whether a native trigger has been
@@ -9717,7 +9717,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Spring_Trigger(const char* n
  *
  * OUTPUT:  true if the trigger exists.
  *=============================================================================================*/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Trigger_Info(const char* name,
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Trigger_Info(const char* name,
                                                                  int* event,
                                                                  int* action,
                                                                  int* data,
@@ -9746,10 +9746,10 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Trigger_Info(const char* nam
 }
 
 /**************************************************************************************************
- * CNC3D_Building_By_Heapid -- resolves the id the object dump hands out (project CNC3D).
+ * OpenCNC3D_Building_By_Heapid -- resolves the id the object dump hands out (project OpenCNC3D).
  *
  * TWO DIFFERENT NUMBERS ANSWER TO "id" IN THIS HEAP, and the rally exports had taken the wrong
- * one. CNC3D_Dump_Objects prints Buildings.ID(p), and FixedHeapClass::ID (heap.cpp:248) is
+ * one. OpenCNC3D_Dump_Objects prints Buildings.ID(p), and FixedHeapClass::ID (heap.cpp:248) is
  * (pointer - Buffer) / Size: the object's RAW slot in the pool. Buildings.Ptr(index) does not
  * index the pool at all, it indexes ActivePointers, the compacted list of LIVE objects.
  *
@@ -9762,14 +9762,14 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Trigger_Info(const char* nam
  *
  * That is why a rally point set by a human click stopped flying its flag. The click path posts
  * EventClass::ARCHIVE against the building itself and never touches an id, so the point landed on
- * the right building; the renderer then asked CNC3D_Get_Rally about a DIFFERENT one, which had no
+ * the right building; the renderer then asked OpenCNC3D_Get_Rally about a DIFFERENT one, which had no
  * archive target and answered "no rally point". A scripted run allocates its buildings in order
  * and frees none, which is exactly why the gates only ever saw the working case.
  *
  * Walks the ACTIVE list and compares Buildings.ID, so only live objects are ever dereferenced.
  * Raw_Ptr would be shorter and would hand back a freed slot for an id whose building has died.
  **************************************************************************************************/
-static BuildingClass* CNC3D_Building_By_Heapid(int heapid)
+static BuildingClass* OpenCNC3D_Building_By_Heapid(int heapid)
 {
     if (heapid < 0) {
         return NULL;
@@ -9784,7 +9784,7 @@ static BuildingClass* CNC3D_Building_By_Heapid(int heapid)
 }
 
 /**************************************************************************************************
- * CNC3D_Set_Rally -- Sets or clears a factory's rally point (project CNC3D).
+ * OpenCNC3D_Set_Rally -- Sets or clears a factory's rally point (project OpenCNC3D).
  *
  * WHY THIS EXPORT EXISTS. The click path in BuildingClass::Active_Click_With already posts the
  * EventClass::ARCHIVE that sets a rally point, and that is the path a human uses. This export is
@@ -9798,25 +9798,25 @@ static BuildingClass* CNC3D_Building_By_Heapid(int heapid)
  *
  * cell_x < 0 CLEARS the rally point.
  *
- * Resolves the house through CNC3D_House_Of_Player and deliberately NOT through
- * Set_Player_Context, for the reason spelled out above CNC3D_Set_Invincible: Set_Player_Context
+ * Resolves the house through OpenCNC3D_House_Of_Player and deliberately NOT through
+ * Set_Player_Context, for the reason spelled out above OpenCNC3D_Set_Invincible: Set_Player_Context
  * does not merely resolve an id, it MOVES the engine's local player and leaves it moved.
  *
  * Returns false when the player, the building or the cell does not resolve, in which case nothing
  * was posted.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Set_Rally(uint64 player_id, int building_id,
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Set_Rally(uint64 player_id, int building_id,
                                                               int cell_x, int cell_y)
 {
-    HousesType house = CNC3D_House_Of_Player(player_id);
+    HousesType house = OpenCNC3D_House_Of_Player(player_id);
     if (house == HOUSE_NONE) {
         return false;
     }
-    BuildingClass* b = CNC3D_Building_By_Heapid(building_id);
+    BuildingClass* b = OpenCNC3D_Building_By_Heapid(building_id);
     if (b == NULL || b->House == NULL || b->House->Class->House != house) {
         return false;
     }
-    if (!b->CNC3D_Can_Rally()) {
+    if (!b->OpenCNC3D_Can_Rally()) {
         return false;
     }
 
@@ -9833,17 +9833,17 @@ extern "C" __declspec(dllexport) bool __cdecl CNC3D_Set_Rally(uint64 player_id, 
 }
 
 /**************************************************************************************************
- * CNC3D_Get_Rally -- Reads a factory's rally cell back, or -1,-1 (project CNC3D).
+ * OpenCNC3D_Get_Rally -- Reads a factory's rally cell back, or -1,-1 (project OpenCNC3D).
  *
  * Pure query: it changes nothing, not even the engine's idea of who the local player is. The
  * renderer needs it to draw the marker, and a gate needs it to assert the point actually landed
  * rather than that a click was accepted.
  **************************************************************************************************/
-extern "C" __declspec(dllexport) bool __cdecl CNC3D_Get_Rally(int building_id, int* cell_x, int* cell_y)
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Get_Rally(int building_id, int* cell_x, int* cell_y)
 {
     if (cell_x) *cell_x = -1;
     if (cell_y) *cell_y = -1;
-    BuildingClass* b = CNC3D_Building_By_Heapid(building_id);
+    BuildingClass* b = OpenCNC3D_Building_By_Heapid(building_id);
     if (b == NULL || !Target_Legal(b->ArchiveTarget)) {
         return false;
     }

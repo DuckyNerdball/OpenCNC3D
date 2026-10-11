@@ -13,13 +13,13 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
-// Adds one read only inline accessor, CNC3D_Stage(), to AnimClass, which
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
+// Adds one read only inline accessor, OpenCNC3D_Stage(), to AnimClass, which
 // returns the animation's current frame by calling Fetch_Stage() on the
 // private StageClass base so external code can read it. Nothing else is
 // changed.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -111,10 +111,10 @@ public:
     }
 
     /*
-    ** OpenCNC 3D instrumentation (read-only). The StageClass base is private, so the object
+    ** OpenCNC3D instrumentation (read-only). The StageClass base is private, so the object
     ** dump cannot ask an anim which frame it is on without this. No behaviour change.
     */
-    int CNC3D_Stage(void) const
+    int OpenCNC3D_Stage(void) const
     {
         return StageClass::Fetch_Stage();
     };

@@ -1,0 +1,17 @@
+# G268: initialize the rocks, throw four, then check rest at 31 and 41 seconds.
+gfx fol_on 0
+tick 20
+cam 50 51
+zoom max
+shot shots/rock_settle_start.png
+rockpulse 49 50 2 2
+tick 15
+foldump all
+shot shots/rock_settle_moving.png
+tick 450
+foldump all
+shot shots/rock_settle_rest.png
+tick 150
+foldump all
+shot shots/rock_settle_later.png
+quit

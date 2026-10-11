@@ -43,7 +43,7 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.environ.get("CNC3D_ROOT") or os.path.abspath(os.path.join(HERE, "..", ".."))
+ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(os.path.join(HERE, "..", ".."))
 GPL = os.path.join(ROOT, "brain", "vanilla", "tiberiandawn")
 
 

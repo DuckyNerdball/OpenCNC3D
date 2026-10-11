@@ -19,4 +19,10 @@ int lp_self(char *out, int outlen);
 /* Cut the last component off a path, in place. */
 void lp_dirname(char *path);
 
+/* The bytes free for this user on the volume holding `dir`, into *out. Returns 1 on
+ * success and 0 when the system would not say, leaving *out alone: a download that
+ * cannot ask goes ahead and finds out at the first write that fails, rather than
+ * refusing on a number it does not have. */
+int lp_free_bytes(const char *dir, long long *out);
+
 #endif /* LPATH_H */

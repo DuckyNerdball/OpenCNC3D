@@ -199,6 +199,346 @@ static bool g_c3dEdgeArrow = true;      /* --noedgearrow for the A/B */
    read of the latch. */
 static bool g_c3dPush = false;
 
+/* THE GREEN POINTER. A new model for cursor code 0x00, the plain pointer, from the
+   approved art in art/cursor (tools/art/cursor_green.py compiles it into
+   cursor_green_mesh.h). It keeps the cartridge pointer's footprint and tip exactly, so
+   it is a straight swap of one mesh for another: same anchor, same lift, same shadow,
+   same depth rules. It carries no ground-marker triangle, so the cutout pass that draws
+   the old pointer's marker draws nothing for it.
+   It is APPENDED to g_pack as one more mesh rather than drawn by a path of its own, which
+   is why it needs nothing a fixed-function card cannot do: untextured triangles with
+   their shading in the vertex colour, the form the cartridge's own cursors take.
+   Appended at c3d_init, which runs once per loaded pack; -1 until then. */
+#include "cursor_green_mesh.h"
+static int g_c3dGreenMesh = -1;
+#define C3D_GREEN_NAME "CUR00GRN"
+
+static void c3d_green_add(void)
+{
+    g_c3dGreenMesh = -1;
+    for (size_t i = 0; i < g_pack.mesh.size(); i++)
+        if (!strcmp(g_pack.mesh[i].name, C3D_GREEN_NAME)) { g_c3dGreenMesh = (int)i; return; }
+    PackMesh m;
+    memset(m.name, 0, sizeof m.name);
+    snprintf(m.name, sizeof m.name, "%s", C3D_GREEN_NAME);
+    m.tris.resize(CURSOR_GREEN_NTRIS);
+    for (int t = 0; t < CURSOR_GREEN_NTRIS; t++) {
+        PackTri& pt = m.tris[t];
+        pt.tex = -1;
+        pt.mode = MODE_OPAQUE;
+        pt.wrap = 0;
+        for (int k = 0; k < 3; k++) {
+            const CursorGreenVert& g = CURSOR_GREEN_TRIS[t][k];
+            PackVert& v = pt.v[k];
+            v.x = g.x; v.y = g.y; v.z = g.z;
+            v.u = v.v = 0.0f;
+            v.r = g.r; v.g = g.g; v.b = g.b; v.a = 255;
+        }
+    }
+    g_pack.mesh.push_back(m);
+    g_c3dGreenMesh = (int)g_pack.mesh.size() - 1;
+}
+
+/* Drawn only under experimental art, and only when its own row is on. */
+static bool c3d_green_on(void)
+{
+    return g_c3dGreenMesh >= 0 && g_fx.enabled && g_fx.experimental_textures
+           && g_fx.curgreen_on;
+}
+
+/* ---- THE REMASTERED CURSORS (Enhanced) -----------------------------------------------
+   Every cartridge cursor remastered in the lab (tools/art/remaster/cursors, its README the
+   recipe): the same shapes in the set's glossy finish, each in its function's colour, with
+   a soft glow round it. Drawn under Enhanced with experimental art off, the footing every
+   remastered set has (the soldiers, the buildings); under experimental art the green
+   pointer and the cartridge's shapes stay.
+
+   ONE FILE, ecur/ecur.bin under the models folder, baked from the approved lab models by
+   tools/art/remaster/cursors/bake_ecur.py and committed. Each remastered model is APPENDED
+   to the pack as one more mesh, as the green pointer is, and c3d_mesh_for swaps it in, so
+   every path that draws a cursor (the body, its shadow, the no-entry overlay, the repair
+   wrench over a building) takes it with no second draw path.
+
+   THE ANIMATION IS THE CARTRIDGE'S, BORROWED AT ATTACH. A remastered model keeps the
+   cartridge model's part numbers and rest pose, so it is given that mesh's own part table
+   and baked node animation (animMat, animVis, the clips), and draw_mesh moves it with the
+   same deltas on the same clock. The flipbook cursors carry one remastered mesh per frame,
+   swapped by the cartridge's own time table exactly as its variants are, and the spanner
+   turns through c3d_spin_face, which asks the code and not the mesh.
+
+   THE GLOW is the model's MODE_XLU triangles: untextured, bright at the outline and black
+   at their outer edge, drawn in a pass of their own with additive blending (GL_ONE,
+   GL_ONE), depth tested and not written. Black adds nothing, so no alpha is needed.
+   Nothing here is beyond a fixed-function card: 256-texel RGBA textures, vertex colour
+   and one additive blend. */
+struct EcurTex  { int w, h; std::vector<unsigned char> px; };
+struct EcurTri  { int tex; unsigned char mode, part; PackVert v[3]; };
+struct EcurMesh { std::string name; std::vector<EcurTri> tris; };
+static std::vector<EcurTex>  g_ecurTex;
+static std::vector<EcurMesh> g_ecurFile;
+static bool g_ecurLoaded = false;
+static bool g_ecurDraw = true;              /* --noecur is the A/B */
+/* The appended meshes for the pack now loaded: per state-table code, per flipbook frame,
+   the edge arrow and the move marker. -1 where there is none. */
+static int  g_ecurMesh[14];
+static int  g_ecurFlip[14][8];
+static int  g_ecurEdge = -1;
+static int  g_ecurCirc = -1;
+static int  g_ecurAttached = 0;
+/* Move markers drawn from the remastered rings (draw_order_marks), for the gate. */
+static int  g_ecurMarkDraws = 0;
+
+static void ecur_load(const char* dir)
+{
+    if (g_ecurLoaded) return;
+    g_ecurLoaded = true;
+    char path[512];
+    snprintf(path, sizeof path, "%secur/ecur.bin", dir && *dir ? dir : "");
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "ecur: %s is missing -- Enhanced draws the cartridge's cursors\n", path);
+        return;
+    }
+    std::vector<unsigned char> b;
+    {
+        unsigned char buf[65536];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof buf, f)) > 0) b.insert(b.end(), buf, buf + n);
+        fclose(f);
+    }
+    size_t o = 0;
+    bool bad = false;
+    unsigned int ver = 0, ntex = 0, nmesh = 0;
+    /* bounds-checked little-endian reads: a short or foreign file is refused whole */
+    #define ECUR_NEED(n) do { if (o + (size_t)(n) > b.size()) { bad = true; goto done; } } while (0)
+    ECUR_NEED(16);
+    if (memcmp(&b[0], "ECUR", 4)) { bad = true; goto done; }
+    memcpy(&ver, &b[4], 4); memcpy(&ntex, &b[8], 4); memcpy(&nmesh, &b[12], 4);
+    o = 16;
+    if (ver != 1 || ntex > 256 || nmesh > 256) { bad = true; goto done; }
+    for (unsigned int t = 0; t < ntex; t++) {
+        unsigned short w, h;
+        ECUR_NEED(4);
+        memcpy(&w, &b[o], 2); memcpy(&h, &b[o + 2], 2); o += 4;
+        if (!w || !h || w > 256 || h > 256) { bad = true; goto done; }
+        ECUR_NEED((size_t)w * h * 4);
+        {
+            EcurTex tx; tx.w = w; tx.h = h;
+            tx.px.assign(b.begin() + o, b.begin() + o + (size_t)w * h * 4);
+            g_ecurTex.push_back(tx);
+        }
+        o += (size_t)w * h * 4;
+    }
+    for (unsigned int m = 0; m < nmesh; m++) {
+        ECUR_NEED(20);
+        EcurMesh em;
+        {
+            char name[17]; memcpy(name, &b[o], 16); name[16] = 0; em.name = name;
+        }
+        unsigned int ntri; memcpy(&ntri, &b[o + 16], 4); o += 20;
+        ECUR_NEED((size_t)ntri * (4 + 3 * 24));
+        em.tris.resize(ntri);
+        for (unsigned int t = 0; t < ntri; t++) {
+            EcurTri& et = em.tris[t];
+            short tex; memcpy(&tex, &b[o], 2);
+            et.tex = tex; et.mode = b[o + 2]; et.part = b[o + 3]; o += 4;
+            if (et.tex >= (int)ntex || (et.mode != MODE_OPAQUE && et.mode != MODE_XLU)) { bad = true; goto done; }
+            for (int k = 0; k < 3; k++) {
+                float fv[5]; memcpy(fv, &b[o], 20);
+                PackVert& v = et.v[k];
+                v.x = fv[0]; v.y = fv[1]; v.z = fv[2]; v.u = fv[3]; v.v = fv[4];
+                v.r = b[o + 20]; v.g = b[o + 21]; v.b = b[o + 22]; v.a = b[o + 23];
+                o += 24;
+            }
+        }
+        g_ecurFile.push_back(em);
+    }
+done:
+    #undef ECUR_NEED
+    if (bad || o != b.size()) {
+        fprintf(stderr, "ecur: %s is not a cursor file this renderer reads -- refused, "
+                        "Enhanced draws the cartridge's cursors\n", path);
+        g_ecurFile.clear(); g_ecurTex.clear();
+        return;
+    }
+    size_t ntris = 0;
+    for (size_t m = 0; m < g_ecurFile.size(); m++) ntris += g_ecurFile[m].tris.size();
+    printf("ECUR|loaded|meshes %d|textures %d|triangles %d\n", (int)g_ecurFile.size(),
+           (int)g_ecurTex.size(), (int)ntris);
+    fflush(stdout);
+}
+
+/* Mipmapped by hand, as the authored models' textures are (m3_upload_tex): no GLU. */
+static GLuint ecur_upload(const EcurTex& t)
+{
+    GLuint gl = 0;
+    glGenTextures(1, &gl);
+    glBindTexture(GL_TEXTURE_2D, gl);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    std::vector<unsigned char> cur = t.px;
+    int w = t.w, h = t.h, level = 0;
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, &cur[0]);
+    while (w > 1 || h > 1) {
+        const int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+        std::vector<unsigned char> next((size_t)nw * nh * 4);
+        for (int y = 0; y < nh; y++)
+            for (int x = 0; x < nw; x++) {
+                const int sx = x * 2, sy = y * 2;
+                const int sx1 = (w > 1 ? sx + 1 : sx), sy1 = (h > 1 ? sy + 1 : sy);
+                for (int c = 0; c < 4; c++)
+                    next[((size_t)y * nw + x) * 4 + c] = (unsigned char)((
+                        cur[((size_t)sy * w + sx) * 4 + c] + cur[((size_t)sy * w + sx1) * 4 + c] +
+                        cur[((size_t)sy1 * w + sx) * 4 + c] + cur[((size_t)sy1 * w + sx1) * 4 + c] + 2) / 4);
+            }
+        cur.swap(next);
+        w = nw; h = nh; level++;
+        glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, &cur[0]);
+    }
+    return gl;
+}
+
+/* The cartridge mesh a remastered model stands in for, by its name in the file. */
+static int ecur_cart_mesh(const std::string& n)
+{
+    if (n == "CUR0E") return g_c3dEdgeMesh;
+    if (n == "CURCIRC") {
+        std::map<std::string, PackType>::iterator it = g_pack.type.find("CURCIRC");
+        return it == g_pack.type.end() ? -1 : it->second.mesh;
+    }
+    unsigned int code = 0; int fr = -1;
+    if (n.size() == 5 && sscanf(n.c_str(), "CUR%2X", &code) == 1 && code < 14)
+        return g_c3dMesh[code];
+    if (n.size() == 7 && n[5] == 'F' && sscanf(n.c_str(), "CUR%2XF%d", &code, &fr) == 2
+        && code < 14 && fr >= 0 && fr < g_c3dFlipN[code])
+        return g_c3dFlip[code][fr];
+    return -1;
+}
+
+/* After c3d_init has resolved the cartridge's models for this pack: append the textures
+   and one mesh per remastered model, each given its cartridge model's part table and
+   animation. pack_free deletes them with the rest of the pack. */
+static void ecur_attach(void)
+{
+    for (int i = 0; i < 14; i++) {
+        g_ecurMesh[i] = -1;
+        for (int f = 0; f < 8; f++) g_ecurFlip[i][f] = -1;
+    }
+    g_ecurEdge = g_ecurCirc = -1;
+    g_ecurAttached = 0;
+    if (g_ecurFile.empty()) return;
+    const int tex0 = (int)g_pack.tex.size();
+    for (size_t t = 0; t < g_ecurTex.size(); t++) {
+        PackTex pt;
+        pt.w = pt.uw = g_ecurTex[t].w;
+        pt.h = pt.uh = g_ecurTex[t].h;
+        pt.gl = ecur_upload(g_ecurTex[t]);
+        pt.gl_gdi = 0;
+        for (int e = 0; e < 6; e++) pt.gl_extra[e] = 0;
+        g_pack.tex.push_back(pt);
+    }
+    for (size_t m = 0; m < g_ecurFile.size(); m++) {
+        const EcurMesh& em = g_ecurFile[m];
+        const int cm = ecur_cart_mesh(em.name);
+        if (cm < 0) continue;
+        /* copied out before the push_back below can move g_pack.mesh */
+        const PackMesh cart = g_pack.mesh[cm];
+        const int nparts = (int)cart.parts.size();
+        PackMesh pm;
+        memset(pm.name, 0, sizeof pm.name);
+        snprintf(pm.name, sizeof pm.name, "E%s", em.name.c_str());
+        bool fits = true;
+        pm.tris.resize(em.tris.size());
+        for (size_t t = 0; t < em.tris.size(); t++) {
+            const EcurTri& et = em.tris[t];
+            if ((int)et.part >= (nparts > 0 ? nparts : 1)) fits = false;
+            PackTri& pt = pm.tris[t];
+            pt.tex = et.tex >= 0 ? tex0 + et.tex : -1;
+            pt.mode = et.mode;
+            pt.wrap = 0;
+            for (int k = 0; k < 3; k++) pt.v[k] = et.v[k];
+        }
+        if (!fits) {
+            fprintf(stderr, "ecur: %s names a part its cartridge model does not have -- "
+                            "drawing the cartridge's\n", em.name.c_str());
+            continue;
+        }
+        /* the file sorts its triangles by part, so each part is one run */
+        for (int p = 0; p < nparts; p++) {
+            PackPart pp = cart.parts[p];
+            int first = -1, n = 0;
+            for (size_t t = 0; t < em.tris.size(); t++)
+                if (em.tris[t].part == p) { if (first < 0) first = (int)t; n++; }
+            if (first < 0) {                     /* empty: placed where it would start */
+                first = 0;
+                for (size_t t = 0; t < em.tris.size(); t++)
+                    if (em.tris[t].part < p) first = (int)t + 1;
+            }
+            pp.tri0 = first; pp.ntris = n;
+            pm.parts.push_back(pp);
+        }
+        pm.animFrames = cart.animFrames;
+        pm.animTicksPerFrame = cart.animTicksPerFrame;
+        pm.clips = cart.clips;
+        pm.animMat = cart.animMat;
+        pm.animVis = cart.animVis;
+        g_pack.mesh.push_back(pm);
+        const int mi = (int)g_pack.mesh.size() - 1;
+        const std::string& n = em.name;
+        unsigned int code = 0; int fr = -1;
+        if (n == "CUR0E") g_ecurEdge = mi;
+        else if (n == "CURCIRC") g_ecurCirc = mi;
+        else if (n.size() == 7 && sscanf(n.c_str(), "CUR%2XF%d", &code, &fr) == 2) g_ecurFlip[code][fr] = mi;
+        else if (sscanf(n.c_str(), "CUR%2X", &code) == 1) g_ecurMesh[code] = mi;
+        g_ecurAttached++;
+    }
+    printf("ECUR|attached|%d of %d remastered cursor models\n", g_ecurAttached, (int)g_ecurFile.size());
+    fflush(stdout);
+}
+
+/* Drawn under Enhanced with experimental art off, when its own row is on. */
+static bool ecur_on(void)
+{
+    return g_ecurDraw && g_ecurAttached > 0 && g_fx.enabled && !g_fx.experimental_textures
+           && g_fx.ecur_on;
+}
+
+/* Whether a pack mesh is one of the remastered cursors appended above. */
+static bool ecur_is(int mi)
+{
+    return mi >= 0 && mi < (int)g_pack.mesh.size() && g_pack.mesh[mi].name[0] == 'E'
+           && !strncmp(g_pack.mesh[mi].name + 1, "CUR", 3);
+}
+
+/* The size of a remastered model against the cartridge model it stands in for (its own
+   dial, 0.75 by request); 1 for every other mesh. */
+static float ecur_rescale(int mi)
+{
+    return ecur_is(mi) ? g_fx.ecur_scale : 1.0f;
+}
+
+/* The glow of a remastered model, drawn after its body: additive, depth tested, depth not
+   written, so it never hides what is behind it and never cuts the next cursor. */
+static void ecur_glow(int mi, float wx, float wz, int face, float ylift, float animT)
+{
+    if (!ecur_is(mi)) return;
+    /* the caller's state comes back as it was: the on-top cursor has depth writes off */
+    GLboolean mask = GL_TRUE;
+    GLint src = GL_SRC_ALPHA, dst = GL_ONE_MINUS_SRC_ALPHA;
+    const GLboolean blend = glIsEnabled(GL_BLEND);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &mask);
+    glGetIntegerv(GL_BLEND_SRC, &src);
+    glGetIntegerv(GL_BLEND_DST, &dst);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glDepthMask(GL_FALSE);
+    draw_mesh(mi, wx, wz, face, MODE_XLU, 0, 0.0f, 0, 1.0f, ylift, false, WOBBLE_NONE, animT);
+    glDepthMask(mask);
+    glBlendFunc((GLenum)src, (GLenum)dst);
+    if (!blend) glDisable(GL_BLEND);
+    glDisable(GL_TEXTURE_2D);
+}
+
 static bool g_c3dReady = false;
 static bool g_c3dUsable = false;
 /* The gate's own control, the same instrument g_wallsDraw and g_ridersDraw are. */
@@ -256,7 +596,10 @@ static void c3d_init(void)
        the flat 1995 sprite is the honest failure here: half a cursor set would leave the
        pointer vanishing over some terrain and not others. */
     g_c3dUsable = (have == 14);
+    g_c3dGreenMesh = -1;
     if (g_c3dUsable) {
+        c3d_green_add();
+        ecur_attach();
         int nanim = 0;
         for (int i = 0; i < 14; i++)
             if (g_c3dMesh[i] >= 0 && g_pack.mesh[g_c3dMesh[i]].animFrames > 0)
@@ -369,6 +712,37 @@ static int c3d_flip_index(int code, int frame)
     return 0;
 }
 
+/* The mesh a cursor code draws this frame: the flipbook variant for the two flipbook
+   cursors, the green pointer for code 0x00 when it is on, else the pack's own. One
+   function so the body and its shadow cannot pick different models. */
+static int c3d_mesh_for(int code, int frame)
+{
+    if (code == 0x00 && c3d_green_on()) return g_c3dGreenMesh;
+    int mi = g_c3dMesh[code];
+    int fi = -1;
+    if (g_c3dFlipN[code] > 0) {
+        fi = frame < 0 ? 0 : c3d_flip_index(code, frame);
+        mi = g_c3dFlip[code][fi];
+    }
+    /* Enhanced: the remastered model, the flipbook's frame for the same index */
+    if (ecur_on()) {
+        const int em = fi >= 0 ? g_ecurFlip[code][fi] : g_ecurMesh[code];
+        if (em >= 0) return em;
+    }
+    return mi;
+}
+
+/* THE GREEN POINTER'S OWN SIZE. c3d_draw has already multiplied MODEL_SCALE by the 3D
+   cursor size dial for the whole cursor; this is the factor that turns that into the
+   green pointer's own dial instead, 1 for every other model. The green pointer only
+   draws with the post chain on, which is exactly when that multiply happened. */
+static float c3d_green_rescale(int code)
+{
+    if (code != 0x00 || !c3d_green_on()) return 1.0f;
+    const float base = (g_fx.cursor_scale > 0.01f) ? g_fx.cursor_scale : 1.0f;
+    return g_fx.curgreen_scale / base;
+}
+
 /* wx/wz in cells, from screen_to_world (the terrain hit). draw_mesh already lifts the
    model by terrain_y under the anchor, so the cursor rides the heightfield exactly as
    the console's own H term does. face = -1: the console's cursor node takes no facing.
@@ -407,6 +781,9 @@ static bool g_c3dOnTop = true;
    black-PRIM-over-TEXEL0_A blend the vehicle shadows use, from the pack's PKD block.
    Only the quad is ours. --nocursorshadow removes it. */
 static bool g_c3dShadow = true;
+/* The pointer's zoom factor while c3d_draw is drawing it, 1 at every other moment; see
+   c3d_draw. */
+static float g_c3dZoomK = 1.0f;
 /* How dark the cursor's projected shadow is, and how far it is thrown from the cursor.
    BOTH ARE ART, not decode: the ROM search for a cursor shadow found nothing (see the
    note above), so there is no cartridge number to be faithful to here. The first
@@ -424,9 +801,7 @@ static float g_c3dShadowOff   = 56.0f;     /* leptons, thrown along the shadow d
 static void c3d_draw_shadow(int code, float wx, float wz, int frame)
 {
     if (!g_c3dShadow) return;
-    int mi = g_c3dMesh[code];
-    if (g_c3dFlipN[code] > 0)
-        mi = g_c3dFlip[code][frame < 0 ? 0 : c3d_flip_index(code, frame)];
+    const int mi = c3d_mesh_for(code, frame);
     if (mi < 0) return;
     /* THE SHADOW ANIMATES WITH THE CURSOR. This used to pass -1 for the animation time
        while the body passed the real frame, so a spinning or pulsing cursor cast a
@@ -465,11 +840,18 @@ static void c3d_draw_shadow(int code, float wx, float wz, int frame)
     /* Thrown along the SAME diagonal every other shadow in the game uses (+X east,
        -Z north), just further, because a cursor floats well clear of the ground and a
        shadow directly beneath it reads as dirt rather than as a shadow. */
-    const float ox = g_c3dShadowOff / 256.0f, oz = -g_c3dShadowOff / 256.0f;
+    /* The throw is in world leptons, so it takes the pointer's zoom factor too, or the
+       shadow would drift away from a pointer held at constant size. 1 at the default
+       distance and always under Classic. */
+    const float ox = g_c3dShadowOff / 256.0f * g_c3dZoomK;
+    const float oz = -g_c3dShadowOff / 256.0f * g_c3dZoomK;
     /* THE SPIN REACHES THE SILHOUETTE, for exactly the reason the animation time above
        does: a wrench that turned while its shadow lay still would be the same defect in
        a different channel. Same call, same argument, so the two cannot drift. */
     const int face = c3d_screen_face(c3d_spin_face(code, frame));
+    /* The green pointer's own size dial, undone below with nothing between. */
+    const float shadowScaleSave = MODEL_SCALE;
+    MODEL_SCALE = shadowScaleSave * c3d_green_rescale(code) * ecur_rescale(mi);
     /* Both passes, so a cursor whose marker is cutout still casts its whole shape. */
     draw_mesh(mi, wx + ox, wz + oz, face, MODE_OPAQUE,
               0, 0.0f, 0, 1.0f, C3D_CURSOR_LIFT, false, WOBBLE_NONE, animT, FLATTEN);
@@ -480,6 +862,7 @@ static void c3d_draw_shadow(int code, float wx, float wz, int frame)
     draw_mesh(mi, wx + ox, wz + oz, face, MODE_CUTOUT,
               0, 0.0f, 0, 1.0f, C3D_CURSOR_LIFT, false, WOBBLE_NONE, animT, FLATTEN);
     glDisable(GL_ALPHA_TEST);
+    MODEL_SCALE = shadowScaleSave;
     g_meshShadowPass = false;
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
@@ -529,13 +912,15 @@ static void c3d_draw_one(int code, float wx, float wz, int frame,
                          float ylift, C3dDepth depth, bool marker)
 {
     if (code < 0 || code >= 14) return;
-    int mi = g_c3dMesh[code];
     /* A flipbook cursor draws one of its per-frame variants instead of the base mesh;
        the variants differ only in the image the G_SETTIMG address selects, which is
-       exactly what the console's texture animation rewrites. */
-    if (g_c3dFlipN[code] > 0)
-        mi = g_c3dFlip[code][frame < 0 ? 0 : c3d_flip_index(code, frame)];
+       exactly what the console's texture animation rewrites. The green pointer replaces
+       code 0x00 here too; see c3d_mesh_for. */
+    const int mi = c3d_mesh_for(code, frame);
     if (mi < 0) return;
+    /* Its own size dial, restored at the end of this function. */
+    const float oneScaleSave = MODEL_SCALE;
+    MODEL_SCALE = oneScaleSave * c3d_green_rescale(code) * ecur_rescale(mi);
     /* The PKB node animation, driven off the console's own frame index. Static states
        pass -1 and take the identical path they always did. */
     const float animT = (frame < 0) ? -1.0f : (float)frame;
@@ -564,6 +949,7 @@ static void c3d_draw_one(int code, float wx, float wz, int frame,
     const int face = c3d_screen_face(c3d_spin_face(code, frame));
     draw_mesh(mi, wx, wz, face, MODE_OPAQUE, 0, 0.0f, 0, 1.0f, ylift, true,
               WOBBLE_NONE, animT);
+    ecur_glow(mi, wx, wz, face, ylift, animT);
     /* THE GROUND MARKER OBEYS ITS OWN ALPHA BIT, and that is a REVERSAL. Ten of the
        fourteen models end their display list with one flat triangle at exactly y=0 --
        a wedge under the floating pointer -- and every one of them textures it from the
@@ -615,6 +1001,7 @@ static void c3d_draw_one(int code, float wx, float wz, int frame,
     } else if (depth == C3D_DEPTH_OVER_WRITE_DEPTH) {
         glDepthFunc(GL_LEQUAL);   /* the frame's own function, set once at its start */
     }
+    MODEL_SCALE = oneScaleSave;
 }
 
 /* The state this draw would use: the engine's MouseType, unless a script has pinned one
@@ -711,6 +1098,12 @@ static int c3d_edge_face(float wx, float wz)
    the two, because draw_mesh takes no scale and this renderer has no matrix stack to push.
    The four facings are DirType, 0 north 64 east 128 south 192 west; the four offsets are
    the matching directions in cell space, where +x is east and +z is south. */
+/* The edge arrow's model: the remastered one under Enhanced. */
+static int c3d_edge_mesh(void)
+{
+    return (ecur_on() && g_ecurEdge >= 0) ? g_ecurEdge : g_c3dEdgeMesh;
+}
+
 static void c3d_draw_push(float wx, float wz)
 {
     static const int   FACE[4] = { 0, 64, 128, 192 };
@@ -718,10 +1111,11 @@ static void c3d_draw_push(float wx, float wz)
                                      { 0.0f,  1.0f }, { -1.0f, 0.0f } };
     const float save = MODEL_SCALE;
     int i;
-    if (g_c3dEdgeMesh < 0) return;
+    const int em = c3d_edge_mesh();
+    if (em < 0) return;
     glColor3f(1.0f, 1.0f, 1.0f);
     if (g_c3dOnTop) { glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); }
-    MODEL_SCALE = save * C3D_PUSH_HALF;
+    MODEL_SCALE = save * C3D_PUSH_HALF * ecur_rescale(em);
     /* UNDER THE PERSPECTIVE ROW'S YAW the four arrows follow the SCREEN's edges, which
        is what they illustrate (rpush_step pushes in screen space): each heading gains
        the yaw in DirType units and each offset is turned by it. The sign runs the other
@@ -735,11 +1129,11 @@ static void c3d_draw_push(float wx, float wz)
         for (i = 0; i < 4; i++) {
             const float ox = OFF[i][0] * c - OFF[i][1] * s;
             const float oz = OFF[i][0] * s + OFF[i][1] * c;
-            draw_mesh(g_c3dEdgeMesh,
-                      wx + ox * C3D_PUSH_SPREAD,
-                      wz + oz * C3D_PUSH_SPREAD,
-                      (FACE[i] + turn) & 255, MODE_OPAQUE, 0, 0.0f, 0, 1.0f, C3D_PUSH_LIFT,
-                      true, WOBBLE_NONE, -1.0f);
+            const float px = wx + ox * C3D_PUSH_SPREAD * g_c3dZoomK;
+            const float pz = wz + oz * C3D_PUSH_SPREAD * g_c3dZoomK;
+            draw_mesh(em, px, pz, (FACE[i] + turn) & 255, MODE_OPAQUE, 0, 0.0f, 0, 1.0f,
+                      C3D_PUSH_LIFT, true, WOBBLE_NONE, -1.0f);
+            ecur_glow(em, px, pz, (FACE[i] + turn) & 255, C3D_PUSH_LIFT, -1.0f);
         }
     }
     MODEL_SCALE = save;
@@ -753,12 +1147,23 @@ static void c3d_draw_body(int mousetype, float wx, float wz);
    MODEL_SCALE is the one knob draw_mesh has, and the push pointer already nests a scale
    of its own inside it, so the multiply wraps the whole draw and is undone on the way
    out. Classic never multiplies, so it never rounds. */
+/* AND THROUGH THE ZOOM IT HOLDS ITS SIZE, under Enhanced: cursor_zoom_factor scales the
+   model by the ratio of the ground's depth under this screen row now to its depth at the
+   default distance, which is exactly 1 there and always under Classic. The tip is the
+   model's anchor and a uniform scale about the anchor leaves it on the picked point, so
+   picking is untouched. g_c3dZoomK carries the same number to the two things that are
+   measured in WORLD units rather than through MODEL_SCALE -- the shadow's throw and the
+   push pointer's spread -- and is 1 outside this call, so the repair wrench over a
+   building (which draws through c3d_draw_one directly and is a world marker, not the
+   pointer) keeps its world size. */
 static void c3d_draw(int mousetype, float wx, float wz)
 {
     const float save = MODEL_SCALE;
-    if (g_fx.enabled) MODEL_SCALE = save * g_fx.cursor_scale;
+    g_c3dZoomK = cursor_zoom_factor(wx, wz);
+    if (g_fx.enabled) MODEL_SCALE = save * g_fx.cursor_scale * g_c3dZoomK;
     c3d_draw_body(mousetype, wx, wz);
     MODEL_SCALE = save;
+    g_c3dZoomK = 1.0f;
 }
 
 static void c3d_draw_body(int mousetype, float wx, float wz)
@@ -782,8 +1187,13 @@ static void c3d_draw_body(int mousetype, float wx, float wz)
         if (face >= 0) {
             glColor3f(1.0f, 1.0f, 1.0f);
             if (g_c3dOnTop) { glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); }
-            draw_mesh(g_c3dEdgeMesh, wx, wz, face, MODE_OPAQUE, 0, 0.0f, 0, 1.0f, 0.012f,
+            const int em = c3d_edge_mesh();
+            const float esave = MODEL_SCALE;
+            MODEL_SCALE = esave * ecur_rescale(em);
+            draw_mesh(em, wx, wz, face, MODE_OPAQUE, 0, 0.0f, 0, 1.0f, 0.012f,
                       true, WOBBLE_NONE, -1.0f);
+            ecur_glow(em, wx, wz, face, 0.012f, -1.0f);
+            MODEL_SCALE = esave;
             if (g_c3dOnTop) { glEnable(GL_DEPTH_TEST); glDepthMask(GL_TRUE); }
             glDisable(GL_TEXTURE_2D);
             return;
@@ -819,15 +1229,36 @@ static void c3d_dump(int mousetype)
     const int frame = c3d_anim_frame(frames);
     const int flip = (g_c3dFlipN[code] > 0 && frame >= 0)
                      ? c3d_flip_index(code, frame) : -1;
-    int mi = g_c3dMesh[code];
-    if (g_c3dFlipN[code] > 0)
-        mi = g_c3dFlip[code][flip < 0 ? 0 : flip];
+    const int mi = c3d_mesh_for(code, frame);
     const int nf = (mi >= 0) ? g_pack.mesh[mi].animFrames : 0;
     const int np = (mi >= 0) ? (int)g_pack.mesh[mi].parts.size() : 0;
     printf("CURSOR3D|usable=%d|draw=%d|anim=%d|state=%d|code=0x%02X|frames=%d|frame=%d"
            "|flipvariants=%d|flip=%d|mesh=%d|animframes=%d|parts=%d\n",
            g_c3dUsable ? 1 : 0, g_c3dDraw ? 1 : 0, g_c3dAnim ? 1 : 0, st, code, frames,
            frame, g_c3dFlipN[code], flip, mi, nf, np);
+    /* The green pointer's own line, so a gate can tell the swap happened from the mesh
+       index and the size it was drawn at, not from the colour of some pixels. */
+    printf("CURSOR3DGREEN|have=%d|on=%d|drawn=%d|mesh=%d|tris=%d|size=%.2f\n",
+           g_c3dGreenMesh >= 0 ? 1 : 0, c3d_green_on() ? 1 : 0,
+           (code == 0x00 && mi >= 0 && mi == g_c3dGreenMesh) ? 1 : 0, g_c3dGreenMesh,
+           g_c3dGreenMesh >= 0 ? (int)g_pack.mesh[g_c3dGreenMesh].tris.size() : 0,
+           (g_fx.enabled ? g_fx.cursor_scale : 1.0f) * c3d_green_rescale(code));
+    /* The remastered cursors' own line: which mesh this state draws, whether it is the
+       remastered one, its body and glow triangles, the size it is drawn at against the
+       cartridge's, and the cartridge mesh whose animation it borrowed. */
+    {
+        int body = 0, glow = 0;
+        if (mi >= 0)
+            for (size_t t = 0; t < g_pack.mesh[mi].tris.size(); t++)
+                (g_pack.mesh[mi].tris[t].mode == MODE_XLU ? glow : body)++;
+        printf("CURSOR3DECUR|have=%d|on=%d|drawn=%d|name=%s|body=%d|glow=%d|size=%.4f|scale=%.4f"
+               "|cart=%d|cartframes=%d|markdraws=%d\n",
+               g_ecurAttached, ecur_on() ? 1 : 0, ecur_is(mi) ? 1 : 0,
+               mi >= 0 ? g_pack.mesh[mi].name : "-", body, glow,
+               (g_fx.enabled ? g_fx.cursor_scale : 1.0f) * ecur_rescale(mi), ecur_rescale(mi),
+               g_c3dMesh[code], g_c3dMesh[code] >= 0 ? g_pack.mesh[g_c3dMesh[code]].animFrames : 0,
+               g_ecurMarkDraws);
+    }
     if (mi < 0 || nf <= 0 || frame < 0)
         return;
     const PackMesh& m = g_pack.mesh[mi];

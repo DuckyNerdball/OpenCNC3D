@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- full asset extractor for the Command & Conquer (N64) ROM.
+OpenCNC3D -- full asset extractor for the Command & Conquer (N64) ROM.
 
 SUPERSEDED BY archive.py, AND THIS FILE IS NOW A THIN WRAPPER OVER IT.
 

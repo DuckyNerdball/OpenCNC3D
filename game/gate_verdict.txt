@@ -2,7 +2,7 @@
 #
 # Driven with optclick through dopt_press/dopt_release on the rectangle the page draws,
 # so what is proved is the BUTTON and not the export behind it. A gate that called
-# CNC3D_Force_Verdict directly would stay green through a button that had fallen off
+# OpenCNC3D_Force_Verdict directly would stay green through a button that had fallen off
 # the page, lost its rectangle, or stopped being routed by dopt_activate.
 #
 # The assertion is GAMEOVER, not the CHEAT|verdict line. Flag_To_Win only raises the

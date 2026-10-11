@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- N64 ROM archive (filesystem) parser + extractor.
+OpenCNC3D -- N64 ROM archive (filesystem) parser + extractor.
 
 The C&C (N64) ROM stores files in ~11 directory tables. Each entry is a fixed
 24-byte record:

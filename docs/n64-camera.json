@@ -1,7 +1,7 @@
 {
   "_meta": {
     "title": "Command & Conquer (N64, EU) in-game camera, recovered from the ROM",
-    "rom": "share/CNC3D/rom/cnc_eu.z64",
+    "rom": "share/OpenCNC3D/rom/cnc_eu.z64",
     "rom_md5": "42da4c7d040f9e7cd046a42ec3e68027",
     "resident_mapping": "ram = 0x80000400 + (rom - 0x1000)",
     "camera_struct_ram": "0x80092D30",

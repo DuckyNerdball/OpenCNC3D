@@ -86,12 +86,47 @@
 #include <string.h>
 #include "dosopt.h"
 
-/* Anti-vacuity rule 2. Compile time, out of the page enums themselves. */
-/* THE ADVANCED PAGE IS THE ONE PAGE WHOSE RECTANGLE COUNT IS NOT ITS ITEM COUNT. It is
- * a scrolling list: it holds DOPT_VE_COUNT elements and shows DOPT_A_VIEW_ROWS of them,
- * so what it answers with is those rows plus OK plus the scroll bar. Summing
- * DOPT_A_COUNT here would demand a rectangle for every element at once, which is exactly
- * what scrolling means it must not give. */
+/* Anti-vacuity rule 2, out of the page enums and the Advanced page's own row lists. */
+/* THE ADVANCED PAGE IS THE ONE PAGE WHOSE RECTANGLE COUNT IS NOT ITS ITEM COUNT. Its rows
+ * are split: the GLOBAL rows always show, and the per-mode rows show one graphics mode's
+ * list at a time, in a scrolling well. So what it answers with is the global rows, the
+ * three tabs, as many of the tab's rows as the well shows, Reset, OK and the scroll bar.
+ * It is measured once per tab, and adv_expect() is that count for one tab, worked out from
+ * the tab's own list rather than written down. Summing DOPT_A_COUNT here would demand a
+ * rectangle for every row of every mode at once, which is exactly what the tabs and the
+ * scrolling mean it must not give. */
+static int adv_expect(int tab)
+{
+    const int n = dopt_vis_mode_rows(tab, 0);
+    return DOPT_VE_GLOBAL_COUNT + DOPT_MODE_COUNT
+           + (n < DOPT_A_VIEW_ROWS ? n : DOPT_A_VIEW_ROWS)
+           + 3;   /* Reset, OK and the bar */
+}
+
+/* THE PAGE NAMES OF THE THREE TABS, BY MODE NUMBER. The order is the enum's, and the
+   check below fails the build if the enum is ever reordered again: it was once, and the
+   names stayed where they were, so the N64 tab was reported as ADVANCED-ENHANCED and the
+   Enhanced tab as ADVANCED-N64. */
+static const char *const adv_tab_name[DOPT_MODE_COUNT] = {
+    "ADVANCED-CLASSIC", "ADVANCED-N64", "ADVANCED-ENHANCED"
+};
+static const char *const adv_tab_bottom[DOPT_MODE_COUNT] = {
+    "ADVANCED-CLASSIC-BOTTOM", "ADVANCED-N64-BOTTOM", "ADVANCED-ENHANCED-BOTTOM"
+};
+typedef char adv_tab_name_order_check[(DOPT_MODE_CLASSIC == 0 && DOPT_MODE_N64 == 1
+                                       && DOPT_MODE_ENHANCED == 2 && DOPT_MODE_COUNT == 3)
+                                      ? 1 : -1];
+
+/* Where a row stands in the tab on screen, or -1 when that tab does not list it. */
+static int adv_pos(const DOPT_State *st, int item)
+{
+    int rows[DOPT_VE_COUNT], n, i;
+    n = dopt_vis_mode_rows(st->advTab, rows);
+    for (i = 0; i < n; i++)
+        if (rows[i] == item) return i;
+    return -1;
+}
+
 /* THE RESTATE BOX IS MEASURED TWICE: with a movie on offer it answers DOPT_R_COUNT
  * rectangles (Video and Options), and without one it answers ONE, the lone OK, because
  * the second button then does not exist (scenario.cpp:797-803). Both forms are drawn
@@ -100,7 +135,9 @@
  * exist, so the page answers DOPT_SL_COUNT - 1 rectangles; in SAVE mode all of them. */
 /* THE NOTICE BOX answers ONE rectangle, its lone OK, on the Restate geometry. */
 #define OPTLAYOUT_EXPECT                                                                 \
-    (DOPT_ITEM_COUNT + DOPT_C_COUNT + DOPT_V_COUNT + (DOPT_A_VIEW_ROWS + 2)              \
+    (DOPT_ITEM_COUNT + DOPT_C_COUNT + DOPT_V_COUNT                                       \
+     + adv_expect(DOPT_MODE_CLASSIC) + adv_expect(DOPT_MODE_ENHANCED)                   \
+     + adv_expect(DOPT_MODE_N64)                                                       \
      + DOPT_S_COUNT + DOPT_G_COUNT + DOPT_R_COUNT + 1 + (DOPT_SL_COUNT - 1) + DOPT_SL_COUNT \
      + 1)
 
@@ -157,8 +194,9 @@ static void page(DOPT_State *st, const DB_Pack *p, int pg, const char *name, int
                on that page, and only when the row is actually outside the window advTop
                opens. OK and the scroll bar are never exempt, and the per-page count below
                is what stops this swallowing a page that has stopped answering. */
-            if (pg == DOPT_PAGE_ADVANCED && i < DOPT_VE_COUNT
-                && (i < st->advTop || i >= st->advTop + DOPT_A_VIEW_ROWS))
+            if (pg == DOPT_PAGE_ADVANCED && i >= DOPT_VE_GLOBAL_COUNT && i < DOPT_VE_COUNT
+                && (adv_pos(st, i) < 0 || adv_pos(st, i) < st->advTop
+                    || adv_pos(st, i) >= st->advTop + DOPT_A_VIEW_ROWS))
                 continue;
             /* And the Restate box's second button, which is not there without a movie:
                the lone OK form has one rectangle by design, and the total leg counts it
@@ -227,11 +265,29 @@ static void page(DOPT_State *st, const DB_Pack *p, int pg, const char *name, int
            (b) names as exempt. Measured: RESOLUTION, UI SCALING and
            PERSPECTIVE ran 6, 4 and 12 columns under one right-aligned box while every
            leg above was green. */
+        /* (h) A CHECKBOX ROW'S PRINTED LABEL stays inside its own row. The row is the
+           click target and the label is printed to the right of the box, so ink past the
+           row's edge lands on whatever stands beside it. Measured: with the global rows
+           in thirds, "Vertical sync" ran 6 columns into the FPS counter's box while legs
+           (a)-(e) were green, because a label's ink is not a rectangle. Drop rows are
+           measured by leg (g) instead. */
+        if (pg == DOPT_PAGE_ADVANCED && i < DOPT_VE_COUNT && h == DOPT_A_BOX) {
+            int dx, dy, dw, dh, inkend;
+            if (!dopt_texset_box_rect_pub(st, i, &dx, &dy, &dw, &dh)) {
+                inkend = x + DOPT_A_BOX + 6
+                       + db_string_width(fnt, dopt_item_label(st, i), DB_FONT6_XSPACING);
+                if (inkend > x + w) {
+                    printf("  FAIL label runs out of its row: %-16s ink to %d, row ends %d\n",
+                           dopt_item_label(st, i), inkend - 1, x + w - 1);
+                    fails++;
+                }
+            }
+        }
         if (pg == DOPT_PAGE_ADVANCED) {
             int dx, dy, dw, dh, need, labend;
             if (dopt_texset_box_rect_pub(st, i, &dx, &dy, &dw, &dh)) {
                 dropseen |= 1 << i;
-                labend = DOPT_A_LABEL_X
+                labend = x + DOPT_A_BOX + 6
                        + db_string_width(fnt, dopt_item_label(st, i), DB_FONT6_XSPACING);
                 need = dopt_drop_need_pub(st, p, i);
                 if (labend + OPT_MIN_SEP > dx) {
@@ -288,10 +344,10 @@ static void page(DOPT_State *st, const DB_Pack *p, int pg, const char *name, int
        must give back exactly the rows it shows, plus OK, plus the bar: fewer means a row
        fell out of the window that should have been in it, more means the scroll offset is
        not being applied at all. */
-    if (pg == DOPT_PAGE_ADVANCED && here != DOPT_A_VIEW_ROWS + 2) {
-        printf("  FAIL the Advanced page returned %d rectangles, want %d (%d rows in the "
-               "well, OK and the scroll bar)\n",
-               here, (int)(DOPT_A_VIEW_ROWS + 2), (int)DOPT_A_VIEW_ROWS);
+    if (pg == DOPT_PAGE_ADVANCED && here != adv_expect(st->advTab)) {
+        printf("  FAIL the Advanced page returned %d rectangles on tab %d, want %d (the "
+               "global rows, the tabs, the rows the well shows, Reset, OK and the bar)\n",
+               here, st->advTab, adv_expect(st->advTab));
         fails++;
     }
     printf("OPTLAYOUT|page=%s|checked=%d\n", name, here);
@@ -330,7 +386,15 @@ int main(int argc, char **argv)
     page(&st, p, DOPT_PAGE_CONTROLS, "CONTROLS", DOPT_GC_X, DOPT_GC_Y, DOPT_GC_W,
          DOPT_GC_H);
     page(&st, p, DOPT_PAGE_VISUALS, "VISUALS", DOPT_V_X, DOPT_V_Y, DOPT_V_W, DOPT_V_H);
-    page(&st, p, DOPT_PAGE_ADVANCED, "ADVANCED", DOPT_V_X, DOPT_V_Y, DOPT_V_W, DOPT_V_H);
+    {
+        int t;
+        for (t = 0; t < DOPT_MODE_COUNT; t++) {
+            st.advTab = t;
+            st.advTop = 0;
+            page(&st, p, DOPT_PAGE_ADVANCED, adv_tab_name[t], DOPT_AD_X, DOPT_AD_Y,
+                 DOPT_AD_W, DOPT_AD_H);
+        }
+    }
     page(&st, p, DOPT_PAGE_SOUND, "SOUND", DOPT_SND_X, DOPT_SND_Y, DOPT_SND_W,
          DOPT_SND_H);
     page(&st, p, DOPT_PAGE_GAMEPLAY, "GAMEPLAY", DOPT_V_X, DOPT_V_Y, DOPT_V_W,
@@ -389,7 +453,7 @@ int main(int argc, char **argv)
      * box, and the box on the plate. */
     {
         static const char* const NOTICE =
-            "The engine library C:\\Users\\Player\\Desktop\\CNC3D-windows-v0.7.1\\"
+            "The engine library C:\\Users\\Player\\Desktop\\OpenCNC3D-windows-v0.7.1\\"
             "TiberianDawn.dll could not be loaded: LoadLibrary(TiberianDawn.dll) failed, "
             "GetLastError=126 (ERROR_MOD_NOT_FOUND: the file itself, or a DLL it depends "
             "on, is not where the loader looked)";
@@ -463,32 +527,40 @@ int main(int argc, char **argv)
      * through dopt_scroll, which is the function both dialog loops hand the wheel to.
      *
      * `checked` is put back afterwards because the total leg counts each page once; the
-     * second pass is here to fail on a rectangle, not to be counted. */
+     * second pass is here to fail on a rectangle, not to be counted. Every tab is scrolled
+     * and its clamp checked; the page is read again only for a tab whose list is longer
+     * than the well, because a list that fits has its top as its bottom. */
     {
         int before = checked;
-        int x, y, w, h;
-        const int wantTop = (DOPT_VE_COUNT > DOPT_A_VIEW_ROWS)
-                                ? DOPT_VE_COUNT - DOPT_A_VIEW_ROWS : 0;
-        st.page = DOPT_PAGE_ADVANCED;
-        dopt_scroll(&st, DOPT_VE_COUNT); /* far past the end; it must clamp */
-        if (st.advTop != wantTop) {
-            printf("  FAIL the Advanced page scrolled to %d, want %d: dopt_scroll is not "
-                   "clamping to the bottom of travel\n", st.advTop, wantTop);
-            fails++;
+        int x, y, w, h, t;
+        for (t = 0; t < DOPT_MODE_COUNT; t++) {
+            int rows[DOPT_VE_COUNT];
+            const int n = dopt_vis_mode_rows(t, rows);
+            const int wantTop = (n > DOPT_A_VIEW_ROWS) ? n - DOPT_A_VIEW_ROWS : 0;
+            st.page = DOPT_PAGE_ADVANCED;
+            st.advTab = t;
+            st.advTop = 0;
+            dopt_scroll(&st, DOPT_VE_COUNT); /* far past the end; it must clamp */
+            if (st.advTop != wantTop) {
+                printf("  FAIL tab %d scrolled to %d, want %d: dopt_scroll is not "
+                       "clamping to the bottom of travel\n", t, st.advTop, wantTop);
+                fails++;
+            }
+            if (wantTop > 0 && dopt_item_rect(&st, rows[0], &x, &y, &w, &h)) {
+                printf("  FAIL tab %d's first row still has a rectangle at the bottom of "
+                       "travel: x=%d..%d y=%d..%d. dopt_hit_test would find a row that is "
+                       "not on the screen\n", t, x, x + w - 1, y, y + h - 1);
+                fails++;
+            }
+            if (!dopt_item_rect(&st, rows[n - 1], &x, &y, &w, &h)) {
+                printf("  FAIL tab %d's last row has no rectangle even at the bottom of "
+                       "travel, so nothing on this page can ever reach it\n", t);
+                fails++;
+            }
+            if (wantTop > 0)
+                page(&st, p, DOPT_PAGE_ADVANCED, adv_tab_bottom[t], DOPT_AD_X, DOPT_AD_Y,
+                     DOPT_AD_W, DOPT_AD_H);
         }
-        if (wantTop > 0 && dopt_item_rect(&st, 0, &x, &y, &w, &h)) {
-            printf("  FAIL the first element still has a rectangle at the bottom of "
-                   "travel: x=%d..%d y=%d..%d. dopt_hit_test would find a row that is not "
-                   "on the screen\n", x, x + w - 1, y, y + h - 1);
-            fails++;
-        }
-        if (!dopt_item_rect(&st, DOPT_VE_COUNT - 1, &x, &y, &w, &h)) {
-            printf("  FAIL the last element has no rectangle even at the bottom of "
-                   "travel, so nothing on this page can ever reach it\n");
-            fails++;
-        }
-        page(&st, p, DOPT_PAGE_ADVANCED, "ADVANCED-BOTTOM", DOPT_V_X, DOPT_V_Y, DOPT_V_W,
-             DOPT_V_H);
         checked = before;
     }
 

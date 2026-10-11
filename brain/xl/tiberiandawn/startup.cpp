@@ -34,7 +34,7 @@
  *   main -- Initial startup routine (preps library systems).                                  *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-#include "cnc3d_compat.h"   // OpenCNC 3D: Win32 shims for non-Windows builds
+#include "opencnc3d_compat.h"   // OpenCNC3D: Win32 shims for non-Windows builds
 #include "function.h"
 #include "common/ini.h"
 #include "common/paths.h"

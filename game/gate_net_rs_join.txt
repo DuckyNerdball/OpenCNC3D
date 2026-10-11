@@ -1,0 +1,18 @@
+tick 5
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 250
+tick 300
+tick 12
+shakedump
+tick 48
+tick 100
+objdump
+hurtobj FACT:Multi1
+objdump
+tick 10
+repairmode 1
+lclickobj FACT:@me
+tick 390
+objdump
+quit

@@ -7,8 +7,8 @@ Cell values are 4bpp colour CLASSES, resolved through a 16-entry font palette.""
 import struct, os
 from PIL import Image
 
-# Repo root, resolved at runtime. CNC3D_ROOT overrides it for an out-of-tree checkout.
-_ROOT = os.environ.get("CNC3D_ROOT") or os.path.abspath(
+# Repo root, resolved at runtime. OPENCNC3D_ROOT overrides it for an out-of-tree checkout.
+_ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 

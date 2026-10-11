@@ -16,7 +16,7 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo/playable"
 
 SRC=SCG09EA
-WORK=/tmp/cnc3d-enhgate
+WORK=/tmp/opencnc3d-enhgate
 SCEN=SCM90EA
 rm -rf "$WORK"
 mkdir -p "$WORK"

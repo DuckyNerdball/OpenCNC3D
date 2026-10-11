@@ -42,8 +42,8 @@
  *  like working art.
  * ================================================================================== */
 
-#ifndef CNC3D_SMUDGE_MOD_H
-#define CNC3D_SMUDGE_MOD_H
+#ifndef OPENCNC3D_SMUDGE_MOD_H
+#define OPENCNC3D_SMUDGE_MOD_H
 
 struct SmudgeSet {
     unsigned    theaterId;
@@ -262,4 +262,4 @@ static const SmudgeSet* smudge_set_for(int theater)
     return NULL;
 }
 
-#endif /* CNC3D_SMUDGE_MOD_H */
+#endif /* OPENCNC3D_SMUDGE_MOD_H */

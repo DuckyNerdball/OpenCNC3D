@@ -404,11 +404,11 @@ colours above. It currently reads an off-palette fraction of 0.0000. One `db_fil
 with a grey in it fails it and names the intruder.
 
 `scripts/codex.script` walks the whole screen and takes eight shots. It needs `--gfx` and
-`CNC3D_HUD=new`; without them the tab is correctly absent and every line would be measuring
+`OPENCNC3D_HUD=new`; without them the tab is correctly absent and every line would be measuring
 its absence, which is why the first line of the script prints `avail=`.
 
 ```
-cd playable && CNC3D_HUD=new ../game/cnc_eyes --scen SCG01EB --pack SCG01EA.pack \
+cd playable && OPENCNC3D_HUD=new ../game/cnc_eyes --scen SCG01EB --pack SCG01EA.pack \
     --build 98 --gfx --script ../scripts/codex.script
 ```
 

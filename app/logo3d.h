@@ -1,5 +1,5 @@
-#ifndef CNC3D_LOGO3D_H
-#define CNC3D_LOGO3D_H
+#ifndef OPENCNC3D_LOGO3D_H
+#define OPENCNC3D_LOGO3D_H
 
 /* The spinning faction logo that sits on top of the score screen.
    Geometry comes from game/bake_logos.py (playable/logos.pack); that file's

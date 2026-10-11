@@ -29,9 +29,11 @@ ROOT=$(pwd)
 }
 
 BUILD=brain/xl/build-native
-echo "== XL brain (TiberianDawnXL.dylib), deployment target $CNC3D_MACOS_MIN"
+echo "== XL brain (TiberianDawnXL.dylib), deployment target $OPENCNC3D_MACOS_MIN, $OPENCNC3D_MAC_ARCHS"
+opencnc3d_cmake_fresh "$BUILD" CMAKE_OSX_ARCHITECTURES
 cmake -S brain/xl -B "$BUILD" \
-      -DCMAKE_OSX_DEPLOYMENT_TARGET="$CNC3D_MACOS_MIN" >/dev/null
+      -DCMAKE_OSX_DEPLOYMENT_TARGET="$OPENCNC3D_MACOS_MIN" \
+      -DCMAKE_OSX_ARCHITECTURES="$OPENCNC3D_CMAKE_ARCHS" >/dev/null
 cmake --build "$BUILD" --target TiberianDawnXL \
       -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" >/dev/null
 
@@ -44,12 +46,14 @@ LIB="$BUILD/tiberiandawn/TiberianDawnXL.dylib"
 # PROVE THE FLOOR, do not assume it -- a stale cache keeps old compile flags on
 # objects it thinks are up to date, exactly as the classic script's comment records.
 MIN=$(otool -l "$LIB" | awk '/LC_BUILD_VERSION/{f=1} f&&/^ *minos/{print $2; exit}')
-[ "$MIN" = "$CNC3D_MACOS_MIN" ] || {
-    echo "the XL brain came out with minos ${MIN:-none}, not $CNC3D_MACOS_MIN." >&2
+[ "$MIN" = "$OPENCNC3D_MACOS_MIN" ] || {
+    echo "the XL brain came out with minos ${MIN:-none}, not $OPENCNC3D_MACOS_MIN." >&2
     echo "Delete $BUILD and run this again." >&2
     exit 1
 }
 echo "   minos $MIN"
+opencnc3d_verify_archs "$LIB"
+echo "   $(lipo -archs "$LIB")"
 
 for d in "$@"; do
     [ -d "$d" ] || { echo "no such folder: $d" >&2; exit 1; }

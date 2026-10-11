@@ -10,13 +10,13 @@
 #      That matters: it guarantees we link against exactly the entry points that
 #      machine's driver exports, rather than against a header's idea of them.
 #
-#   tools/win98/setup-glide.sh          -> ~/.cnc3d-win98sdk/glide
+#   tools/win98/setup-glide.sh          -> ~/.opencnc3d-win98sdk/glide
 #
 # Safe to re-run. Needs glide2x.dll; it looks in the usual places and says where to get
 # one if it cannot find it.
 set -e
 
-SDK="${CNC3D_GLIDE_SDK:-$HOME/.cnc3d-win98sdk/glide}"
+SDK="${OPENCNC3D_GLIDE_SDK:-$HOME/.opencnc3d-win98sdk/glide}"
 INC="$SDK/include"
 LIB="$SDK/lib"
 mkdir -p "$INC" "$LIB"
@@ -53,13 +53,13 @@ fetch glide2x/sst1/init/sst1vid.h sst1vid.h
 # The import library, from the box's own driver.
 # ---------------------------------------------------------------------------
 DLL=""
-for c in "$CNC3D_GLIDE_DLL" ./glide2x.dll $CNC3D_SHARE/gl2.dll $CNC3D_SHARE/glide2x.dll; do
+for c in "$OPENCNC3D_GLIDE_DLL" ./glide2x.dll; do
     [ -n "$c" ] && [ -f "$c" ] && DLL="$c" && break
 done
 if [ -z "$DLL" ]; then
     echo "no glide2x.dll found." >&2
     echo "Copy it off the Win98 box (C:\\WINDOWS\\SYSTEM\\GLIDE2X.DLL) to the share," >&2
-    echo "or set CNC3D_GLIDE_DLL=/path/to/glide2x.dll and re-run." >&2
+    echo "or set OPENCNC3D_GLIDE_DLL=/path/to/glide2x.dll and re-run." >&2
     exit 1
 fi
 echo "   driver : $DLL"

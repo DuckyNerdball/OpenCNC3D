@@ -693,6 +693,239 @@ void db_draw_sidebar(DB_Surface *s, const DB_Pack *p, const DB_State *st)
     db_draw_power(s, p, st);
 }
 
+static void db_draw_ra_power(DB_Surface *s, const DB_Pack *p, const DB_State *st)
+{
+    /* power.cpp: the LORES framework is POWERBAR.SHP at 240,88, the live
+     * output is two indexed columns ending at y176, with POWER.SHP for drain. */
+    int ph = st->power_total * 78 / 108;
+    int dh = st->power_drain * 78 / 108;
+    unsigned char bright = 3, dark = 4;
+    if (st->drain_watts > st->power_watts) { bright = 214; dark = 211; }
+    if (st->drain_watts > st->power_watts * 2) { bright = 235; dark = 230; }
+    if (ph > 78) ph = 78;
+    if (dh > 78) dh = 78;
+    db_draw_shape(s, db_shape(p, "POWERBAR"), 0, 240, 88);
+    if (ph > 0) {
+        db_fill_rect(s, 245, 176 - ph, 246, 176, dark);
+        db_fill_rect(s, 246, 176 - ph, 247, 176, bright);
+    }
+    db_draw_shape(s, db_shape(p, "POWER"), 0, 241, 176 - dh - 2);
+}
+
+/* Red Alert sidebar.cpp: Draw_It places three side pieces at y 8, 88, 138.
+ * StripClass::Draw_It uses the side-specific STRIP shape as its empty slots;
+ * unlike TD it intentionally does not paint a blank cameo over the art. */
+void db_draw_ra_sidebar(DB_Surface *s, const DB_Pack *p, const DB_State *st)
+{
+    const char *side = st->nod ? "US" : "NA";
+    const DB_Shape *radar = db_shape(p, st->nod ? "USSRRADR" : "NATORADR");
+    const DB_Shape *strip = db_shape(p, st->nod ? "STRIPUS" : "STRIPNA");
+    const DB_Shape *clock = db_shape(p, "CLOCK");
+    const DB_Shape *pips = db_shape(p, "PIPS");
+    char name[12];
+    int col, row;
+    db_clip_reset(s);
+    db_fill_rect(s, 240, 0, 319, 199, DB_BLACK);
+    db_draw_shape(s, db_shape(p, "TABS"), 6, 240, 0);
+    /* PowerClass::Draw_It and RadarClass::Draw_It precede SidebarClass::Draw_It
+     * in the source inheritance chain; the translucent side shapes sit on top. */
+    db_draw_ra_power(s, p, st);
+    /* radar.cpp:149-155: bezel at 240,8, inner rectangle at 246,14. */
+    db_draw_shape(s, radar, st->radar_active ? 22 : 0, 240, 8);
+    if (st->radar_active)
+        db_fill_rect(s, 246, 14, 318, 78, DB_BLACK);
+    for (row = 0; row < 3; row++) {
+        snprintf(name, sizeof name, "SIDE%d%s", row + 1, side);
+        db_draw_shape(s, db_shape(p, name), 0, 240,
+                      row == 0 ? 8 : row == 1 ? 88 : 138);
+    }
+
+    /* sidebar.cpp:310-330: the original image buttons at 249, 271, 294. */
+    db_draw_shape(s, db_shape(p, "REPAIR"),
+                  st->repair_disabled ? 2 : (st->repair_pressed || st->repair_on ? 1 : 0), 249, 75);
+    db_draw_shape(s, db_shape(p, "SELL"),
+                  st->sell_disabled ? 2 : (st->sell_pressed || st->sell_on ? 1 : 0), 271, 75);
+    db_draw_shape(s, db_shape(p, "MAP"), st->map_disabled ? 2 : 0, 294, 75);
+
+    for (col = 0; col < 2; col++) {
+        const int x = col ? 285 : 250;
+        db_draw_shape(s, strip, col, x, 90);
+        db_draw_shape(s, db_shape(p, "STRIPUP"), 0, (col ? 283 : 248) + 2, 186);
+        db_draw_shape(s, db_shape(p, "STRIPDN"), 0, (col ? 283 : 248) + 18, 186);
+        db_clip(s, 248, 90, 319, 185);
+        for (row = 0; row < 4; row++) {
+            const int index = st->top[col] + row;
+            const DB_Slot *slot;
+            const DB_Shape *cameo;
+            const int y = 90 + row * 24;
+            if (index >= st->count[col]) continue;
+            slot = &st->items[col][index];
+            cameo = db_shape(p, slot->cameo);
+            if (!cameo) continue;
+            db_draw_shape(s, cameo, 0, x, y);
+            if (slot->darken)
+                db_draw_shape_ghost(s, clock, 0, x, y, p->clocktab);
+            if (slot->producing) {
+                if (slot->ready)
+                    db_draw_shape_centered(s, pips, DB_PIP_READY, x + 15, y + 4);
+                else {
+                    int frame = slot->completion + 1;
+                    if (frame < 1) frame = 1;
+                    if (clock && frame >= clock->frames) frame = clock->frames - 1;
+                    db_draw_shape_ghost(s, clock, frame, x, y, p->clocktab);
+                    if (slot->onhold)
+                        db_draw_shape_centered(s, pips, DB_PIP_HOLDING, x + 15, y + 4);
+                }
+            }
+        }
+        db_clip_reset(s);
+    }
+
+}
+
+/* Compose the 640x400 Win95 art at native pixel size, then add or remove
+ * empty cameo rows to fit the current window's whole-pixel scale. Source
+ * sidebar.cpp uses RESFACTOR=2 for chrome and cameos; tactical cells and
+ * units retain their original 24-pixel art. */
+void db_draw_ra_sidebar_win95(DB_Surface *s, const DB_Pack *p,
+                              const DB_State *st, int credits, int extra_rows,
+                              int padding)
+{
+    const char *side = st->nod ? "US" : "NA";
+    const DB_Shape *radar = db_shape(p, st->nod ? "USSRRADR" : "NATORADR");
+    const DB_Shape *strip = db_shape(p, st->nod ? "STRIPUS" : "STRIPNA");
+    const DB_Shape *clock = db_shape(p, "CLOCK");
+    const DB_Shape *pips = db_shape(p, "PIPS");
+    const DB_Font *font = db_font(p, "GRAD6FNT");
+    char name[16], money[16];
+    unsigned char fp[16];
+    int col, row, ph, dh, extra, stretch;
+
+    extra = extra_rows < -1 ? -1 : extra_rows;
+    if (extra > DB_RA95_MAX_EXTRA_ROWS) extra = DB_RA95_MAX_EXTRA_ROWS;
+    if (padding < 0) padding = 0;
+    stretch = extra * 48;
+
+    db_clip_reset(s);
+    db_fill_rect(s, 320, 0, 639, s->h - 1, DB_BLACK);
+    db_draw_shape(s, db_shape(p, "TABS"), 2, 320, 0);
+    db_draw_shape(s, db_shape(p, "TABS"), 6, 480, 0);
+    if (font) {
+        db_font_palette_grad(fp, DB_WHITE, DB_TBLACK);
+        snprintf(money, sizeof money, "%d", credits);
+        db_print(s, font, money,
+                 400 - db_string_width(font, money, DB_FONT6_XSPACING) / 2,
+                 0, fp, DB_FONT6_XSPACING);
+        db_print(s, font, "Sidebar",
+                 560 - db_string_width(font, "Sidebar", DB_FONT6_XSPACING) / 2,
+                 0, fp, DB_FONT6_XSPACING);
+    }
+
+    /* power.cpp: the high-resolution POWERBAR is two 112-row frames. */
+    db_draw_shape(s, db_shape(p, "POWERBAR"), 0, 480, 176);
+    db_draw_shape(s, db_shape(p, "POWERBAR"), 1, 480, 288);
+    db_draw_shape(s, radar, st->radar_active ? 22 : 0, 480, 16);
+    if (st->radar_active) db_fill_rect(s, 492, 28, 637, 157, DB_BLACK);
+    for (row = 0; row < 3; row++) {
+        snprintf(name, sizeof name, "SIDE%d%s", row + 1, side);
+        db_draw_shape(s, db_shape(p, name), 0, 480,
+                      row == 0 ? 16 : row == 1 ? 176 : 276);
+    }
+    db_draw_shape(s, db_shape(p, "REPAIR"),
+                  st->repair_disabled ? 2 : (st->repair_pressed || st->repair_on ? 1 : 0),
+                  498, 150);
+    db_draw_shape(s, db_shape(p, "SELL"),
+                  st->sell_disabled ? 2 : (st->sell_pressed || st->sell_on ? 1 : 0),
+                  542, 150);
+    db_draw_shape(s, db_shape(p, "MAP"), st->map_disabled ? 2 : 0, 588, 150);
+
+    for (col = 0; col < 2; col++) {
+        const int x = col ? 570 : 500;
+        db_draw_shape(s, strip, col, x, 180);
+    }
+
+    /* The pictured empty strip section is 48 native pixels high, exactly one
+       Win95 cameo row. Keep the original last row and bottom rim together so
+       the power gauge's gold end cap occurs only once at the bottom; insert
+       copies of the cap-free preceding row above it. Do this before live
+       cameos so an occupied row is never cloned into another slot. */
+    if (extra > 0) {
+        memmove(s->px + (size_t)(324 + stretch) * s->w,
+                s->px + (size_t)324 * s->w, (size_t)76 * s->w);
+        for (row = 0; row < extra; row++) {
+            int yy;
+            for (yy = 0; yy < 48; yy++)
+                memcpy(s->px + (size_t)(324 + row * 48 + yy) * s->w + 480,
+                       s->px + (size_t)(276 + yy) * s->w + 480, 160);
+        }
+    } else if (extra < 0) {
+        /* At 16:9 the integer-scaled viewport is 360 native rows. Remove
+           the fourth empty cameo row while retaining the original bottom
+           arrows and rim. Live cameos are drawn after this operation. */
+        memmove(s->px + (size_t)276 * s->w,
+                s->px + (size_t)324 * s->w, (size_t)76 * s->w);
+    }
+    if (padding) {
+        const int bottom = 372 + stretch;
+        /* Odd-height windows get a short continuation of the blank strip
+           immediately above the arrows. The arrow/rim plate stays at the
+           bottom, and the repeated pixels contain no live cameo or gold cap. */
+        memmove(s->px + (size_t)(bottom + padding) * s->w,
+                s->px + (size_t)bottom * s->w, (size_t)28 * s->w);
+        for (row = 0; row < padding; row++)
+            memcpy(s->px + (size_t)(bottom + row) * s->w + 480,
+                   s->px + (size_t)(276 + row % 48) * s->w + 480, 160);
+    }
+
+    ph = st->power_total * (153 + stretch + padding) / 108;
+    dh = st->power_drain * (153 + stretch + padding) / 108;
+    if (ph > 153 + stretch + padding) ph = 153 + stretch + padding;
+    if (dh > 153 + stretch + padding) dh = 153 + stretch + padding;
+    if (ph > 0) {
+        unsigned char bright = 3, dark = 4;
+        if (st->drain_watts > st->power_watts) { bright = 214; dark = 211; }
+        if (st->drain_watts > st->power_watts * 2) { bright = 235; dark = 230; }
+        db_fill_rect(s, 490, 351 + stretch + padding - ph,
+                        491, 351 + stretch + padding, dark);
+        db_fill_rect(s, 492, 351 + stretch + padding - ph,
+                        493, 351 + stretch + padding, bright);
+    }
+    db_draw_shape(s, db_shape(p, "POWER"), 0, 482, 351 + stretch + padding - dh - 4);
+
+    for (col = 0; col < 2; col++) {
+        const int x = col ? 570 : 500;
+        db_draw_shape(s, db_shape(p, "STRIPUP"), 0, col ? 570 : 500, 372 + stretch + padding);
+        db_draw_shape(s, db_shape(p, "STRIPDN"), 0, col ? 602 : 532, 372 + stretch + padding);
+        db_clip(s, 496, 180, 639, 371 + stretch);
+        for (row = 0; row < 4 + extra; row++) {
+            const int index = st->top[col] + row;
+            const DB_Slot *slot;
+            const DB_Shape *cameo;
+            const int y = 180 + row * 48;
+            if (index >= st->count[col]) continue;
+            slot = &st->items[col][index];
+            cameo = db_shape(p, slot->cameo);
+            if (!cameo) continue;
+            db_draw_shape(s, cameo, 0, x, y);
+            if (slot->darken)
+                db_draw_shape_ghost(s, clock, 0, x, y, p->clocktab);
+            if (slot->producing) {
+                if (slot->ready)
+                    db_draw_shape_centered(s, pips, DB_PIP_READY, x + 31, y + 8);
+                else {
+                    int frame = slot->completion + 1;
+                    if (frame < 1) frame = 1;
+                    if (clock && frame >= clock->frames) frame = clock->frames - 1;
+                    db_draw_shape_ghost(s, clock, frame, x, y, p->clocktab);
+                    if (slot->onhold)
+                        db_draw_shape_centered(s, pips, DB_PIP_HOLDING, x + 31, y + 8);
+                }
+            }
+        }
+        db_clip_reset(s);
+    }
+}
+
 /* ======================================================================== *
  * The credits plate.  tab.cpp:129 TabClass::Draw_Credits_Tab draws TABS.SHP
  * at x = 160 in the lo-res branch, and credits.cpp:112 prints the number at
@@ -714,7 +947,7 @@ void db_draw_credits_tab(DB_Surface *s, const DB_Pack *p, int credits)
 
     db_clip_reset(s);
     db_fill_rect(s, DB_CREDIT_TAB_X, 0, DB_CREDIT_TAB_X + DB_EVA_WIDTH - 1, DB_TAB_HEIGHT - 2, DB_BLACK);
-    db_draw_shape(s, tabs, 0, DB_CREDIT_TAB_X, 0);
+    db_draw_shape(s, tabs, db_shape(p, "SIDE1NA") ? 2 : 0, DB_CREDIT_TAB_X, 0);
     db_line_h(s, DB_CREDIT_TAB_X, DB_CREDIT_TAB_X + DB_EVA_WIDTH - 1, DB_TAB_HEIGHT - 1, DB_BLACK);
     if (!ft)
         return;

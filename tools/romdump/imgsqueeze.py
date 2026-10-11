@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- the "compressed IMG family" decoder.  THE FAMILY IS NOT A SEPARATE FORMAT.
+OpenCNC3D -- the "compressed IMG family" decoder.  THE FAMILY IS NOT A SEPARATE FORMAT.
 
 WHAT WAS ACTUALLY WRONG
 -----------------------

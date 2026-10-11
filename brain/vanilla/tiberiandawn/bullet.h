@@ -13,13 +13,13 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
-// Adds one read-only inline accessor, CNC3D_Altitude, returning the
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
+// Adds one read-only inline accessor, OpenCNC3D_Altitude, returning the
 // projectile's existing Altitude field in leptons so the renderer's object
 // dump can draw an arcing projectile above the ground. Nothing is written,
 // and no existing member is changed.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -150,11 +150,11 @@ public:
     unsigned IsInaccurate : 1;
 
     /*
-    ** OpenCNC 3D instrumentation (read-only): the projectile's render height in leptons,
+    ** OpenCNC3D instrumentation (read-only): the projectile's render height in leptons,
     ** private below. The object dump reports it so an arcing grenade can be drawn
     ** off the ground. No behaviour change.
     */
-    int CNC3D_Altitude(void) const
+    int OpenCNC3D_Altitude(void) const
     {
         return Altitude;
     };

@@ -1,0 +1,17 @@
+# G318, the overflow leg: nine items in production or queued in a window too short for
+# them. The strip shows as many cards as fit and its last place becomes a "+N" card
+# counting what did not fit. See gate_hudq.py.
+tick 30
+hudqlog 1
+build NUKE
+build E1
+queue E2 1
+queue E3 1
+queue E6 1
+build MTNK
+queue APC 1
+queue JEEP 1
+queue HARV 1
+frames 40
+echo HUDQ-more
+quit

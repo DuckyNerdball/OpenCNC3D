@@ -1,6 +1,6 @@
 #!/bin/sh
 # ---------------------------------------------------------------------------
-#  OpenCNC 3D -- boots the 1995 DOS main menu with the NEW 640x480 sidebar HUD.
+#  OpenCNC3D -- boots the 1995 DOS main menu with the NEW 640x480 sidebar HUD.
 #  Pick TEST MAP to play. ESC in game opens the Options dialog.
 #
 #  What to look at on the sidebar:
@@ -17,6 +17,6 @@
 #  doubles one source pixel in every two and visibly scrambles small text.
 # ---------------------------------------------------------------------------
 cd "$(dirname "$0")"
-CNC3D_HUD=new exec ./cnc3d --menupack dosmenu.pack --cameos cameos.pack \
+OPENCNC3D_HUD=new exec ./opencnc3d --menupack dosmenu.pack --cameos cameos.pack \
         --dospack dossidebar.pack --dosinf dosinfantry.pack --dylib ./TiberianDawn.dylib \
         --dir ./missions/ --content ./content/ --w 1600 --h 960

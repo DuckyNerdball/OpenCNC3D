@@ -1,0 +1,59 @@
+{
+  "version": 3,
+  "source": "placement_impact and construction_rumble: Soundly recordings imported by tools/audio/cinematic_import.py. The other three: original procedural sound design by tools/audio/make_cinematic_audio.py; no external samples",
+  "seed": 202610071,
+  "generator": "tools/audio/make_cinematic_audio.py",
+  "files": [
+    {
+      "file": "placement_impact.wav",
+      "sha256": "e56cfbd5c31b67ff29f491fc13c896ce50dcd2756ac1d3297b8d5681a765dc0d",
+      "seconds": 4.119365079365079,
+      "peak": 29205,
+      "rms": 0.2797202598324339,
+      "source": [
+        "soundly/impact.wav",
+        "soundly/impact_2.wav"
+      ],
+      "source_sha256": [
+        "a619fabb5d6b5a73529e5dba3b60517d0e14d8f9314ae3e23ffda9555ab36938",
+        "fbee68d84829b701f52fa12c2a3363e7022af0e8deced8cccbc93b1756264f43"
+      ],
+      "gain": 0.9798
+    },
+    {
+      "file": "building_collapse.wav",
+      "sha256": "2cadbe37ed61969605c2a9edffe9c2cdb048e755a63c355f8d34440494eb2d03",
+      "seconds": 2.75,
+      "peak": 25558,
+      "rms": 0.0897832458563558
+    },
+    {
+      "file": "vehicle_impact.wav",
+      "sha256": "3f583529453cdcdd015a36d0482f95ae75071fa9c6ffe25146c87c18aa074f72",
+      "seconds": 0.9,
+      "peak": 25558,
+      "rms": 0.12348924230701022
+    },
+    {
+      "file": "structural_damage.wav",
+      "sha256": "9149d0245bd08c15b860c706c600d9b6c05cfd13192931d7a0ac223a8c2b1c42",
+      "seconds": 1.1,
+      "peak": 25558,
+      "rms": 0.10075432268377653
+    },
+    {
+      "file": "construction_rumble.wav",
+      "sha256": "c59911d71d9bc75146f7079250963916dc61c520b5867b1a63dd80935d312f7d",
+      "seconds": 2.6102267573696145,
+      "peak": 29205,
+      "rms": 0.2133933182232138,
+      "source": [
+        "soundly/shake.wav"
+      ],
+      "source_sha256": [
+        "e395e954ae8f66ac8c88a9df332288721b422068c4691a929fa561e3c4abbc82"
+      ],
+      "gain": 2.3156
+    }
+  ]
+}

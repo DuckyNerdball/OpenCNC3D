@@ -30,7 +30,7 @@ if (!paused && !g_optOpen && !sim_over) {
 
 `SPEED_HZ` is `{7.5, 10, 12.5, 15, 18, 22, 27}` (`:17706`), default index 3 = 15 Hz, the anchor everything is gated against.
 
-**How state comes back.** The renderer never reads engine memory. `refresh_objects()` (`:2770`) calls `capture_brain_call(BrainDump)` (`:2810`), which dups `stdout` onto a scratch file, calls `CNC3D_Dump_Objects` (`brain/vanilla/tiberiandawn/dllinterface.cpp:8152`), rewinds it and parses the text. The whole world arrives as pipe-delimited lines: `OBJ|` (`:8100`), `CARGO|` (`:8266`), `EFX|ANIM` (`:8326`), `EFX|BULLET` (`:8358`), `HOUSE|` (`:8380`), `TIB|` (`:8407`), `WALL|` (`:8463`), `SMUDGE|` (`:8509`), `VIEW|` (`:8518`), bracketed by `OBJDUMP-BEGIN` / `OBJDUMP-END total= frame=`.
+**How state comes back.** The renderer never reads engine memory. `refresh_objects()` (`:2770`) calls `capture_brain_call(BrainDump)` (`:2810`), which dups `stdout` onto a scratch file, calls `OpenCNC3D_Dump_Objects` (`brain/vanilla/tiberiandawn/dllinterface.cpp:8152`), rewinds it and parses the text. The whole world arrives as pipe-delimited lines: `OBJ|` (`:8100`), `CARGO|` (`:8266`), `EFX|ANIM` (`:8326`), `EFX|BULLET` (`:8358`), `HOUSE|` (`:8380`), `TIB|` (`:8407`), `WALL|` (`:8463`), `SMUDGE|` (`:8509`), `VIEW|` (`:8518`), bracketed by `OBJDUMP-BEGIN` / `OBJDUMP-END total= frame=`.
 
 **There are six tick sites, all identical in shape:** the live loop (`:18818`), the script runner's `script_tick` (`:14007`), `game_run_shot`'s warm-up (`:17369`), `game_run_script`'s warm-up (`:17340`), the `remission` verb's warm-up (`:14645`), and the TAB single-step key (`:18311`).
 
@@ -149,7 +149,7 @@ plus `act=` (the owning house's `ActLike`, `:8092-8096`), and `HOUSE|` lines wit
 
 ### What is missing
 
-I searched both the dump and the renderer's parser. There is **no `TEAM|`, no `TEAMTYPE|` and no `TRIG|` line anywhere.** `CNC3D_Dump_Objects` walks Infantry, Units, Buildings, Terrains, Aircraft, Anims, Bullets, Houses and three per-cell sweeps, and stops (`:8156-8520`). The only hits for "TEAM" in `cnc_eyes.cpp` are the player's **control groups** (`Handle_Team`, `cnc_eyes.cpp:9560-9568`), which are a different thing entirely, and the only hit for "TRIGGER" (`:14102`) is an animation trigger in the `anims` script verb.
+I searched both the dump and the renderer's parser. There is **no `TEAM|`, no `TEAMTYPE|` and no `TRIG|` line anywhere.** `OpenCNC3D_Dump_Objects` walks Infantry, Units, Buildings, Terrains, Aircraft, Anims, Bullets, Houses and three per-cell sweeps, and stops (`:8156-8520`). The only hits for "TEAM" in `cnc_eyes.cpp` are the player's **control groups** (`Handle_Team`, `cnc_eyes.cpp:9560-9568`), which are a different thing entirely, and the only hit for "TRIGGER" (`:14102`) is an animation trigger in the `anims` script verb.
 
 ### What it would take, concretely
 
@@ -164,9 +164,9 @@ externs.h:185  extern DynamicVectorClass<TriggerClass*> CellTriggers;
 ```
 
 - **Triggers are free.** Every field you want is public: `Name`, `Event`, `Action`, `House`, `Data`, `AttachCount`, `IsPersistant`, `Team` (`trigger.h:213-260`), and there are static `Name_From_Event` / `Name_From_Action` helpers (`trigger.h:190-193`). A `TRIG|` loop is about fifteen lines and nothing in the engine needs touching.
-- **Teams are mostly free.** `Class`, `House`, `Center`, `ObjectiveCenter`, `MissionTarget`, `Target`, `Total`, `Risk`, and the state flags `IsForcedActive / IsHasBeen / IsFullStrength / IsUnderStrength / IsReforming / IsLagging` are public (`team.h:49-165`). `CurrentMission` and the `Member` chain are private (`team.h:230-256`), so those two need an accessor. There is precedent for exactly that in the patch: `AnimClass::CNC3D_Stage()`, used at `dllinterface.cpp:8333`.
+- **Teams are mostly free.** `Class`, `House`, `Center`, `ObjectiveCenter`, `MissionTarget`, `Target`, `Total`, `Risk`, and the state flags `IsForcedActive / IsHasBeen / IsFullStrength / IsUnderStrength / IsReforming / IsLagging` are public (`team.h:49-165`). `CurrentMission` and the `Member` chain are private (`team.h:230-256`), so those two need an accessor. There is precedent for exactly that in the patch: `AnimClass::OpenCNC3D_Stage()`, used at `dllinterface.cpp:8333`.
 
-Cost: this is a brain change, so `brain/patches/vanilla-cnc3d.patch` grows and it is a two-platform rebuild (`tools/mac/build-brain-mac.sh`, not part of `game/build.sh`; G30 now checks the deployed brain as a chain). Per the skirmish precedent in `engineering notes:409` a brain commit needs the project owner's go-ahead.
+Cost: this is a brain change, so `brain/patches/vanilla-opencnc3d.patch` grows and it is a two-platform rebuild (`tools/mac/build-brain-mac.sh`, not part of `game/build.sh`; G30 now checks the deployed brain as a chain). A brain commit needs explicit approval first.
 
 ### The timing number you need before any of this is useful
 
@@ -231,7 +231,7 @@ The dylib is `dlopen`'d once behind a `g_brainLoaded` latch (`cnc_eyes.cpp:13414
 
 1. Fix the SPACE hole (question 2). It is a one-line guard and it currently eats unsaved work.
 2. **B**: tick-0 keyframe on entering play, `game_load_slot` on Ctrl+P back. Small, uses only built and gated machinery, and turns "rewind" from a 2.2 s file reload into an exact snap-back.
-3. **The brain dump extension** (`TRIG|`, `TEAM|`, `TEAMTYPE|`). Fifteen to forty lines in `CNC3D_Dump_Objects`, one accessor on `TeamClass`, one two-platform brain rebuild. This is what turns watching into understanding, and it is the only item that needs the project owner's go-ahead.
+3. **The brain dump extension** (`TRIG|`, `TEAM|`, `TEAMTYPE|`). Fifteen to forty lines in `OpenCNC3D_Dump_Objects`, one accessor on `TeamClass`, one two-platform brain rebuild. This is what turns watching into understanding, and it is the only item that needs approval first.
 4. **D** on top of 3: a fast-forward-and-report button, since the trigger clock makes real-time watching impractical.
 5. **C** last, once it is clear the project owner wants the sim inside the editor chrome rather than a report plus the existing Ctrl+P.
 

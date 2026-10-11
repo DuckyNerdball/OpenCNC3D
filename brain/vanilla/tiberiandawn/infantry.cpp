@@ -13,16 +13,21 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in September 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
 // Three changes. In Per_Cell_Process the sabotage arm records the saboteur's
 // own house rather than this machine's in a lockstep match, and the tether
-// cut reads a factory rally point (a OpenCNC 3D addition, carried in the
+// cut reads a factory rally point (an OpenCNC3D addition, carried in the
 // soldier's own ArchiveTarget by BuildingClass::Exit_Object) and sends the
 // soldier on from the exit cell. Overlap_List drops the selection term in a
 // lockstep match, so cell occupancy does not depend on which peer has the
 // soldier selected.
+// A fourth, behind OpenCNC3D_FreeInfantry (default off): AI may aim a walking
+// leg several cells along the path when the straight line there crosses
+// only enterable cells, so infantry walk at any angle, and the cells a
+// long leg crosses get the per-cell processing a short leg would give them;
+// a leg the range check stops is ended in the cell where it stopped.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -733,14 +738,14 @@ void InfantryClass::Per_Cell_Process(bool center)
 
             building->IsGoingToBlow = true;
             /*
-            **	OpenCNC 3D: the saboteur's own house rather than this machine's, for the reason
+            **	OpenCNC3D: the saboteur's own house rather than this machine's, for the reason
             **	written out in BuildingClass::Sell_Back. This site never showed in a dump
             **	because the line after it immediately overwrites FlashCount with the same
             **	20 on every peer -- but FlashCountPerPlayer[] keeps whichever index it was
             **	handed, so each peer recorded a different house as having clicked, and
             **	nothing exports that array for a gate to notice.
             */
-            building->Clicked_As_Target(CNC3D_Lockstep ? Owner() : PlayerPtr->Class->House,
+            building->Clicked_As_Target(OpenCNC3D_Lockstep ? Owner() : PlayerPtr->Class->House,
                                         20); // 2019/09/20 JAS - Added record of who clicked on the object
             building->Clicked_As_Target(building->Owner(), 20);
             building->CountDown.Set(20);
@@ -762,7 +767,7 @@ void InfantryClass::Per_Cell_Process(bool center)
     */
     if (center && IsTethered) {
         /*
-        **	OpenCNC 3D: a factory's rally point. BuildingClass::Exit_Object parks it in this
+        **	OpenCNC3D: a factory's rally point. BuildingClass::Exit_Object parks it in this
         **	soldier's own ArchiveTarget (always a CELL target) and leaves the destination
         **	as the exit cell, so the soldier walks out through the door first. This is
         **	that cell: the tether is cut here and the walk to the rally begins from here,
@@ -789,16 +794,16 @@ void InfantryClass::Per_Cell_Process(bool center)
         **	own centre there and is left alone, and so is an OBJECT archive (a transport
         **	order's), which this hook never wrote.
         */
-        TechnoClass const* cnc3d_from = Contact_With_Whom();
-        const bool cnc3d_factory = cnc3d_from != NULL && cnc3d_from->What_Am_I() == RTTI_BUILDING
-                                   && ((BuildingClass const*)cnc3d_from)->Class->IsFactory && House->IsHuman;
-        const bool cnc3d_rally = cnc3d_factory && Mission == MISSION_MOVE && Target_Legal(ArchiveTarget)
+        TechnoClass const* opencnc3d_from = Contact_With_Whom();
+        const bool opencnc3d_factory = opencnc3d_from != NULL && opencnc3d_from->What_Am_I() == RTTI_BUILDING
+                                   && ((BuildingClass const*)opencnc3d_from)->Class->IsFactory && House->IsHuman;
+        const bool opencnc3d_rally = opencnc3d_factory && Mission == MISSION_MOVE && Target_Legal(ArchiveTarget)
                                  && Is_Target_Cell(ArchiveTarget) && Coord_Cell(Coord) == As_Cell(NavCom);
         Transmit_Message(RADIO_UNLOADED);
-        if (cnc3d_rally) {
+        if (opencnc3d_rally) {
             Assign_Destination(ArchiveTarget);
             ArchiveTarget = TARGET_NONE;
-        } else if (cnc3d_factory && Mission != MISSION_GUARD_AREA && Is_Target_Cell(ArchiveTarget)) {
+        } else if (opencnc3d_factory && Mission != MISSION_GUARD_AREA && Is_Target_Cell(ArchiveTarget)) {
             ArchiveTarget = TARGET_NONE;
         }
         if (House->Class->House == HOUSE_GOOD) {
@@ -1060,6 +1065,117 @@ void InfantryClass::Assign_Target(TARGET target)
             Assign_Destination(target);
         }
     }
+}
+
+/***********************************************************************************************
+ * OpenCNC3D_Free_Leg_Clear -- Is the straight line from here to that cell walkable? (project OpenCNC3D)
+ *
+ * Walks the segment in 32 lepton steps (an eighth of a cell) and asks Can_Enter_Cell of every
+ * cell it passes through apart from the one it starts in. Where one step crosses a cell corner
+ * diagonally, BOTH cells beside the corner must be enterable too: a line through the exact
+ * corner of two blocked cells would otherwise slip between them, which a 1995 leg never does
+ * except between centres of diagonal neighbours.
+ *
+ * A cell of Tiberium is not skipped. Infantry take Tiberium damage when they arrive at a cell's
+ * centre (Per_Cell_Process), so a leg that crossed a field in one stride would take one dose
+ * where the 1995 walk takes one a cell; ending a leg at each Tiberium cell keeps the dose.
+ ***********************************************************************************************/
+static bool OpenCNC3D_Free_Leg_Clear(InfantryClass const* inf, COORDINATE from, CELL dest)
+{
+    COORDINATE to = Cell_Coord(dest);
+    int fx = Coord_X(from), fy = Coord_Y(from);
+    int dx = Coord_X(to) - fx, dy = Coord_Y(to) - fy;
+    int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    int n = (adx > ady ? adx : ady) / 32 + 1;
+    CELL prev = Coord_Cell(from);
+    for (int i = 1; i <= n; i++) {
+        int px = fx + dx * i / n, py = fy + dy * i / n;
+        CELL c = Coord_Cell(XY_Coord(px, py));
+        if (c == prev) {
+            continue;
+        }
+        if (Cell_X(c) != Cell_X(prev) && Cell_Y(c) != Cell_Y(prev)) {
+            if (inf->Can_Enter_Cell(XY_Cell(Cell_X(c), Cell_Y(prev))) != MOVE_OK
+                || inf->Can_Enter_Cell(XY_Cell(Cell_X(prev), Cell_Y(c))) != MOVE_OK) {
+                return false;
+            }
+        }
+        if (inf->Can_Enter_Cell(c) != MOVE_OK) {
+            return false;
+        }
+        if (c != dest && Map[c].Land_Type() == LAND_TIBERIUM && *inf != INFANTRY_E5) {
+            return false;
+        }
+        prev = c;
+    }
+    return true;
+}
+
+/*
+**	OpenCNC3D: end a free leg where the soldier is, once his target is in reach: on the nearest
+**	free spot that is not BEHIND him, in his present cell or the next one along his leg,
+**	facing the target. Never back: a soldier carries his weapon with him (Fire_Coord follows
+**	the facing), so a step back, or a turn round to take one, can take the target out of
+**	reach again; Mission_Attack then sent him forward and the check stopped him, over and
+**	over, and he never fired (measured on a rocket soldier with the cell's centre as the
+**	stop, and on a Minigunner with the nearest spot, which lay a third of a cell behind).
+**	Start_Driver moves the spot reservations, and on the way it marks and then clears the
+**	spot nearest the soldier's present coordinate, so this is only done when that spot is
+**	free: otherwise another soldier's reservation would be cleared, and the leg runs on.
+*/
+void InfantryClass::opencnc3d_end_leg_here(void)
+{
+    CELL here = Coord_Cell(Coord);
+    if (!Map[here].Is_Spot_Free(CellClass::Spot_Index(Coord))) {
+        return;
+    }
+    COORDINATE head = Head_To_Coord();
+    int hx = Coord_X(head) - Coord_X(Coord);
+    int hy = Coord_Y(head) - Coord_Y(Coord);
+    CELL cells[2];
+    cells[0] = here;
+    cells[1] = Coord_Cell(Coord_Move(Coord, Direction(head), ICON_LEPTON_W));
+    COORDINATE best = 0;
+    int bestd = 0x7FFFFFFF;
+    for (int c = 0; c < 2; c++) {
+        if (c == 1 && (cells[1] == here || Can_Enter_Cell(cells[1]) != MOVE_OK)) {
+            continue;
+        }
+        COORDINATE base = Coord_Whole(Cell_Coord(cells[c]));
+        for (int i = 0; i < 5; i++) {
+            if (!Map[cells[c]].Is_Spot_Free(i)) {
+                continue;
+            }
+            COORDINATE spot = Coord_Add(base, StoppingCoordAbs[i]);
+            int dx = Coord_X(spot) - Coord_X(Coord);
+            int dy = Coord_Y(spot) - Coord_Y(Coord);
+            if (dx * hx + dy * hy < 0) {
+                continue;
+            }
+            int d = ::Distance(Coord, spot);
+            if (d < bestd) {
+                bestd = d;
+                best = spot;
+            }
+        }
+    }
+    if (!best) {
+        return;
+    }
+    /*
+    **	InfantryClass::Start_Driver does not go to the point it is given: it steps 0x7C
+    **	back toward the soldier first and takes the free spot nearest THAT, which for a spot
+    **	a little ahead of him is one behind him. So it is handed the point 0x7C beyond the
+    **	chosen spot, on the line from him, and its step back lands on the spot.
+    */
+    COORDINATE headto = Coord_Move(best, ::Direction(Coord, best), 0x007C);
+    if (!Start_Driver(headto)) {
+        return;
+    }
+    PrimaryFacing.Set(Target_Legal(TarCom) ? ::Direction(Center_Coord(), As_Coord(TarCom))
+                                           : ::Direction(Center_Coord(), Head_To_Coord()));
+    Set_Speed(0xFF);
+    Do_Action(IsProne ? DO_CRAWL : DO_WALK);
 }
 
 /***********************************************************************************************
@@ -1442,6 +1558,30 @@ void InfantryClass::AI(void)
                 COORDINATE acoord = Adjacent_Cell(Coord, Path[0]);
                 CELL acell = Coord_Cell(acoord);
 
+                /*
+                **	OpenCNC3D: a longer, straight leg, when free infantry movement is on. The
+                **	path is the 1995 path; this only chooses how far along it the next leg
+                **	aims -- the furthest cell of it that is enterable and reachable in a
+                **	straight line (OpenCNC3D_Free_Leg_Clear) -- so the soldier walks at the
+                **	angle of that line. opencnc3d_skip is how many path steps the leg swallows
+                **	beyond the first; they are dropped once the leg has started.
+                */
+                int opencnc3d_skip = 0;
+                if (OpenCNC3D_FreeInfantry && Can_Enter_Cell(acell) == MOVE_OK) {
+                    CELL c = acell;
+                    for (int i = 1; i < CONQUER_PATH_MAX && Path[i] != FACING_NONE; i++) {
+                        c = Adjacent_Cell(c, Path[i]);
+                        if (Can_Enter_Cell(c) != MOVE_OK || !OpenCNC3D_Free_Leg_Clear(this, Center_Coord(), c)) {
+                            break;
+                        }
+                        opencnc3d_skip = i;
+                        acell = c;
+                    }
+                    if (opencnc3d_skip) {
+                        acoord = Cell_Coord(acell);
+                    }
+                }
+
                 if (Can_Enter_Cell(acell) != MOVE_OK) {
 
                     if ((Mission == MISSION_MOVE || Mission == MISSION_ENTER) && !IsTethered && House->IsHuman
@@ -1474,7 +1614,18 @@ void InfantryClass::AI(void)
 
                 } else {
                     if (Start_Driver(acoord)) {
-                        PrimaryFacing.Set(Direction8(Center_Coord(), Head_To_Coord()));
+                        if (opencnc3d_skip) {
+                            memmove(&Path[0], &Path[opencnc3d_skip], sizeof(Path) - opencnc3d_skip * sizeof(Path[0]));
+                            for (int i = CONQUER_PATH_MAX - opencnc3d_skip; i < CONQUER_PATH_MAX; i++) {
+                                Path[i] = FACING_NONE;
+                            }
+                        }
+                        /*
+                        **	OpenCNC3D: facing the leg as it is when legs are free, since a
+                        **	leg is no longer one of eight directions.
+                        */
+                        PrimaryFacing.Set(OpenCNC3D_FreeInfantry ? ::Direction(Center_Coord(), Head_To_Coord())
+                                                             : Direction8(Center_Coord(), Head_To_Coord()));
                         Set_Speed(0xFF);
                         if (IsProne) {
                             Do_Action(DO_CRAWL);
@@ -1539,7 +1690,69 @@ void InfantryClass::AI(void)
                 **	Advance the infantry as far as it should go.
                 */
                 MPHType maxspeed = MPHType(min((unsigned)(Class->MaxSpeed * House->GroundspeedBias), MPH_LIGHT_SPEED));
+                CELL opencnc3d_was = Coord_Cell(Coord);
                 Coord = Coord_Move(Coord, Direction(Head_To_Coord()), Fixed_To_Cardinal(maxspeed, movespeed));
+
+                /*
+                **	OpenCNC3D: a free leg crosses cells it never stops in. Each one gets what a
+                **	1995 walker passing through would have had: the trigger, the crate, the
+                **	shroud and the attack-range check (FootClass/TechnoClass). Not the arrival
+                **	processing, which belongs to the cell the leg ends in.
+                */
+                if (OpenCNC3D_FreeInfantry && Coord_Cell(Coord) != opencnc3d_was
+                    && Coord_Cell(Coord) != Coord_Cell(Head_To_Coord())) {
+                    TARGET opencnc3d_nav = NavCom;
+                    Per_Cell_Process(false);
+                    if (!IsActive || IsInLimbo) {
+                        return;
+                    }
+
+                    /*
+                    **	OpenCNC3D: the range check in Per_Cell_Process clears the destination
+                    **	once the target is in reach, and a 1995 walker then stops at the
+                    **	end of the one-cell step it is on. A free leg can end many cells
+                    **	on, even on the target's own cell, so it is cut short here: the
+                    **	soldier ends it on the nearest free spot of the cell he has just
+                    **	entered (opencnc3d_end_leg_here).
+                    **	Start_Driver moves the spot reservations, and on the way it marks
+                    **	and then clears the spot nearest the soldier's present coordinate,
+                    **	so this is only done when that spot is free: otherwise another
+                    **	soldier's reservation would be cleared, and the leg runs on.
+                    */
+                    if (Target_Legal(opencnc3d_nav) && !Target_Legal(NavCom)) {
+                        opencnc3d_end_leg_here();
+                    }
+                }
+
+                /*
+                **	OpenCNC3D: the range check a 1995 walker makes at the centre of every cell,
+                **	made on every tick of a free leg. The check above only runs where a leg
+                **	ENTERS a cell, and the point where the target comes into reach can lie
+                **	inside a cell, past its edge: the soldier then walked on to the next edge
+                **	before he stopped. Measured: a Minigunner ordered onto a Hand of Nod
+                **	stopped 2.26 cells from its centre against a reach of 3.25, and a rocket
+                **	soldier 3.95 against 5.25. The test is Per_Cell_Process's own (the same
+                **	missions, the same Likely_Coord for a moving target); once it holds, the
+                **	destination is cleared and the leg ended in the cell he is in, as above.
+                **	Not in the leg's last cell, whose arrival makes the 1995 check itself.
+                */
+                if (OpenCNC3D_FreeInfantry && IsDriving && Target_Legal(NavCom) && Target_Legal(TarCom)
+                    && (Mission == MISSION_RESCUE || Mission == MISSION_GUARD_AREA || Mission == MISSION_ATTACK
+                        || Mission == MISSION_HUNT)
+                    && Coord_Cell(Coord) != Coord_Cell(Head_To_Coord())) {
+                    bool opencnc3d_inrange = In_Range(TarCom);
+                    TechnoClass const* opencnc3d_techno = As_Techno(TarCom);
+                    if (opencnc3d_techno && opencnc3d_techno->What_Am_I() != RTTI_BUILDING) {
+                        FootClass const* foot = (FootClass const*)opencnc3d_techno;
+                        MPHType speed = ((TechnoTypeClass const&)opencnc3d_techno->Class_Of()).MaxSpeed;
+                        opencnc3d_inrange = In_Range((speed > MPH_SLOW) ? foot->Likely_Coord() : foot->Target_Coord());
+                    }
+                    if (opencnc3d_inrange) {
+                        Assign_Destination(TARGET_NONE);
+                        Path[0] = FACING_NONE;
+                        opencnc3d_end_leg_here();
+                    }
+                }
             }
             Mark(MARK_DOWN);
         }
@@ -1868,7 +2081,7 @@ short const* InfantryClass::Overlap_List(void) const
     Validate();
     // return(Coord_Spillage_List(Coord, 24 + ((IsSelected || Doing > DO_WALK)?12:0)));
     /*
-    **	OpenCNC 3D lockstep: the selection term is dropped IN A MATCH ONLY.
+    **	OpenCNC3D lockstep: the selection term is dropped IN A MATCH ONLY.
     **	Is_Selected_By_Player() reads the global PlayerPtr, so it answers differently on
     **	every peer, and this list is not advisory: MapClass::Place_Down / Pick_Up /
     **	Overlap_Down / Overlap_Up walk it into CellClass::Overlapper, and Overlap_Down ends
@@ -1880,7 +2093,7 @@ short const* InfantryClass::Overlap_List(void) const
     **	in both cases: it is replicated state, and the death and fire shapes need the ring.
     */
     return (Coord_Spillage_List(
-        Coord, 24 + ((Doing > DO_WALK || (!CNC3D_Lockstep && Is_Selected_By_Player())) ? 12 : 0)));
+        Coord, 24 + ((Doing > DO_WALK || (!OpenCNC3D_Lockstep && Is_Selected_By_Player())) ? 12 : 0)));
     //	return(Coord_Spillage_List(Coord, (IsSelected ? 24 : 14))+1);
 }
 

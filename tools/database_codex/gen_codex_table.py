@@ -23,7 +23,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.environ.get("CNC3D_ROOT") or os.path.abspath(os.path.join(HERE, "..", ".."))
+ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(os.path.join(HERE, "..", ".."))
 OUT = os.path.join(ROOT, "game", "codex_table.h")
 
 CATS = [("Structures", "STRUCTURES"), ("Infantry", "INFANTRY"),

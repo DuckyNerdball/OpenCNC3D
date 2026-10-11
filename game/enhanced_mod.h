@@ -10,7 +10,7 @@
  *  ("once the Hand of Nod is up AND five minutes have passed AND the convoy has not
  *  already been ambushed") is not in the file anywhere; only its approximation is.
  *
- *  Rather than pretend, or offer an AND node that quietly compiles to a latch, CNC3D
+ *  Rather than pretend, or offer an AND node that quietly compiles to a latch, OpenCNC3D
  *  adds a second tier. A map may use it, and a map that does is TAGGED, because the
  *  1995 engine cannot run it and would run the rest of the mission while silently
  *  dropping these rules -- which is worse than refusing.
@@ -25,7 +25,7 @@
  *    - a RULE in [EnhancedScript]: the rich condition, naming its carrier.
  *
  *  This host evaluates the condition each tick and, when it is satisfied, calls
- *  CNC3D_Spring_Trigger. The engine then runs its OWN action body -- Create Team with
+ *  OpenCNC3D_Spring_Trigger. The engine then runs its OWN action body -- Create Team with
  *  its ScenarioInit bracket, Reinforce with Do_Reinforcements' edge resolution, Allow
  *  Win with its Blockage accounting, and every quirk intact. Not one of the eighteen
  *  actions is reimplemented here, which is the whole point: an Enhanced mission's

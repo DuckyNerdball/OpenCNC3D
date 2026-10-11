@@ -169,10 +169,10 @@ Four exports and two guarded lines, all in `dllinterface.cpp` plus one enum in
 
 | Export | What it does |
 |---|---|
-| `CNC3D_Event_ABI` | reports the wire unit's size and layout as compile time constants |
-| `CNC3D_Set_Lockstep` | sets the flag, which is `false` until something calls this |
-| `CNC3D_Drain_Events` | takes this peer's pending orders out for the wire, stamping `MPlayerID` |
-| `CNC3D_Post_Event` | injects a received order at its stamped frame |
+| `OpenCNC3D_Event_ABI` | reports the wire unit's size and layout as compile time constants |
+| `OpenCNC3D_Set_Lockstep` | sets the flag, which is `false` until something calls this |
+| `OpenCNC3D_Drain_Events` | takes this peer's pending orders out for the wire, stamping `MPlayerID` |
+| `OpenCNC3D_Post_Event` | injects a received order at its stamped frame |
 
 The two edits to live code are `dllinterface.cpp:6079` (the `OutList` to `DoList` drain, which
 also discards overflow through an empty statement at `:6081-6083`) and `:5116` (the reentrant
@@ -192,7 +192,7 @@ not call. The rally point arms the patch already carries have no flag at all, an
 inertness rests on a hand survey of every writer of `ArchiveTarget`.
 
 **The trap in this surface**: draining orders out and not feeding them back. Dropping the local
-copy is correct only because the host posts its own bytes back through `CNC3D_Post_Event`. A
+copy is correct only because the host posts its own bytes back through `OpenCNC3D_Post_Event`. A
 first implementation that drains without self-adding, in a host that does not loop back, loses
 every local order and looks like a network fault.
 

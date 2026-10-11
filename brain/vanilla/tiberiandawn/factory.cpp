@@ -12,6 +12,16 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D in October 2026. This is not EA's original file.
+// One change in FactoryClass::AI. A factory building whose power has been
+// switched off no longer counts toward the speed its house builds that kind
+// of object at, and while every factory building of that kind is switched
+// off, production of that kind does not advance.
+// It DOES change the game simulation.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\factory.cpv   2.18   16 Oct 1995 16:51:26   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -250,7 +260,16 @@ void FactoryClass::AI(void)
                 stages = House->BuildingFactories;
                 break;
             }
-            stages = MAX(stages, 1);
+            RTTIType needed=Object->What_Am_I()==RTTI_BUILDING?RTTI_BUILDINGTYPE:
+                Object->What_Am_I()==RTTI_INFANTRY?RTTI_INFANTRYTYPE:
+                Object->What_Am_I()==RTTI_AIRCRAFT?RTTI_AIRCRAFTTYPE:RTTI_UNITTYPE;
+            int disabled=0;
+            for(int i=0;i<Buildings.Count();i++){
+                BuildingClass *b=Buildings.Ptr(i);
+                if(b&&b->IsActive&&!b->IsInLimbo&&b->House==House&&b->Class->ToBuild==needed&&b->IsPowerOff)disabled++;
+            }
+            if(stages>0&&disabled>=stages)return;
+            stages = MAX(stages-disabled, 1);
         }
 
         for (int index = 0; index < stages; index++) {

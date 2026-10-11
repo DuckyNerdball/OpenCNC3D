@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yard Rig</title>
+<style>
+  :root {
+    --bg: #15171c; --panel: #1e2128; --line: #2e323b; --text: #e6e6e6; --dim: #9aa0aa;
+    --gold: #d6b25e; --green: #7fc97f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+    padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; color: var(--gold); letter-spacing: .04em; }
+  header a { color: var(--dim); }
+  label { color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
+  select, button { font: inherit; background: #2a2e37; color: var(--text); border: 1px solid var(--line);
+    border-radius: 5px; padding: 4px 9px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--gold); }
+  button.on { border-color: var(--green); color: var(--green); }
+  main { flex: 1; display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  #view { position: relative; min-height: 0; }
+  #view canvas { display: block; width: 100%; height: 100%; }
+  #side { overflow: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 6px 12px 16px; }
+  h2 { font-size: 12px; letter-spacing: .08em; color: var(--gold); margin: 14px 0 6px;
+    display: flex; justify-content: space-between; align-items: center; }
+  h2 button { font-size: 11px; padding: 1px 7px; }
+  .row { display: grid; grid-template-columns: 1fr 56px; gap: 2px 8px; margin: 4px 0 8px; }
+  .row .name { color: var(--text); }
+  .row .val { color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+  .row input { grid-column: 1 / 3; width: 100%; }
+  #status { color: var(--dim); font-size: 12px; }
+  #transport { position: absolute; left: 12px; right: 12px; bottom: 40px; display: flex; gap: 10px;
+    align-items: center; background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 6px; }
+  #transport[hidden] { display: none; }
+  #tname { color: var(--gold); font-weight: 600; white-space: nowrap; }
+  #ttime { flex: 1; }
+  #tclock { color: var(--dim); font-variant-numeric: tabular-nums; min-width: 8ch; text-align: right; }
+  #tip { position: absolute; left: 12px; bottom: 10px; color: var(--dim); font-size: 12px;
+    background: rgba(0,0,0,.5); padding: 3px 8px; border-radius: 4px; pointer-events: none; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; }
+    #side { border-left: 0; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>YARD RIG</h1>
+  <label>View
+    <select id="camsel">
+      <option value="three">Three-quarter</option>
+      <option value="game">Game camera</option>
+      <option value="front">Front</option>
+      <option value="top">Top</option>
+    </select>
+  </label>
+  <label>Team colour <select id="team"></select></label>
+  <label><input type="checkbox" id="cut" checked> Hide below ground</label>
+  <label><input type="checkbox" id="pivots"> Show pivots</label>
+  <button id="reset">Reset</button>
+  <button id="test">Rig test</button>
+  <button class="clip" data-clip="unfold">&#9654; Unfold</button>
+  <button class="clip" data-clip="delivery">&#9654; Crate delivery</button>
+  <span id="status"></span>
+  <a href="index.html">soldiers</a>
+</header>
+<main>
+  <div id="view"><div id="tip">drag to orbit, right-drag to pan, wheel to zoom</div>
+    <div id="transport" hidden>
+      <button id="tplay">Pause</button>
+      <span id="tname"></span>
+      <input type="range" id="ttime" min="0" max="1000" value="0">
+      <span id="tclock">0.0 s</span>
+    </div>
+  </div>
+  <div id="side"></div>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+// THE CONSTRUCTION YARD'S RIG, driven by hand. tools/art/yard_rig.py writes the model and
+// the list of controls; this page only reads them. Every control is one number on one
+// bone: RISE lifts an element out of the ground (0 = its whole subtree below y = 0, 1 = in
+// place), SLIDE moves a bone along a bone-local axis in pack units, ROTATE and SPIN turn it
+// about bone-local +x in degrees. A bone with an AIM (none in this rig yet: the rams are
+// modelled at full stroke and stay rigid) turns so its local +y points at its partner's
+// pivot, recomputed after every change.
+//
+// CLIPS come from tools/art/yard_clips.py (out/fact_clips.json): per control a list of keys
+// [time, value, how], "s" easing to the next key and "l" going straight to it, exactly as
+// that script evaluates them. A clip sets every control it has a track for and leaves the
+// rest at rest. The crate is a prop: its track is its pose in the world.
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+
+const $ = (id) => document.getElementById(id);
+const clock = new THREE.Clock();
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.localClippingEnabled = true;
+$("view").appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1b1e24);
+// something for the metal to reflect: without it a metallic roof reads as black
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.6;
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x3a3226, 1.0));
+const sun = new THREE.DirectionalLight(0xffffff, 2.4);
+sun.position.set(-900, 1600, 1100);
+scene.add(sun);
+const grid = new THREE.GridHelper(8192, 8, 0x5a6070, 0x353a44);     // one square a cell
+scene.add(grid);
+
+const camera = new THREE.PerspectiveCamera(30, 1, 20, 40000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+const CAMS = {
+  three: [3300, 2300, 3300],
+  game:  [0, 4200, 4200],               // from the south and above, like the N64 camera
+  front: [2400, 900, 4200],
+  top:   [1, 6000, 0],
+};
+function setCam(k) {
+  const p = CAMS[k];
+  controls.target.set(100, 350, 0);
+  camera.position.set(p[0], p[1], p[2]).add(controls.target);
+  camera.lookAt(controls.target);
+}
+function resize() {
+  const r = $("view").getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / Math.max(1, r.height);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+
+// ---- team colour, the game's rule (see index.html) ------------------------------------
+const team = { uTeam: { value: new THREE.Color(1, 1, 1) }, uTeamOn: { value: 1 } };
+const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function prepare(model) {
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false;
+    const m = o.material;
+    m.clippingPlanes = [ground];
+    m.clipShadows = true;
+    if (!m.userData || !m.userData.teamMask) return;
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uTeam = team.uTeam; sh.uniforms.uTeamOn = team.uTeamOn;
+      sh.fragmentShader = "uniform vec3 uTeam;\nuniform float uTeamOn;\n" + sh.fragmentShader.replace(
+        "#include <map_fragment>",
+        "#include <map_fragment>\n#ifdef USE_MAP\n diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * uTeam, sampledDiffuseColor.a * uTeamOn);\n diffuseColor.a = 1.0;\n#endif");
+    };
+    m.needsUpdate = true;
+  });
+}
+function setTeam() {
+  const i = +$("team").value;
+  if (i < 0) { team.uTeamOn.value = 0; return; }
+  const c = rig.teams[i].rgb;
+  team.uTeam.value.setRGB(c[0], c[1], c[2], THREE.LinearSRGBColorSpace);
+  team.uTeamOn.value = 1;
+}
+$("team").onchange = setTeam;
+$("cut").onchange = () => { ground.constant = $("cut").checked ? 0 : 1e6; };
+
+// ---- the rig ---------------------------------------------------------------------------
+let rig = null, model = null;
+const bones = {};           // name -> { node, restP, restQ, controls: [{c, value}] }
+const values = {};          // "bone.control" -> number
+const sliders = {};
+
+function apply() {
+  for (const [name, b] of Object.entries(bones)) {
+    b.node.position.copy(b.restP);
+    b.node.quaternion.copy(b.restQ);
+    for (const c of b.controls) {
+      const v = values[name + "." + c.id];
+      if (c.kind === "rise") {
+        b.node.position.y -= (1 - v) * c.depth;          // every rise bone is a root
+      } else if (c.kind === "slide") {
+        const ax = new THREE.Vector3().fromArray(c.axis).applyQuaternion(b.restQ);
+        b.node.position.addScaledVector(ax, v);
+      } else {                                            // rotate, spin: about local +x
+        const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0),
+                                                          THREE.MathUtils.degToRad(v));
+        b.node.quaternion.multiply(q);
+      }
+    }
+  }
+  model.updateMatrixWorld(true);
+  // the rams: turn each half so local +y points at its partner's pivot
+  for (const [name, b] of Object.entries(bones)) {
+    if (!b.aim) continue;
+    const target = bones[b.aim].node.getWorldPosition(new THREE.Vector3());
+    const parent = b.node.parent;
+    const local = parent.worldToLocal(target.clone()).sub(b.node.position).normalize();
+    const rest = new THREE.Vector3(0, 1, 0).applyQuaternion(b.restQ);
+    const q = new THREE.Quaternion().setFromUnitVectors(rest, local);
+    b.node.quaternion.copy(q.multiply(b.restQ));
+  }
+  model.updateMatrixWorld(true);
+  updatePivots();
+}
+
+// ---- pivot markers ------------------------------------------------------------------
+const pivotGroup = new THREE.Group();
+scene.add(pivotGroup);
+const markers = [];
+function buildPivots() {
+  for (const [name, b] of Object.entries(bones)) {
+    const has = b.controls.some((c) => c.kind !== "rise") || b.aim;
+    if (!has) continue;
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(14, 12, 8),
+                         new THREE.MeshBasicMaterial({ color: b.aim ? 0x7fc97f : 0xd6b25e, depthTest: false })));
+    const ax = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 160, 0xff5050, 40, 20);
+    ax.line.material.depthTest = false; ax.cone.material.depthTest = false;
+    if (!b.aim) g.add(ax);
+    g.renderOrder = 10;
+    pivotGroup.add(g);
+    markers.push({ g, node: b.node });
+  }
+}
+function updatePivots() {
+  pivotGroup.visible = $("pivots").checked;
+  for (const m of markers) {
+    m.node.getWorldPosition(m.g.position);
+    m.node.getWorldQuaternion(m.g.quaternion);
+  }
+}
+$("pivots").onchange = updatePivots;
+
+// ---- the panel ------------------------------------------------------------------------
+const GROUPS = [
+  ["UNFOLD: RISE OUT OF THE GROUND", (b, c) => c.kind === "rise"],
+  ["CRANE", (b, c) => ["crane_yaw", "boom", "forearm", "grab", "finger_left", "finger_right"].includes(b)],
+  ["WORKSHOP", (b, c) => ["door", "roof", "roof_west", "roof_east"].includes(b) && c.kind !== "rise"],
+  ["COOLING FANS", (b, c) => b.startsWith("fan_")],
+  ["FRONT APRON", (b, c) => b.startsWith("apron_flap")],
+];
+const fanRun = { fan_0: false, fan_1: false };
+
+function fmt(c, v) {
+  if (c.kind === "rise") return Math.round(v * 100) + "%";
+  if (c.unit === "deg") return Math.round(v) + "°";
+  return (v / rig.cell).toFixed(2) + " c";
+}
+function buildPanel() {
+  const side = $("side");
+  side.innerHTML = "";
+  for (const [title, test] of GROUPS) {
+    const h = document.createElement("h2");
+    h.textContent = title;
+    side.appendChild(h);
+    if (title.startsWith("UNFOLD")) {
+      const bury = document.createElement("button");
+      bury.textContent = "bury all";
+      bury.onclick = () => { for (const k in sliders) if (k.endsWith(".rise")) set(k, 0); };
+      h.appendChild(bury);
+    }
+    for (const [bn, b] of Object.entries(rig.bones)) {
+      for (const c of b.controls) {
+        if (!test(bn, c)) continue;
+        const key = bn + "." + c.id;
+        const row = document.createElement("div");
+        row.className = "row";
+        let label = c.label;
+        if (c.kind === "rise") {
+          const e = rig.elements.find((e) => e.bone === bn);
+          label = e ? e.label : bn;
+        }
+        row.innerHTML = `<span class="name"></span><span class="val"></span>`;
+        row.children[0].textContent = label;
+        const inp = document.createElement("input");
+        inp.type = "range"; inp.min = c.min; inp.max = c.max;
+        inp.step = c.kind === "rise" ? 0.005 : (c.unit === "deg" ? 0.5 : 1);
+        inp.value = c.rest;
+        inp.oninput = () => { pauseClip(); set(key, +inp.value, true); };
+        row.appendChild(inp);
+        if (c.kind === "spin") {
+          const run = document.createElement("button");
+          run.textContent = "run";
+          run.style.gridColumn = "1 / 3";
+          run.onclick = () => { fanRun[bn] = !fanRun[bn]; run.classList.toggle("on", fanRun[bn]);
+                                run.textContent = fanRun[bn] ? "stop" : "run"; };
+          row.appendChild(run);
+        }
+        side.appendChild(row);
+        sliders[key] = { inp, val: row.children[1], c };
+      }
+    }
+  }
+}
+function set(key, v, fromSlider) {
+  values[key] = v;
+  const s = sliders[key];
+  if (s) { if (!fromSlider) s.inp.value = v; s.val.textContent = fmt(s.c, v); }
+  dirty = true;
+}
+function resetAll() {
+  testing = null; $("test").classList.remove("on");
+  for (const [bn, b] of Object.entries(rig.bones))
+    for (const c of b.controls) set(bn + "." + c.id, c.rest);
+  for (const k in fanRun) fanRun[k] = false;
+  buildPanel();
+  for (const k in sliders) set(k, values[k]);
+}
+$("reset").onclick = () => { stopClip(); resetAll(); };
+$("camsel").onchange = (e) => setCam(e.target.value);
+
+// ---- the rig test: every control in turn, out to one end, to the other, and back --------
+let testing = null;
+$("test").onclick = () => {
+  stopClip();
+  if (testing) { testing = null; $("test").classList.remove("on"); return; }
+  const steps = [];
+  for (const [bn, b] of Object.entries(rig.bones))
+    for (const c of b.controls) steps.push({ key: bn + "." + c.id, c });
+  testing = { steps, i: 0, t: 0 };
+  $("test").classList.add("on");
+};
+function testTick(dt) {
+  const s = testing.steps[testing.i];
+  const c = s.c, T = c.kind === "rise" ? 1.6 : 2.4;
+  testing.t += dt / T;
+  const t = Math.min(testing.t, 1);
+  let v;
+  if (c.kind === "rise") v = 1 - Math.sin(Math.PI * t);          // down into the ground and back
+  else {
+    const lo = c.kind === "spin" ? 0 : c.min, hi = c.kind === "spin" ? 360 : c.max;
+    const a = Math.sin(2 * Math.PI * t);                          // rest -> one end -> other -> rest
+    v = a >= 0 ? c.rest + a * (hi - c.rest) : c.rest - a * (lo - c.rest);
+    if (c.kind === "spin") v = 360 * t;
+  }
+  set(s.key, v);
+  $("status").textContent = "testing " + s.key;
+  if (testing.t >= 1) {
+    set(s.key, c.rest);
+    testing.i += 1; testing.t = 0;
+    if (testing.i >= testing.steps.length) { testing = null; $("test").classList.remove("on");
+                                             $("status").textContent = "rig test done"; }
+  }
+}
+
+// ---- clips ------------------------------------------------------------------------------
+let clips = null, playing = null;          // playing: { name, clip, t, run }
+const ease = (u) => u * u * (3 - 2 * u);
+function sample(track, t, width) {           // width 1 for a control, 6 for a prop pose
+  const at = (k) => k.slice(1, 1 + width);
+  if (t <= track[0][0]) return at(track[0]);
+  for (let i = 0; i + 1 < track.length; i++) {
+    const a = track[i], b = track[i + 1];
+    if (t <= b[0]) {
+      let u = b[0] > a[0] ? (t - a[0]) / (b[0] - a[0]) : 1;
+      if (a[1 + width] !== "l") u = ease(u);
+      return at(a).map((v, j) => v + (at(b)[j] - v) * u);
+    }
+  }
+  return at(track[track.length - 1]);
+}
+function poseClip(t) {
+  const c = playing.clip;
+  for (const [bn, b] of Object.entries(rig.bones))
+    for (const k of b.controls) {
+      const key = bn + "." + k.id, tr = c.tracks[key];
+      let v = tr ? sample(tr, t, 1)[0] : k.rest;
+      if (k.kind === "spin") v = ((v % 360) + 360) % 360;
+      set(key, v);
+    }
+  const ct = c.props && c.props.crate_track;
+  crate.visible = !!ct;
+  if (ct) {
+    const [x, y, z, yaw, wheel] = sample(ct, t, 5);
+    crate.position.set(x, y, z);
+    crate.rotation.y = THREE.MathUtils.degToRad(CRATE_BASE_YAW + yaw);
+    for (const w of crate.userData.wheels) w.rotation.x = THREE.MathUtils.degToRad(wheel);
+  }
+  $("ttime").value = Math.round(1000 * t / c.duration);
+  $("tclock").textContent = t.toFixed(1) + " / " + c.duration.toFixed(1) + " s";
+}
+function startClip(name) {
+  testing = null; $("test").classList.remove("on");
+  for (const k in fanRun) fanRun[k] = false;
+  playing = { name, clip: clips[name], t: 0, run: true };
+  $("transport").hidden = false;
+  $("tname").textContent = playing.clip.label;
+  $("tplay").textContent = "Pause";
+  poseClip(0);
+}
+function pauseClip() {
+  if (!playing) return;
+  playing.run = false; $("tplay").textContent = "Play";
+}
+function stopClip() {
+  playing = null; crate.visible = false; $("transport").hidden = true;
+}
+document.querySelectorAll("button.clip").forEach((b) => { b.onclick = () => startClip(b.dataset.clip); });
+$("tplay").onclick = () => {
+  if (!playing) return;
+  if (!playing.run && playing.t >= playing.clip.duration) playing.t = 0;
+  playing.run = !playing.run; $("tplay").textContent = playing.run ? "Pause" : "Play";
+};
+$("ttime").oninput = (e) => {
+  if (!playing) return;
+  pauseClip();
+  playing.t = e.target.value / 1000 * playing.clip.duration;
+  poseClip(playing.t);
+};
+
+// THE CRATE: a plank box on four wheels, built here rather than shipped as art. It rolls
+// along its local z (the building's axis once turned into place), axles on local x.
+const CRATE_BASE_YAW = -30;                  // local x onto the building's cross axis
+const crate = new THREE.Group();
+function buildCrate(p) {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 256;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#8a6a3e"; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 5; i++) {                       // planks
+    g.fillStyle = i % 2 ? "#94744a" : "#7f5f36";
+    g.fillRect(0, i * 51 + 2, 256, 47);
+  }
+  g.fillStyle = "#5a4024";                            // frame and a diagonal brace
+  g.fillRect(0, 0, 256, 18); g.fillRect(0, 238, 256, 18); g.fillRect(0, 0, 18, 256); g.fillRect(238, 0, 18, 256);
+  g.save(); g.translate(128, 128); g.rotate(-Math.PI / 4); g.fillRect(-170, -10, 340, 20); g.restore();
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(p.width, p.height, p.depth),
+                              new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }));
+  body.position.y = p.clear + p.height / 2;
+  crate.add(body);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(p.width * 0.9, 8, p.depth * 0.9),
+                              new THREE.MeshStandardMaterial({ color: 0x33363c, metalness: 0.6, roughness: 0.5 }));
+  base.position.y = p.clear - 4;
+  crate.add(base);
+  const wheels = [];
+  const wg = new THREE.CylinderGeometry(p.wheel, p.wheel, 14, 16).rotateZ(Math.PI / 2);
+  const wm = new THREE.MeshStandardMaterial({ color: 0x1d1f23, roughness: 0.7 });
+  const hub = new THREE.MeshStandardMaterial({ color: 0xb8b8b0, metalness: 0.8, roughness: 0.35 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const w = new THREE.Group();
+    w.add(new THREE.Mesh(wg, wm));
+    const h = new THREE.Mesh(new THREE.BoxGeometry(16, p.wheel * 1.2, 4), hub);   // shows the turn
+    w.add(h);
+    w.position.set(sx * (p.width / 2 - 12), p.wheel, sz * (p.depth / 2 - 22));
+    crate.add(w); wheels.push(w);
+  }
+  crate.userData.wheels = wheels;
+  crate.visible = false;
+  scene.add(crate);
+}
+
+// ---- load and run -------------------------------------------------------------------------
+let dirty = true;
+async function load() {
+  $("status").textContent = "loading...";
+  rig = await (await fetch("out/fact_rig.json?t=" + Date.now(), { cache: "no-store" })).json();
+  const gltf = await new GLTFLoader().loadAsync("out/fact_rig.glb?t=" + Date.now());
+  clips = (await (await fetch("out/fact_clips.json?t=" + Date.now(), { cache: "no-store" })).json()).clips;
+  buildCrate(clips.delivery.props.crate);
+  model = gltf.scene;
+  prepare(model);
+  scene.add(model);
+  for (const [bn, b] of Object.entries(rig.bones)) {
+    const node = model.getObjectByName(bn);
+    bones[bn] = { node, restP: node.position.clone(), restQ: node.quaternion.clone(),
+                  controls: b.controls, aim: b.aim };
+  }
+  $("team").add(new Option("None (plates grey)", -1));
+  rig.teams.forEach((t, i) => $("team").add(new Option(t.label, i)));
+  $("team").value = 0;
+  setTeam();
+  buildPivots();
+  resetAll();
+  $("status").textContent = Object.keys(rig.bones).length + " bones, " + rig.triangles + " triangles";
+  window.yardRig = { set, values, bones, rig, apply, camera, controls,   // for scripted checks
+                     startClip, poseClip: (t) => { playing.t = t; pauseClip(); poseClip(t); },
+                     crate, clips, render: () => renderer.render(scene, camera) };
+}
+function tick() {
+  requestAnimationFrame(tick);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  controls.update();
+  if (testing) testTick(dt);
+  if (playing && playing.run) {
+    playing.t = Math.min(playing.t + dt, playing.clip.duration);
+    poseClip(playing.t);
+    if (playing.t >= playing.clip.duration) pauseClip();
+  }
+  for (const f in fanRun) if (fanRun[f]) set(f + ".spin", (values[f + ".spin"] + 540 * dt) % 360);
+  if (model && dirty) { apply(); dirty = false; }
+  renderer.render(scene, camera);
+}
+setCam("three");
+resize();
+load().then(() => { resize(); tick(); }).catch((e) => {
+  $("status").textContent = "could not load out/fact_rig.* -- run python3 tools/art/yard_rig.py (" + e.message + ")";
+  tick();
+});
+</script>
+</body>
+</html>

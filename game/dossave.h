@@ -19,7 +19,7 @@
  * host that parsed that header would be parsing a moving target.
  *
  * So each slot is two files: SAVEGAME.nnn, which is 1995's own 8.3-safe name and is the
- * engine's, and one CNC3DSAV.IDX holding sixteen fixed 128-byte little-endian records,
+ * engine's, and one OPENCNC.IDX holding sixteen fixed 128-byte little-endian records,
  * written with plain fopen/fwrite exactly the way app/campaign.c writes HALLFAME.DAT.
  *
  * A slot is offered to the player only when BOTH its record is valid AND its payload file

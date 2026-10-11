@@ -1,4 +1,4 @@
-"""C&C3D sidebar HUD — 640x480. Geometry is loaded from chunks/layout.json,
+"""OpenCNC3D sidebar HUD — 640x480. Geometry is loaded from chunks/layout.json,
 which slice_ref.py derives by measurement, so code and art can't drift apart."""
 from PIL import Image
 import os, json

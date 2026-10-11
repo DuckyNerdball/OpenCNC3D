@@ -1289,7 +1289,7 @@ function writeINI(m, name){
   const L = [], H = A.META.houses;
   const e = A.META.maps.find(x => x.id === m.scenario) || {};
   const P = m.playable;
-  L.push('; Written by the OpenCNC 3D map editor. Cells are y*64 + x.');
+  L.push('; Written by the OpenCNC3D map editor. Cells are y*64 + x.');
   L.push('[Basic]');
   L.push(`Name=${name || m.scenario}`);
   L.push('Player=GoodGuy');
@@ -1427,7 +1427,7 @@ function download(data, filename){
 
 // ---------------------------------------------------------------- autosave
 
-const saveKey = () => 'cnc3d-edit-' + (A.MAP ? A.MAP.scenario : '');
+const saveKey = () => 'opencnc3d-edit-' + (A.MAP ? A.MAP.scenario : '');
 function autosave(){
   if (!on || !A.MAP) return;
   try { localStorage.setItem(saveKey(), JSON.stringify(A.MAP.objs)); }
@@ -1435,7 +1435,7 @@ function autosave(){
 }
 function restoreIfAny(m){
   try {
-    const s = localStorage.getItem('cnc3d-edit-' + m.scenario);
+    const s = localStorage.getItem('opencnc3d-edit-' + m.scenario);
     if (!s) return false;
     const objs = JSON.parse(s);
     if (!Array.isArray(objs)) return false;
@@ -2177,7 +2177,7 @@ async function probeServer(){
               'Check and save still writes the files.';
   } else if (!HAVE_SERVER.binary){
     b.classList.add('busy');
-    b.title = 'No cnc3d binary is built yet, so there is nothing to launch.';
+    b.title = 'No opencnc3d binary is built yet, so there is nothing to launch.';
   } else {
     b.title = `Bake this map and start ${HAVE_SERVER.binary} on it`;
   }

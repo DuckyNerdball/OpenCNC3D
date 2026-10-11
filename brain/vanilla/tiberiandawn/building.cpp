@@ -13,9 +13,9 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Two separate changes. First, rally points for factories: a new
-// CNC3D_Can_Rally test (a player-owned IsFactory building that is not a
+// OpenCNC3D_Can_Rally test (a player-owned IsFactory building that is not a
 // Construction Yard and not a helipad), a move click on such a building now
 // posts the existing ARCHIVE event to store a rally target, What_Action
 // reports ACTION_MOVE for it in both overloads, a vehicle leaving through
@@ -26,8 +26,12 @@
 // the cheat menu's Build Anywhere: Passes_Proximity_Check drops the base
 // adjacency requirement for a house that has the cheat on, keeping only the
 // In_Radar on-map test.
+// MODIFIED again in October 2026: behind OpenCNC3D_WallFill (default 0, off), a
+// wall piece a human player places also fills the straight gap to the
+// nearest wall of its own type and house along each cell axis, up to that
+// many cells away, when every cell between would take a wall.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -208,6 +212,7 @@ int BuildingClass::Validate(void) const
 RadioMessageType BuildingClass::Receive_Message(RadioClass* from, RadioMessageType message, int& param)
 {
     Validate();
+    if(IsPowerOff && message==RADIO_HELLO)return RADIO_NEGATIVE;
     switch (message) {
 
     /*
@@ -1310,6 +1315,59 @@ void BuildingClass::AI(void)
 }
 
 /***********************************************************************************************
+ * OpenCNC3D_Wall_Fill -- Lays the Tiberian Sun and Red Alert 2 wall line from a new piece.        *
+ *                                                                                             *
+ *    A wall piece has just been put down on `cell`. Along each of the four cell axes, walk    *
+ *    out at most OpenCNC3D_WallFill cells. The first wall of the same overlay type that the same  *
+ *    house owns is the anchor; if every cell before it is on the map and generally clear,     *
+ *    which is exactly BuildingTypeClass::Legal_Placement's test for a one cell wall, a piece  *
+ *    of that wall is laid in each of them and owned as a placed piece is. Anything else in    *
+ *    the way (another wall, a unit, a building, a tree, the map's edge) ends that direction    *
+ *    with nothing laid. The filled pieces cost nothing, as in the games this comes from.      *
+ *                                                                                             *
+ * INPUT:   cell  -- where the new piece was put down                                          *
+ *          otype -- its wall overlay type                                                     *
+ *          house -- the house that placed it                                                  *
+ *                                                                                             *
+ * OUTPUT:  none                                                                               *
+ *=============================================================================================*/
+static void OpenCNC3D_Wall_Fill(CELL cell, OverlayType otype, HouseClass* house)
+{
+    static FacingType const _dirs[4] = {FACING_N, FACING_E, FACING_S, FACING_W};
+    for (int d = 0; d < 4; d++) {
+        CELL gap[16];
+        int count = 0;
+        CELL at = cell;
+        bool anchored = false;
+        for (int step = 1; step <= OpenCNC3D_WallFill && step <= 16; step++) {
+            at = Adjacent_Cell(at, _dirs[d]);
+            if (!Map.In_Radar(at)) {
+                break;
+            }
+            CellClass const& c = Map[at];
+            if (c.Overlay == otype && c.Owner == house->Class->House) {
+                anchored = true;
+                break;
+            }
+            if (!c.Is_Generally_Clear()) {
+                break;
+            }
+            gap[count++] = at;
+        }
+        if (!anchored) {
+            continue;
+        }
+        for (int i = 0; i < count; i++) {
+            ObjectClass* o = OverlayTypeClass::As_Reference(otype).Create_One_Of(house);
+            if (o && o->Unlimbo(Cell_Coord(gap[i]))) {
+                Map[gap[i]].Owner = house->Class->House;
+            } else if (o) {
+                delete o;
+            }
+        }
+    }
+}
+/***********************************************************************************************
  * BuildingClass::Unlimbo -- Removes a building from limbo state.                              *
  *                                                                                             *
  *    Use this routine to transform a building that has been held in limbo                     *
@@ -1380,6 +1438,14 @@ bool BuildingClass::Unlimbo(COORDINATE coord, DirType dir)
                 ObjectClass* o = OverlayTypeClass::As_Reference(otype).Create_One_Of(House);
                 if (o && o->Unlimbo(coord)) {
                     Map[Coord_Cell(coord)].Owner = House->Class->House;
+                    /*
+                    **	OpenCNC3D: the Tiberian Sun and Red Alert 2 wall line. Only for a human
+                    **	player's own piece, so a scripted or computer house builds walls as
+                    **	1995 did.
+                    */
+                    if (OpenCNC3D_WallFill > 0 && House->IsHuman) {
+                        OpenCNC3D_Wall_Fill(Coord_Cell(coord), otype, House);
+                    }
                     Transmit_Message(RADIO_OVER_OUT);
                     Delete_This();
                     return (true);
@@ -1875,6 +1941,7 @@ BuildingClass::BuildingClass(StructType type, HousesType house)
 #endif
     WhomToRepay = TARGET_NONE;
     IsCaptured = false;
+    IsPowerOff = false;
     IsCharged = false;
     IsCharging = false;
     IsSurvivorless = false;
@@ -2116,7 +2183,7 @@ void BuildingClass::Active_Click_With(ActionType action, ObjectClass* object)
  *   07/04/1995 JLB : Created.                                                                 *
  *=============================================================================================*/
 /***********************************************************************************************
- * BuildingClass::CNC3D_Can_Rally -- may this building take a rally point? (project CNC3D)     *
+ * BuildingClass::OpenCNC3D_Can_Rally -- may this building take a rally point? (project OpenCNC3D)     *
  *                                                                                             *
  *    True for a FACTORY the local player owns: a barracks, a Hand of Nod, a war factory, an   *
  *    airstrip. False for everything else, and false for a Construction Yard, whose            *
@@ -2129,9 +2196,9 @@ void BuildingClass::Active_Click_With(ActionType action, ObjectClass* object)
  *    leaves it: the RTTI_AIRCRAFT arm of Exit_Object parks the new craft on the pad itself,   *
  *    so a rally point on a helipad would be stored and drawn and honoured by nothing. It is   *
  *    refused here, at the one test every rally path asks, so the click offers no MOVE cursor  *
- *    and the CNC3D_Set_Rally export refuses it the same way.                                  *
+ *    and the OpenCNC3D_Set_Rally export refuses it the same way.                                  *
  *=============================================================================================*/
-bool BuildingClass::CNC3D_Can_Rally(void) const
+bool BuildingClass::OpenCNC3D_Can_Rally(void) const
 {
     if (*this == STRUCT_CONST) return (false);
     if (*this == STRUCT_HELIPAD) return (false);
@@ -2152,7 +2219,7 @@ void BuildingClass::Active_Click_With(ActionType action, CELL cell)
 
         COORDINATE coord = Map.Pixel_To_Coord(Get_Mouse_X(), Get_Mouse_Y());
         OutList.Add(EventClass(ANIM_MOVE_FLASH, PlayerPtr->Class->House, coord, 1 << PlayerPtr->Class->House));
-    } else if (action == ACTION_MOVE && CNC3D_Can_Rally()) {
+    } else if (action == ACTION_MOVE && OpenCNC3D_Can_Rally()) {
         /*	A FACTORY sets a rally point: the SAME ARCHIVE event, and deliberately WITHOUT
         **	the SELL beside it -- that pairing is what makes a Construction Yard undeploy
         **	itself, and a factory that sold itself on a rally click would be spectacular.
@@ -2233,6 +2300,7 @@ void BuildingClass::Init(void)
  *=============================================================================================*/
 int BuildingClass::Exit_Object(TechnoClass* base)
 {
+    if(IsPowerOff)return 0;
     Validate();
     if (!base)
         return (0);
@@ -2365,7 +2433,7 @@ int BuildingClass::Exit_Object(TechnoClass* base)
 
                     base->Assign_Mission(MISSION_MOVE);
                     base->Assign_Destination(::As_Target(cell));
-                    /*	OpenCNC 3D: the RALLY POINT, if this factory has one, rides along in the
+                    /*	OpenCNC3D: the RALLY POINT, if this factory has one, rides along in the
                     **	soldier's own ArchiveTarget and is read back at the exit cell, where
                     **	the tether is cut (InfantryClass::Per_Cell_Process). The exit cell
                     **	stays the destination above, so the soldier leaves through the door
@@ -2728,7 +2796,7 @@ bool BuildingClass::Limbo(void)
         **	Update the power status of the owner's house.
         */
         House->Adjust_Power(-Power_Output());
-        House->Adjust_Drain(-Class->Drain);
+        House->Adjust_Drain(-Power_Drain());
         House->Adjust_Capacity(-(int)Class->Capacity, true);
         if (House == PlayerPtr) {
             Map.PowerClass::IsToRedraw = true;
@@ -2957,7 +3025,7 @@ void BuildingClass::Grand_Opening(bool captured)
     **	Adjust the owning house according to the power, drain, and Tiberium capacity that
     **	this building has.
     */
-    House->Adjust_Drain(Class->Drain);
+    House->Adjust_Drain(Power_Drain());
     House->Adjust_Capacity(Class->Capacity);
     House->IsRecalcNeeded = true;
 
@@ -3073,7 +3141,7 @@ void BuildingClass::Repair(int control)
         } else {
             sound = VOC_BUTTON;
             /*
-            **	OpenCNC 3D: the flashing house must not come from PlayerPtr in a match.
+            **	OpenCNC3D: the flashing house must not come from PlayerPtr in a match.
             **	Clicked_As_Target (techno.cpp) writes FlashCount AND
             **	FlashCountPerPlayer[house]. Both are members of every TechnoClass and both
             **	are decremented every tick by FlasherClass::Process, so they are shared
@@ -3086,7 +3154,7 @@ void BuildingClass::Repair(int control)
             **	and is PlayerPtr's own house on the machine that clicked: identical
             **	behaviour there, agreement everywhere else.
             */
-            Clicked_As_Target(CNC3D_Lockstep ? Owner() : PlayerPtr->Class->House);
+            Clicked_As_Target(OpenCNC3D_Lockstep ? Owner() : PlayerPtr->Class->House);
             IsWrenchVisible = true;
         }
     } else {
@@ -3147,7 +3215,7 @@ void BuildingClass::Sell_Back(int control)
             //			Transmit_Message(RADIO_OVER_OUT);
             Assign_Mission(MISSION_DECONSTRUCTION);
             /*
-            **	OpenCNC 3D: this is the defect gate G194 caught, and it is the visible one.
+            **	OpenCNC3D: this is the defect gate G194 caught, and it is the visible one.
             **	The guard below is Is_Owned_By_Player(), which is literally
             **	`House == PlayerPtr` (techno.cpp), so on a SELL order the seller's machine
             **	set FlashCount to 7 and every other peer left it 0. Two instances of the
@@ -3159,7 +3227,7 @@ void BuildingClass::Sell_Back(int control)
             **	BuildingClass::Repair above for the full reasoning; event.cpp's own
             **	Clicked_As_Target call already takes the house from the order this way.
             */
-            if (CNC3D_Lockstep) {
+            if (OpenCNC3D_Lockstep) {
                 Clicked_As_Target(Owner());
                 // Changed for multiplayer ST - 3/13/2019 5:31PM
             } else if (Is_Owned_By_Player()) {
@@ -3245,7 +3313,7 @@ ActionType BuildingClass::What_Action(ObjectClass* object) const
     }
 
     /*
-    **	OpenCNC 3D RALLY POINTS (project CNC3D, additive).
+    **	OpenCNC3D RALLY POINTS (project OpenCNC3D, additive).
     **
     **	A rally point is not a new mechanism. ArchiveTarget on a BuildingClass ALREADY is
     **	one, wired end to end -- but only for the Construction Yard: Active_Click_With
@@ -3262,8 +3330,8 @@ ActionType BuildingClass::What_Action(ObjectClass* object) const
     **	TARGET_NONE; event.cpp:601/617 -- gated to RTTI_INFANTRY/UNIT/AIRCRAFT; and
     **	event.cpp:396 -- posted from exactly one place, the STRUCT_CONST arm below.
     **	So Target_Legal(ArchiveTarget) on a factory is provably FALSE in a vanilla run and
-    **	every clause added for this is inert unless the CNC3D_Set_Rally export fires. That
-    **	is the same shape as the accepted precedent, ObjectClass::CNC3D_InvincibleHouses.
+    **	every clause added for this is inert unless the OpenCNC3D_Set_Rally export fires. That
+    **	is the same shape as the accepted precedent, ObjectClass::OpenCNC3D_InvincibleHouses.
     **
     **	The two arms are kept SEPARATE rather than folded into one condition: a
     **	Construction Yard with IsMCVDeploy on must keep meaning "undeploy and drive there",
@@ -3283,7 +3351,7 @@ ActionType BuildingClass::What_Action(ObjectClass* object) const
     **	demotes it can never fire. Widening Can_Player_Move instead would be worse: it
     **	means "this building can be MOVED", and saying yes would be a lie the rest of the
     **	engine could act on. */
-    if (action == ACTION_NONE && CNC3D_Can_Rally()) {
+    if (action == ACTION_NONE && OpenCNC3D_Can_Rally()) {
         action = ACTION_MOVE;
     }
 
@@ -3323,7 +3391,7 @@ ActionType BuildingClass::What_Action(CELL cell) const
     **	there. Both overloads must move together: display.cpp routes through the OBJECT one
     **	whenever Close_Object finds anything under the cursor, so a rally click onto a cell
     **	holding a tree or a friendly unit never reaches this one at all. */
-    if (action == ACTION_NONE && CNC3D_Can_Rally()) {
+    if (action == ACTION_NONE && OpenCNC3D_Can_Rally()) {
         action = ACTION_MOVE;
     }
 
@@ -3634,6 +3702,7 @@ COORDINATE BuildingClass::Docking_Coord(void) const
 FireErrorType BuildingClass::Can_Fire(TARGET target, int which) const
 {
     Validate();
+    if(IsPowerOff)return FIRE_BUSY;
     FireErrorType canfire = TechnoClass::Can_Fire(target, which);
 
     if (canfire == FIRE_OK) {
@@ -3742,7 +3811,7 @@ bool BuildingClass::Captured(HouseClass* newowner)
 {
     Validate();
     if (Can_Capture() && newowner != House) {
-        /*	OpenCNC 3D: a captured factory does NOT keep the old owner's rally point. Nothing
+        /*	OpenCNC3D: a captured factory does NOT keep the old owner's rally point. Nothing
         **	else would ever clear it -- the only clearing site for ArchiveTarget is
         **	FootClass::Detach (foot.cpp:1909-1911), and BuildingClass does not inherit it
         **	-- so without this the new owner's units would walk to wherever the previous
@@ -3786,7 +3855,7 @@ bool BuildingClass::Captured(HouseClass* newowner)
 
         House->Adjust_Power(-Power_Output());
         LastStrength = 0;
-        House->Adjust_Drain(-Class->Drain);
+        House->Adjust_Drain(-Power_Drain());
         int booty = House->Adjust_Capacity(-(int)Class->Capacity, true);
 
         /*
@@ -4427,6 +4496,7 @@ int BuildingClass::Mission_Deconstruction(void)
  *=============================================================================================*/
 int BuildingClass::Mission_Attack(void)
 {
+    if(IsPowerOff)return TICKS_PER_SECOND/2;
     Validate();
     if (*this == STRUCT_SAM) {
         switch (Status) {
@@ -4634,6 +4704,7 @@ int BuildingClass::Mission_Attack(void)
  *=============================================================================================*/
 int BuildingClass::Mission_Harvest(void)
 {
+    if(IsPowerOff)return TICKS_PER_SECOND/2;
     Validate();
     enum
     {
@@ -4719,6 +4790,7 @@ int BuildingClass::Mission_Harvest(void)
  *=============================================================================================*/
 int BuildingClass::Mission_Repair(void)
 {
+    if(IsPowerOff)return TICKS_PER_SECOND/2;
     Validate();
     if (*this == STRUCT_CONST) {
         enum
@@ -5298,7 +5370,7 @@ int BuildingClass::Mission_Unload(void)
                     unit->Assign_Mission(MISSION_MOVE);
                     unit->Force_Track(DriveClass::OUT_OF_WEAPON_FACTORY, Adjacent_Cell(Center_Coord(), FACING_SW));
                     unit->Set_Speed(128);
-                    /*	OpenCNC 3D: and THEN the rally point. Force_Track must still run above
+                    /*	OpenCNC3D: and THEN the rally point. Force_Track must still run above
                     **	-- it is the scripted track that physically drives the tank out
                     **	through the door, and skipping it leaves the tank inside the
                     **	building. The destination is re-assigned after it, so the unit
@@ -5351,7 +5423,7 @@ int BuildingClass::Mission_Unload(void)
 int BuildingClass::Power_Output(void) const
 {
     Validate();
-    if (Class->Power) {
+    if (!IsPowerOff && Class->Power) {
         return (Fixed_To_Cardinal(Class->Power, Cardinal_To_Fixed(Class->MaxStrength, LastStrength)));
     }
     return (0);
@@ -5581,7 +5653,7 @@ bool BuildingClass::Flush_For_Placement(TechnoClass* techno, CELL cell)
 void BuildingClass::Hidden(void)
 {
     //	if (IsDiscoveredByPlayer && House->IsHuman) {
-    //		House->Adjust_Drain(-Class->Drain);
+    //		House->Adjust_Drain(-Power_Drain());
     //	}
     TechnoClass::Hidden();
 }
@@ -5660,7 +5732,7 @@ bool BuildingClass::Passes_Proximity_Check(CELL homecell)
     **	have been a success.
     */
     /*
-    ** OpenCNC 3D: the cheat menu's "Build Anywhere".
+    ** OpenCNC3D: the cheat menu's "Build Anywhere".
     **
     ** THIS IS THE THIRD COPY OF THE ADJACENCY RULE and it is the one that MATTERS.
     ** The other two answer the placement CURSOR: DisplayClass::Passes_Proximity_Check
@@ -5675,7 +5747,7 @@ bool BuildingClass::Passes_Proximity_Check(CELL homecell)
     ** foundation covers, so "anywhere" means anywhere ON THE MAP, and whether the ground
     ** will take a foundation is decided in CellClass and is untouched.
     */
-    const bool anywhere = DisplayClass::CNC3D_Build_Anywhere(House->Class->House);
+    const bool anywhere = DisplayClass::OpenCNC3D_Build_Anywhere(House->Class->House);
 
     short const* ptr = Occupy_List(true);
     while (*ptr != REFRESH_EOL) {
@@ -5707,4 +5779,19 @@ bool BuildingClass::Passes_Proximity_Check(CELL homecell)
         }
     }
     return (anywhere);
+}
+
+/* Switching preserves the building, storage, ownership and build prerequisites.
+ * Production, weapons, radar and powered services sleep until switched back on. */
+bool BuildingClass::Toggle_Power(void)
+{
+    if(!IsActive||IsInLimbo||Strength<=0||Mission==MISSION_CONSTRUCTION||Mission==MISSION_DECONSTRUCTION||Class->IsWall)return false;
+    int oldpower=Power_Output(),olddrain=Power_Drain();
+    IsPowerOff=!IsPowerOff;
+    House->Adjust_Power(Power_Output()-oldpower);
+    House->Adjust_Drain(Power_Drain()-olddrain);
+    House->IsRecalcNeeded=true;
+    if(IsPowerOff){IsCharged=IsCharging=false;TarCom=TARGET_NONE;Begin_Mode(BSTATE_IDLE);}
+    Map.PowerClass::IsToRedraw=true;Map.Flag_To_Redraw(false);
+    return true;
 }

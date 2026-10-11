@@ -8,7 +8,7 @@
  * five functions a tick and never sees a socket, which is the seam the design asks for.
  *
  * THE ENGINE SIDE IS TWO CALLBACKS. The host hands over "drain my pending orders" and
- * "post this order", which are CNC3D_Drain_Events and CNC3D_Post_Event behind a typedef,
+ * "post this order", which are OpenCNC3D_Drain_Events and OpenCNC3D_Post_Event behind a typedef,
  * so this file links into the game without the brain's header and the two-brain gate could
  * drive it with its own copies.
  *
@@ -35,8 +35,8 @@
  * cannot tell a relayed packet from a direct one. The host is a wire, not a referee, which
  * is what keeps the lockstep argument the same one it was with two peers.
  */
-#ifndef CNC3D_NETMATCH_H
-#define CNC3D_NETMATCH_H
+#ifndef OPENCNC3D_NETMATCH_H
+#define OPENCNC3D_NETMATCH_H
 
 #ifdef __cplusplus
 extern "C" {

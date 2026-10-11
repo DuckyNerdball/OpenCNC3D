@@ -52,16 +52,10 @@
  *  dllinterface.h (needs GAME_STATE_SHROUD, CNCShroudStruct, MAP_MAX_CELL_WIDTH) and
  *  after the GL header.
  *
- *  Not covered (stated, not hidden):
- *    - ShadowIndex, the SHAPE of a partial shroud edge, is ignored. The engine hands us
- *      Cell_Shadow's index on every visible-but-unmapped cell, naming which neighbours are
- *      already mapped, and 1995 ghosts one frame of SHADOW.SHP that covers only PART of
- *      the cell: a half, a three-quarter L, or a corner nibble. The cartridge does the
- *      same with the same index. We collapse the whole shaped cell to one flat value.
- *      The second half of this note used to read "renders fully clear, so the shroud
- *      boundary is hard". That stopped describing the code when the soft shroud landed:
- *      the boundary IS feathered now, it is simply feathered by our own per-corner
- *      coverage field rather than by the engine's shape index.
+ *  The brain's ShadowIndex is retained for the DOS Classic path. Its original
+ *  SHADOW.SHP frame is drawn over visible-but-unmapped edge cells. The 3D
+ *  shroud still uses its own soft corner coverage and does not use those frames.
+ *  Other limitations:
  *    - Cloak: the engine also hides the bar for cloaked objects (Is_Cloaked,
  *      techno.cpp:1069). The object dump carries no cloak flag, so a cloaked stealth
  *      tank would show a bar. No cloaked unit exists in the prototype missions.
@@ -107,6 +101,8 @@ static int g_shroudWhined = 0;         /* count-mismatch reported once, not per 
    is a different number that moves for different reasons, and that is how the shroud came
    to have a ceiling of its own that nothing named. */
 static unsigned char g_shroudCell[C3D_MAP_MAX * C3D_MAP_MAX];
+/* Original partial fog frame from DisplayClass::Cell_Shadow, -1 when absent. */
+static signed char g_shroudShadow[C3D_MAP_MAX * C3D_MAP_MAX];
 
 /* THE WORLD-GRID CORNER DIMS, (packW+1) x (packH+1): the per-corner coverage field
    further down covers the whole PACK grid, which stopped being a constant 64x64 when
@@ -169,6 +165,7 @@ static void shroud_init(int mapX, int mapY, int mapW, int mapH)
     g_shroudGW = mapW;
     g_shroudGH = mapH;
     g_shroudValid = 0;
+    g_shroudCornersDirty = 1;          /* the rim moved with the rect */
 }
 
 /* Undo shroud_init. The shroud owns no GL objects and no heap, only the snapshot
@@ -181,6 +178,8 @@ static void shroud_free(void)
     g_shroudValid = 0;
     g_shroudWhined = 0;
     memset(g_shroudCell, 0, sizeof(g_shroudCell));
+    memset(g_shroudShadow, -1, sizeof(g_shroudShadow));
+    g_shroudCornersDirty = 1;          /* no rect, no rim, no snapshot */
 }
 
 /* Pull GAME_STATE_SHROUD and reduce each entry to a SHROUD_* byte. Player id 0 is
@@ -224,6 +223,7 @@ static int shroud_fetch(shroud_getstate_fn getstate)
            (IsMapped && !IsVisible) ever becomes reachable, units standing there
            will need a cull bit DARK cannot carry today. */
         const CNCShroudEntryStruct* e = &sh->Entries[i];
+        g_shroudShadow[i] = (signed char)e->ShadowIndex;
         g_shroudCell[i] = (unsigned char)(e->IsVisible
                                               ? (e->IsMapped ? SHROUD_CLEAR
                                                              : SHROUD_DARK)
@@ -300,6 +300,15 @@ static int shroud_rim_only(void)
     return !g_shroudOn || !g_shroudValid || g_shroudRevealed;
 }
 
+
+static int shroud_shadow_at(int cellx, int celly)
+{
+    if (!g_shroudOn || !g_shroudValid || g_shroudEditorOff || g_shroudRevealed
+        || shroud_is_rim(cellx, celly)) return -1;
+    const int gx = cellx - g_shroudGX, gy = celly - g_shroudGY;
+    if (gx < 0 || gx >= g_shroudGW || gy < 0 || gy >= g_shroudGH) return -1;
+    return (int)g_shroudShadow[gy * g_shroudGW + gx];
+}
 
 static int shroud_cell_hidden(int cellx, int celly)
 {

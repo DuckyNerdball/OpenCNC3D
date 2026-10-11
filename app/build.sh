@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build THE PROGRAM: menu and game in one binary, one window, one GL context.
 #
-#   ./build.sh          -> ./cnc3d
+#   ./build.sh          -> ./opencnc3d
 #
 # Notes that matter for the Win98 port:
 #
@@ -11,7 +11,7 @@
 #    needs. Linking the two copies into one binary would be a duplicate symbol; using
 #    the sidebar copy would compile dosmenu.c against a DB_State that has three
 #    fewer fields than the one dosbar.c writes. So -I../game comes FIRST.
-#  * -DCNC3D_NO_MAIN compiles cnc_eyes.cpp as a library. Everything else about it is
+#  * -DOPENCNC3D_NO_MAIN compiles cnc_eyes.cpp as a library. Everything else about it is
 #    unchanged, which is why ../game/build.sh still produces the standalone renderer
 #    all five verification gates run against.
 #  * GL_SILENCE_DEPRECATION: macOS deprecated the fixed function pipeline. We use it
@@ -25,15 +25,16 @@ cd "$(dirname "$0")"
 # before main() runs. tools/mac/deployment-target.sh carries the full account and the
 # reason the floor is 14.0 rather than lower. Sourced, so there is one number.
 . ../tools/mac/deployment-target.sh
+opencnc3d_need_mac_sdl
 
 # THE BUILD NUMBER, regenerated before anything compiles. tools/version.sh reads the
-# VERSION file at the repo root and writes game/cnc3d_build.h; nothing else in the tree
+# VERSION file at the repo root and writes game/opencnc3d_build.h; nothing else in the tree
 # is allowed to carry a version string, so there is no second copy to forget to bump.
 # tools/release.sh has already written the header with the bare release number by
 # the time it calls this, and regenerating it here would stamp the binary
 # "+sha-dirty" for a build that is about to become the tag.
-if [ -z "$CNC3D_SKIP_VERSION_HEADER" ]; then
-    sh "../tools/version.sh" --header "../game/cnc3d_build.h"
+if [ -z "$OPENCNC3D_SKIP_VERSION_HEADER" ]; then
+    sh "../tools/version.sh" --header "../game/opencnc3d_build.h"
 fi
 
 # The old ROOT pointed at a temporary folder that the OS cleans; the checkout now
@@ -47,12 +48,12 @@ done
 
 INC="-I../game -I../menu -I../video -I../audio"
 CDEFS="-DGL_SILENCE_DEPRECATION"
-# A COOKED BUILD: tools/release.sh sets CNC3D_COOKED=1 for the packages it cuts, and the
+# A COOKED BUILD: tools/release.sh sets OPENCNC3D_COOKED=1 for the packages it cuts, and the
 # define removes the F5 tuning panel's every door (game/fx_panel.h). A developer's own
-# build never sets it. It has to reach cnc_eyes.cpp and cnc3d.cpp, which is why both
+# build never sets it. It has to reach cnc_eyes.cpp and opencnc3d.cpp, which is why both
 # clang++ lines below now take $CDEFS -- neither did before, and a define that missed
 # the very file the panel lives in would be a cook that cooked nothing.
-[ -n "$CNC3D_COOKED" ] && CDEFS="$CDEFS -DCNC3D_COOKED=1"
+[ -n "$OPENCNC3D_COOKED" ] && CDEFS="$CDEFS -DOPENCNC3D_COOKED=1"
 
 # The C half: DOS rasteriser, menu, menu shell, movie decoder, and the audio engine.
 #
@@ -73,13 +74,13 @@ for f in ../game/dosbar.c ../game/hud640.c ../game/dosopt.c ../game/dossave.c ..
          ../video/vqaplay.c ../video/movieplay.c ../video/moviesnd.c \
          ../video/pngwrite.c campaign.c logo3d.c $AUDIO_SRC; do
     o=$(basename "$f" .c).o
-    cc -std=gnu89 -O2 -g -Wall $CDEFS $INC $(sdl2-config --cflags) -c "$f" -o "$o"
+    cc $OPENCNC3D_ARCH -std=gnu89 -O2 -g -Wall $CDEFS $INC $(sdl2-config --cflags) -c "$f" -o "$o"
 done
 for f in $AUDIO_SRC; do AUDIO_OBJ="$AUDIO_OBJ $(basename "$f" .c).o"; done
 
 # THE LOCKSTEP NETWORKING, compiled here as well as in the renderer build because this
 # binary links its own objects and this is the binary that ships. The Windows build has
-# always put both into cnc3d.exe as well as cnc_eyes.exe; without these two lines the two
+# always put both into opencnc3d-game.exe as well as cnc_eyes.exe; without these two lines the two
 # platforms disagree about what the program contains, and the source-list guard cannot see
 # it because it unions the two macOS scripts into one list.
 #
@@ -88,28 +89,28 @@ for f in $AUDIO_SRC; do AUDIO_OBJ="$AUDIO_OBJ $(basename "$f" .c).o"; done
 # I/O and no platform header in it at all. net_udp.c is the one file that knows what a
 # socket is and needs gnu89 for the platform headers. Same split, same dialects and same
 # reasoning as the renderer build.
-cc -std=c89   -O2 -g -c ../net/lockstep.c -o lockstep.o
-cc -std=gnu89 -O2 -g -c ../net/net_udp.c  -o net_udp.o
+cc $OPENCNC3D_ARCH -std=c89   -O2 -g -c ../net/lockstep.c -o lockstep.o
+cc $OPENCNC3D_ARCH -std=gnu89 -O2 -g -c ../net/net_udp.c  -o net_udp.o
 # roomcode: a relayed host's address, rendered by netmatch from the id it registered.
-cc -std=gnu89 -O2 -g -c ../net/roomcode.c -o roomcode.o
-cc -std=gnu89 -O2 -g -c ../net/netmatch.c -o netmatch.o
+cc $OPENCNC3D_ARCH -std=gnu89 -O2 -g -c ../net/roomcode.c -o roomcode.o
+cc $OPENCNC3D_ARCH -std=gnu89 -O2 -g -c ../net/netmatch.c -o netmatch.o
 # netbeacon.c is LAN discovery, which the multiplayer screen's server browser reads.
-cc -std=gnu89 -O2 -g -c ../net/netbeacon.c -o netbeacon.o
+cc $OPENCNC3D_ARCH -std=gnu89 -O2 -g -c ../net/netbeacon.c -o netbeacon.o
 
 # The C++ half: the tactical renderer as a library, plus the state machine.
-clang++ -std=c++14 -O2 -g \
-    -fms-extensions -fdeclspec -D__int64="long long" -DCNC3D_NO_MAIN $CDEFS \
+clang++ $OPENCNC3D_ARCH -std=c++14 -O2 -g \
+    -fms-extensions -fdeclspec -D__int64="long long" -DOPENCNC3D_NO_MAIN $CDEFS \
     -c ../game/cnc_eyes.cpp -o cnc_eyes.o \
     -I"$HDR" $INC $(sdl2-config --cflags)
 
-clang++ -std=c++14 -O2 -g -c cnc3d.cpp -o cnc3d.o $CDEFS -I"$HDR" $INC $(sdl2-config --cflags)
+clang++ $OPENCNC3D_ARCH -std=c++14 -O2 -g -c opencnc3d.cpp -o opencnc3d.o $CDEFS -I"$HDR" $INC $(sdl2-config --cflags)
 
 # -headerpad_max_install_names: reserve room in the Mach-O header so the dylib paths can
 # be rewritten afterwards without relinking. Today's rewrite happens to shrink the string
 # (a 50 character Homebrew path becomes a 36 character @executable_path one) so it would
 # fit anyway, but that is luck, not a property, and it stops being true the moment the
 # library or the prefix is renamed.
-clang++ -o cnc3d cnc3d.o cnc_eyes.o dosbar.o hud640.o dosopt.o dossave.o dosmenu.o dosops.o doslobby.o dosmp.o dosmenu_shell.o \
+clang++ $OPENCNC3D_ARCH -o opencnc3d opencnc3d.o cnc_eyes.o dosbar.o hud640.o dosopt.o dossave.o dosmenu.o dosops.o doslobby.o dosmp.o dosmenu_shell.o \
     vqaplay.o movieplay.o moviesnd.o pngwrite.o campaign.o logo3d.o lockstep.o net_udp.o netmatch.o netbeacon.o roomcode.o \
     mpbrowse.o lnet.o ljson.o $AUDIO_OBJ \
     $(sdl2-config --libs) -Wl,-headerpad_max_install_names -framework OpenGL -lz -lcurl
@@ -120,8 +121,8 @@ clang++ -o cnc3d cnc3d.o cnc_eyes.o dosbar.o hud640.o dosopt.o dossave.o dosmenu
 # on any machine but this one. tools/bundle-sdl.sh copies SDL beside the binary and
 # rewrites the load command to @executable_path; its header carries the full account,
 # including why SDL3 has to travel too. Run here rather than only in make-build.sh so
-# that app/cnc3d is runnable in place and so the fix cannot be skipped by a hand build.
-sh ../tools/bundle-sdl.sh . cnc3d
+# that app/opencnc3d is runnable in place and so the fix cannot be skipped by a hand build.
+sh ../tools/bundle-sdl.sh . opencnc3d
 
 # STAGE IT, for the same reason game/build.sh stages cnc_eyes: the play folder is what is
 # actually run and what the suite gates, and a binary that stops at app/ is a correct fix
@@ -129,8 +130,8 @@ sh ../tools/bundle-sdl.sh . cnc3d
 # sources, and it has caught exactly this twice, both times because the copy was a
 # separate step somebody had to remember. It is not a separate step now.
 if [ -d ../playable ]; then
-    cp cnc3d ../playable/cnc3d
-    echo "built ./cnc3d  (and staged to ../playable/)"
+    cp opencnc3d ../playable/opencnc3d
+    echo "built ./opencnc3d  (and staged to ../playable/)"
 else
-    echo "built ./cnc3d"
+    echo "built ./opencnc3d"
 fi

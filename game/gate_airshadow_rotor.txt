@@ -1,0 +1,13 @@
+# G319 leg 2: a flying helicopter's rotor in Classic is a dark blur, not palette
+# index 4 drawn raw (light green). SCG41EA's Apache is airborne by tick 110.
+
+tick 1
+hurtunit MLRS 0
+tick 109
+gfxmode 0
+cam 48 33
+tick 1
+airdump
+shot shots/g319_rotor.png
+dosairprobe
+quit

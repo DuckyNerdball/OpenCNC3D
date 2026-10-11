@@ -40,11 +40,86 @@
  *
  *  EVERY NUMBER IS A DIAL in fx_state.h ("3c  WATER  (ours)"); water_fx 0 draws the
  *  cartridge's pass through the same binary, which is what the gate uses as its trap.
+ *
+ *  TWO GROUNDS, ONE SEA. Everything above reads a SOURCE rather than the pack directly:
+ *  the cells (their atlas rectangles and which are holed), the cut those holes come from,
+ *  the sheet the ground draws (for the land under the water), and the sea's base texture.
+ *  Under Tiberian Dawn the source is the pack, exactly as before: the cartridge atlas's
+ *  alpha is the cut, WATER1 x WATER2 the base. Under the Red Alert module's Enhanced
+ *  ground (ra3d_terrain.h) the source is Red Alert's map: its cut is read off the 1995
+ *  tiles' palette indices, the sheet is Red Alert's own, and the base is the painting
+ *  Red Alert's ground draws for its open water (W2, or W1), alone, sampled at its own
+ *  scale (WATER_RA_BASE below). Every dial, the field, the foam, the waves and the
+ *  reflection are the same code for both. What differs on Red Alert's ground, each
+ *  because its art is a painting rather than a cut tile:
+ *   - the floor under the sea is the painted ground itself, not the cartridge's BOTTOM;
+ *   - the soft coast fades the painted water out into the sea rather than straddling
+ *     the cut, and the wash and foam lie only where the ground lets the sea through;
+ *   - THE HUE IS THE PAINTING'S. water_natural (the ease of the cartridge's cobalt toward
+ *     a greyer, greener sea) is compiled out of the Red Alert variant: on Red Alert's
+ *     already grey-blue painting it turned the sea teal. Its dial still drives Tiberian
+ *     Dawn's sea exactly as before; the darkening, the depth, the rim, the reflection and
+ *     the rain's grey change no hue and apply to both;
+ *   - where the 1995 cut says sea over a painting's land, the painting decides: a floor
+ *     that is not blue against its own brightness is left as painted, and the pale rim
+ *     fades out where the painted water is not blue (WATER_FS, SHORE_FS).
  * ==================================================================================== */
-#ifndef CNC3D_WATER_MOD_H
-#define CNC3D_WATER_MOD_H
+#ifndef OPENCNC3D_WATER_MOD_H
+#define OPENCNC3D_WATER_MOD_H
 
 #include "rain_glsl.h"
+
+/* ---------------------------------------------------------------------------------- *
+ *  THE SOURCE. Red Alert's ground fills g_waterRa when it builds its sheet; Tiberian
+ *  Dawn's is the pack and needs nothing filled. water_src_ra() decides per call, and it
+ *  is the same test that decides whose ground draw_frame lays.
+ * ---------------------------------------------------------------------------------- */
+struct WaterRaSource {
+    bool ok = false;                    /* a sea can be drawn on this map             */
+    std::vector<PackCell> cell;         /* one per map cell, holed where it has water */
+    /* THE CUT, at the 1995 tile's 24 texels a cell, laid out exactly as the ground's
+       sheet is at 1/k of its size (so a cell's normalised rectangle addresses both):
+       0 water, 255 land, one byte a texel. */
+    std::vector<unsigned char> cut;
+    int cutW = 0, cutH = 0;
+    PackTex sheet = PackTex();          /* the sheet the ground draws: gl, w, h, uw, uh */
+    int sheetKey = -1;                  /* stands in for terrain_atlas_index()        */
+    GLuint base = 0;                    /* the open water's painting, GL_REPEAT       */
+    GLuint white = 0;                   /* the second layer's stand-in: one white texel */
+    float baseRepeats = 0.5f;           /* repeats of the base a cell                 */
+    float grainMean = 0.5f, grainInv = 2.0f;
+    int wetCells = 0;
+};
+static WaterRaSource g_waterRa;
+static inline bool water_src_ra(void) { return ra3d_own_ground(); }
+/* Red Alert's ground for the mirrored pass (ra3d_terrain.h, included further down). */
+static void ra3d_reflect_ground(void);
+
+static const std::vector<PackCell>& water_cells(void)
+{
+    return water_src_ra() ? g_waterRa.cell : g_pack.cell;
+}
+/* The atlas the ground is drawing, as an index (Tiberian Dawn's own; Red Alert's stands in
+   for one) and as the texture behind it. */
+static int water_atlas_index(void)
+{
+    return water_src_ra() ? g_waterRa.sheetKey : terrain_atlas_index();
+}
+static const PackTex& water_atlas(int ai)
+{
+    return water_src_ra() ? g_waterRa.sheet : g_pack.tex[ai];
+}
+/* THE BASE. Red Alert's painting is one texture repeating every 1 / baseRepeats cells and
+   is the sea's colour by itself, so it takes the first unit and the second layer
+   multiplies by white. WATER_RA_BASE compiles the shaders' Red Alert variant: the motion
+   that slides the base is scaled to the base's own repeat, so the sea moves as far on the
+   ground per second as Tiberian Dawn's does. */
+static GLuint water_base1(void) { return water_src_ra() ? g_waterRa.base : g_pack.tex[g_pack.waterTex1].gl; }
+static GLuint water_base2(void) { return water_src_ra() ? g_waterRa.white : g_pack.tex[g_pack.waterTex2].gl; }
+/* The level ground's light, 160/255 (terrain_shade's flat value), which a painting made
+   to be drawn as ground is seen under. */
+#define WATER_RA_BASE_GAIN (160.0f / 255.0f)
+static float  water_base_repeats(void) { return water_src_ra() ? g_waterRa.baseRepeats : WATER_REPEATS_PER_CELL; }
 
 /* THE RAIN'S SIDE OF THE SEA, defined in rain_mod.h (included by the host right after
    this file). Forward-declared the way draw_terrain declares this file's own hooks. */
@@ -58,6 +133,14 @@ static float rain_overcast(void);
    the driver will refuse. */
 #define WATER_FIELD_RES    12
 #define WATER_FIELD_MAXW   1536
+/* THE LARGEST TERRAIN SHEET THE COAST IS BUILT FROM (the land under the water and the
+   soft coast both read the whole sheet back once per map). It was 4096 x 4096, which every
+   sheet fitted until the Enhanced terrain: 144 texels a cell makes a sheet 4212 to 4992
+   wide, and over the limit the coast quietly had neither the sand under the water nor the
+   fade. 8192 x 8192 holds them with room; the read-back is a temporary copy of 75 to 97 MB
+   for the Enhanced sheets, and the soft coast keeps a second sheet of that size. */
+#define WATER_ATLAS_MAX_TEXELS (8192L * 8192L)
+
 /* The distance the field can express, in cells, either side of the coast. */
 #define WATER_FIELD_RANGE  4.0f
 
@@ -75,6 +158,10 @@ static float  g_waterFieldBearing = -1.0f, g_waterFieldRiverW = -1.0f;   /* the 
 static float  g_waterGrainMean = 0.5f, g_waterGrainInv = 2.0f, g_waterMean2 = 0.5f;
 /* 1 for a cell that is holed or touches a holed cell: the cells the shore pass draws. */
 static std::vector<unsigned char> g_waterCoastCell;
+/* CPU acoustic map: 0 dry, 1 ocean/lake, 2 river, from the same wet/component mask. */
+struct WaterAudioSource { float x, z; bool river; };
+static std::vector<unsigned char> g_waterAudioClass;
+static std::vector<WaterAudioSource> g_waterAudioSources;
 /* THE FOAM ITSELF: one tileable RGBA texture, generated from the same value noise the
    cloud deck uses (fx_cloud.h), never shipped. R is the broad wisps (base lattice 4),
    G the finer ones (base 8), two octaves each, both histogram-equalised so a threshold
@@ -245,7 +332,7 @@ static int water_reflection_render(float planeY)
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
-    draw_terrain();
+    if (water_src_ra()) ra3d_reflect_ground(); else draw_terrain();
     /* THE CASTER LIST IS NOT LOOKING AT THE SUN HERE. It is the camera's own projection
        with the modelview mirrored, so a caster cull that used the sun's box would throw
        away half the reflection. Named for the host, and put back afterwards so the sun
@@ -363,14 +450,18 @@ static void water_box_blur(float* a, int w, int h, int r)
     }
 }
 
+static void water_land_forget(void);
+
 static void water_field_free(void)
 {
     if (g_waterFieldTex) glDeleteTextures(1, &g_waterFieldTex);
-    if (g_waterLandTex) glDeleteTextures(1, &g_waterLandTex);
+    water_land_forget();   /* g_waterLandTex is always one of the cache's */
     g_waterFieldTex = g_waterLandTex = 0;
     g_waterFieldAtlas = -1; g_waterFieldAtlasGL = 0;
     g_waterFieldW = g_waterFieldH = 0;
     g_waterFieldScen[0] = 0;
+    g_waterAudioClass.clear();
+    g_waterAudioSources.clear();
 }
 
 /* The mean and spread of the WATER1 tile's luminance, read back off the GPU once per
@@ -381,6 +472,14 @@ static void water_field_free(void)
 static void water_grain_measure(void)
 {
     g_waterGrainMean = 0.5f; g_waterGrainInv = 2.0f;
+    if (water_src_ra()) {
+        /* Red Alert's painting, measured when its ground built it; the second layer is
+           white and the painting takes the ground's light, so the product's mean is the
+           painting's own under that light. */
+        g_waterGrainMean = g_waterRa.grainMean; g_waterGrainInv = g_waterRa.grainInv;
+        g_waterMean2 = WATER_RA_BASE_GAIN;
+        return;
+    }
     if (g_pack.waterTex1 < 0) return;
     const PackTex& t = g_pack.tex[g_pack.waterTex1];
     if (t.w <= 0 || t.h <= 0 || t.w * t.h > 4096) return;
@@ -417,17 +516,168 @@ static void water_grain_measure(void)
     }
 }
 
+/* THE LAND UNDER THE WATER, AND WHY IT IS ITS OWN STEP. Everything else in the field is
+   read from the CARTRIDGE atlas's alpha, which is the same whatever the ground draws
+   with, so it is built once per map. This step alone reads the atlas on screen, and the
+   graphics modes change that atlas: rebuilding the whole field for it cost 0.55 to 0.68 s
+   of one frame on SCG01EA, on every SPACE into Enhanced. So the arrays
+   this step needs are kept after the build, and each atlas's land texture is kept in a
+   small cache (water_land_for). */
+static std::vector<unsigned char> g_wfWet, g_wfRiver;
+static std::vector<int>           g_wfNearLand, g_wfNearWater;
+static std::vector<float>         g_wfDDry;
+static int                        g_wfW = 0, g_wfH = 0, g_wfRes = 0;
+
+static GLuint water_land_make(int ai)
+{
+    /* 5. THE LAND UNDER THE WATER. For every wet texel, the colour of the nearest
+       land texel, read out of the atlas the terrain is DRAWING (the DOS sheet, the
+       cartridge's or the Remaster's, whichever the dial says) at that land texel's own
+       atlas position. Read back off the GPU rather than kept from load, because only
+       the cartridge sheet is kept and it is not the one on screen. A first draft had
+       the shader walk back through its own cell's tile to find sand; on a coast that
+       runs along a cell boundary the water cell's tile is all hole and the walk found
+       nothing, which is why the sand never showed. */
+    {
+        const int w = g_wfW, h = g_wfH, res = g_wfRes;
+        const std::vector<unsigned char>& wet = g_wfWet;
+        const std::vector<unsigned char>& river = g_wfRiver;
+        const std::vector<int>& nearLand = g_wfNearLand;
+        const std::vector<int>& nearWater = g_wfNearWater;
+        const std::vector<float>& dDry = g_wfDDry;
+        const PackTex& dr = water_atlas(ai);
+        const std::vector<PackCell>& cells = water_cells();
+        std::vector<unsigned char> atl;
+        if (dr.w > 0 && dr.h > 0 && (long)dr.w * dr.h <= WATER_ATLAS_MAX_TEXELS) {
+            atl.resize((size_t)dr.w * dr.h * 4);
+            glBindTexture(GL_TEXTURE_2D, dr.gl);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, &atl[0]);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+        std::vector<int> cellOf((size_t)g_gridW * g_gridH, -1);
+        for (size_t i = 0; i < cells.size(); i++) {
+            const PackCell& c = cells[i];
+            if (c.x < 0 || c.y < 0 || c.x >= g_gridW || c.y >= g_gridH) continue;
+            cellOf[(size_t)c.y * g_gridW + c.x] = (int)i;
+        }
+        std::vector<unsigned char> lp((size_t)w * h * 4, 0);
+        /* ALPHA IS THE CLASS of the water here or nearest here: 255 sea, 128 river. Set
+           on land as well as on water so the value is flat across the coast and only
+           changes at a river mouth, which is the one place it should. */
+        for (size_t i = 0; i < (size_t)w * h; i++) {
+            const int wi = wet[i] ? (int)i : nearWater[i];
+            lp[i * 4 + 3] = (wi >= 0 && river[wi]) ? 128 : 255;
+        }
+        if (!atl.empty()) {
+            for (size_t i = 0; i < (size_t)w * h; i++) {
+                /* a wet texel takes its nearest land's colour; a dry one its own, so the
+                   lap over the sand knows what it is lying on. NOT the texel right on
+                   the cut, though: the tile art draws a dark rim where sand meets water,
+                   and reading it put a dark hairline along every coast. Of the land
+                   texels within two of the nearest one, take the one furthest from the
+                   water: the sand proper. */
+                int ni = wet[i] ? nearLand[i] : (int)i;
+                if (ni < 0) continue;
+                {
+                    const int bx = ni % w, by = ni / w;
+                    float bestD = -1.0f;
+                    for (int dy = -2; dy <= 2; dy++)
+                        for (int dx = -2; dx <= 2; dx++) {
+                            const int x = bx + dx, y = by + dy;
+                            if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                            const size_t j = (size_t)y * w + x;
+                            if (wet[j]) continue;
+                            if (dDry[j] > bestD) { bestD = dDry[j]; ni = (int)j; }
+                        }
+                }
+                const int lx = ni % w, ly = ni / w;
+                const int ci = cellOf[(size_t)(ly / res) * g_gridW + (lx / res)];
+                if (ci < 0) continue;
+                const PackCell& c = cells[ci];
+                const float fu = ((float)(lx % res) + 0.5f) / (float)res;
+                const float fv = ((float)(ly % res) + 0.5f) / (float)res;
+                int tx = (int)((c.u0 + (c.u1 - c.u0) * fu) * (float)dr.uw);
+                int ty = (int)((c.v0 + (c.v1 - c.v0) * fv) * (float)dr.uh);
+                if (tx < 0) tx = 0; else if (tx >= dr.w) tx = dr.w - 1;
+                if (ty < 0) ty = 0; else if (ty >= dr.h) ty = dr.h - 1;
+                const unsigned char* q = &atl[((size_t)ty * dr.w + tx) * 4];
+                lp[i * 4 + 0] = q[0]; lp[i * 4 + 1] = q[1]; lp[i * 4 + 2] = q[2];
+            }
+        }
+        GLuint tex = 0;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, &lp[0]);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        return tex;
+    }
+}
+
+struct WaterLandSlot { GLuint tex; int atlas; GLuint gl; unsigned stamp; };
+static WaterLandSlot g_waterLandSlot[3];
+static unsigned      g_waterLandStamp = 0;
+
+static void water_land_forget(void)
+{
+    for (int k = 0; k < 3; k++) {
+        if (g_waterLandSlot[k].tex) glDeleteTextures(1, &g_waterLandSlot[k].tex);
+        memset(&g_waterLandSlot[k], 0, sizeof g_waterLandSlot[k]);
+    }
+}
+
+/* The land texture for atlas `ai`: kept from before if there is one, else made, taking
+   the least recently used of three slots. */
+static GLuint water_land_for(int ai)
+{
+    const GLuint gl = water_atlas(ai).gl;
+    int k, lru = 0;
+    for (k = 0; k < 3; k++)
+        if (g_waterLandSlot[k].tex && g_waterLandSlot[k].atlas == ai && g_waterLandSlot[k].gl == gl) {
+            g_waterLandSlot[k].stamp = ++g_waterLandStamp;
+            return g_waterLandSlot[k].tex;
+        }
+    for (k = 0; k < 3; k++) {
+        if (!g_waterLandSlot[k].tex) { lru = k; break; }
+        if (g_waterLandSlot[k].stamp < g_waterLandSlot[lru].stamp) lru = k;
+    }
+    if (g_waterLandSlot[lru].tex) glDeleteTextures(1, &g_waterLandSlot[lru].tex);
+    g_waterLandSlot[lru].tex = water_land_make(ai);
+    g_waterLandSlot[lru].atlas = ai;
+    g_waterLandSlot[lru].gl = gl;
+    g_waterLandSlot[lru].stamp = ++g_waterLandStamp;
+    return g_waterLandSlot[lru].tex;
+}
+
 /* Build the field for the loaded pack. False when the pack cannot supply one (no
    atlas kept, no holed cell), in which case the cartridge's pass draws. */
 static bool water_field_build(void)
 {
     water_field_free();
-    if (g_pack.terrainCart.empty() || g_pack.terrainTex < 0
-        || g_pack.terrainTex >= (int)g_pack.tex.size())
-        return false;
-    const PackTex& at = g_pack.tex[g_pack.terrainTex];
-    const int aw = g_pack.terrainCartW, ah = g_pack.terrainCartH;
-    if (aw <= 0 || ah <= 0 || at.uw <= 0 || at.uh <= 0) return false;
+    /* THE CUT: the cartridge atlas's alpha (four bytes a texel, alpha last), addressed
+       through the cells' rectangles normalised to the atlas's used size; or Red Alert's
+       cut (one byte a texel), laid out as its sheet at the 1995 tile's size. */
+    const bool ra = water_src_ra();
+    const std::vector<PackCell>& cells = water_cells();
+    const unsigned char* cart = NULL;
+    int aw = 0, ah = 0, cuw = 0, cuh = 0, cstride = 4;
+    if (ra) {
+        if (!g_waterRa.ok || g_waterRa.cut.empty()) return false;
+        cart = &g_waterRa.cut[0];
+        aw = cuw = g_waterRa.cutW; ah = cuh = g_waterRa.cutH; cstride = 1;
+    } else {
+        if (g_pack.terrainCart.empty() || g_pack.terrainTex < 0
+            || g_pack.terrainTex >= (int)g_pack.tex.size())
+            return false;
+        const PackTex& at = g_pack.tex[g_pack.terrainTex];
+        aw = g_pack.terrainCartW; ah = g_pack.terrainCartH;
+        cuw = at.uw; cuh = at.uh;
+        cart = &g_pack.terrainCart[0];
+    }
+    if (aw <= 0 || ah <= 0 || cuw <= 0 || cuh <= 0) return false;
 
     int res = WATER_FIELD_RES;
     while (res > 4 && (g_gridW * res > WATER_FIELD_MAXW || g_gridH * res > WATER_FIELD_MAXW))
@@ -445,10 +695,9 @@ static bool water_field_build(void)
        the first thing the first frame showed. Outside the rectangle a texel is
        either sea (holed cell) or nothing, never a source. */
     std::vector<unsigned char> dry((size_t)w * h, 0);
-    const unsigned char* cart = &g_pack.terrainCart[0];
     int holed = 0;
-    for (size_t i = 0; i < g_pack.cell.size(); i++) {
-        const PackCell& c = g_pack.cell[i];
+    for (size_t i = 0; i < cells.size(); i++) {
+        const PackCell& c = cells[i];
         if (c.x < 0 || c.y < 0 || c.x >= g_gridW || c.y >= g_gridH) continue;
         const bool inRect = c.x >= g_mapX && c.x < g_mapX + g_mapW
                          && c.y >= g_mapY && c.y < g_mapY + g_mapH;
@@ -461,13 +710,13 @@ static bool water_field_build(void)
         holed++;
         for (int j = 0; j < res; j++) {
             const float v = c.v0 + (c.v1 - c.v0) * (((float)j + 0.5f) / (float)res);
-            int ty = (int)(v * (float)at.uh);
+            int ty = (int)(v * (float)cuh);
             if (ty < 0) ty = 0; else if (ty >= ah) ty = ah - 1;
             for (int k = 0; k < res; k++) {
                 const float u = c.u0 + (c.u1 - c.u0) * (((float)k + 0.5f) / (float)res);
-                int tx = (int)(u * (float)at.uw);
+                int tx = (int)(u * (float)cuw);
                 if (tx < 0) tx = 0; else if (tx >= aw) tx = aw - 1;
-                const unsigned char a = cart[((size_t)ty * aw + tx) * 4 + 3];
+                const unsigned char a = cart[((size_t)ty * aw + tx) * cstride + (cstride - 1)];
                 const size_t ti = (size_t)(c.y * res + j) * w + (c.x * res + k);
                 if (a < 128) wet[ti] = 1;
                 else if (inRect) dry[ti] = 1;
@@ -659,10 +908,10 @@ static bool water_field_build(void)
         q[2] = (unsigned char)((int)((gys[i] * 0.5f + 0.5f) * 255.0f + 0.5f));
         q[3] = wet[i] ? 255 : 0;
     }
-    /* THE FIELD ON DISK, for reading the flow offline: CNC3D_WATER_DUMP=<path> writes
+    /* THE FIELD ON DISK, for reading the flow offline: OPENCNC3D_WATER_DUMP=<path> writes
        the packed texels raw (RGBA8, row-major, w x h from the WATER|field line). A
        load-time instrument only; it draws nothing and is off unless asked for. */
-    if (const char* dumpPath = getenv("CNC3D_WATER_DUMP")) {
+    if (const char* dumpPath = getenv("OPENCNC3D_WATER_DUMP")) {
         FILE* df = fopen(dumpPath, "wb");
         if (df) { fwrite(&px[0], 1, px.size(), df); fclose(df); }
     }
@@ -676,8 +925,8 @@ static bool water_field_build(void)
     glBindTexture(GL_TEXTURE_2D, 0);
     /* The cells the shore pass re-draws: holed, or touching a holed cell. */
     g_waterCoastCell.assign((size_t)g_gridW * g_gridH, 0);
-    for (size_t i = 0; i < g_pack.cell.size(); i++) {
-        const PackCell& c = g_pack.cell[i];
+    for (size_t i = 0; i < cells.size(); i++) {
+        const PackCell& c = cells[i];
         if (!c.holes || c.x < 0 || c.y < 0 || c.x >= g_gridW || c.y >= g_gridH) continue;
         for (int dy = -1; dy <= 1; dy++)
             for (int dx = -1; dx <= 1; dx++) {
@@ -686,84 +935,49 @@ static bool water_field_build(void)
                 g_waterCoastCell[(size_t)y * g_gridW + x] = 1;
             }
     }
-    /* 5. THE LAND UNDER THE WATER. For every wet texel, the colour of the nearest
-       land texel, read out of the atlas the terrain is DRAWING (the DOS sheet, the
-       cartridge's or the Remaster's, whichever the dial says) at that land texel's own
-       atlas position. Read back off the GPU rather than kept from load, because only
-       the cartridge sheet is kept and it is not the one on screen. A first draft had
-       the shader walk back through its own cell's tile to find sand; on a coast that
-       runs along a cell boundary the water cell's tile is all hole and the walk found
-       nothing, which is why the sand never showed. */
+    /* 5. THE LAND UNDER THE WATER, for the atlas on screen now. The arrays it reads are
+       kept (water_land_make says why), so another atlas later costs only this step. */
+    // Template identity, not connected-component width, defines acoustic rivers.
+    // A channel connected to the ocean must still sound like a river at its mouth.
+    std::vector<unsigned char> riverCell((size_t)g_gridW * g_gridH, 0);
+    int templateCount = 0;
+    const TtSlot* templates = tt_table(g_pack.theater, &templateCount);
+    const bool gutterAtlas = cuw == TT_COLS * TT_PITCH;
+    for (size_t ci = 0; !ra && ci < cells.size(); ++ci) {
+        const PackCell& c = cells[ci];
+        if (!c.holes || c.x < 0 || c.y < 0 || c.x >= g_gridW || c.y >= g_gridH) continue;
+        const int pitch = gutterAtlas ? TT_PITCH : TT_TS;
+        const int slot = (int)(c.v0 * cuh) / pitch * TT_COLS + (int)(c.u0 * cuw) / pitch;
+        for (int ti = 0; ti < templateCount; ++ti) {
+            if (templates[ti].slot != slot) continue;
+            // Tiberian Dawn defines.h: RIVER1..25, FORD1..2, FALLS1..2 = 136..164.
+            // BRIDGE1..4D = 165..172 span the same river channels.
+            riverCell[(size_t)c.y * g_gridW + c.x] = templates[ti].tmpl >= 136 && templates[ti].tmpl <= 172;
+            break;
+        }
+    }
+    g_waterAudioClass.assign(wet.size(), 0);
+    for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+        const int cx = x / res, cy = y / res;
+        if (cx < g_mapX || cy < g_mapY || cx >= g_mapX + g_mapW || cy >= g_mapY + g_mapH) continue;
+        const size_t i = (size_t)y * w + x;
+        if (wet[i]) g_waterAudioClass[i] = (ra ? river[i] != 0 : riverCell[(size_t)cy * g_gridW + cx] != 0) ? 2 : 1;
+    }
+    const int stride = res / 4 > 0 ? res / 4 : 1;
+    for (int y = 0; y < h; y += stride) for (int x = 0; x < w; x += stride) {
+        const int type = g_waterAudioClass[(size_t)y * w + x];
+        if (!type) continue;
+        WaterAudioSource source = { (x + 0.5f) / res, (y + 0.5f) / res, type == 2 };
+        g_waterAudioSources.push_back(source);
+    }
+    g_wfWet.swap(wet); g_wfRiver.swap(river);
+    g_wfNearLand.swap(nearLand); g_wfNearWater.swap(nearWater); g_wfDDry.swap(dDry);
+    g_wfW = w; g_wfH = h; g_wfRes = res;
     {
-        const int ai = terrain_atlas_index();
-        const PackTex& dr = g_pack.tex[ai];
-        std::vector<unsigned char> atl;
-        if (dr.w > 0 && dr.h > 0 && (long)dr.w * dr.h <= 4096L * 4096L) {
-            atl.resize((size_t)dr.w * dr.h * 4);
-            glBindTexture(GL_TEXTURE_2D, dr.gl);
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, &atl[0]);
-            glBindTexture(GL_TEXTURE_2D, 0);
-        }
-        std::vector<int> cellOf((size_t)g_gridW * g_gridH, -1);
-        for (size_t i = 0; i < g_pack.cell.size(); i++) {
-            const PackCell& c = g_pack.cell[i];
-            if (c.x < 0 || c.y < 0 || c.x >= g_gridW || c.y >= g_gridH) continue;
-            cellOf[(size_t)c.y * g_gridW + c.x] = (int)i;
-        }
-        std::vector<unsigned char> lp((size_t)w * h * 4, 0);
-        /* ALPHA IS THE CLASS of the water here or nearest here: 255 sea, 128 river. Set
-           on land as well as on water so the value is flat across the coast and only
-           changes at a river mouth, which is the one place it should. */
-        for (size_t i = 0; i < (size_t)w * h; i++) {
-            const int wi = wet[i] ? (int)i : nearWater[i];
-            lp[i * 4 + 3] = (wi >= 0 && river[wi]) ? 128 : 255;
-        }
-        if (!atl.empty()) {
-            for (size_t i = 0; i < (size_t)w * h; i++) {
-                /* a wet texel takes its nearest land's colour; a dry one its own, so the
-                   lap over the sand knows what it is lying on. NOT the texel right on
-                   the cut, though: the tile art draws a dark rim where sand meets water,
-                   and reading it put a dark hairline along every coast. Of the land
-                   texels within two of the nearest one, take the one furthest from the
-                   water: the sand proper. */
-                int ni = wet[i] ? nearLand[i] : (int)i;
-                if (ni < 0) continue;
-                {
-                    const int bx = ni % w, by = ni / w;
-                    float bestD = -1.0f;
-                    for (int dy = -2; dy <= 2; dy++)
-                        for (int dx = -2; dx <= 2; dx++) {
-                            const int x = bx + dx, y = by + dy;
-                            if (x < 0 || y < 0 || x >= w || y >= h) continue;
-                            const size_t j = (size_t)y * w + x;
-                            if (wet[j]) continue;
-                            if (dDry[j] > bestD) { bestD = dDry[j]; ni = (int)j; }
-                        }
-                }
-                const int lx = ni % w, ly = ni / w;
-                const int ci = cellOf[(size_t)(ly / res) * g_gridW + (lx / res)];
-                if (ci < 0) continue;
-                const PackCell& c = g_pack.cell[ci];
-                const float fu = ((float)(lx % res) + 0.5f) / (float)res;
-                const float fv = ((float)(ly % res) + 0.5f) / (float)res;
-                int tx = (int)((c.u0 + (c.u1 - c.u0) * fu) * (float)dr.uw);
-                int ty = (int)((c.v0 + (c.v1 - c.v0) * fv) * (float)dr.uh);
-                if (tx < 0) tx = 0; else if (tx >= dr.w) tx = dr.w - 1;
-                if (ty < 0) ty = 0; else if (ty >= dr.h) ty = dr.h - 1;
-                const unsigned char* q = &atl[((size_t)ty * dr.w + tx) * 4];
-                lp[i * 4 + 0] = q[0]; lp[i * 4 + 1] = q[1]; lp[i * 4 + 2] = q[2];
-            }
-        }
-        glGenTextures(1, &g_waterLandTex);
-        glBindTexture(GL_TEXTURE_2D, g_waterLandTex);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, &lp[0]);
-        glBindTexture(GL_TEXTURE_2D, 0);
+        const int ai = water_atlas_index();
+        g_waterLandTex = water_land_for(ai);
         g_waterFieldAtlas = ai;
-        g_waterFieldAtlasGL = dr.gl;
+        g_waterFieldAtlasGL = water_atlas(ai).gl;
     }
     g_waterFieldW = w; g_waterFieldH = h; g_waterFieldRes = res;
 
@@ -774,26 +988,88 @@ static bool water_field_build(void)
     g_waterFieldBearing = g_fx.water_current; g_waterFieldRiverW = g_fx.water_river_width;
     water_grain_measure();
     int riverN = 0;
-    for (size_t i = 0; i < river.size(); i++) riverN += river[i];
+    for (size_t i = 0; i < g_wfRiver.size(); i++) riverN += g_wfRiver[i];
     g_waterFieldRiver = riverN;
     fprintf(stderr, "WATER|field|scen=%s|res=%d|size=%dx%d|holed_cells=%d|wet_texels=%d|"
                     "shore_texels=%d|river_texels=%d|grain=%.3f/%.2f\n",
             g_pack.scen, res, w, h, holed, wetN, shoreN, riverN, g_waterGrainMean, g_waterGrainInv);
+    if (ra)
+        fprintf(stderr, "WATER|ra|field|scen=%s|holed_cells=%d|wet_texels=%d|base=red alert|"
+                        "repeats=%.2f|base_mean=%.3f\n",
+                g_pack.scen, holed, wetN, (double)g_waterRa.baseRepeats, (double)g_waterGrainMean);
     return true;
 }
 
-/* The field belongs to one pack; a new scenario rebuilds it. */
+/* THE LAST BUILD THAT FOUND NO WATER, and exactly what it was asked with. A map with no
+   holed cell answers "no field" on every frame, and finding that out costs two full-grid
+   masks and a pass over every cell, so the answer is kept until something it depends on
+   moves: any input the positive check in water_field_sync compares, or g_cellHolesGen,
+   which is how a map that gains water in the editor still builds its field on the next
+   frame. A failed build has already freed the field, so skipping the retry leaves every
+   global exactly as the retry would have left it. */
+struct WaterFieldNone {
+    bool     valid;
+    char     scen[sizeof g_pack.scen];
+    int      gridW, gridH, rect[4], atlas;
+    GLuint   atlasGL;
+    float    bearing, riverW;
+    unsigned holesGen;
+};
+static WaterFieldNone g_waterFieldNone = { false };
+
+static GLuint water_field_atlas_gl(int ai)
+{
+    if (water_src_ra()) return water_atlas(ai).gl;
+    return (ai >= 0 && ai < (int)g_pack.tex.size()) ? g_pack.tex[ai].gl : 0;
+}
+
+static bool water_field_none_holds(void)
+{
+    const WaterFieldNone& n = g_waterFieldNone;
+    const int ai = water_atlas_index();
+    return n.valid && n.holesGen == g_cellHolesGen && !strcmp(n.scen, g_pack.scen)
+        && n.gridW == g_gridW && n.gridH == g_gridH
+        && n.rect[0] == g_mapX && n.rect[1] == g_mapY
+        && n.rect[2] == g_mapW && n.rect[3] == g_mapH
+        && n.atlas == ai && n.atlasGL == water_field_atlas_gl(ai)
+        && n.bearing == g_fx.water_current && n.riverW == g_fx.water_river_width;
+}
+
+static void water_field_none_note(void)
+{
+    WaterFieldNone& n = g_waterFieldNone;
+    const int ai = water_atlas_index();
+    n.valid = true;
+    n.holesGen = g_cellHolesGen;
+    snprintf(n.scen, sizeof n.scen, "%s", g_pack.scen);
+    n.gridW = g_gridW; n.gridH = g_gridH;
+    n.rect[0] = g_mapX; n.rect[1] = g_mapY; n.rect[2] = g_mapW; n.rect[3] = g_mapH;
+    n.atlas = ai; n.atlasGL = water_field_atlas_gl(ai);
+    n.bearing = g_fx.water_current; n.riverW = g_fx.water_river_width;
+}
+
+/* The field belongs to one pack; a new scenario rebuilds it. A new ATLAS only changes
+   the land under the water, which is a cache lookup or one short step. */
 static bool water_field_sync(void)
 {
+    const int ai = water_atlas_index();
+    const GLuint agl = water_atlas(ai).gl;
     if (g_waterFieldTex && !strcmp(g_waterFieldScen, g_pack.scen)
         && g_waterFieldW == g_gridW * g_waterFieldRes && g_waterFieldH == g_gridH * g_waterFieldRes
         && g_waterFieldRect[0] == g_mapX && g_waterFieldRect[1] == g_mapY
         && g_waterFieldRect[2] == g_mapW && g_waterFieldRect[3] == g_mapH
-        && g_waterFieldAtlas == terrain_atlas_index()
-        && g_waterFieldAtlasGL == g_pack.tex[terrain_atlas_index()].gl
-        && g_waterFieldBearing == g_fx.water_current && g_waterFieldRiverW == g_fx.water_river_width)
+        && g_waterFieldBearing == g_fx.water_current && g_waterFieldRiverW == g_fx.water_river_width) {
+        if (g_waterFieldAtlas != ai || g_waterFieldAtlasGL != agl) {
+            g_waterLandTex = water_land_for(ai);
+            g_waterFieldAtlas = ai;
+            g_waterFieldAtlasGL = agl;
+        }
         return true;
-    return water_field_build();
+    }
+    if (water_field_none_holds()) return false;
+    if (water_field_build()) { g_waterFieldNone.valid = false; return true; }
+    water_field_none_note();
+    return false;
 }
 
 /* ---------------------------------------------------------------------------------- *
@@ -848,6 +1124,12 @@ static std::vector<WaveBoat> g_waveBoats;
 
 static int water_is_boat(const SimObject& o)
 {
+    /* RED ALERT'S NAVY on its own map: the gunboat, the destroyer, the cruiser and the
+       transport, out of limbo. Not the submarines: a wake would show where a submerged
+       one is, which the game hides. */
+    if (water_src_ra())
+        return !o.limbo && (!strcmp(o.type, "PT") || !strcmp(o.type, "DD")
+                            || !strcmp(o.type, "CA") || !strcmp(o.type, "LST"));
     /* by type alone: the kind a vessel is exported under is the brain's business */
     return !strcmp(o.type, "BOAT") || !strcmp(o.type, "LST");
 }
@@ -1005,6 +1287,9 @@ static int water_wave_sim(void)
         }
         if (advanced > 0) { b->lx = b->x; b->lz = b->z; b->x = o.wx; b->z = o.wz; b->have = 1; b->lastFrame = g_engineFrame; }
         const float push = g_fx.water_wake * (speed > 0.002f ? (0.18f + 6.0f * speed) : 0.0f);
+        /* A Red Alert map can float twenty ships, most of them at anchor; the four
+           presses go to the ones under way. */
+        if (water_src_ra() && push <= 0.0f) continue;
         /* TWO SOURCES, ONE EITHER SIDE OF THE KEEL. A single point leaves one band
            astern; a hull displaces water at both shoulders, and two trains a beam apart
            interfere into the two arms of a V. The beam is across the direction of
@@ -1128,7 +1413,7 @@ static int water_wave_sim(void)
     if (wasAlpha) glEnable(GL_ALPHA_TEST); else glDisable(GL_ALPHA_TEST);
     if (wasCull)  glEnable(GL_CULL_FACE);  else glDisable(GL_CULL_FACE);
     glDepthMask(wasMask);
-    if (getenv("CNC3D_WATER_WAVEDBG")) {
+    if (getenv("OPENCNC3D_WATER_WAVEDBG")) {
         GLint mtu = 0, mtiu = 0, mctiu = 0;
         glGetIntegerv(GL_MAX_TEXTURE_UNITS, &mtu);
         glGetIntegerv(0x8872 /* GL_MAX_TEXTURE_IMAGE_UNITS */, &mtiu);
@@ -1173,6 +1458,9 @@ static const char* WATER_VS =
 /* No "#version" line of its own: assembled by rain_glsl_source, see WAVE_FS. */
 static const char* WATER_FS =
     "uniform sampler2D uW1; uniform sampler2D uW2; uniform sampler2D uField; uniform sampler2D uLand;\n"
+    "#ifdef WATER_RA_BASE\n"
+    "uniform float uBaseScale; uniform float uBaseGain;\n"
+    "#endif\n"
     /* THE RAIN on the surface (rain_mod.h sets these, zero when it is off): impact
        rings over the wave field, a wider window on the field's small ripples so a
        drop's ring counts, and the overcast sky the water then mirrors. */
@@ -1207,6 +1495,17 @@ static const char* WATER_FS =
     "varying vec3 vWorld; varying vec4 vCol;\n"
     "float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }\n"
     "void main() {\n"
+    /* RED ALERT: how blue the painted floor under this pixel is against its own
+       brightness (five taps, so no single texel speckles). Painted water measures 0.3 to
+       0.45; mud, rock, grass and sand measure under 0.1. Used twice below, where the 1995
+       cut and the 144 painting disagree about the coast. */
+    "#ifdef WATER_RA_BASE\n"
+    "    vec2 fsuv = gl_FragCoord.xy / uViewport, fpx = 2.0 / uViewport;\n"
+    "    vec3 fl = texture2D(uScene, fsuv).rgb + texture2D(uScene, fsuv + vec2(fpx.x, 0.0)).rgb\n"
+    "            + texture2D(uScene, fsuv - vec2(fpx.x, 0.0)).rgb + texture2D(uScene, fsuv + vec2(0.0, fpx.y)).rgb\n"
+    "            + texture2D(uScene, fsuv - vec2(0.0, fpx.y)).rgb;\n"
+    "    float floorBlue = (fl.b - fl.r) / (dot(fl, vec3(0.299, 0.587, 0.114)) + 0.02);\n"
+    "#endif\n"
     "    vec4 f = texture2D(uField, vWorld.xz * uFieldScale);\n"
     "    float sd = (f.r - 0.5) * 2.0 * uRange;\n"           /* cells, + on the water */
     "    vec2 away = f.gb * 2.0 - 1.0;\n"                     /* out to sea */
@@ -1232,16 +1531,34 @@ static const char* WATER_FS =
     "    float p0 = fract(t), p1 = fract(t + 0.5);\n"
     "    float w  = abs(1.0 - 2.0 * p0);\n"
     "    vec2 o0 = -pan - push * (p0 - 0.5), o1 = -pan - push * (p1 - 0.5);\n"
+    "#ifdef WATER_RA_BASE\n"
+    /* Red Alert's painting repeats every two cells, not every half cell: the slide is
+       scaled to it so the sea moves as far on the ground as Tiberian Dawn's does. */
+    "    vec3 c0 = texture2D(uW1, vUV1 + o0 * uBaseScale).rgb * texture2D(uW2, vUV2 + o0 * uBaseScale * 0.6).rgb;\n"
+    "    vec3 c1 = texture2D(uW1, vUV1 + o1 * uBaseScale).rgb * texture2D(uW2, vUV2 + o1 * uBaseScale * 0.6).rgb;\n"
+    "#else\n"
     "    vec3 c0 = texture2D(uW1, vUV1 + o0).rgb * texture2D(uW2, vUV2 + o0 * 0.6).rgb;\n"
     "    vec3 c1 = texture2D(uW1, vUV1 + o1).rgb * texture2D(uW2, vUV2 + o1 * 0.6).rgb;\n"
+    "#endif\n"
     "    vec3 col = mix(c0, c1, w);\n"
+    /* a ground painting is drawn under the terrain's light (160/255 on level ground);
+       the sea is not lit by the terrain, so the painting takes that light here */
+    "#ifdef WATER_RA_BASE\n"
+    "    col *= uBaseGain;\n"
+    "#endif\n"
     /* A MORE NATURAL COLOUR. The console's product is a saturated cobalt; real water is
        greyer and a touch greener. Part desaturation, part a tint that eases the blue
        and lifts the green, on one dial (water_natural) so the cartridge's colour is
        one turn away. The director: "the water is very blue, turn down the blue
        slightly to make it a bit more realistically coloured". */
+    /* NOT ON RED ALERT'S SEA. The ease is aimed at the cartridge's cobalt; Red Alert's
+       base is its own painted water, already a grey blue, and the same ease turned it
+       teal. Its hue is the painting's, so the step is compiled out of that variant.
+       The plain darkening below changes no hue and stays for both. */
+    "#ifndef WATER_RA_BASE\n"
     "    col = mix(col, vec3(luma(col)), uNatural * 0.25);\n"
     "    col *= mix(vec3(1.0), vec3(0.92, 1.03, 0.84), uNatural);\n"
+    "#endif\n"
     /* and a plain darkening on top of the tint, because "less blue" and "darker" are
        two different asks and one dial cannot serve both */
     "    col *= 1.0 - uDark;\n"
@@ -1276,6 +1593,11 @@ static const char* WATER_FS =
     /* A long, gentle falloff: strongest at the coast, gone at the edge width, with most
        of the way out spent in the pale tail rather than in the bright part. */
     "    float rim = uEdge * pow(1.0 - clamp(sd / rimW, 0.0, 1.0), 1.6);\n"
+    /* Red Alert: the pale rim belongs to the painted water. Where the cut says sea over a
+       painting's wet slate or mud, the rim at full strength drew a pale smudge on land. */
+    "#ifdef WATER_RA_BASE\n"
+    "    rim *= smoothstep(0.15, 0.30, floorBlue);\n"
+    "#endif\n"
     "    vec2 clk = clockAt(vWorld.xz);\n"
     "    rim *= 0.82 + 0.18 * sin(6.2831853 * (sd / uWaveLen + uTime * uWaveSpeed * clk.y / uWaveLen) + clk.x);\n"
     "    col = mix(col, vec3(0.70, 0.86, 1.0), rim * 0.55);\n"
@@ -1369,6 +1691,21 @@ static const char* WATER_FS =
     "    above = mix(above, uRainSky, seaw);\n"
     "    vec3 outc = mix(body, above, clamp(fres * uReflect, 0.0, 1.0)) + spec * vec3(1.0, 0.97, 0.90);\n"
     "    outc = mix(outc, vec3(0.90, 0.94, 0.98), crest);\n"
+    /* WHERE THE PAINTING SAYS LAND (Red Alert): the cut is the 1995 tile's, and where a
+       144-texel painting moved its coast the cut puts water over painted mud. There the
+       surface would lay its rim, wash and foam on land, a pale smudge. The floor under
+       this pixel is that painting, so it is asked: painted water is blue against its own
+       brightness, land (mud, rock, grass, sand) is not. Five taps, so single texels of
+       either cannot speckle; the measured split over every shore painting is about one
+       texel in twenty either way at these limits. Where it is land the painted floor is
+       left as it is. */
+    "#ifdef WATER_RA_BASE\n"
+    "    {\n"
+    "        float paintedLand = 1.0 - smoothstep(0.05, 0.20, floorBlue);\n"
+    "        gl_FragColor = vec4(mix(outc * vCol.rgb, texture2D(uScene, suv).rgb, paintedLand), 1.0);\n"
+    "        return;\n"
+    "    }\n"
+    "#endif\n"
     "    gl_FragColor = vec4(outc * vCol.rgb, 1.0);\n"
     "}\n";
 
@@ -1380,9 +1717,21 @@ static const char* SHORE_VS =
     "    vCol = gl_Color;\n"                       /* rgb = shroud, a = terrain light */
     "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
     "}\n";
+/* Red Alert's: the same, and the ground sheet's coordinate for the cell (unit 5), so the
+   shore can read the ground's own cut (SHORE_FS, WATER_RA_BASE). */
+static const char* SHORE_VS_RA =
+    "#version 120\n"
+    "varying vec3 vWorld; varying vec4 vCol; varying vec2 vSheet;\n"
+    "void main() {\n"
+    "    vWorld = gl_Vertex.xyz;\n"
+    "    vCol = gl_Color;\n"
+    "    vSheet = gl_MultiTexCoord5.xy;\n"
+    "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+    "}\n";
 
 static const char* SHORE_FS =
     "#version 120\n"
+    "%s"                                       /* the variant's #define, or nothing */
     "uniform sampler2D uW1; uniform sampler2D uW2; uniform sampler2D uField; uniform sampler2D uLand; uniform sampler2D uFoamTex;\n"
     "uniform vec2  uFieldScale;\n"
     "uniform float uTime; uniform float uRange; uniform float uAlpha;\n"
@@ -1391,6 +1740,10 @@ static const char* SHORE_FS =
     "uniform float uFoam; uniform float uFoamWidth; uniform float uFoamCross;\n"
     "uniform float uWaveLen; uniform float uWaveSpeed; uniform float uEdge; uniform float uFade;\n"
     "uniform float uProductMean; uniform float uNatural; uniform float uDark;\n"
+    "#ifdef WATER_RA_BASE\n"
+    "uniform float uBaseRepeat; uniform float uBaseGain;\n"
+    "uniform sampler2D uSheet; varying vec2 vSheet;\n"
+    "#endif\n"
     "varying vec3 vWorld; varying vec4 vCol;\n"
     "float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }\n"
     /* the same local clock the surface uses (see WATER_FS), read off the foam sheet */
@@ -1399,11 +1752,23 @@ static const char* SHORE_FS =
     "    vec4 f = texture2D(uField, vWorld.xz * uFieldScale);\n"
     "    float sd = (f.r - 0.5) * 2.0 * uRange;\n"
     "    if (sd <= -uFoamCross || sd >= uFoamWidth) discard;\n"
+    /* Red Alert: the painting's own blueness here, as WATER_FS measures its floor */
+    "#ifdef WATER_RA_BASE\n"
+    "    vec2 stx = vec2(dFdx(vSheet.x), dFdy(vSheet.y));\n"
+    "    vec3 pl = texture2D(uSheet, vSheet).rgb + texture2D(uSheet, vSheet + vec2(stx.x, 0.0)).rgb\n"
+    "            + texture2D(uSheet, vSheet - vec2(stx.x, 0.0)).rgb + texture2D(uSheet, vSheet + vec2(0.0, stx.y)).rgb\n"
+    "            + texture2D(uSheet, vSheet - vec2(0.0, stx.y)).rgb;\n"
+    "    float paintBlue = (pl.b - pl.r) / (luma(pl) + 0.02);\n"
+    "#endif\n"
     "    vec2 dir = f.gb * 2.0 - 1.0;\n"
     "    float dl = length(dir);\n"
     "    vec2 dirN = dl > 0.08 ? dir / dl : vec2(1.0, 0.0);\n"
     "    float river = 1.0 - smoothstep(0.55, 0.95, texture2D(uLand, vWorld.xz * uFieldScale).a);\n"
+    "#ifdef WATER_RA_BASE\n"
+    "    vec2 base = vWorld.xz * uBaseRepeat;\n"
+    "#else\n"
     "    vec2 base = vWorld.xz * 1.92;\n"
+    "#endif\n"
     /* THE WASH UP THE SAND, and it is what makes the art's cut disappear. On the water
        side of the cut the surface shows sand under a pale wash (WATER_FS); this draws
        THE SAME THING over the dry sand, near enough opaque right at the cut and fading
@@ -1423,12 +1788,22 @@ static const char* SHORE_FS =
     "        float reach = uFoamCross * (0.75 + 0.25 * sin(6.2831853 * uTime * uWaveSpeed * clk.y / max(uWaveLen, 0.05) + clk.x));\n"
     "        float k = sd < 0.0 ? max(1.0 + sd / reach, 0.0) : 1.0;\n"
     "        vec3 tile = texture2D(uW1, base - uPanV).rgb * texture2D(uW2, base - uPanV * 0.6).rgb;\n"
+    "#ifdef WATER_RA_BASE\n"
+    "        tile *= uBaseGain;\n"
+    "#endif\n"
+    "#ifdef WATER_RA_BASE\n"
+    "        tile *= 1.0 - uDark;\n"                 /* the painting's own hue, as WATER_FS */
+    "#else\n"
     "        tile = mix(tile, vec3(luma(tile)), uNatural * 0.25) * mix(vec3(1.0), vec3(0.92, 1.03, 0.84), uNatural) * (1.0 - uDark);\n"
+    "#endif\n"
     "        vec4 land = texture2D(uLand, vWorld.xz * uFieldScale);\n"
     "        float ripple = clamp(luma(tile) / max(uProductMean, 0.02), 0.55, 1.45);\n"
     "        vec3 wet = land.rgb * vCol.a * 0.9 * ripple;\n"
     "        wash = mix(tile, wet, uFade * 0.9);\n"
     "        float rim = uEdge * (0.82 + 0.18 * crestT);\n"
+    "#ifdef WATER_RA_BASE\n"
+    "        rim *= smoothstep(0.15, 0.30, paintBlue);\n"     /* as WATER_FS's rim */
+    "#endif\n"
     "        wash = mix(wash, vec3(0.70, 0.86, 1.0), rim * 0.55);\n"
     "        washA = 0.92 * k * k * (0.6 + 0.4 * k);\n"
     "    }\n"
@@ -1461,6 +1836,20 @@ static const char* SHORE_FS =
     "    foam += 0.0;\n"
     /* A river a cell wide has two banks inside one surf band: a third of the foam. */
     "    foam  = clamp(foam, 0.0, 1.0) * (1.0 - 0.65 * river);\n"
+    /* ON RED ALERT'S GROUND THE LAND IS THE PAINTING'S. Its sheet is solid wherever its
+       cut says land and fades its own painted water into the sea on the water side, so
+       there is no hard cut for the wash to hide; laid up the land as on Tiberian Dawn's
+       sand it whitewashed every rock in the sea (a rock a cell across lies wholly inside
+       the reach) into a pale ghost. So the wash and the foam lie only where the ground
+       lets the sea through. */
+    "#ifdef WATER_RA_BASE\n"
+    "    float landA = texture2D(uSheet, vSheet).a;\n"
+    /* and where the painting itself is land under a 1995 cut that says water (WATER_FS
+       says how this is told) */
+    "    landA = max(landA, 1.0 - smoothstep(0.05, 0.20, paintBlue));\n"
+    "    washA *= 1.0 - landA;\n"
+    "    foam  *= 1.0 - landA;\n"
+    "#endif\n"
     "    vec3 foamCol = vec3(0.86, 0.92, 0.98);\n"
     "    float A = washA + foam * (1.0 - washA);\n"
     "    if (A < 0.002) discard;\n"
@@ -1470,6 +1859,11 @@ static const char* SHORE_FS =
 
 static GLuint g_shoreProg = 0;
 static int    g_shoreProgTried = 0;
+/* THE RED ALERT VARIANTS of both programs (WATER_RA_BASE), built the first time Red
+   Alert's ground asks; Tiberian Dawn's programs are compiled from the same text with the
+   define absent, which the preprocessor makes the text they always were. */
+static GLuint g_waterProgRa = 0, g_shoreProgRa = 0;
+static int    g_waterProgRaTried = 0, g_shoreProgRaTried = 0;
 
 /* Link one vertex + fragment pair; the post chain's fx_program fixes the vertex half. */
 static GLuint water_link(const char* vs_src, const char* fs_src, const char* label)
@@ -1500,6 +1894,15 @@ static GLuint water_link(const char* vs_src, const char* fs_src, const char* lab
 
 static GLuint water_prog_get(void)
 {
+    if (water_src_ra()) {
+        if (g_waterProgRa || g_waterProgRaTried) return g_waterProgRa;
+        g_waterProgRaTried = 1;
+        const std::string body = std::string("#define WATER_RA_BASE 1\n") + WATER_FS;
+        char* src = rain_glsl_source(body.c_str());
+        g_waterProgRa = src ? water_link(WATER_VS, src, "water (red alert)") : 0;
+        free(src);
+        return g_waterProgRa;
+    }
     if (g_waterProg || g_waterProgTried) return g_waterProg;
     g_waterProgTried = 1;
     {
@@ -1509,11 +1912,25 @@ static GLuint water_prog_get(void)
     }
     return g_waterProg;
 }
+/* SHORE_FS carries one %s right after its #version line for the variant's define. */
+static GLuint shore_prog_build(const char* define, const char* label, const char* vs)
+{
+    std::string src(SHORE_FS);
+    const size_t at = src.find("%s");
+    if (at != std::string::npos) src.replace(at, 2, define);
+    return water_link(vs, src.c_str(), label);
+}
 static GLuint shore_prog_get(void)
 {
+    if (water_src_ra()) {
+        if (g_shoreProgRa || g_shoreProgRaTried) return g_shoreProgRa;
+        g_shoreProgRaTried = 1;
+        g_shoreProgRa = shore_prog_build("#define WATER_RA_BASE 1\n", "shore (red alert)", SHORE_VS_RA);
+        return g_shoreProgRa;
+    }
     if (g_shoreProg || g_shoreProgTried) return g_shoreProg;
     g_shoreProgTried = 1;
-    g_shoreProg = water_link(SHORE_VS, SHORE_FS, "shore");
+    g_shoreProg = shore_prog_build("", "shore", SHORE_VS);
     return g_shoreProg;
 }
 
@@ -1522,6 +1939,7 @@ static GLuint shore_prog_get(void)
    pack that carries the console's two water tiles. */
 static bool water_fx_wanted(void)
 {
+    if (water_src_ra()) return g_fxActive && g_fx.water_fx && g_waterRa.ok;
     return g_fxActive && g_fx.water_fx && g_pack.waterTex1 >= 0 && g_pack.waterTex2 >= 0;
 }
 
@@ -1559,12 +1977,13 @@ static bool water_fx_draw(void)
     water_foam_boot();
     water_normal_boot();
     const int waveOn = water_wave_sim();
+    const std::vector<PackCell>& cells = water_cells();
     /* the sea's plane this frame: the mean corner height of the holed cells in view */
     int reflOn = 0;
     if (g_fx.water_reflect_scene) {
         double sumY = 0.0; int nY = 0;
-        for (size_t i = 0; i < g_pack.cell.size(); i++) {
-            const PackCell& c = g_pack.cell[i];
+        for (size_t i = 0; i < cells.size(); i++) {
+            const PackCell& c = cells[i];
             if (!c.holes || !cell_shown(c.x, c.y) || !cell_in_view(c.x, c.y)) continue;
             sumY += terrain_corner_y(c.x, c.y); nY++;
         }
@@ -1586,11 +2005,11 @@ static bool water_fx_draw(void)
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, g_waterFieldTex);
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, g_pack.tex[g_pack.waterTex2].gl);
+    glBindTexture(GL_TEXTURE_2D, water_base2());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_pack.tex[g_pack.waterTex1].gl);
+    glBindTexture(GL_TEXTURE_2D, water_base1());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
@@ -1643,24 +2062,33 @@ static bool water_fx_draw(void)
     fx_set1f(prog, "uWaveLen", g_fx.water_wave_len > 0.05f ? g_fx.water_wave_len : 0.05f);
     fx_set1f(prog, "uWaveSpeed", g_fx.water_wave_speed);
     rain_water_uniforms(prog);                   /* the rain's rings and its sky (rain_mod.h) */
+    /* THE BASE'S OWN SCALE: the UV law below lays it at its repeats a cell, and the
+       warp and the slide are kept the same distance on the ground as the cartridge's. */
+    const float rpc = water_base_repeats();
+    const float warpRep = water_src_ra() ? WATER_WARP_REPEATS * (rpc / WATER_REPEATS_PER_CELL)
+                                         : WATER_WARP_REPEATS;
+    if (water_src_ra()) {
+        fx_set1f(prog, "uBaseScale", rpc / WATER_REPEATS_PER_CELL);
+        fx_set1f(prog, "uBaseGain", WATER_RA_BASE_GAIN);
+    }
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);                       /* console: Z_CMP set, Z_UPD clear */
 
     glBegin(GL_TRIANGLES);
-    for (size_t i = 0; i < g_pack.cell.size(); i++) {
-        const PackCell& c = g_pack.cell[i];
+    for (size_t i = 0; i < cells.size(); i++) {
+        const PackCell& c = cells[i];
         if (!c.holes || !cell_shown(c.x, c.y) || !cell_in_view(c.x, c.y)) continue;
         const int cxs[6] = { c.x, c.x, c.x + 1, c.x + 1, c.x, c.x + 1 };
         const int czs[6] = { c.y, c.y + 1, c.y, c.y, c.y + 1, c.y + 1 };
         for (int k = 0; k < 6; k++) {
             const int cx = cxs[k], cz = czs[k];
             const float ang = phase + 256.0f * (float)(cx + cz);
-            const float wu = WATER_WARP_REPEATS * sinf(ang);
-            const float wv = WATER_WARP_REPEATS * cosf(ang);
-            const float bu = WATER_REPEATS_PER_CELL * (float)cx + wu;
-            const float bv = WATER_REPEATS_PER_CELL * (float)cz + wv;
+            const float wu = warpRep * sinf(ang);
+            const float wv = warpRep * cosf(ang);
+            const float bu = rpc * (float)cx + wu;
+            const float bv = rpc * (float)cz + wv;
             float light, vis, tint[3];
             water_terrain_corner(cx, cz, tinted, oneSun, &light, &vis, tint);
             /* The console's own scroll is NOT added: the pan along the current is the
@@ -1710,8 +2138,12 @@ static void water_shore_draw(void)
 
     const bool oneSun = g_fxActive && g_fx.sun_lambert && g_fx.terrain_normals;
     const float bearing = g_fx.water_current * (float)(M_PI / 180.0);
-    const float panU = sinf(bearing) * g_fx.water_pan * g_fxTime;
-    const float panV = -cosf(bearing) * g_fx.water_pan * g_fxTime;
+    float panU = sinf(bearing) * g_fx.water_pan * g_fxTime;
+    float panV = -cosf(bearing) * g_fx.water_pan * g_fxTime;
+    if (water_src_ra()) {                    /* the slide at the base's own scale */
+        const float k = water_base_repeats() / WATER_REPEATS_PER_CELL;
+        panU *= k; panV *= k;
+    }
 
     water_foam_boot();
     glActiveTexture(GL_TEXTURE4);
@@ -1721,9 +2153,9 @@ static void water_shore_draw(void)
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, g_waterFieldTex);
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, g_pack.tex[g_pack.waterTex2].gl);
+    glBindTexture(GL_TEXTURE_2D, water_base2());
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_pack.tex[g_pack.waterTex1].gl);
+    glBindTexture(GL_TEXTURE_2D, water_base1());
 
     fx_glUseProgram(prog);
     fx_set1i(prog, "uW1", 0);
@@ -1751,6 +2183,15 @@ static void water_shore_draw(void)
     fx_set1f(prog, "uProductMean", g_waterGrainMean * g_waterMean2);
     fx_set1f(prog, "uNatural", g_fx.water_natural);
     fx_set1f(prog, "uDark", g_fx.water_dark);
+    const bool ra = water_src_ra();
+    if (ra) {
+        fx_set1f(prog, "uBaseRepeat", water_base_repeats());
+        fx_set1f(prog, "uBaseGain", WATER_RA_BASE_GAIN);
+        fx_set1i(prog, "uSheet", 5);
+        glActiveTexture(GL_TEXTURE5);
+        glBindTexture(GL_TEXTURE_2D, g_waterRa.sheet.gl);
+        glActiveTexture(GL_TEXTURE0);
+    }
 
     GLint depthFunc = GL_LESS;
     glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
@@ -1763,9 +2204,10 @@ static void water_shore_draw(void)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_ALPHA_TEST);
 
+    const std::vector<PackCell>& cells = water_cells();
     glBegin(GL_TRIANGLES);
-    for (size_t i = 0; i < g_pack.cell.size(); i++) {
-        const PackCell& c = g_pack.cell[i];
+    for (size_t i = 0; i < cells.size(); i++) {
+        const PackCell& c = cells[i];
         if (c.x < 0 || c.y < 0 || c.x >= g_gridW || c.y >= g_gridH) continue;
         if (!g_waterCoastCell[(size_t)c.y * g_gridW + c.x]) continue;
         if (!cell_shown(c.x, c.y) || !cell_in_view(c.x, c.y)) continue;
@@ -1774,6 +2216,7 @@ static void water_shore_draw(void)
         for (int k = 0; k < 6; k++) {
             float light, vis, tint[3];
             water_terrain_corner(cxs[k], czs[k], false, oneSun, &light, &vis, tint);
+            if (ra) glMultiTexCoord2f(GL_TEXTURE5, cxs[k] == c.x ? c.u0 : c.u1, czs[k] == c.y ? c.v0 : c.v1);
             glColor4f(vis, vis, vis, light);      /* rgb the shroud, a the terrain's light */
             glVertex3f((float)cxs[k], terrain_corner_y(cxs[k], czs[k]), (float)czs[k]);
         }
@@ -1785,6 +2228,7 @@ static void water_shore_draw(void)
     glDepthFunc((GLenum)depthFunc);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
+    if (ra) { glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, 0); }
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE3);
@@ -1834,23 +2278,97 @@ static int    g_waterSoftLinear = -1;
    sibling cache in this file, water_field_sync, has keyed on the scenario and the map
    rectangle from the day it was written; this one is now the same shape. */
 static char   g_waterSoftScen[20] = "";
+
+/* ONE TILE'S RAMP, shared by Tiberian Dawn's soft sheet below and Red Alert's ground
+   (ra3d_terrain.h), which builds its own sheet with the ramp in it. solid and hole are
+   the tile's hard cut (bw x bh, 1 where it holds); the ramp's alpha goes to dst, one
+   texel every `px` bytes, `row` bytes a row.
+   CENTRED on the cut (Tiberian Dawn's): half on the sand and half in the hole, because
+   the hole's own texels carry no picture worth showing. WATER-SIDE (Red Alert's): the
+   land stays whole and the fade runs out over the hole, because there the hole's texels
+   are the painted water, which fades into the live sea; centred, the outer half of every
+   coast and every rock's own rim would turn translucent for no gain. */
+static void water_soft_ramp(const unsigned char* solid, const unsigned char* hole, int bw, int bh,
+                            float softR, unsigned char* dst, size_t row, int px,
+                            bool waterSide = false)
+{
+    std::vector<float> dToHole((size_t)bw * bh), dToSolid((size_t)bw * bh);
+    water_edt_2d(hole,  &dToHole[0],  NULL, bw, bh);
+    water_edt_2d(solid, &dToSolid[0], NULL, bw, bh);
+    for (int y = 0; y < bh; y++)
+        for (int x = 0; x < bw; x++) {
+            const size_t j = (size_t)y * bw + x;
+            /* signed distance to the cut, in texels: + on sand, - in the hole. A
+               texel beside the cut is at distance 1, so the ramp is centred on the
+               half-texel line between the two rows, which is where the cut was. */
+            const float sd = solid[j] ? dToHole[j] - 0.5f : -(dToSolid[j] - 0.5f);
+            float a = waterSide ? 1.0f + sd / softR : 0.5f + sd / (2.0f * softR);
+            if (a < 0.0f) a = 0.0f; else if (a > 1.0f) a = 1.0f;
+            dst[(size_t)y * row + (size_t)x * px] = (unsigned char)(a * 255.0f + 0.5f);
+        }
+}
 static int    g_waterSoftUW = -1;
 static int    g_waterSoftUH = -1;
 
-static bool water_soft_atlas_sync(void)
+/* THE SHEETS BUILT FOR THE OTHER ATLASES, kept rather than thrown away. The graphics
+   modes change which atlas the ground draws from (SPACE cycles them live), and without
+   this every return to a mode rebuilt its sheet: about a tenth of the 0.6 s first frame
+   measured on a coastal map. Two slots, keyed exactly as the live one is, and any slot
+   built for another scenario is dropped at the next sync. */
+struct WaterSoftSlot { GLuint tex; int atlas; GLuint src; int linear, uw, uh; char scen[20]; };
+static WaterSoftSlot g_waterSoftSlot[2];
+
+static void water_soft_slot_drop(WaterSoftSlot* s)
 {
-    const int ai = terrain_atlas_index();
+    if (s->tex) glDeleteTextures(1, &s->tex);
+    memset(s, 0, sizeof *s);
+}
+
+static bool water_soft_sync_for(int ai, int linear)
+{
     if (ai < 0 || ai >= (int)g_pack.tex.size()) return false;
     const PackTex& at = g_pack.tex[ai];
-    const int linear = g_fx.bilinear ? 1 : 0;
     if (g_waterSoftTex && g_waterSoftAtlas == ai && g_waterSoftSrc == at.gl
         && g_waterSoftLinear == linear
         && g_waterSoftUW == at.uw && g_waterSoftUH == at.uh
         && !strcmp(g_waterSoftScen, g_pack.scen))
         return true;
+    for (int k = 0; k < 2; k++)
+        if (g_waterSoftSlot[k].tex && strcmp(g_waterSoftSlot[k].scen, g_pack.scen))
+            water_soft_slot_drop(&g_waterSoftSlot[k]);
+    /* The live sheet, if it is this scenario's, goes into a slot instead of the bin. */
+    if (g_waterSoftTex && !strcmp(g_waterSoftScen, g_pack.scen)) {
+        WaterSoftSlot* s = !g_waterSoftSlot[0].tex ? &g_waterSoftSlot[0]
+                         : !g_waterSoftSlot[1].tex ? &g_waterSoftSlot[1] : &g_waterSoftSlot[1];
+        if (s->tex) water_soft_slot_drop(s);
+        s->tex = g_waterSoftTex; s->atlas = g_waterSoftAtlas; s->src = g_waterSoftSrc;
+        s->linear = g_waterSoftLinear; s->uw = g_waterSoftUW; s->uh = g_waterSoftUH;
+        snprintf(s->scen, sizeof s->scen, "%s", g_waterSoftScen);
+        g_waterSoftTex = 0;
+    }
+    for (int k = 0; k < 2; k++) {
+        WaterSoftSlot* s = &g_waterSoftSlot[k];
+        if (s->tex && s->atlas == ai && s->src == at.gl && s->linear == linear
+            && s->uw == at.uw && s->uh == at.uh) {
+            g_waterSoftTex = s->tex; g_waterSoftAtlas = s->atlas; g_waterSoftSrc = s->src;
+            g_waterSoftLinear = s->linear; g_waterSoftUW = s->uw; g_waterSoftUH = s->uh;
+            snprintf(g_waterSoftScen, sizeof g_waterSoftScen, "%s", s->scen);
+            s->tex = 0;
+            memset(s, 0, sizeof *s);
+            return true;
+        }
+    }
     if (g_waterSoftTex) { glDeleteTextures(1, &g_waterSoftTex); g_waterSoftTex = 0; }
-    if (at.w <= 0 || at.h <= 0 || (long)at.w * at.h > 4096L * 4096L || at.uw <= 0 || at.uh <= 0)
+    if (at.w <= 0 || at.h <= 0 || (long)at.w * at.h > WATER_ATLAS_MAX_TEXELS || at.uw <= 0 || at.uh <= 0)
         return false;
+    /* THE RAMP IS A WIDTH ON THE GROUND, not a count of texels. The radius is set for the
+       1995 cell of 24 texels; the Enhanced sheet draws a cell from 144, where 2.5 texels
+       is a sixth of the fade the other sheets show, and the water cut (the cartridge's
+       24-a-cell one, enlarged bilinearly) showed its 24-grid corners through it. Scaled by the cell,
+       the fade is as wide on the ground as everywhere else (a tile rectangle is one cell,
+       so its width is the cell). The other sheets keep the radius as it was tuned. */
+    const bool enhSheet = ai == g_pack.terrainTexEnh;
+    float softR = WATER_SOFT_RADIUS;
     std::vector<unsigned char> atl((size_t)at.w * at.h * 4);
     glBindTexture(GL_TEXTURE_2D, at.gl);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, &atl[0]);
@@ -1886,20 +2404,9 @@ static bool water_soft_atlas_sync(void)
                 nSolid += a >= 128 ? 1 : 0;
             }
         if (nSolid == 0 || nSolid == bw * bh) continue;          /* no cut in this tile */
-        std::vector<float> dToHole((size_t)bw * bh), dToSolid((size_t)bw * bh);
-        water_edt_2d(&hole[0],  &dToHole[0],  NULL, bw, bh);
-        water_edt_2d(&solid[0], &dToSolid[0], NULL, bw, bh);
-        for (int y = 0; y < bh; y++)
-            for (int x = 0; x < bw; x++) {
-                const size_t j = (size_t)y * bw + x;
-                /* signed distance to the cut, in texels: + on sand, - in the hole. A
-                   texel beside the cut is at distance 1, so the ramp is centred on the
-                   half-texel line between the two rows, which is where the cut was. */
-                const float sd = solid[j] ? dToHole[j] - 0.5f : -(dToSolid[j] - 0.5f);
-                float a = 0.5f + sd / (2.0f * WATER_SOFT_RADIUS);
-                if (a < 0.0f) a = 0.0f; else if (a > 1.0f) a = 1.0f;
-                atl[((size_t)(y0 + y) * at.w + (x0 + x)) * 4 + 3] = (unsigned char)(a * 255.0f + 0.5f);
-            }
+        if (enhSheet && bw > 24) softR = WATER_SOFT_RADIUS * (float)bw / 24.0f;   /* a cell is bw texels */
+        water_soft_ramp(&solid[0], &hole[0], bw, bh, softR,
+                        &atl[((size_t)y0 * at.w + x0) * 4 + 3], (size_t)at.w * 4, 4);
     }
     glGenTextures(1, &g_waterSoftTex);
     glBindTexture(GL_TEXTURE_2D, g_waterSoftTex);
@@ -1912,20 +2419,54 @@ static bool water_soft_atlas_sync(void)
     g_waterSoftAtlas = ai; g_waterSoftSrc = at.gl; g_waterSoftLinear = linear;
     g_waterSoftUW = at.uw; g_waterSoftUH = at.uh;
     snprintf(g_waterSoftScen, sizeof g_waterSoftScen, "%s", g_pack.scen);
-    fprintf(stderr, "WATER|softcoast|atlas=%d|tiles=%d|radius=%.1f\n", ai, tiles, (double)WATER_SOFT_RADIUS);
+    fprintf(stderr, "WATER|softcoast|atlas=%d|tiles=%d|radius=%.1f|sheet=%dx%d\n", ai, tiles, (double)softR,
+            at.w, at.h);
     return true;
+}
+
+static bool water_soft_atlas_sync(void)
+{
+    return water_soft_sync_for(terrain_atlas_index(), g_fx.bilinear ? 1 : 0);
+}
+
+/* BUILD ANOTHER ATLAS'S SHEET INTO A SLOT, leaving the live one as it is, so the first
+   switch into a mode that draws from that atlas finds it ready (gmwipe_mod.h calls this
+   while another mode is on screen). The build is the ordinary one; the live sheet is set
+   aside for it and put back after. */
+static void water_soft_prepare(int ai, int linear)
+{
+    WaterSoftSlot live;
+    memset(&live, 0, sizeof live);
+    live.tex = g_waterSoftTex; live.atlas = g_waterSoftAtlas; live.src = g_waterSoftSrc;
+    live.linear = g_waterSoftLinear; live.uw = g_waterSoftUW; live.uh = g_waterSoftUH;
+    snprintf(live.scen, sizeof live.scen, "%s", g_waterSoftScen);
+    g_waterSoftTex = 0;
+    if (water_soft_sync_for(ai, linear) && g_waterSoftTex) {
+        WaterSoftSlot* s = !g_waterSoftSlot[0].tex ? &g_waterSoftSlot[0] : &g_waterSoftSlot[1];
+        if (s->tex) water_soft_slot_drop(s);
+        s->tex = g_waterSoftTex; s->atlas = g_waterSoftAtlas; s->src = g_waterSoftSrc;
+        s->linear = g_waterSoftLinear; s->uw = g_waterSoftUW; s->uh = g_waterSoftUH;
+        snprintf(s->scen, sizeof s->scen, "%s", g_waterSoftScen);
+    }
+    g_waterSoftTex = live.tex; g_waterSoftAtlas = live.atlas; g_waterSoftSrc = live.src;
+    g_waterSoftLinear = live.linear; g_waterSoftUW = live.uw; g_waterSoftUH = live.uh;
+    snprintf(g_waterSoftScen, sizeof g_waterSoftScen, "%s", live.scen);
 }
 
 /* The two the terrain pass asks. The texture to bind in place of its atlas (its own when
    the soft coast is not in play), and whether it should blend. */
 static GLuint water_terrain_gl(GLuint def)
 {
+    /* Tiberian Dawn's terrain only: Red Alert's ground carries its soft coast in its own
+       sheet (ra3d_terrain.h), and the scene pack's atlas drawn for its depth has no cut. */
+    if (water_src_ra()) return def;
     if (!water_fx_wanted() || !water_soft_atlas_sync()) return def;
     return g_waterSoftTex;
 }
 static bool water_terrain_soft(void)
 {
+    if (water_src_ra()) return false;
     return water_fx_wanted() && g_waterSoftTex != 0 && g_waterSoftAtlas == terrain_atlas_index();
 }
 
-#endif /* CNC3D_WATER_MOD_H */
+#endif /* OPENCNC3D_WATER_MOD_H */

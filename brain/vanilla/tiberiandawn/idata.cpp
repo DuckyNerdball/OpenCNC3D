@@ -13,14 +13,19 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Adds HOUSEF_MULTI7 and HOUSEF_MULTI8 to the owner mask of every infantry
 // type in the table, so houses 7 and 8 may own and build the same infantry
 // the first six multiplayer houses can. The two bits are defined as zero
 // unless the EIGHTPLAYERS build switch is on, so with the switch off the
 // masks are unchanged.
+// MODIFIED again in September 2026: adds E1TR, a test infantry type that is
+// the minigunner in every rule (same DO table, weapon, strength, speed and
+// owners) under its own INI name, so a scenario can place it beside the
+// minigunner and a renderer can tell the two apart. It is never buildable
+// (build level and first scenario 99) and it loads the minigunner's shapes.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -1433,6 +1438,45 @@ static InfantryTypeClass const DrChan(INFANTRY_CHAN,    // Infantry type number.
                                       MPH_SLOW_ISH);
 
 /*
+**	E1TR: a test infantry type, the minigunner in every rule, under its own name. It
+**	exists so that a scenario can field it BESIDE the minigunner and the renderer can
+**	draw the two differently; nothing in the simulation tells them apart except the
+**	name. Build level and first scenario are 99, so no sidebar and no computer player
+**	ever builds one; it appears only where a scenario places it. Its shapes are the
+**	minigunner's (see One_Time).
+*/
+static InfantryTypeClass const E1TR(INFANTRY_E1TR,        // Infantry type number.
+                                    TXT_E1,               // Translate name number for infantry type.
+                                    "E1TR",               // INI name for infantry.
+                                    99,                   // Build level.
+                                    STRUCTF_NONE,         // Building prerequisite.
+                                    false,                // Is this a female type?
+                                    true,                 // Is a leader type?
+                                    true,                 // Has crawling animation frames?
+                                    false,                // Is this a civlian?
+                                    false,                // Always use the given name for the infantry?
+                                    false,                // Is this a "fraidycat" run-away type infantry?
+                                    false,                // Can this infantry type capture a building?
+                                    false,                // Theater specific graphic image?
+                                    -1,                   // Number of shots it has (default).
+                                    &MiniGunnerDos[0][0], // Ptr to minigunner 'DO' table above
+                                    2,                    // Frame of projectile launch.
+                                    2,                    // Frame of projectile launch while prone.
+                                    50,                   // Strength of infantry (in damage points).
+                                    1,                    // Sight range.
+                                    100,                  // Cost of infantry (in credits).
+                                    99,                   // Scenario when they first appear.
+                                    80,
+                                    10, // Risk/Reward of this infantry unit.
+                                    HOUSEF_MULTI1 | HOUSEF_MULTI2 | HOUSEF_MULTI3 | HOUSEF_MULTI4 | HOUSEF_MULTI5
+                                        | HOUSEF_MULTI6 | HOUSEF_MULTI7 | HOUSEF_MULTI8 | HOUSEF_JP | HOUSEF_GOOD
+                                        | HOUSEF_BAD, // Who can own this infantry unit.
+                                    WEAPON_M16,
+                                    WEAPON_NONE,
+                                    MPH_SLOW // Maximum speed of infantry.
+);
+
+/*
 **	This is the array of pointers to the static data associated with each
 **	infantry type.
 */
@@ -1456,7 +1500,8 @@ InfantryTypeClass const* const InfantryTypeClass::Pointers[INFANTRY_COUNT] = {&E
                                                                               &C10,
                                                                               &Moebius,
                                                                               &Delphi,
-                                                                              &DrChan};
+                                                                              &DrChan,
+                                                                              &E1TR};
 
 /***********************************************************************************************
  * InfantryTypeClass::InfantryTypeClass -- Constructor for infantry type class objects.        *
@@ -1749,9 +1794,10 @@ void InfantryTypeClass::One_Time(void)
         uclass = &As_Reference(index);
 
         /*
-        **	Generic shape for all houses load method.
+        **	Generic shape for all houses load method. E1TR is the minigunner under
+        **	another name and has no art of its own, so it takes the minigunner's.
         */
-        _makepath(fullname, NULL, NULL, uclass->IniName, ".SHP");
+        _makepath(fullname, NULL, NULL, index == INFANTRY_E1TR ? "E1" : uclass->IniName, ".SHP");
         ((void const*&)uclass->ImageData) = MFCD::Retrieve(fullname);
 
         /*

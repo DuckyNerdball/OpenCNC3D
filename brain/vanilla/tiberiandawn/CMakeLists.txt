@@ -1,5 +1,5 @@
 #
-# MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+# MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 # Adds an EIGHTPLAYERS build option, on by default, and passes it to both
 # the TiberianDawn and VanillaTD targets, so the engine is compiled with an
 # eight house multiplayer roster (Multi7 and Multi8) instead of the stock
@@ -7,7 +7,7 @@
 # compiler flags for non MSVC compilers and excludes the Windows only COM
 # map editor interface, dllinterfaceeditor.cpp, from non Windows builds.
 # It DOES change the game simulation.
-# The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+# The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 # and NOTICE.md lists every modified file.
 #
 set(TIBDAWN_SRC
@@ -170,35 +170,35 @@ endif()
 
 include(ProductVersion)
 
-# OpenCNC 3D: dllinterface.{h,cpp} (the CNC_* API) is written for MSVC and uses __int64,
+# OpenCNC3D: dllinterface.{h,cpp} (the CNC_* API) is written for MSVC and uses __int64,
 # __declspec and types declared inside anonymous unions. Clang/GCC accept all of that
 # with the Microsoft-extension flags, so the API compiles unmodified off Windows.
 # Keeping the source untouched matters: it must still build for 32-bit Windows later.
 if(BUILD_REMASTERTD AND NOT MSVC)
-    set(CNC3D_MS_FLAGS -fms-extensions)
+    set(OPENCNC3D_MS_FLAGS -fms-extensions)
     include(CheckCXXCompilerFlag)
-    check_cxx_compiler_flag(-fdeclspec CNC3D_HAS_FDECLSPEC)
-    if(CNC3D_HAS_FDECLSPEC)
-        list(APPEND CNC3D_MS_FLAGS -fdeclspec)
+    check_cxx_compiler_flag(-fdeclspec OPENCNC3D_HAS_FDECLSPEC)
+    if(OPENCNC3D_HAS_FDECLSPEC)
+        list(APPEND OPENCNC3D_MS_FLAGS -fdeclspec)
     endif()
 endif()
 
-# OpenCNC 3D: EIGHTPLAYERS widens the multiplayer roster from six to eight houses
+# OpenCNC3D: EIGHTPLAYERS widens the multiplayer roster from six to eight houses
 # (Multi7/Multi8, grey and brown -- the two colors Red Alert added). Configure with
 # -DEIGHTPLAYERS=OFF to rebuild the stock six-player engine.
 option(EIGHTPLAYERS "Eight multiplayer houses instead of the stock six" ON)
 if(EIGHTPLAYERS)
-    set(CNC3D_EIGHTPLAYERS_DEF EIGHTPLAYERS)
+    set(OPENCNC3D_EIGHTPLAYERS_DEF EIGHTPLAYERS)
 else()
-    set(CNC3D_EIGHTPLAYERS_DEF "")
+    set(OPENCNC3D_EIGHTPLAYERS_DEF "")
 endif()
 
-# OpenCNC 3D: the map-editor interface is COM-based (SAFEARRAY/HRESULT/VT_UI1) and is
+# OpenCNC3D: the map-editor interface is COM-based (SAFEARRAY/HRESULT/VT_UI1) and is
 # Windows-only. The headless brain does not need it, so it is dropped off Windows.
 if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(CNC3D_EDITOR_IFACE dllinterfaceeditor.cpp)
+    set(OPENCNC3D_EDITOR_IFACE dllinterfaceeditor.cpp)
 else()
-    set(CNC3D_EDITOR_IFACE "")
+    set(OPENCNC3D_EDITOR_IFACE "")
 endif()
 
 if(BUILD_REMASTERTD)
@@ -218,16 +218,16 @@ if(BUILD_REMASTERTD)
     endif()
     add_library(TiberianDawn SHARED 
         dllinterface.cpp
-        ${CNC3D_EDITOR_IFACE}
+        ${OPENCNC3D_EDITOR_IFACE}
         sidebarglyphx.cpp
         ${TIBDAWN_SRC}
         ${TIBDAWN_HEADERS}
         ${REMASTERTD_RC}
     )
-    target_compile_definitions(TiberianDawn PUBLIC $<$<CONFIG:Debug>:_DEBUG> ${REMASTER_DEFS} MEGAMAPS ${CNC3D_EIGHTPLAYERS_DEF})
-    if(CNC3D_MS_FLAGS)
-        target_compile_options(TiberianDawn PRIVATE ${CNC3D_MS_FLAGS})
-        target_compile_options(commonr PRIVATE ${CNC3D_MS_FLAGS})
+    target_compile_definitions(TiberianDawn PUBLIC $<$<CONFIG:Debug>:_DEBUG> ${REMASTER_DEFS} MEGAMAPS ${OPENCNC3D_EIGHTPLAYERS_DEF})
+    if(OPENCNC3D_MS_FLAGS)
+        target_compile_options(TiberianDawn PRIVATE ${OPENCNC3D_MS_FLAGS})
+        target_compile_options(commonr PRIVATE ${OPENCNC3D_MS_FLAGS})
     endif()
     target_include_directories(TiberianDawn PUBLIC ${CMAKE_SOURCE_DIR} .)
     target_link_libraries(TiberianDawn commonr ${REMASTER_LIBS} ${STATIC_LIBS})
@@ -277,7 +277,7 @@ if(BUILD_VANILLATD)
         )
     endif()
 
-    target_compile_definitions(VanillaTD PUBLIC $<$<CONFIG:Debug>:_DEBUG> ${VANILLA_DEFS} MEGAMAPS ${CNC3D_EIGHTPLAYERS_DEF})
+    target_compile_definitions(VanillaTD PUBLIC $<$<CONFIG:Debug>:_DEBUG> ${VANILLA_DEFS} MEGAMAPS ${OPENCNC3D_EIGHTPLAYERS_DEF})
     target_include_directories(VanillaTD PUBLIC ${CMAKE_SOURCE_DIR} .)
     target_link_libraries(VanillaTD commonv ${VANILLA_LIBS} ${STATIC_LIBS})
     set_target_properties(VanillaTD PROPERTIES OUTPUT_NAME vanillatd)

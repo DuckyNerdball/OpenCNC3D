@@ -2,18 +2,21 @@
 #
 # The same two strips as the DOS arm, plus the two things only this HUD has: the bar can
 # slide out of the way, and it keeps plates pinned to the WINDOW when it does. Run at
-# 1280x960, where the whole-number zoom is 2 and the bar is therefore 320 wide, so the
-# map ends at x=960 deployed and reaches the window edge once the drawer is hidden. The
-# window strip is [1268,1280) either way.
+# 1280x960, where the Enhanced HUD's whole-number zoom is 1: the bar column starts at
+# x=1108 and its radar frame reaches 12 columns further left, so the map ends at x=1096
+# deployed and reaches the window edge once the drawer is hidden. The window strip is
+# [1268,1280) either way.
 #
-#   1  deployed: the map's right edge scrolls EAST
+#   1  deployed: the map's right edge, which REFUSES since the map-side strip was removed
 #   2  deployed: the window's right edge is ON the bar and scrolls EAST just the same
 #   3  deployed: the middle of the bar, between the two strips, moves nothing
 #   4  hidden: the map now reaches the window edge, and that edge scrolls EAST the same
 #      distance, so the drawer no longer changes the answer
 #   5  hidden: the SIDEBAR handle plate keeps its veto even though it sits INSIDE the
 #      window strip, or reaching for the control that brings the bar back would pan the
-#      map. This is the one thing the strip's exemption is not allowed to swallow.
+#      map. This is the one thing the strip's exemption is not allowed to swallow. Row 14
+#      is inside the plate's 17-row band and below the 12-row top strip, so the probe
+#      measures the right-hand strip and not the top one.
 cam 45 38
 edge R 20
 cam 45 38
@@ -25,5 +28,5 @@ sbslide settle
 cam 45 38
 edge R 20
 cam 45 38
-edgeat 1278 17 20
+edgeat 1278 14 20
 quit

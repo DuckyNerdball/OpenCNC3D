@@ -7,8 +7,8 @@ Theme names come from theme.cpp _themes[].
 import re, sys, json
 
 import os as _os
-# Repo root, resolved at runtime. CNC3D_ROOT overrides it for an out-of-tree checkout.
-_ROOT = _os.environ.get("CNC3D_ROOT") or _os.path.abspath(
+# Repo root, resolved at runtime. OPENCNC3D_ROOT overrides it for an out-of-tree checkout.
+_ROOT = _os.environ.get("OPENCNC3D_ROOT") or _os.path.abspath(
     _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", ".."))
 
 SRC = _os.path.join(_ROOT, "brain", "vanilla", "tiberiandawn")

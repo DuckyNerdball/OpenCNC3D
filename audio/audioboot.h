@@ -1,6 +1,6 @@
 /*
  * audioboot.h -- bringing the audio engine up, once, for whichever program is
- * running: the merged app (app/cnc3d.cpp), the standalone renderer (cnc_eyes) or
+ * running: the merged app (app/opencnc3d.cpp), the standalone renderer (cnc_eyes) or
  * the menu preview. All three want the same thing and none of them should have its
  * own opinion about it, because "the menu opened a second device" is exactly the
  * kind of bug that only shows up on someone else's sound card.

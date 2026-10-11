@@ -79,7 +79,7 @@ XL="$repo/brain/xl/build-native/tiberiandawn/TiberianDawnXL.dylib"
 
 . tools/mac/deployment-target.sh
 cmake -S brain/vanilla -B brain/vanilla/build-native \
-      -DCMAKE_OSX_DEPLOYMENT_TARGET="$CNC3D_MACOS_MIN" \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET="$OPENCNC3D_MACOS_MIN" \
       -DBUILD_REMASTERTD=ON -DBUILD_VANILLATD=OFF -DBUILD_VANILLARA=OFF \
       -DBUILD_REMASTERRA=OFF -DSDL2=OFF -DOPENAL=OFF -DNETWORKING=OFF \
       >"$RUNDIR/build-classic.log" 2>&1
@@ -91,12 +91,15 @@ else
 fi
 CLASSIC="$repo/brain/vanilla/build-native/tiberiandawn/TiberianDawn.dylib"
 
-# The two dylibs must export the same CNC_* surface, plus XL's ABI facts.
-nm -gU "$CLASSIC" | awk '{print $3}' | grep '^_CNC' | sort >"$RUNDIR/sym.classic"
-nm -gU "$XL"      | awk '{print $3}' | grep '^_CNC' | sort >"$RUNDIR/sym.xl"
+# The two dylibs must export the same CNC_* and OpenCNC3D_* surface, plus XL's ABI
+# facts. Both prefixes are listed: a pattern that misses the project's own exports
+# compares the stock API alone and can never see XL's extra symbol.
+SYMPAT='^_(CNC|OpenCNC3D|OPENCNC3D)'
+nm -gU "$CLASSIC" | awk '{print $3}' | grep -E "$SYMPAT" | sort >"$RUNDIR/sym.classic"
+nm -gU "$XL"      | awk '{print $3}' | grep -E "$SYMPAT" | sort >"$RUNDIR/sym.xl"
 if [ -z "$(comm -23 "$RUNDIR/sym.classic" "$RUNDIR/sym.xl")" ] \
-   && [ "$(comm -13 "$RUNDIR/sym.classic" "$RUNDIR/sym.xl")" = "_CNC3D_ABI_Facts" ]; then
-    ok "XLb symbol surface: classic set + CNC3D_ABI_Facts, nothing else"
+   && [ "$(comm -13 "$RUNDIR/sym.classic" "$RUNDIR/sym.xl")" = "_OpenCNC3D_ABI_Facts" ]; then
+    ok "XLb symbol surface: classic set + OpenCNC3D_ABI_Facts, nothing else"
 else
     bad "XLb symbol surface drifted (diff $RUNDIR/sym.classic $RUNDIR/sym.xl)"
 fi

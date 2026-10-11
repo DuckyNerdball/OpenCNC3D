@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>N64 Fix Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#16181b; --panel:#202328; --line:#33373e; --text:#d8dade; --dim:#8a9099;
+          --accent:#e0b040; --ok:#5cc28a; --work:#6aa8ff; --bad:#e06a5a; --side:260px; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font:13px/1.4 -apple-system, "Segoe UI", sans-serif; overflow:hidden; }
+  header { position:absolute; left:0; right:0; top:0; display:flex; flex-wrap:wrap; gap:12px;
+    align-items:center; padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--line); z-index:3; }
+  header h1 { font-size:14px; margin:0 8px 0 0; font-weight:600; }
+  header label { display:flex; gap:5px; align-items:center; color:var(--dim); }
+  select, button, textarea { background:#2b2f35; color:var(--text); border:1px solid var(--line);
+    border-radius:4px; padding:3px 8px; font:inherit; }
+  button { cursor:pointer; }
+  button:disabled { opacity:.4; cursor:default; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  #progress { margin-left:auto; color:var(--dim); }
+
+  #list { position:absolute; left:0; bottom:0; width:var(--side); overflow-y:auto;
+    background:var(--panel); border-right:1px solid var(--line); z-index:2; }
+  #list h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim);
+    margin:0; padding:10px 12px 4px; position:sticky; top:0; background:var(--panel); z-index:1; }
+  .item { display:flex; gap:8px; align-items:center; padding:5px 10px; cursor:pointer;
+    border-left:3px solid transparent; }
+  .item:hover { background:#272b31; }
+  .item.sel { background:#2d3239; border-left-color:var(--accent); }
+  .thumb { position:relative; width:52px; height:52px; flex:none; border-radius:4px; background:#15171a;
+    display:grid; place-items:center; overflow:hidden; }
+  .thumb img { width:100%; height:100%; object-fit:contain; }
+  .thumb .wait { font-size:9px; color:var(--dim); }
+  .dot { position:absolute; top:3px; right:3px; width:9px; height:9px; border-radius:50%;
+    border:1px solid #0008; }
+  .dot.modelling { background:var(--work); animation:pulse 1.2s ease-in-out infinite; }
+  .dot.queued { background:#6b717a; }
+  .dot.review { background:var(--accent); }
+  .dot.approved { background:var(--ok); }
+  .dot.rejected { background:var(--bad); }
+  @keyframes pulse { 50% { transform:scale(1.35); opacity:.6; } }
+  .meta { min-width:0; flex:1; }
+  .meta b { display:block; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .meta span { color:var(--dim); font-size:11px; }
+  .status { display:block; font-size:11px; margin-top:1px; }
+  .status.modelling { color:var(--work); }
+  .status.review { color:var(--accent); }
+  .status.approved { color:var(--ok); }
+  .status.rejected { color:var(--bad); }
+  .status.queued, .status.not { color:var(--dim); }
+  .mini { height:3px; background:#2f343b; border-radius:2px; margin-top:3px; overflow:hidden; }
+  .mini div { height:100%; background:var(--work); transition:width .6s; }
+
+  #stage { position:absolute; right:0; bottom:0; display:flex; z-index:2; pointer-events:none; }
+  .pane { flex:1; position:relative; border-right:1px solid var(--line); }
+  .pane:last-child { border-right:0; }
+  .tag { position:absolute; top:10px; left:12px; }
+  .tag b { display:block; font-size:15px; }
+  .tag span { color:var(--dim); }
+  .over { position:absolute; inset:0; display:none; place-items:center; color:var(--dim);
+    font-size:16px; letter-spacing:.03em; text-align:center; }
+  .over.show { display:grid; }
+  .over .big { font-size:18px; color:var(--text); }
+  .over .step { font-size:12px; margin-top:6px; }
+  .bar { width:260px; height:8px; background:#2b2f35; border-radius:4px; margin:12px auto 0; overflow:hidden; }
+  .bar div { height:100%; background:var(--work); transition:width .6s; }
+
+  #review { position:absolute; left:12px; right:12px; bottom:12px; pointer-events:auto;
+    background:#1d2024ee; border:1px solid var(--line); border-radius:6px; padding:10px; display:none; }
+  #review.show { display:block; }
+  #review .row { display:flex; gap:8px; align-items:flex-end; }
+  #review textarea { flex:1; min-height:44px; max-height:140px; resize:vertical; }
+  #review .btns { display:flex; gap:6px; flex-wrap:wrap; }
+  #send { border-color:var(--work); }
+  #approve { border-color:var(--ok); color:var(--ok); }
+  #reject { border-color:var(--bad); color:var(--bad); }
+  #rstate { font-size:12px; margin-bottom:6px; }
+  #rstate.approved { color:var(--ok); } #rstate.rejected { color:var(--bad); }
+  #comments { max-height:110px; overflow-y:auto; font-size:12px; color:var(--dim); margin-bottom:6px; }
+  #comments div { padding:2px 0; border-top:1px solid #2a2e34; }
+  #comments em { font-style:normal; color:var(--work); }
+  #comments em.done { color:var(--ok); }
+
+  #gl { position:absolute; right:0; bottom:0; display:block; }
+  #play.hidden { display:none; }
+  @media (max-width: 700px) { :root { --side:0px; } #list { display:none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>N64 Fix Viewer</h1>
+  <button id="spin" class="on">Spin</button>
+  <label>Speed <input id="speed" type="range" min="0" max="2" step="0.05" value="0.5"></label>
+  <button id="play" class="hidden">Play animation</button>
+  <label>Palette <select id="house"><option value="gdi">GDI</option><option value="nod">Nod</option></select></label>
+  <label>Shading <select id="shade">
+    <option value="flat">Game (texture x baked colour)</option>
+    <option value="lit">Lit (sun + ambient)</option>
+    <option value="clay">Clay (shape only)</option>
+  </select></label>
+  <label>Filter <select id="filter"><option value="linear">Smooth</option><option value="nearest">Pixels</option></select></label>
+  <button id="wire">Wireframe</button>
+  <button id="back">Holes in cyan</button>
+  <button id="cam">Game camera</button>
+  <span id="progress"></span>
+</header>
+<nav id="list"></nav>
+<div id="stage">
+  <div class="pane"><div class="tag"><b>Cartridge (N64)</b><span id="tOld"></span></div>
+    <div class="over" id="oOld"><div>Loading</div></div></div>
+  <div class="pane"><div class="tag"><b>Fixed and improved</b><span id="tNew"></span></div>
+    <div class="over" id="oNew"></div>
+    <div id="review">
+      <div id="rstate"></div>
+      <div id="comments"></div>
+      <div class="row">
+        <textarea id="ctext" placeholder="What should change on this model?"></textarea>
+        <div class="btns">
+          <button id="send">Send comment</button>
+          <button id="approve">Approve</button>
+          <button id="reject">Reject</button>
+          <button id="reopen">Reopen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<canvas id="gl"></canvas>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+// Raw bytes in, raw bytes out: the game multiplies texel by vertex colour with no
+// colour management, so the viewer does the same.
+THREE.ColorManagement.enabled = false;
+
+const ui = id => document.getElementById(id);
+const canvas = ui("gl");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setScissorTest(true);
+
+const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+
+const state = { spin: true, wire: false, back: false, angle: 0, type: null, index: [],
+                play: false, playT: 0 };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function makeScene() {
+  const s = new THREE.Scene();
+  s.background = new THREE.Color(0x16181b);
+  s.add(new THREE.GridHelper(4, 4, 0x3a3f47, 0x2a2e34));   // one line per map cell
+  const hemi = new THREE.HemisphereLight(0xcfd8e6, 0x4a4032, 0.9);
+  const sun = new THREE.DirectionalLight(0xfff2dc, 1.6);
+  sun.position.set(-2, 4, 3);
+  s.add(hemi, sun);
+  const pivot = new THREE.Group();
+  s.add(pivot);
+  return { scene: s, pivot, parts: [], stamp: null, data: null };
+}
+const sides = { old: makeScene(), new: makeScene() };
+
+const texCache = new Map();
+function tex(url) {
+  if (!texCache.has(url)) {
+    const t = new THREE.TextureLoader().load(url);
+    t.colorSpace = THREE.NoColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    texCache.set(url, t);
+  }
+  const t = texCache.get(url);
+  const f = ui("filter").value === "nearest" ? THREE.NearestFilter : THREE.LinearFilter;
+  if (t.magFilter !== f) { t.magFilter = f; t.minFilter = f === THREE.NearestFilter ? f : THREE.LinearMipmapLinearFilter; t.needsUpdate = true; }
+  return t;
+}
+
+function material(g, base) {
+  const shade = ui("shade").value;
+  const file = g.tex ? (g.tex[ui("house").value] || g.tex.gdi) : null;
+  const map = (shade !== "clay" && file) ? tex(base + file) : null;
+  const common = { map, vertexColors: shade === "flat", side: THREE.FrontSide,
+                   transparent: g.xlu, opacity: g.xlu ? 0.55 : 1,
+                   // cutout faces (lattices, fences) are drawn with an alpha test, as in the game
+                   alphaTest: (g.cut || /_cutout$/.test(g.mat || "")) ? 0.5 : 0 };
+  if (shade === "flat") return new THREE.MeshBasicMaterial(common);
+  // "Lit" lights the texture alone: the baked colour is the cartridge's lighting, and
+  // lighting it again would count the light twice.
+  return new THREE.MeshStandardMaterial({ ...common, roughness: 0.85, metalness: 0,
+    color: shade === "clay" ? 0xb8b8b8 : 0xffffff });
+}
+
+// Both sides turn about the CARTRIDGE model's footprint centre, so they stay aligned.
+let centre = null;
+function footprint(d) {
+  const lo = [1e9, 1e9], hi = [-1e9, -1e9];
+  for (const g of d.groups) for (let i = 0; i < g.p.length; i += 3) {
+    lo[0] = Math.min(lo[0], g.p[i]); hi[0] = Math.max(hi[0], g.p[i]);
+    lo[1] = Math.min(lo[1], g.p[i + 1]); hi[1] = Math.max(hi[1], g.p[i + 1]);
+  }
+  return [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, Math.max(hi[0] - lo[0], hi[1] - lo[1])];
+}
+
+function build(side) {
+  const S = sides[side], d = S.data, base = `models/${state.type}/`;
+  S.pivot.clear();
+  S.parts = [];
+  if (!d) return;
+  if (!centre) centre = footprint(sides.old.data || d);
+  const holder = new THREE.Group();
+  holder.position.set(-centre[0], 0, centre[1]);
+  S.pivot.add(holder);
+  for (const g of d.groups) {
+    // one group per animated part: the pack's delta is applied to the part as a whole
+    const pi = g.part || 0;
+    if (!S.parts[pi]) { S.parts[pi] = new THREE.Group(); S.parts[pi].matrixAutoUpdate = false; holder.add(S.parts[pi]); }
+    const geo = new THREE.BufferGeometry();
+    const p = new Float32Array(g.p.length);
+    for (let i = 0; i < g.p.length; i += 3) {       // Blender Z up -> three Y up
+      p[i] = g.p[i]; p[i + 1] = g.p[i + 2]; p[i + 2] = -g.p[i + 1];
+    }
+    geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+    geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(g.uv), 2));
+    geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(g.c), 3));
+    geo.computeVertexNormals();
+    const P = S.parts[pi];
+    P.add(new THREE.Mesh(geo, material(g, base)));
+    if (state.back) P.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.BackSide })));
+    if (state.wire) P.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, transparent: true, opacity: 0.35 })));
+  }
+  pose(side, state.play ? currentFrame() : -1);
+}
+
+// ---- animation: the cartridge's own clip, every clip in order, on both sides at once
+function sequence(a) {
+  const seq = [];
+  const clips = (a.clips && a.clips.length) ? a.clips : [{ t0: 0, t1: a.frames }];
+  for (const c of clips) for (let f = c.t0; f < Math.min(c.t1, a.frames); f++) seq.push(f);
+  return seq.length ? seq : [0];
+}
+function animOf() { return (sides.old.data && sides.old.data.anim) || (sides.new.data && sides.new.data.anim) || null; }
+function currentFrame() {
+  const a = animOf();
+  if (!a) return -1;
+  const seq = sequence(a);
+  const fps = 15 / Math.max(1, a.ticks_per_frame || 1);
+  return seq[Math.floor(state.playT * fps) % seq.length];
+}
+const M4 = new THREE.Matrix4();
+function pose(side, f) {
+  const S = sides[side], a = S.data && S.data.anim;
+  const np = S.parts.length;
+  for (let pi = 0; pi < np; pi++) {
+    const P = S.parts[pi];
+    if (!P) continue;
+    if (f < 0 || !a) { P.matrix.identity(); P.visible = true; continue; }
+    const nparts = a.mat.length / (a.frames * 12);
+    if (pi >= nparts) { P.matrix.identity(); continue; }
+    const o = (f * nparts + pi) * 12, m = a.mat;
+    // pack units (1024 to the cell, y up) are the viewer's units times 1024
+    M4.set(m[o], m[o + 1], m[o + 2], m[o + 3] / 1024,
+           m[o + 4], m[o + 5], m[o + 6], m[o + 7] / 1024,
+           m[o + 8], m[o + 9], m[o + 10], m[o + 11] / 1024,
+           0, 0, 0, 1);
+    P.matrix.copy(M4);
+    P.visible = a.vis ? a.vis[f * nparts + pi] !== 0 : true;
+  }
+}
+ui("play").onclick = () => {
+  state.play = !state.play; state.playT = 0;
+  ui("play").classList.toggle("on", state.play);
+  ui("play").textContent = state.play ? "Stop animation" : "Play animation";
+  if (!state.play) { pose("old", -1); pose("new", -1); }
+};
+
+// ---- status, overlays and the review panel
+const row = () => state.index.find(r => r.type === state.type) || {};
+
+function overlays() {
+  const r = row();
+  ui("oOld").classList.toggle("show", !sides.old.data);
+  const o = ui("oNew");
+  if (sides.new.data) { o.classList.remove("show"); }
+  else {
+    o.classList.add("show");
+    if (r.status === "modelling")
+      o.innerHTML = `<div><div class="big">Modelling...</div><div class="bar"><div style="width:${r.pct}%"></div></div>
+        <div class="step">${r.pct}% &middot; ${esc(r.step || "")}</div></div>`;
+    else if (r.status === "queued")
+      o.innerHTML = `<div><div class="big">Queued</div><div class="step">number ${r.queue_pos} in the queue</div></div>`;
+    else o.innerHTML = `<div><div class="big">Not scheduled</div></div>`;
+  }
+  // a re-model in progress over an existing fix still shows its progress
+  if (sides.new.data && r.status === "modelling")
+    ui("tNew").textContent = `re-modelling ${r.pct}%: ${r.step || ""}`;
+  ui("play").classList.toggle("hidden", !animOf());
+  reviewPanel();
+}
+
+function reviewPanel() {
+  const r = row(), p = ui("review");
+  const show = !!sides.new.data;
+  p.classList.toggle("show", show);
+  if (!show) return;
+  const st = r.review || "review";
+  const rs = ui("rstate");
+  rs.className = st;
+  rs.textContent = st === "approved" ? "Approved and locked: replaces the cartridge model in Enhanced mode (Classic keeps the cartridge)."
+                 : st === "rejected" ? "Rejected: Enhanced mode keeps the cartridge model."
+                 : r.status === "modelling" ? "A comment is being worked on; the model updates here when it is done."
+                 : "Ready for review.";
+  ui("comments").innerHTML = (r.comments || []).map(c =>
+    `<div><em class="${c.status === "done" ? "done" : ""}">${c.status === "done" ? "done" : "open"}</em> ${esc(c.at)}: ${esc(c.text)}</div>`).join("");
+  const locked = st === "approved";
+  ui("ctext").disabled = locked;
+  ui("send").disabled = locked;
+  ui("approve").disabled = st === "approved";
+  ui("reject").disabled = st === "rejected";
+  ui("reopen").style.display = (st === "approved" || st === "rejected") ? "" : "none";
+}
+
+async function review(action) {
+  const text = ui("ctext").value;
+  if (action === "comment" && !text.trim()) return;
+  const res = await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: state.type, action, text }) });
+  if (res.ok && action === "comment") ui("ctext").value = "";
+  await refreshIndex(true);
+}
+ui("send").onclick = () => review("comment");
+ui("approve").onclick = () => review("approve");
+ui("reject").onclick = () => review("reject");
+ui("reopen").onclick = () => review("reopen");
+
+function label(side) {
+  const S = sides[side];
+  const tag = ui(side === "old" ? "tOld" : "tNew");
+  if (S.data) {
+    let t = `${S.data.triangles} triangles`;
+    if (side === "new" && sides.old.data)
+      t += `, ${(S.data.triangles / sides.old.data.triangles).toFixed(1)}x the cartridge`;
+    tag.textContent = t;
+  } else tag.textContent = "";
+  overlays();
+}
+
+async function load(side, force) {
+  const S = sides[side], type = state.type, url = `models/${type}/${side}.json`;
+  try {
+    const head = await fetch(url, { method: "HEAD", cache: "no-store" });
+    if (!head.ok) throw new Error("missing");
+    const stamp = head.headers.get("Last-Modified") + head.headers.get("Content-Length");
+    if (!force && stamp === S.stamp) return;
+    const data = await (await fetch(url, { cache: "no-store" })).json();
+    if (type !== state.type) return;              // the list moved on meanwhile
+    S.stamp = stamp;
+    S.data = data;
+    for (const k of [...texCache.keys()]) if (k.includes(`/${type}/${side}_`)) { texCache.get(k).dispose(); texCache.delete(k); }
+    if (side === "old") centre = null;
+  } catch (e) {
+    if (type !== state.type) return;
+    if (!S.data && !force) return;
+    S.data = null; S.stamp = null;
+  }
+  build(side);
+  if (side === "old" && sides.new.data) build("new");
+  label(side);
+}
+
+function select(type, push) {
+  if (!type || type === state.type) return;
+  state.type = type;
+  centre = null;
+  state.play = false; ui("play").classList.remove("on"); ui("play").textContent = "Play animation";
+  for (const s of ["old", "new"]) { sides[s].data = null; sides[s].stamp = null; sides[s].pivot.clear(); sides[s].parts = []; }
+  label("old"); label("new");
+  for (const el of document.querySelectorAll(".item")) el.classList.toggle("sel", el.dataset.type === type);
+  const el = document.querySelector(`.item[data-type="${type}"]`);
+  if (el) el.scrollIntoView({ block: "nearest" });
+  if (push) history.replaceState(null, "", `?m=${type}`);
+  ui("ctext").value = "";
+  (async () => { await load("old", true); await load("new", true); gameCam(); })();
+}
+
+const STATUS = {
+  modelling: r => `Modelling... ${r.pct}%`,
+  queued: r => `Queued #${r.queue_pos}`,
+  review: () => "Ready for review",
+  approved: () => "Approved",
+  rejected: () => "Rejected",
+  "not scheduled": () => "Not scheduled",
+};
+
+function renderList() {
+  const nav = ui("list"), keep = nav.scrollTop;
+  const groups = [...new Set(state.index.map(r => r.group))];
+  const html = [];
+  for (const g of groups) {
+    html.push(`<h2>${esc(g)}</h2>`);
+    for (const r of state.index.filter(r => r.group === g)) {
+      const thumb = r.new ? `models/${r.type}/thumb_new.png?${r.new_stamp}` : r.old ? `models/${r.type}/thumb_old.png?${r.old_stamp}` : null;
+      const cls = r.status === "not scheduled" ? "not" : r.status;
+      const tris = r.new ? `${r.old_tris} to ${r.new_tris} tris` : `${r.cartridge_tris} tris`;
+      html.push(`<div class="item${r.type === state.type ? " sel" : ""}" data-type="${r.type}" title="${esc(r.step || "")}">
+        <div class="thumb">${thumb ? `<img src="${thumb}" alt="">` : `<span class="wait">Loading</span>`}<span class="dot ${cls}"></span></div>
+        <div class="meta"><b>${esc(r.name)}</b><span>${r.type} &middot; ${tris}${r.anim_frames ? " &middot; animated" : ""}</span>
+          <span class="status ${cls}">${STATUS[r.status](r)}</span>
+          ${r.status === "modelling" ? `<div class="mini"><div style="width:${r.pct}%"></div></div>` : ""}</div></div>`);
+    }
+  }
+  nav.innerHTML = html.join("");
+  nav.scrollTop = keep;
+  for (const el of nav.querySelectorAll(".item")) el.onclick = () => select(el.dataset.type, true);
+  const n = k => state.index.filter(r => r.status === k).length;
+  ui("progress").textContent = `${n("modelling")} modelling, ${n("queued")} queued, ${n("review")} to review, ${n("approved")} approved, ${n("rejected")} rejected`;
+}
+
+async function refreshIndex(force) {
+  try {
+    const rows = await (await fetch("/api/index", { cache: "no-store" })).json();
+    const sig = JSON.stringify(rows);
+    if (force || sig !== state.sig) { state.sig = sig; state.index = rows; renderList(); overlays(); }
+  } catch (e) {}
+}
+
+function gameCam() {
+  // Roughly the play camera: looking north, about 55 degrees down, pulled back so the
+  // building fits the narrower of the two half-panes.
+  const size = centre ? Math.max(centre[2], 0.8) : 2;
+  const hfov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect);
+  const fit = Math.min(hfov, THREE.MathUtils.degToRad(camera.fov));
+  const r = (0.85 * size) / Math.sin(fit / 2), el = THREE.MathUtils.degToRad(55);
+  camera.position.set(0, 0.3 + r * Math.sin(el), r * Math.cos(el));
+  controls.target.set(0, 0.3, 0);
+  state.angle = 0;
+}
+
+function toggle(id, key) {
+  ui(id).onclick = () => { state[key] = !state[key]; ui(id).classList.toggle("on", state[key]); build("old"); build("new"); };
+}
+toggle("wire", "wire");
+toggle("back", "back");
+ui("spin").onclick = () => { state.spin = !state.spin; ui("spin").classList.toggle("on", state.spin); };
+ui("cam").onclick = gameCam;
+for (const id of ["house", "shade", "filter"]) ui(id).onchange = () => { build("old"); build("new"); };
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA") return;
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  const i = state.index.findIndex(r => r.type === state.type);
+  const j = Math.max(0, Math.min(state.index.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)));
+  select(state.index[j].type, true);
+  e.preventDefault();
+});
+
+function layout() {
+  const top = document.querySelector("header").offsetHeight;
+  const side = ui("list").offsetWidth;
+  ui("list").style.top = top + "px";
+  for (const el of [ui("stage"), canvas]) { el.style.top = top + "px"; el.style.left = side + "px"; }
+  const w = window.innerWidth - side, h = window.innerHeight - top;
+  canvas.style.width = w + "px"; canvas.style.height = h + "px";
+  renderer.setSize(w, h, false);
+  camera.aspect = (w / 2) / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", layout);
+
+let last = performance.now();
+function frame(now) {
+  const dt = (now - last) / 1000; last = now;
+  if (state.spin) state.angle += dt * parseFloat(ui("speed").value);
+  if (state.play) { state.playT += dt; const f = currentFrame(); pose("old", f); pose("new", f); }
+  controls.update();
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  for (const [i, side] of ["old", "new"].entries()) {
+    const S = sides[side];
+    S.pivot.rotation.y = state.angle;
+    renderer.setViewport(i * w / 2, 0, w / 2, h);
+    renderer.setScissor(i * w / 2, 0, w / 2, h);
+    renderer.render(S.scene, camera);
+  }
+  requestAnimationFrame(frame);
+}
+
+await refreshIndex(true);
+layout();
+const want = new URLSearchParams(location.search).get("m");
+select(state.index.some(r => r.type === want) ? want : (state.index.find(r => r.new) || state.index[0] || {}).type);
+setInterval(async () => { await refreshIndex(); if (state.type) { load("old"); load("new"); } }, 2000);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

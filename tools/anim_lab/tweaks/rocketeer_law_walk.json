@@ -1,0 +1,85 @@
+{
+ "bones": {
+  "Spine": {
+   "rot": [
+    35,
+    15,
+    0
+   ],
+   "twist": 0.3,
+   "steady": 0.4
+  },
+  "Head": {
+   "rot": [
+    0,
+    28.94,
+    0
+   ]
+  }
+ },
+ "toward": [
+  {
+   "clip": "Anim_RocketSoldier_Trot",
+   "amount": 1.0,
+   "bones": [
+    "Spine",
+    "Head"
+   ]
+  },
+  {
+   "clip": "Anim_RocketSoldier_Aim",
+   "amount": 1.0,
+   "bones": [
+    "LeftArm",
+    "LeftForeArm",
+    "LeftHand",
+    "RightArm",
+    "RightForeArm",
+    "RightHand",
+    "Weapon"
+   ]
+  }
+ ],
+ "carry": {
+  "pitch": 24.25,
+  "yaw": 14.23,
+  "pivot": "RightArm"
+ },
+ "grip": {
+  "right": {
+   "at": [
+    -6,
+    -4.1,
+    -5
+   ],
+   "elbow": [
+    0.3,
+    0.3,
+    -1
+   ],
+   "straight": true
+  },
+  "left": {
+   "at": [
+    12,
+    -12,
+    -6.8
+   ],
+   "fingers": [
+    1,
+    0.25,
+    0.1
+   ],
+   "palm": [
+    0,
+    0.1,
+    1
+   ],
+   "elbow": [
+    0,
+    -0.5,
+    -1
+   ]
+  }
+ }
+}

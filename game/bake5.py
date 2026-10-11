@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D asset baker, PK5: per-part submeshes with mount transforms and roles.
+OpenCNC3D asset baker, PK5: per-part submeshes with mount transforms and roles.
 
 WHAT CHANGED FROM PK4. The PK4 baker (surviving as bake_pk4.pyc, loaded via
 pk4mod.py; its behaviour is reproduced byte for byte on SCB01EA before this
@@ -233,7 +233,7 @@ _ROM_BYTES = None
 def _rom():
     global _ROM_BYTES
     if _ROM_BYTES is None:
-        _ROM_BYTES = open(os.path.join(B.SCR, "share", "CNC3D", "rom",
+        _ROM_BYTES = open(os.path.join(B.SCR, "share", "OpenCNC3D", "rom",
                                        "cnc_eu.z64"), "rb").read()
     return _ROM_BYTES
 
@@ -272,7 +272,7 @@ def _imgsqueeze():
     sys.path.insert(0, path)
     try:
         spec = importlib.util.spec_from_file_location(
-            "cnc3d_imgsqueeze", os.path.join(path, "imgsqueeze.py"))
+            "opencnc3d_imgsqueeze", os.path.join(path, "imgsqueeze.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
     finally:
@@ -310,13 +310,30 @@ def bake_heights(scen, override=None, cw=65, ch=65):
     iq = _imgsqueeze()          # guarantees tools/romdump is first on sys.path
     import importlib.util
     hp = os.path.join(os.path.dirname(iq.__file__), "heights.py")
-    spec = importlib.util.spec_from_file_location("cnc3d_heights", hp)
+    spec = importlib.util.spec_from_file_location("opencnc3d_heights", hp)
     H = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(H)
     rom = os.path.join(os.path.dirname(iq.__file__), "..", "..", "data", "rom",
                        "cnc_eu.z64")
     names = ["%s.IMG" % scen.upper(), "FLAT.IMG"]
     blobs = H.rom_files(rom, names)
+    # NO HEIGHTMAP ON THE CARTRIDGE, BUT A GENERATED ONE IN THE TREE. Only the missions
+    # the console can put you in ship a hand-made heightmap; everything else on the
+    # cartridge falls back to FLAT.IMG. tools/autoheight generates one from the map's
+    # own tiles, in the style of the 55 the cartridge does ship, and the reviewed result
+    # is committed as data/autoheight/<SCEN>.HGT. It is read HERE, inside the bake, so
+    # that no route to a pack for that scenario can leave the heights out: a cartridge
+    # heightmap still wins, and an explicit --heights still wins over both.
+    if names[0] not in blobs:
+        auto = os.path.join(os.path.dirname(iq.__file__), "..", "..", "data", "autoheight",
+                            "%s.HGT" % scen.upper())
+        if os.path.exists(auto):
+            corners = _read_hgt(auto)
+            if len(corners) != cw * ch:
+                raise SystemExit("bake5: %s is %d corners; this scenario's grid needs %d"
+                                 % (auto, len(corners), cw * ch))
+            print("heights: %s from data/autoheight (generated from its tiles)" % scen)
+            return corners
     blob = blobs.get(names[0]) or blobs.get("FLAT.IMG")
     if blob is None:
         raise SystemExit("bake5: neither %s nor FLAT.IMG found in the ROM "
@@ -348,7 +365,7 @@ def bake_cm(scen, cw=65, ch=65):
     iq = _imgsqueeze()          # guarantees tools/romdump is first on sys.path
     import importlib.util
     hp = os.path.join(os.path.dirname(iq.__file__), "heights.py")
-    spec = importlib.util.spec_from_file_location("cnc3d_heights", hp)
+    spec = importlib.util.spec_from_file_location("opencnc3d_heights", hp)
     H = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(H)
     rom = os.path.join(os.path.dirname(iq.__file__), "..", "..", "data", "rom",
@@ -1029,7 +1046,7 @@ def check_prim_only():
 # ---------------------------------------------------------------------------
 # The real keyframes come out of the cartridge's CAFEDEAD pose records (+0x40/+0x44/+0x48
 # track pointers) and are resampled onto a fixed frame grid here, so the renderer only
-# ever lerps between two baked poses. Until that extractor lands, CNC3D_FAKEANIM=<type>
+# ever lerps between two baked poses. Until that extractor lands, OPENCNC3D_FAKEANIM=<type>
 # writes a SYNTHETIC clip for one mesh: every node yaws about the model origin, one full
 # turn over 32 frames. It exists to prove the whole path -- baker, pack format, loader,
 # renderer -- with something whose correct appearance is unmistakable, so that when the
@@ -2389,7 +2406,7 @@ def check_terrain_ids(um):
 #
 # There are TWO different theater words in this project and they legitimately disagree.
 # game/missions/SCA01EA.INI says Theater=DESERT (what the TD brain runs) and carries
-# CNC3DTheater=SAND (what we repaint it with), so its baked terrain JSON says "SAND".
+# OpenCNC3DTheater=SAND (what we repaint it with), so its baked terrain JSON says "SAND".
 # A flora test keyed on the string "DESERT" therefore MISSES a genuine desert mission,
 # and the same hole swallows SNOW, which is our repaint of WINTER. The flora remap is a
 # property of the ENGINE theater, because the ids it moves come from the TerrainTypeClass
@@ -2403,7 +2420,12 @@ def check_terrain_ids(um):
 # and prints "Illegal theater type: %d" for anything else.
 LOOK_THEATER = {"DESERT": "DESERT", "SAND": "DESERT",
                 "TEMPERAT": "TEMPERATE", "TEMPERATE": "TEMPERATE",
-                "WINTER": "WINTER", "SNOW": "WINTER"}
+                "WINTER": "WINTER", "SNOW": "WINTER",
+                # Red Alert's snow on its own template numbers (tools/ra3d/bake_ra_terrain3d.py)
+                "RASNOW": "WINTER", "RATEMP": "TEMPERATE",
+                # Red Alert's interior has no Tiberian Dawn theater; nothing in a lean
+                # Red Alert bake reads the flora remap this decides
+                "RAINT": "TEMPERATE"}
 TD_THEATER = {"DESERT": 0, "JUNGLE": 1, "TEMPERATE": 2, "WINTER": 3}
 THEATER_DESERT = 0
 
@@ -2464,14 +2486,27 @@ def terrain_source_code(code, theater_id):
     return code
 
 
-def build(scen, outpath, verbose=True, heights=None, cmvals=None):
+class _LeanSkip(Exception):
+    """A lean bake skips the house-colour variants of models it does not carry."""
+
+
+def build(scen, outpath, verbose=True, heights=None, cmvals=None, lean=False, cursors=False):
+    """`lean` bakes the SCENE alone -- terrain, heights, tint and water, with no models,
+    effects, sprite sheets or shadows. `cursors` retains the shared cursor rigs and
+    flipbooks in that scene so the remastered 3D cursors can attach. A Red Alert mission draws none of Tiberian Dawn's
+    models (its objects are its own sprites, game/ra3d_sprites_mod.h), and the full model
+    set is most of a pack's twelve megabytes, carried once per mission for nothing."""
     um = json.load(open(os.path.join(B.SCR, "unit_models.json")))
+    if lean:
+        um = {k: v for k, v in um.items() if k == "_meta"
+              or (cursors and (is_cursor_code(k) or k in ("CUR0E", "CURCIRC")))}
     terr = json.load(open(os.path.join(B.ASSETS, "terrain", "terrain_%s.json" % scen)))
     # The ENGINE theater, resolved once and used for every theater-dependent decision
     # below. Not terr["theater"]: that is the LOOK name, and SAND is a repaint of
     # DESERT (see engine_theater).
     theater_name, theater_id = engine_theater(scen, terr["theater"])
-    check_terrain_ids(um)
+    if not lean:
+        check_terrain_ids(um)
     # Cell grid size, from the terrain JSON's own width/height fields. Older
     # JSONs carry no such fields: those are the legacy 64x64 bakes. The
     # per-corner blocks (PK9 heights, PKC tint) sit on a (W+1)x(H+1) grid.
@@ -2537,11 +2572,11 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None):
         meshindex[m] = len(meshes)
         meshparts[m] = parts
         meshsections[m] = mesh_sections(code, um[code], parts)
-        if os.environ.get("CNC3D_FAKEANIM") == code:
+        if os.environ.get("OPENCNC3D_FAKEANIM") == code:
             meshanim[m] = fake_anim(len(parts))
             if verbose:
                 print("anim: SYNTHETIC yaw clip on %s (%d parts, 32 frames) -- "
-                      "CNC3D_FAKEANIM is a plumbing test, not cartridge data"
+                      "OPENCNC3D_FAKEANIM is a plumbing test, not cartridge data"
                       % (code, len(parts)))
         elif is_cursor_code(code):
             a = bake_cursor_anim(code, um[code], parts, verbose)
@@ -2559,42 +2594,43 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None):
                      pivot=[round(x, 2) for x in p[3]]) for p in parts])
     # BEFORE the flatten, so the per-frame variants get exactly the same packed-normal
     # treatment their own base mesh does.
-    flip_types = bake_cursor_flipbooks(um, bank, meshes, meshindex, meshparts,
+    flip_types = {} if lean and not cursors else bake_cursor_flipbooks(um, bank, meshes, meshindex, meshparts,
                                        meshsections, verbose)
     # Same place and the same reason: the structure texture books are mesh variants too,
     # and they must be walked before the flatten so a variant gets exactly the treatment
     # its own base mesh does.
-    flip_types.update(bake_struct_flipbooks(um, bank, meshes, meshindex, meshparts,
+    flip_types.update({} if lean else bake_struct_flipbooks(um, bank, meshes, meshindex, meshparts,
                                             meshsections, verbose))
     # BEFORE THE FLATTEN, and the ordering is load-bearing rather than tidy. Two of the
     # damage lists are all-packed-unit-normal (HOSP 24/24, FIX 6/6) and need exactly the
     # whitening every other lit mesh gets. Baked AFTER the flatten they would ship
     # modulated by dark green and look wrong on screen with no error anywhere, which is
     # the worse failure of the two.
-    flip_types.update(bake_damage_overlays(bank, meshes, meshindex, meshparts,
+    flip_types.update({} if lean else bake_damage_overlays(bank, meshes, meshindex, meshparts,
                                            meshsections, verbose))
     # BEFORE THE FLATTEN for the same reason again: all 288 of the nuke's vertices carry
     # packed unit normals (dome 76/76, stem 22/22, collar 30/30, cloud 160/160) and no
     # nuke list enables G_LIGHTING, so the colour slot is not a colour. White is the
     # honest substitute and it must be applied here or the mushroom shows up modulated by
     # a normal vector.
-    flip_types.update(bake_nuke_effect(bank, meshes, meshindex, meshparts,
+    flip_types.update({} if lean else bake_nuke_effect(bank, meshes, meshindex, meshparts,
                                        meshsections, meshanim, verbose))
     # The ion cannon whitens its own beam per PART (see the note in bake_ion_effect), so
     # unlike every other producer above it does not depend on running before the flatten.
     # It runs here anyway so both effects sit together and the GDI re-walk below can offer
     # its textures to bank2 in the same order.
-    flip_types.update(bake_ion_effect(bank, meshes, meshindex, meshparts,
+    flip_types.update({} if lean else bake_ion_effect(bank, meshes, meshindex, meshparts,
                                       meshsections, verbose))
     # The rally flag keeps its authored grey so the renderer can multiply the player's
     # house colour through it, so like the ion it does not depend on the flatten.
-    flip_types.update(bake_rally_flag(bank, meshes, meshindex, meshparts,
+    flip_types.update({} if lean else bake_rally_flag(bank, meshes, meshindex, meshparts,
                                       meshsections, meshanim, um, verbose))
-    flatten_lit_meshes(meshes, verbose)
+    if not lean:
+        flatten_lit_meshes(meshes, verbose)
     # AFTER the flatten: the chunk colours are already folded and two of them are
     # deliberately prim-only, so the packed-normal whitener has nothing to do here and
     # must not be given the chance.
-    debris_types, debris_gdi = bake_debris_chunks(
+    debris_types, debris_gdi = ({}, []) if lean else bake_debris_chunks(
         bank, meshes, meshindex, meshparts, meshsections, verbose)
     if verbose:
         ntot = sum(len(t) for _, t in meshes)
@@ -2618,6 +2654,8 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None):
             gdi_data[bi] = rgba
     saved_tlut = B.GLOBAL_TLUT
     try:
+        if lean:
+            raise _LeanSkip()
         B.GLOBAL_TLUT = GDI_TLUT
         bank2 = B.TexBank()
         for code in sorted(k for k in um if k != "_meta"):
@@ -2646,6 +2684,8 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None):
         bake_nuke_effect(bank2, [], {}, {}, {}, {}, verbose=False)
         bake_ion_effect(bank2, [], {}, {}, {}, verbose=False)
         bake_rally_flag(bank2, [], {}, {}, {}, {}, um, verbose=False)
+    except _LeanSkip:
+        bank2 = B.TexBank()
     finally:
         B.GLOBAL_TLUT = saved_tlut
     n_variant = 0
@@ -2664,7 +2704,7 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None):
 
     # ---- sprites (byte-identical logic to the PK4 baker) -----------------
     sprites, sprindex = [], {}
-    for setname in B.SPRITE_SETS:
+    for setname in ([] if lean else B.SPRITE_SETS):
         npal = 11 if setname == "DP" else 2
         for (anim, _nf, _nfac) in B.SPRITE_ANIMS:
             for pal in range(npal):
@@ -2683,7 +2723,7 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None):
         print("sprites: %d strips (sets x anims x palettes)" % len(sprites))
 
     infantry = []
-    for code in sorted(B.INFANTRY_SETS):
+    for code in ([] if lean else sorted(B.INFANTRY_SETS)):
         st, pals = B.INFANTRY_SETS[code]
         idxs = []
         for house in range(B.N_HOUSE):
@@ -2725,6 +2765,8 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None):
     # in the pack keeps its number, so a bake diff stays readable. The two
     # tiles are direct-colour RGBA5551, so they never carry a GDI variant.
     water0, water1, seabed = bake_water(bank)
+    # Kept even when lean: the reader asserts exactly 18 PKD records and refuses a
+    # pack with any other count, and the 18 small textures cost little.
     vshadows = bake_vehicle_shadows(bank)
     if verbose:
         print("water: WATER1 -> bank %d, WATER2 -> bank %d, BOTTOM (seabed) -> "
@@ -2890,10 +2932,12 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None):
         f.write(struct.pack("<i", seabed))
         f.write(struct.pack("<ii", water0, water1))
 
-    json.dump(roles_doc, open(os.path.join(HERE, "parts_roles.json"), "w"), indent=1)
+    if not lean:     # the model roles, which a lean bake carries none of
+        json.dump(roles_doc, open(os.path.join(HERE, "parts_roles.json"), "w"), indent=1)
     check_pk8_tail(outpath, corners, cmvals, vshadows)
-    check_prim_only()
-    check_xlu()
+    if not lean:                 # both tally the model set, which a lean bake leaves out
+        check_prim_only()
+        check_xlu()
     if verbose:
         print("wrote %s (%.1f MB)" % (outpath, os.path.getsize(outpath) / 1e6))
 

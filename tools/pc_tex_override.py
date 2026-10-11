@@ -24,7 +24,7 @@ water into the tile instead. Taking the PC's alpha would change the water MECHAN
 well as the art, and then the comparison would not be a comparison. So the hole mask is
 the cart's and the colour is the PC's.
 
-Enable with CNC3D_PC_TEX=1 in the environment before anything imports n64_terrain.
+Enable with OPENCNC3D_PC_TEX=1 in the environment before anything imports n64_terrain.
 This is a test rig, not a shipping path.
 """
 import os
@@ -149,4 +149,4 @@ def pc_art(root):
 
 
 def enabled():
-    return os.environ.get("CNC3D_PC_TEX", "") not in ("", "0")
+    return os.environ.get("OPENCNC3D_PC_TEX", "") not in ("", "0")

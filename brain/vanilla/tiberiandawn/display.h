@@ -13,14 +13,14 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Declares the Build Anywhere interface on DisplayClass inside the existing
-// USE_RA_AI block: the static per-house bitmask CNC3D_BuildAnywhereHouses
-// and the two static functions CNC3D_Set_Build_Anywhere and
-// CNC3D_Build_Anywhere, with a comment noting that a set bit lifts the base
+// USE_RA_AI block: the static per-house bitmask OpenCNC3D_BuildAnywhereHouses
+// and the two static functions OpenCNC3D_Set_Build_Anywhere and
+// OpenCNC3D_Build_Anywhere, with a comment noting that a set bit lifts the base
 // adjacency rule only.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -197,13 +197,13 @@ public:
     bool Passes_Proximity_Check(ObjectTypeClass const* object, HousesType house, short const* list, CELL trycell) const;
 
     /*
-    ** OpenCNC 3D: the cheat menu's "Build Anywhere". A house bit here lifts the base
+    ** OpenCNC3D: the cheat menu's "Build Anywhere". A house bit here lifts the base
     ** ADJACENCY rule for that house and nothing else -- see the comment at the
     ** hook inside Passes_Proximity_Check for why terrain stays illegal.
     */
-    static unsigned CNC3D_BuildAnywhereHouses;
-    static void CNC3D_Set_Build_Anywhere(HousesType house, bool on);
-    static bool CNC3D_Build_Anywhere(HousesType house);
+    static unsigned OpenCNC3D_BuildAnywhereHouses;
+    static void OpenCNC3D_Set_Build_Anywhere(HousesType house, bool on);
+    static bool OpenCNC3D_Build_Anywhere(HousesType house);
 #endif
     ObjectClass* Cell_Object(CELL cell, int x = 0, int y = 0);
     ObjectClass* Next_Object(ObjectClass* object);

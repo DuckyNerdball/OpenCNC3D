@@ -42,9 +42,13 @@ typedef struct GameOpts {
     const char* dosinf;     /* NULL = keep the N64 infantry        */
     const char* dosmake;    /* NULL = buildings pop in finished    */
     const char* efx;
+    const char* efxEnh;     /* remastered effect art, Enhanced; missing = the cartridge's */
     const char* dostib;     /* real tiberium art pack; missing = crystals  */
     const char* tib3d;      /* solid crystal clumps, Enhanced; missing = flat only */
     const char* tree3d;     /* leafy trees, Enhanced; missing = the cartridge model */
+    const char* models3d;   /* directory of authored vehicle models, Enhanced only  */
+    const char* mottle;     /* ground variation patches, Enhanced only; "" is off */
+    const char* sky3d;      /* the sky those models are lit by, Enhanced only       */
     int         texset;     /* --texset: <0 = leave the cartridge's ground alone   */
     int         enhanced;   /* --enhanced: the PLAYER's Enhanced picture, not just the chain */
     const char* doscrate;   /* crate art pack; missing = crates unseen     */
@@ -56,6 +60,8 @@ typedef struct GameOpts {
     const char* posetest;
     /* Sound. Where the 1995 archives are, and where the mix comes out. */
     const char* dosdata;    /* SOUNDS.MIX and friends; NULL -> "dosdata"    */
+    int ra3d;               /* Red Alert engine with external renderer     */
+    int ra_difficulty;      /* 0 unset, 1 Easy, 2 Normal, 3 Hard          */
     const char* audiowav;   /* record the mix to this WAV, open no device   */
     int nosound;            /* open nothing and make no noise               */
     int musicvol, soundvol; /* the 1995 Game Controls sliders, 0..255       */
@@ -63,6 +69,7 @@ typedef struct GameOpts {
        synthesize a WIN game-over event so the post-mission flow (win movie,
        score, map, next briefing) can run hands-off. 0 in every real game. */
     int forcewin_ticks;
+    int forcewin_real;      /* test route: ask the engine for its own verdict */
     int build;              /* build level                         */
     /* A SAVED GAME TO LOAD once the mission is up: the slot number PLUS ONE, so a
        zero-filled GameOpts asks for nothing. game_boot boots the scenario as usual and
@@ -107,8 +114,8 @@ typedef struct GameOpts {
    which is the brain's own RANDOM_START_POSITION (dllinterface.cpp) and makes it deal
    that seat a start out of whatever is left, with the synchronised random stream, so
    every peer deals the same one. The lobby's own copy is SK_START_RANDOM. */
-#define CNC3D_START_UNPICKED (-1)
-#define CNC3D_START_RANDOM 0x7f
+#define OPENCNC3D_START_UNPICKED (-1)
+#define OPENCNC3D_START_RANDOM 0x7f
     /* WHO EACH SEAT IS, human first, filled for the first ai_count + 1 entries.
        These carry the lobby's per-player drop down and they are the only reason the
        match is not always "the human's side against everybody else":
@@ -248,6 +255,9 @@ const char* game_net_fail(void);
    means silence; every audio call in the renderer is a no-op then. */
 struct CncAudio;
 void game_set_audio(struct CncAudio* au);
+/* The Red Alert frontend has no N64 presentation. This keeps the shared Visuals
+   page visible while making its N64 row unavailable. */
+void game_set_n64_unavailable(int unavailable);
 
 int  game_parse_args(int argc, char** argv, GameOpts* out);   /* 0 ok, 2 usage printed */
 int  game_boot(SDL_Window* win, const GameOpts* o);           /* 1 ok, 0 failed        */
@@ -298,15 +308,18 @@ void game_set_movie_player(int (*play)(void* user, const char* name), void* user
  * measuring instrument does not. That split is the whole reason this is a call the SHELL
  * makes rather than a value in fx_defaults(): 71 of the gate suite's invocations drive
  * cnc_eyes and assert against the picture this project has always shipped, and three
- * drive cnc3d and assert state rather than pixels. Moving the default into the library
+ * drive opencnc3d and assert state rather than pixels. Moving the default into the library
  * would have changed what all 71 of them measure.
  *
  * `preset` is loaded if it exists and ignored in silence if it does not, because a
  * first run has no saved config and that is not an error. */
 void game_visuals_default_enhanced(const char* preset);
+/* Red Alert's two modes at boot: C&C's dials, Red Alert's last mode and display. See the
+   definition in cnc_eyes.cpp. */
+void game_visuals_default_ra(const char* preset, const char* tdPreset, int classicOnly);
 /* WHAT WINDOW TO MAKE, before there is one: the display mode and size the preset asks
    for (fullscreen.h's FS_MODE_*), or the compiled defaults with no preset. Returns 1
-   when a preset file was read. app/cnc3d.cpp asks this before SDL_CreateWindow. */
+   when a preset file was read. app/opencnc3d.cpp asks this before SDL_CreateWindow. */
 int game_display_wanted(const char* preset, int* mode, int* rw, int* rh);
 
 /* THE PLAYER'S GAME CONTROLS, REMEMBERED, AND THE SHELL DECIDES THAT TOO.
@@ -367,7 +380,8 @@ int game_skirmish_teams_ok(void);
 typedef struct GameOverInfo {
     int  valid, win;
     char movie[16];
-    int  score, leadership, efficiency;
+    char movie2[16], movie3[16], movie4[16], after_score_movie[16];
+    int  score, leadership, efficiency, base_points;
     int  nod_killed, gdi_killed, civ_killed;
     int  nod_bldg, gdi_bldg, civ_bldg;
     int  credits;

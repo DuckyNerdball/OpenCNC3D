@@ -21,8 +21,8 @@
  * cannot host. What is exposed by not having it is each peer's address, which a relay is
  * the answer to rather than a cipher.
  */
-#ifndef CNC3D_NET_UDP_H
-#define CNC3D_NET_UDP_H
+#ifndef OPENCNC3D_NET_UDP_H
+#define OPENCNC3D_NET_UDP_H
 
 
 /* THE RENDERER IS C++ AND THIS FILE IS C, so the declarations below have to be marked as
@@ -224,4 +224,4 @@ int net_last_rx_time(const NetSock* s, long* sec, long* usec);
 }   /* extern "C" */
 #endif
 
-#endif /* CNC3D_NET_UDP_H */
+#endif /* OPENCNC3D_NET_UDP_H */

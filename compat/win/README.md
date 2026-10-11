@@ -5,7 +5,7 @@ produce a Windows binary. It is put on the include path ahead of everything else
 `tools/win/build-win.sh`, and it satisfies the three macOS-only things that file asks for
 by name.
 
-Every other source in the project (`app/cnc3d.cpp`, `menu/dosmenu_shell.h`,
+Every other source in the project (`app/opencnc3d.cpp`, `menu/dosmenu_shell.h`,
 `video/movieplay.c`, `video/playvqa.c`, `app/campaign.c`) already carries its own
 `#ifdef __APPLE__` GL guard and needs nothing from here. The renderer is the one file
 that does not, and it is also the file most likely to have work in flight in it,

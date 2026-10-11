@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM  OpenCNC 3D mission editor, Windows launcher.
+REM  OpenCNC3D mission editor, Windows launcher.
 REM
 REM  It does four things and nothing else:
 REM
@@ -24,7 +24,7 @@ cd /d "%~dp0"
 set "SCEN=SCG01EA"
 set "LOG=%~dp0Editor.log"
 
-echo Starting the OpenCNC 3D editor on %SCEN%.
+echo Starting the OpenCNC3D editor on %SCEN%.
 echo Output goes to Editor.log in this folder.
 echo.
 

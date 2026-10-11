@@ -10,13 +10,13 @@
 # It installs OUTSIDE the repo on purpose: the SDK is binaries, project rule 2 keeps
 # binaries out of git, and there can be more than one worktree of this repo checked out.
 #
-#   ./setup-toolchain.sh          -> ~/.cnc3d-winsdk
-#   CNC3D_WINSDK=/some/where ./setup-toolchain.sh
+#   ./setup-toolchain.sh          -> ~/.opencnc3d-winsdk
+#   OPENCNC3D_WINSDK=/some/where ./setup-toolchain.sh
 #
 # Safe to re-run: anything already unpacked is left alone.
 set -e
 
-SDK="${CNC3D_WINSDK:-$HOME/.cnc3d-winsdk}"
+SDK="${OPENCNC3D_WINSDK:-$HOME/.opencnc3d-winsdk}"
 # CHANGING SDL2_VER CHANGES SDL2.dll, AND A NEW SDL2.dll DOES NOT REACH EVERY PLAYER.
 # Launchers up to v0.6.11 cannot replace SDL2.dll, because they have it loaded, and they
 # write the install record before they reach it. A release carrying a different SDL2.dll
@@ -64,7 +64,7 @@ fetch() {   # fetch <url> <file> <expected-sha256>
 # Overridable so a machine that only has one of the two can still produce the SDK the
 # shipping build needs. An MSYS2 install may carry the i686 toolchain and no
 # x86_64 one; the default is unchanged, so macOS and CI still build both.
-HOSTS="${CNC3D_WIN_HOSTS:-i686-w64-mingw32 x86_64-w64-mingw32}"
+HOSTS="${OPENCNC3D_WIN_HOSTS:-i686-w64-mingw32 x86_64-w64-mingw32}"
 
 for h in $HOSTS; do
     command -v $h-gcc >/dev/null 2>&1 || {

@@ -12,6 +12,15 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D in October 2026. This is not EA's original file.
+// In the headless module only, when the dog's shape is not resident through the
+// mix file lookup, InfantryTypeClass::One_Time reads the staged original DOG.SHP
+// loose file instead of leaving the image empty.
+// It changes what the engine loads, not the rules it plays by.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
 
 /* $Header: /CounterStrike/IDATA.CPP 3     3/16/97 10:16p Joe_b $ */
 /***********************************************************************************************
@@ -48,6 +57,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+extern bool OpenCNC3DHeadless;
 #include "type.h"
 
 static DoInfoStruct DogDoControls[DO_COUNT] = {
@@ -1379,6 +1389,13 @@ void InfantryTypeClass::One_Time(void)
 #else
         ((void const*&)uclass->ImageData) = MFCD::Retrieve(fullname);
 #endif
+        /* The original disc's DOG.SHP is not resident through MFCD::Retrieve in
+           the headless module. Read the staged original loose file when present. */
+        if (OpenCNC3DHeadless && uclass->Type == INFANTRY_DOG && !uclass->ImageData) {
+            CCFileClass original(fullname);
+            if (original.Is_Available())
+                ((void const*&)uclass->ImageData) = Load_Alloc_Data(original);
+        }
 
         /*
         **	The small build image icon sized shapes are always generic.

@@ -1,6 +1,6 @@
 /*
  * cursors.h -- the 1995 MS-DOS Command & Conquer mouse cursor, as a lift-and-drop
- * module for the OpenCNC 3D renderer.
+ * module for the OpenCNC3D renderer.
  *
  * WHAT IT IS. MOUSE.SHP holds the 178 cursor frames the DOS game ever shows; the
  * table that says which frames mean what (start frame, animation length, animation
@@ -26,7 +26,7 @@
  * 15 fps (attack, select, deploy), rate 2 is 30 fps (sell, repair, radar).
  *
  * WHAT PICKS THE CURSOR. Not this file. The host asks the SAME probe the order
- * path uses (CNC3D_Probe_Object_At -> Best_Object_Action) and maps the ActionType
+ * path uses (OpenCNC3D_Probe_Object_At -> Best_Object_Action) and maps the ActionType
  * through cur_mouse_for_action(), which is DisplayClass::Mouse_Left_Up's
  * unshrouded switch (display.cpp:3676-3750) transcribed case for case. This
  * renderer draws no shroud, so the shadow branch does not apply.
@@ -108,6 +108,46 @@ static const CurControl CUR_CONTROL[MOUSE_TYPE_COUNT] = {
     {153, 1,  0, 152, 15, 12, "guard"},        /* MOUSE_AREA_GUARD   */
 };
 
+/* Red Alert mouse.cpp:332-389. Its MOUSE.SHP has 222 frames and reassigns nearly
+ * every action after the eight edge arrows. Keep the host's logical action names
+ * while selecting the original Red Alert frame, count, timer and hotspot. The ion
+ * entry is TD-only, so it shows the plain arrow in the RA module. */
+static const CurControl RA_CUR_CONTROL[MOUSE_TYPE_COUNT] = {
+    {0, 1, 0, 80, 0, 0, "normal"},
+    {1, 1, 0, -1, 14, 0, "n"}, {2, 1, 0, -1, 29, 0, "ne"},
+    {3, 1, 0, -1, 29, 11, "e"}, {4, 1, 0, -1, 29, 23, "se"},
+    {5, 1, 0, -1, 14, 23, "s"}, {6, 1, 0, -1, 0, 23, "sw"},
+    {7, 1, 0, -1, 0, 11, "w"}, {8, 1, 0, -1, 0, 0, "nw"},
+    {124, 1, 0, -1, 14, 0, "no-n"}, {125, 1, 0, -1, 29, 0, "no-ne"},
+    {126, 1, 0, -1, 29, 11, "no-e"}, {127, 1, 0, -1, 29, 23, "no-se"},
+    {128, 1, 0, -1, 14, 23, "no-s"}, {129, 1, 0, -1, 0, 23, "no-sw"},
+    {130, 1, 0, -1, 0, 11, "no-w"}, {131, 1, 0, -1, 0, 0, "no-nw"},
+    {14, 1, 0, 33, 14, 11, "no-move"},
+    {10, 4, 4, 29, 14, 11, "move"},
+    {113, 3, 4, 142, 14, 11, "enter"},
+    {59, 9, 4, -1, 14, 11, "deploy"},
+    {15, 6, 4, -1, 14, 11, "select"},
+    {21, 8, 4, 134, 14, 11, "attack"},
+    {68, 12, 2, -1, 14, 11, "sell"},
+    {148, 12, 2, -1, 14, 11, "sell-unit"},
+    {35, 24, 2, -1, 14, 11, "repair"},
+    {120, 1, 0, -1, 14, 11, "no-repair"},
+    {119, 1, 0, -1, 14, 11, "no-sell"},
+    {81, 1, 0, 145, 14, 11, "radar"},
+    {0, 1, 0, 80, 0, 0, "ion-unavailable"},
+    {90, 7, 4, -1, 14, 11, "nuke"},
+    {82, 8, 2, 213, 14, 11, "airstrike"},
+    {116, 3, 4, 121, 14, 11, "demolitions"},
+    {147, 1, 0, 146, 14, 11, "guard"},
+};
+
+static DB_Pack* g_raCurPack = NULL;
+static bool g_curRa = false;
+static const CurControl* cur_control(int type)
+{
+    return &(g_curRa ? RA_CUR_CONTROL : CUR_CONTROL)[type];
+}
+
 /* ---- ActionType -> MouseType ------------------------------------------------------ *
  * DisplayClass::Mouse_Left_Up, display.cpp:3676-3750, the unshrouded branch,
  * transcribed case for case. ACTION_NONE falls to the default, MOUSE_NORMAL,
@@ -173,16 +213,24 @@ static int    g_curPrevType = MOUSE_NORMAL;  /* what to revert to */
 /* One DOS system-timer tick, mouse.cpp's animation unit. */
 #define CUR_TICK_MS (1000.0 / 60.0)
 
-static bool cur_init(const DB_Pack* pack, char* err, int errlen)
+static bool cur_init(const DB_Pack* pack, char* err, int errlen, int ra_theater = 0)
 {
+    g_curRa = ra_theater != 0;
+    if (g_curRa) {
+        g_raCurPack = db_pack_load(ra_theater == 1 ? "ra3d/cursor-snow.pack"
+                                 : ra_theater == 3 ? "ra3d/cursor-interior.pack"
+                                                   : "ra3d/cursor-temperat.pack", err, errlen);
+        if (!g_raCurPack) return false;
+        pack = g_raCurPack;
+    }
     g_curShape = pack ? db_shape(pack, "MOUSE") : NULL;
     if (!g_curShape || g_curShape->w != 30 || g_curShape->h != 24 ||
-        g_curShape->frames < 178) {
+        g_curShape->frames < (g_curRa ? 222 : 178)) {
         if (err)
             snprintf(err, (size_t)errlen,
-                     "dossidebar.pack has no usable MOUSE shape (rebake with "
-                     "bake_dossidebar.py from next/cursors/)");
+                     "cursor pack has no usable MOUSE shape");
         g_curShape = NULL;
+        db_pack_free(g_raCurPack); g_raCurPack = NULL;
         return false;
     }
     g_curPal8 = pack->pal8;
@@ -199,6 +247,9 @@ static void cur_free(void)
     g_curTex = 0;
     g_curShape = NULL;
     g_curPal8 = NULL;
+    db_pack_free(g_raCurPack);
+    g_raCurPack = NULL;
+    g_curRa = false;
     g_curType = MOUSE_NORMAL;
     g_curFrame = 0;
     g_curUploaded = -1;
@@ -211,7 +262,7 @@ static void cur_free(void)
 
 static const char* cur_name(int t)
 {
-    return (t >= 0 && t < MOUSE_TYPE_COUNT) ? CUR_CONTROL[t].name : "?";
+    return (t >= 0 && t < MOUSE_TYPE_COUNT) ? cur_control(t)->name : "?";
 }
 
 static int cur_type(void) { return g_curType; }
@@ -259,7 +310,7 @@ static void cur_unlock(void)
    (FrameRate != 0), Frame steps by one each time FrameRate 60ths of a second pass. */
 static void cur_animate(double now_ms)
 {
-    const CurControl* c = &CUR_CONTROL[g_curType];
+    const CurControl* c = cur_control(g_curType);
     if (!c->rate || c->count <= 1) return;
     if (g_curStepMs < 0.0) { g_curStepMs = now_ms; return; }
     const double period = (double)c->rate * CUR_TICK_MS;
@@ -281,7 +332,7 @@ static void cur_draw(float col, float row, float scale, double now_ms)
     if (!g_curShape || scale <= 0.0f) return;
     cur_animate(now_ms);
 
-    const CurControl* c = &CUR_CONTROL[g_curType];
+    const CurControl* c = cur_control(g_curType);
     const int absframe = c->start + g_curFrame;
     if (absframe >= g_curShape->frames) return;    /* cannot happen with the real table */
 

@@ -1,4 +1,4 @@
-# OpenCNC 3D — N64 ROM Reverse-Engineering Log
+# OpenCNC3D — N64 ROM Reverse-Engineering Log
 
 Running log of what we actually know about the Command & Conquer (N64) ROM,
 verified against the bytes. This is the **territory**; the charter is the map.

@@ -1,0 +1,759 @@
+bank_slot,template,art_key,icon,family,status,new_color,new_height,new_normal,new_color_path
+0,CLEAR1,CLEAR1,0,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_00.png
+1,CLEAR1,CLEAR1,1,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_01.png
+2,CLEAR1,CLEAR1,2,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_02.png
+3,CLEAR1,CLEAR1,3,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_03.png
+4,CLEAR1,CLEAR1,4,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_04.png
+5,CLEAR1,CLEAR1,5,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_05.png
+6,CLEAR1,CLEAR1,6,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_06.png
+7,CLEAR1,CLEAR1,7,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_07.png
+8,CLEAR1,CLEAR1,8,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_08.png
+9,CLEAR1,CLEAR1,9,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_09.png
+10,CLEAR1,CLEAR1,10,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_10.png
+11,CLEAR1,CLEAR1,11,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_11.png
+12,CLEAR1,CLEAR1,12,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_12.png
+13,CLEAR1,CLEAR1,13,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_13.png
+14,CLEAR1,CLEAR1,14,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_14.png
+15,CLEAR1,CLEAR1,15,grass,new art,1,0,0,art/generated/temperate_grass/v3_color_matched/CLEAR1_15.png
+16,BOULDER1,B1,0,boulder,pending; Remastered fallback,0,0,0,
+17,PATCH2,P02,0,patch,pending; Remastered fallback,0,0,0,
+18,PATCH4,P04,0,patch,pending; Remastered fallback,0,0,0,
+19,BOULDER2,B2,0,boulder,pending; Remastered fallback,0,0,0,
+20,BOULDER2,B2,1,boulder,pending; Remastered fallback,0,0,0,
+21,FORD2,FORD2,0,ford,pending; Remastered fallback,0,0,0,
+22,FORD2,FORD2,1,ford,pending; Remastered fallback,0,0,0,
+23,FORD2,FORD2,2,ford,pending; Remastered fallback,0,0,0,
+24,BOULDER3,B3,0,boulder,pending; Remastered fallback,0,0,0,
+25,BOULDER3,B3,1,boulder,pending; Remastered fallback,0,0,0,
+26,BOULDER3,B3,2,boulder,pending; Remastered fallback,0,0,0,
+27,FORD2,FORD2,3,ford,pending; Remastered fallback,0,0,0,
+28,FORD2,FORD2,4,ford,pending; Remastered fallback,0,0,0,
+29,FORD2,FORD2,5,ford,pending; Remastered fallback,0,0,0,
+30,FORD2,FORD2,6,ford,pending; Remastered fallback,0,0,0,
+31,FORD2,FORD2,7,ford,pending; Remastered fallback,0,0,0,
+32,FORD2,FORD2,8,ford,pending; Remastered fallback,0,0,0,
+33,FORD1,FORD1,0,ford,pending; Remastered fallback,0,0,0,
+34,FORD1,FORD1,1,ford,pending; Remastered fallback,0,0,0,
+35,FORD1,FORD1,2,ford,pending; Remastered fallback,0,0,0,
+36,ROAD12,D12,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D12/D12_00.png
+37,ROAD22,D22,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D22/D22_01.png
+38,ROAD21,D21,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D21/D21_00.png
+39,ROAD21,D21,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D21/D21_01.png
+40,ROAD21,D21,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D21/D21_02.png
+41,FORD1,FORD1,3,ford,pending; Remastered fallback,0,0,0,
+42,FORD1,FORD1,4,ford,pending; Remastered fallback,0,0,0,
+43,FORD1,FORD1,5,ford,pending; Remastered fallback,0,0,0,
+44,ROAD12,D12,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D12/D12_02.png
+45,ROAD12,D12,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D12/D12_03.png
+46,ROAD22,D22,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D22/D22_03.png
+47,ROAD22,D22,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D22/D22_04.png
+48,ROAD22,D22,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D22/D22_05.png
+49,ROAD21,D21,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D21/D21_03.png
+50,ROAD21,D21,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D21/D21_04.png
+51,ROAD21,D21,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D21/D21_05.png
+52,FORD1,FORD1,6,ford,pending; Remastered fallback,0,0,0,
+53,FORD1,FORD1,7,ford,pending; Remastered fallback,0,0,0,
+54,FORD1,FORD1,8,ford,pending; Remastered fallback,0,0,0,
+55,PATCH14,P14,0,patch,pending; Remastered fallback,0,0,0,
+56,PATCH14,P14,1,patch,pending; Remastered fallback,0,0,0,
+57,ROAD22,D22,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D22/D22_06.png
+58,ROAD22,D22,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D22/D22_07.png
+59,ROAD5,D05,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D05/D05_01.png
+60,ROAD5,D05,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D05/D05_02.png
+61,ROAD39,D39,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D39/D39_00.png
+62,ROAD39,D39,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D39/D39_01.png
+63,ROAD5,D05,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D05/D05_03.png
+64,ROAD5,D05,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D05/D05_04.png
+65,BRIDGE1,BRIDGE1,2,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+66,BRIDGE1,BRIDGE1,3,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+67,ROAD39,D39,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D39/D39_03.png
+68,ROAD5,D05,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D05/D05_06.png
+69,ROAD5,D05,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D05/D05_07.png
+70,BRIDGE1,BRIDGE1,4,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+71,BRIDGE1,BRIDGE1,5,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+72,BRIDGE1,BRIDGE1,6,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+73,BRIDGE1,BRIDGE1,7,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+74,ROAD5,D05,9,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D05/D05_09.png
+75,ROAD5,D05,10,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D05/D05_10.png
+76,BRIDGE1,BRIDGE1,8,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+77,BRIDGE1,BRIDGE1,9,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+78,BRIDGE1,BRIDGE1,10,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+79,BRIDGE1,BRIDGE1,11,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+80,ROAD6,D06,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D06/D06_00.png
+81,ROAD42,D42,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D42/D42_00.png
+82,BRIDGE1,BRIDGE1,12,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+83,BRIDGE1,BRIDGE1,13,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+84,BRIDGE1,BRIDGE1,14,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+85,BRIDGE1,BRIDGE1,15,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE1/source_gpt_image.png
+86,ROAD6,D06,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D06/D06_02.png
+87,ROAD6,D06,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D06/D06_03.png
+88,ROAD42,D42,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D42/D42_02.png
+89,ROAD42,D42,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D42/D42_03.png
+90,ROAD6,D06,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D06/D06_04.png
+91,ROAD6,D06,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D06/D06_05.png
+92,ROAD20,D20,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D20/D20_00.png
+93,ROAD20,D20,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D20/D20_01.png
+94,ROAD7,D07,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D07/D07_00.png
+95,ROAD7,D07,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D07/D07_01.png
+96,ROAD7,D07,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D07/D07_02.png
+97,ROAD20,D20,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D20/D20_03.png
+98,ROAD20,D20,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D20/D20_04.png
+99,ROAD20,D20,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D20/D20_05.png
+100,ROAD7,D07,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D07/D07_04.png
+101,ROAD7,D07,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D07/D07_05.png
+102,ROAD20,D20,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D20/D20_06.png
+103,ROAD20,D20,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D20/D20_07.png
+104,ROAD20,D20,8,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D20/D20_08.png
+105,ROAD8,D08,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D08/D08_01.png
+106,ROAD22,D22,8,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D22/D22_08.png
+107,ROAD8,D08,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D08/D08_03.png
+108,ROAD8,D08,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D08/D08_04.png
+109,ROAD8,D08,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D08/D08_05.png
+110,ROAD10,D10,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D10/D10_07.png
+111,PATCH13,P13,0,patch,pending; Remastered fallback,0,0,0,
+112,PATCH13,P13,1,patch,pending; Remastered fallback,0,0,0,
+113,PATCH13,P13,2,patch,pending; Remastered fallback,0,0,0,
+114,ROAD9,D09,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_00.png
+115,ROAD9,D09,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_01.png
+116,ROAD9,D09,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_02.png
+117,ROAD9,D09,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_03.png
+118,PATCH13,P13,3,patch,pending; Remastered fallback,0,0,0,
+119,PATCH13,P13,4,patch,pending; Remastered fallback,0,0,0,
+120,PATCH13,P13,5,patch,pending; Remastered fallback,0,0,0,
+121,ROAD9,D09,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_04.png
+122,ROAD9,D09,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_05.png
+123,ROAD9,D09,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_06.png
+124,ROAD9,D09,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_07.png
+125,ROAD9,D09,10,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_10.png
+126,ROAD9,D09,11,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D09/D09_11.png
+127,ROAD23,D23,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D23/D23_01.png
+128,ROAD23,D23,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D23/D23_02.png
+129,ROAD23,D23,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D23/D23_03.png
+130,ROAD23,D23,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D23/D23_04.png
+131,ROAD23,D23,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D23/D23_05.png
+132,ROAD41,D41,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D41/D41_00.png
+133,ROAD23,D23,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D23/D23_06.png
+134,ROAD23,D23,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D23/D23_07.png
+135,ROAD41,D41,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D41/D41_02.png
+136,ROAD41,D41,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D41/D41_03.png
+137,ROAD35,D35,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D35/D35_01.png
+138,ROAD35,D35,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D35/D35_02.png
+139,ROAD35,D35,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D35/D35_03.png
+140,ROAD35,D35,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D35/D35_04.png
+141,ROAD35,D35,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D35/D35_05.png
+142,ROAD35,D35,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D35/D35_06.png
+143,ROAD35,D35,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D35/D35_07.png
+144,ROAD13,D13,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_00.png
+145,ROAD13,D13,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_01.png
+146,ROAD13,D13,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_02.png
+147,ROAD13,D13,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_04.png
+148,ROAD13,D13,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_05.png
+149,ROAD13,D13,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_06.png
+150,ROAD13,D13,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_07.png
+151,ROAD18,D18,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_00.png
+152,ROAD18,D18,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_01.png
+153,ROAD18,D18,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_02.png
+154,ROAD13,D13,10,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_10.png
+155,ROAD13,D13,11,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D13/D13_11.png
+156,ROAD18,D18,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_03.png
+157,ROAD18,D18,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_04.png
+158,ROAD18,D18,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_05.png
+159,ROAD18,D18,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_06.png
+160,ROAD18,D18,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_07.png
+161,ROAD18,D18,8,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D18/D18_08.png
+162,ROAD10,D10,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D10/D10_00.png
+163,ROAD10,D10,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D10/D10_01.png
+164,ROAD10,D10,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D10/D10_04.png
+165,ROAD10,D10,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D10/D10_05.png
+166,ROAD10,D10,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D10/D10_06.png
+167,ROAD11,D11,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D11/D11_01.png
+168,ROAD11,D11,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D11/D11_02.png
+169,ROAD11,D11,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D11/D11_03.png
+170,ROAD11,D11,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D11/D11_04.png
+171,WATER,W1,0,water,pending; Remastered fallback,0,0,0,
+172,ROAD15,D15,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D15/D15_00.png
+173,ROAD15,D15,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D15/D15_01.png
+174,ROAD15,D15,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D15/D15_02.png
+175,ROAD15,D15,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D15/D15_03.png
+176,ROAD15,D15,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D15/D15_04.png
+177,ROAD15,D15,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D15/D15_05.png
+178,ROAD15,D15,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D15/D15_06.png
+179,ROAD15,D15,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D15/D15_07.png
+180,ROAD14,D14,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D14/D14_01.png
+181,ROAD14,D14,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D14/D14_02.png
+182,ROAD16,D16,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_00.png
+183,ROAD16,D16,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_01.png
+184,ROAD16,D16,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_02.png
+185,ROAD14,D14,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D14/D14_03.png
+186,ROAD14,D14,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D14/D14_04.png
+187,ROAD14,D14,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D14/D14_05.png
+188,ROAD16,D16,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_03.png
+189,ROAD16,D16,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_04.png
+190,ROAD16,D16,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_05.png
+191,ROAD14,D14,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D14/D14_06.png
+192,ROAD14,D14,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D14/D14_07.png
+193,ROAD14,D14,8,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D14/D14_08.png
+194,ROAD16,D16,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_06.png
+195,ROAD16,D16,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_07.png
+196,ROAD16,D16,8,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D16/D16_08.png
+197,ROAD36,D36,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D36/D36_00.png
+198,ROAD34,D34,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D34/D34_01.png
+199,ROAD34,D34,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D34/D34_02.png
+200,ROAD36,D36,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D36/D36_03.png
+201,ROAD34,D34,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D34/D34_03.png
+202,ROAD34,D34,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D34/D34_04.png
+203,ROAD34,D34,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D34/D34_05.png
+204,ROAD37,D37,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D37/D37_00.png
+205,ROAD34,D34,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D34/D34_06.png
+206,ROAD34,D34,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D34/D34_07.png
+207,ROAD37,D37,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D37/D37_03.png
+208,PATCH7,P07,0,patch,pending; Remastered fallback,0,0,0,
+209,PATCH7,P07,1,patch,pending; Remastered fallback,0,0,0,
+210,PATCH7,P07,2,patch,pending; Remastered fallback,0,0,0,
+211,PATCH7,P07,3,patch,pending; Remastered fallback,0,0,0,
+212,PATCH7,P07,4,patch,pending; Remastered fallback,0,0,0,
+213,PATCH7,P07,5,patch,pending; Remastered fallback,0,0,0,
+214,PATCH7,P07,6,patch,pending; Remastered fallback,0,0,0,
+215,PATCH7,P07,7,patch,pending; Remastered fallback,0,0,0,
+216,PATCH8,P08,0,patch,pending; Remastered fallback,0,0,0,
+217,PATCH8,P08,1,patch,pending; Remastered fallback,0,0,0,
+218,PATCH8,P08,2,patch,pending; Remastered fallback,0,0,0,
+219,PATCH8,P08,3,patch,pending; Remastered fallback,0,0,0,
+220,PATCH8,P08,4,patch,pending; Remastered fallback,0,0,0,
+221,PATCH8,P08,5,patch,pending; Remastered fallback,0,0,0,
+222,PATCH1,P01,0,patch,pending; Remastered fallback,0,0,0,
+223,ROAD28,D28,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D28/D28_00.png
+224,ROAD28,D28,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D28/D28_01.png
+225,ROAD28,D28,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D28/D28_02.png
+226,ROAD25,D25,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D25/D25_00.png
+227,ROAD25,D25,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D25/D25_01.png
+228,ROAD25,D25,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D25/D25_03.png
+229,ROAD25,D25,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D25/D25_04.png
+230,ROAD25,D25,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D25/D25_05.png
+231,ROAD25,D25,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D25/D25_07.png
+232,ROAD25,D25,8,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D25/D25_08.png
+233,BRIDGE2,BRIDGE2,1,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+234,BRIDGE2,BRIDGE2,2,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+235,BRIDGE2,BRIDGE2,4,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+236,BRIDGE2,BRIDGE2,5,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+237,BRIDGE2,BRIDGE2,6,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+238,BRIDGE2,BRIDGE2,7,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+239,BRIDGE2,BRIDGE2,8,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+240,BRIDGE2,BRIDGE2,9,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+241,BRIDGE2,BRIDGE2,10,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+242,BRIDGE2,BRIDGE2,11,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+243,BRIDGE2,BRIDGE2,12,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+244,BRIDGE2,BRIDGE2,13,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+245,BRIDGE2,BRIDGE2,14,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+246,BRIDGE2,BRIDGE2,15,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+247,BRIDGE2,BRIDGE2,16,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+248,BRIDGE2,BRIDGE2,17,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+249,BRIDGE2,BRIDGE2,18,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+250,BRIDGE2,BRIDGE2,19,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+251,BRIDGE2,BRIDGE2,23,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+252,ROAD17,D17,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D17/D17_00.png
+253,ROAD17,D17,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D17/D17_01.png
+254,ROAD17,D17,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D17/D17_02.png
+255,ROAD17,D17,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D17/D17_03.png
+256,ROAD17,D17,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D17/D17_04.png
+257,ROAD17,D17,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D17/D17_05.png
+258,ROAD29,D29,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D29/D29_00.png
+259,ROAD29,D29,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D29/D29_01.png
+260,ROAD29,D29,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D29/D29_02.png
+261,BRIDGE2,BRIDGE2,0,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+262,FALLS1,FALLS1,0,falls,pending; Remastered fallback,0,0,0,
+263,FALLS1,FALLS1,1,falls,pending; Remastered fallback,0,0,0,
+264,FALLS1,FALLS1,2,falls,pending; Remastered fallback,0,0,0,
+265,FALLS1,FALLS1,3,falls,pending; Remastered fallback,0,0,0,
+266,FALLS1,FALLS1,4,falls,pending; Remastered fallback,0,0,0,
+267,FALLS1,FALLS1,5,falls,pending; Remastered fallback,0,0,0,
+268,BRIDGE2,BRIDGE2,24,bridge,new art,1,1,1,art/generated/temperate_bridges/remastered_style_v1/BRIDGE2/source_gpt_image.png
+269,ROAD32,D32,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D32/D32_01.png
+270,FALLS1,FALLS1,6,falls,pending; Remastered fallback,0,0,0,
+271,FALLS1,FALLS1,7,falls,pending; Remastered fallback,0,0,0,
+272,FALLS1,FALLS1,8,falls,pending; Remastered fallback,0,0,0,
+273,ROAD32,D32,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D32/D32_02.png
+274,ROAD32,D32,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D32/D32_03.png
+275,FALLS2,FALLS2,0,falls,pending; Remastered fallback,0,0,0,
+276,FALLS2,FALLS2,1,falls,pending; Remastered fallback,0,0,0,
+277,FALLS2,FALLS2,2,falls,pending; Remastered fallback,0,0,0,
+278,FALLS2,FALLS2,3,falls,pending; Remastered fallback,0,0,0,
+279,FALLS2,FALLS2,4,falls,pending; Remastered fallback,0,0,0,
+280,FALLS2,FALLS2,5,falls,pending; Remastered fallback,0,0,0,
+281,WATER2,W2,1,water,pending; Remastered fallback,0,0,0,
+282,ROAD31,D31,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D31/D31_01.png
+283,ROAD31,D31,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D31/D31_02.png
+284,ROAD31,D31,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D31/D31_03.png
+285,WATER2,W2,0,water,pending; Remastered fallback,0,0,0,
+286,WATER2,W2,3,water,pending; Remastered fallback,0,0,0,
+287,WATER2,W2,2,water,pending; Remastered fallback,0,0,0,
+288,ROAD27,D27,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D27/D27_01.png
+289,ROAD27,D27,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D27/D27_02.png
+290,PATCH3,P03,0,patch,pending; Remastered fallback,0,0,0,
+291,ROAD24,D24,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D24/D24_00.png
+292,ROAD24,D24,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D24/D24_01.png
+293,ROAD24,D24,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D24/D24_03.png
+294,ROAD24,D24,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D24/D24_04.png
+295,ROAD24,D24,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D24/D24_05.png
+296,ROAD24,D24,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D24/D24_07.png
+297,ROAD24,D24,8,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D24/D24_08.png
+298,ROAD38,D38,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D38/D38_00.png
+299,ROAD38,D38,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D38/D38_01.png
+300,ROAD38,D38,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D38/D38_03.png
+301,ROAD26,D26,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D26/D26_01.png
+302,ROAD26,D26,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D26/D26_02.png
+303,ROAD19,D19,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_00.png
+304,ROAD19,D19,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_01.png
+305,ROAD19,D19,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_02.png
+306,ROAD19,D19,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_03.png
+307,ROAD19,D19,4,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_04.png
+308,ROAD19,D19,5,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_05.png
+309,ROAD19,D19,6,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_06.png
+310,ROAD19,D19,7,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_07.png
+311,ROAD19,D19,8,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D19/D19_08.png
+312,ROAD33,D33,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D33/D33_01.png
+313,ROAD33,D33,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D33/D33_02.png
+314,ROAD33,D33,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D33/D33_03.png
+315,SLOPE34,S34,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S34/S34_00.png
+316,SLOPE34,S34,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S34/S34_01.png
+317,SLOPE32,S32,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S32/S32_00.png
+318,SLOPE32,S32,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S32/S32_01.png
+319,SLOPE11,S11,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S11/S11_00.png
+320,SLOPE11,S11,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S11/S11_01.png
+321,SLOPE22,S22,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S22/S22_00.png
+322,SLOPE22,S22,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S22/S22_01.png
+323,SHORE33,SH33,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+324,SHORE14,SH14,0,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+325,SHORE14,SH14,1,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+326,SHORE14,SH14,2,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+327,SHORE3,SH3,0,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH3/source_gpt_image.png
+328,SHORE15,SH15,1,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH15/source_gpt_image.png
+329,SHORE15,SH15,2,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH15/source_gpt_image.png
+330,SHORE13,SH13,0,shore,pending; Remastered fallback,0,0,0,
+331,SHORE13,SH13,1,shore,pending; Remastered fallback,0,0,0,
+332,SHORE13,SH13,2,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH13/source_gpt_image.png
+333,SHORE32,SH32,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+334,SLOPE4,S04,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S04/S04_00.png
+335,SLOPE4,S04,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S04/S04_01.png
+336,SLOPE5,S05,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S05/S05_00.png
+337,SLOPE5,S05,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S05/S05_01.png
+338,SLOPE3,S03,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S03/S03_00.png
+339,SLOPE3,S03,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S03/S03_01.png
+340,SLOPE35,S35,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S35/S35_00.png
+341,SLOPE35,S35,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S35/S35_01.png
+342,SLOPE23,S23,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S23/S23_00.png
+343,SLOPE23,S23,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S23/S23_01.png
+344,SLOPE23,S23,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S23/S23_02.png
+345,SLOPE29,S29,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S29/S29_00.png
+346,SLOPE29,S29,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S29/S29_01.png
+347,SLOPE1,S01,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S01/S01_00.png
+348,SLOPE1,S01,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S01/S01_01.png
+349,SLOPE2,S02,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S02/S02_00.png
+350,SLOPE34,S34,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S34/S34_02.png
+351,SLOPE34,S34,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S34/S34_03.png
+352,SLOPE32,S32,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S32/S32_02.png
+353,SLOPE11,S11,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S11/S11_02.png
+354,SLOPE11,S11,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S11/S11_03.png
+355,SHORE33,SH33,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+356,SHORE33,SH33,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+357,SHORE33,SH33,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+358,SHORE14,SH14,3,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+359,SHORE14,SH14,4,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+360,SHORE14,SH14,5,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+361,SHORE15,SH15,3,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH15/source_gpt_image.png
+362,SHORE15,SH15,4,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH15/source_gpt_image.png
+363,SHORE15,SH15,5,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH15/source_gpt_image.png
+364,SHORE13,SH13,3,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH13/source_gpt_image.png
+365,SHORE13,SH13,4,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH13/source_gpt_image.png
+366,SHORE13,SH13,5,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH13/source_gpt_image.png
+367,SHORE32,SH32,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+368,SHORE32,SH32,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+369,SHORE32,SH32,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+370,SLOPE4,S04,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S04/S04_02.png
+371,SLOPE4,S04,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S04/S04_03.png
+372,SLOPE5,S05,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S05/S05_02.png
+373,SLOPE5,S05,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S05/S05_03.png
+374,SLOPE3,S03,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S03/S03_02.png
+375,SLOPE3,S03,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S03/S03_03.png
+376,SLOPE35,S35,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S35/S35_02.png
+377,SLOPE35,S35,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S35/S35_03.png
+378,SLOPE23,S23,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S23/S23_03.png
+379,SLOPE23,S23,4,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S23/S23_04.png
+380,SLOPE23,S23,5,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S23/S23_05.png
+381,SLOPE29,S29,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S29/S29_02.png
+382,SLOPE29,S29,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S29/S29_03.png
+383,SLOPE1,S01,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S01/S01_02.png
+384,SLOPE1,S01,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S01/S01_03.png
+385,SLOPE2,S02,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S02/S02_02.png
+386,SLOPE2,S02,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S02/S02_03.png
+387,SLOPE26,S26,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S26/S26_00.png
+388,SLOPE26,S26,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S26/S26_01.png
+389,SLOPE13,S13,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S13/S13_00.png
+390,SLOPE13,S13,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S13/S13_01.png
+391,SLOPE13,S13,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S13/S13_02.png
+392,SHORE33,SH33,6,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+393,SHORE33,SH33,7,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+394,SHORE33,SH33,8,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+395,SHORE14,SH14,6,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+396,SHORE14,SH14,7,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+397,SHORE14,SH14,8,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH14/source_gpt_image.png
+398,SHORE15,SH15,6,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH15/source_gpt_image.png
+399,SHORE15,SH15,7,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH15/source_gpt_image.png
+400,SHORE15,SH15,8,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH15/source_gpt_image.png
+401,SHORE13,SH13,6,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH13/source_gpt_image.png
+402,SHORE13,SH13,7,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH13/source_gpt_image.png
+403,SHORE13,SH13,8,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH13/source_gpt_image.png
+404,SHORE32,SH32,6,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+405,SHORE32,SH32,7,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+406,SHORE32,SH32,8,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+407,SLOPE33,S33,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S33/S33_00.png
+408,SLOPE33,S33,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S33/S33_01.png
+409,SLOPE31,S31,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S31/S31_00.png
+410,SLOPE31,S31,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S31/S31_01.png
+411,SLOPE2,S02,4,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S02/S02_04.png
+412,SLOPE2,S02,5,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S02/S02_05.png
+413,SLOPE37,S37,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S37/S37_00.png
+414,SLOPE37,S37,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S37/S37_01.png
+415,SLOPE36,S36,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S36/S36_00.png
+416,SLOPE36,S36,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S36/S36_01.png
+417,SLOPE26,S26,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S26/S26_02.png
+418,SLOPE26,S26,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S26/S26_03.png
+419,SLOPE13,S13,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S13/S13_03.png
+420,SLOPE13,S13,4,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S13/S13_04.png
+421,SLOPE13,S13,5,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S13/S13_05.png
+422,SLOPE33,S33,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S33/S33_02.png
+423,SLOPE33,S33,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S33/S33_03.png
+424,SLOPE31,S31,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S31/S31_02.png
+425,SLOPE31,S31,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S31/S31_03.png
+426,SLOPE37,S37,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S37/S37_02.png
+427,SLOPE37,S37,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S37/S37_03.png
+428,SLOPE36,S36,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S36/S36_02.png
+429,SLOPE36,S36,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S36/S36_03.png
+430,SLOPE27,S27,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S27/S27_00.png
+431,SLOPE27,S27,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S27/S27_01.png
+432,SLOPE27,S27,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S27/S27_02.png
+433,SLOPE12,S12,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S12/S12_00.png
+434,SLOPE12,S12,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S12/S12_01.png
+435,SLOPE16,S16,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S16/S16_00.png
+436,SLOPE27,S27,4,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S27/S27_04.png
+437,SLOPE27,S27,5,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S27/S27_05.png
+438,SLOPE12,S12,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S12/S12_02.png
+439,SLOPE12,S12,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S12/S12_03.png
+440,SLOPE16,S16,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S16/S16_02.png
+441,SLOPE16,S16,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S16/S16_03.png
+442,SLOPE24,S24,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S24/S24_00.png
+443,SLOPE24,S24,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S24/S24_01.png
+444,SLOPE16,S16,5,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S16/S16_05.png
+445,SLOPE10,S10,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S10/S10_00.png
+446,SLOPE10,S10,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S10/S10_01.png
+447,SLOPE24,S24,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S24/S24_02.png
+448,SLOPE24,S24,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S24/S24_03.png
+449,SLOPE6,S06,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S06/S06_00.png
+450,SLOPE6,S06,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S06/S06_01.png
+451,SLOPE2,S02,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S02/S02_01.png
+452,SLOPE10,S10,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S10/S10_02.png
+453,SLOPE10,S10,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S10/S10_03.png
+454,SLOPE30,S30,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S30/S30_00.png
+455,SLOPE30,S30,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S30/S30_01.png
+456,SLOPE38,S38,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S38/S38_00.png
+457,SLOPE38,S38,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S38/S38_01.png
+458,SLOPE6,S06,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S06/S06_02.png
+459,SLOPE6,S06,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S06/S06_03.png
+460,SLOPE7,S07,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S07/S07_00.png
+461,SLOPE7,S07,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S07/S07_01.png
+462,SLOPE30,S30,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S30/S30_02.png
+463,SLOPE30,S30,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S30/S30_03.png
+464,SLOPE38,S38,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S38/S38_02.png
+465,SLOPE38,S38,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S38/S38_03.png
+466,SLOPE6,S06,4,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S06/S06_04.png
+467,SLOPE7,S07,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S07/S07_02.png
+468,SLOPE7,S07,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S07/S07_03.png
+469,RIVER3,RV03,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+470,RIVER3,RV03,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+471,RIVER3,RV03,4,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+472,RIVER3,RV03,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+473,RIVER3,RV03,6,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+474,RIVER3,RV03,7,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+475,SLOPE20,S20,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S20/S20_01.png
+476,RIVER3,RV03,8,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+477,RIVER3,RV03,9,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+478,RIVER3,RV03,10,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+479,RIVER3,RV03,11,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+480,RIVER9,RV09,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV09/source_gpt_image.png
+481,RIVER9,RV09,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV09/source_gpt_image.png
+482,ROAD3,D03,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D03/D03_00.png
+483,SLOPE20,S20,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S20/S20_02.png
+484,SLOPE20,S20,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S20/S20_03.png
+485,RIVER3,RV03,13,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+486,RIVER3,RV03,14,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+487,RIVER3,RV03,15,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV03/source_gpt_image.png
+488,RIVER9,RV09,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV09/source_gpt_image.png
+489,RIVER9,RV09,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV09/source_gpt_image.png
+490,RIVER1,RV01,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+491,RIVER1,RV01,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+492,ROAD3,D03,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D03/D03_01.png
+493,SLOPE20,S20,4,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S20/S20_04.png
+494,SLOPE20,S20,5,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S20/S20_05.png
+495,RIVER10,RV10,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV10/source_gpt_image.png
+496,RIVER10,RV10,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV10/source_gpt_image.png
+497,RIVER1,RV01,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+498,RIVER1,RV01,6,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+499,RIVER1,RV01,7,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+500,RIVER1,RV01,8,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+501,RIVER1,RV01,9,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+502,SLOPE18,S18,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S18/S18_00.png
+503,SLOPE18,S18,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S18/S18_01.png
+504,RIVER10,RV10,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV10/source_gpt_image.png
+505,RIVER10,RV10,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV10/source_gpt_image.png
+506,RIVER1,RV01,10,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+507,RIVER1,RV01,11,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+508,RIVER1,RV01,12,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+509,RIVER1,RV01,13,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+510,RIVER1,RV01,14,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+511,SLOPE9,S09,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S09/S09_00.png
+512,SLOPE9,S09,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S09/S09_01.png
+513,SLOPE9,S09,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S09/S09_02.png
+514,SLOPE18,S18,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S18/S18_02.png
+515,SLOPE18,S18,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S18/S18_03.png
+516,SLOPE25,S25,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S25/S25_00.png
+517,SLOPE25,S25,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S25/S25_01.png
+518,RIVER1,RV01,16,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+519,RIVER1,RV01,17,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV01/source_gpt_image.png
+520,RIVER7,RV07,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV07/source_gpt_image.png
+521,RIVER7,RV07,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV07/source_gpt_image.png
+522,RIVER7,RV07,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV07/source_gpt_image.png
+523,SLOPE9,S09,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S09/S09_03.png
+524,SLOPE9,S09,4,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S09/S09_04.png
+525,SLOPE9,S09,5,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S09/S09_05.png
+526,SLOPE25,S25,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S25/S25_02.png
+527,SLOPE25,S25,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S25/S25_03.png
+528,ROAD1,D01,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D01/D01_01.png
+529,RIVER7,RV07,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV07/source_gpt_image.png
+530,RIVER7,RV07,4,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV07/source_gpt_image.png
+531,RIVER7,RV07,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV07/source_gpt_image.png
+532,SLOPE19,S19,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S19/S19_00.png
+533,SLOPE19,S19,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S19/S19_01.png
+534,SLOPE17,S17,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S17/S17_00.png
+535,SLOPE17,S17,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S17/S17_01.png
+536,ROAD4,D04,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D04/D04_01.png
+537,ROAD1,D01,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D01/D01_02.png
+538,ROAD1,D01,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D01/D01_03.png
+539,SLOPE19,S19,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S19/S19_02.png
+540,SLOPE19,S19,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S19/S19_03.png
+541,SLOPE17,S17,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S17/S17_02.png
+542,SLOPE17,S17,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S17/S17_03.png
+543,SLOPE21,S21,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S21/S21_00.png
+544,SLOPE15,S15,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S15/S15_00.png
+545,SLOPE15,S15,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S15/S15_01.png
+546,ROAD4,D04,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D04/D04_02.png
+547,ROAD4,D04,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D04/D04_03.png
+548,ROAD2,D02,0,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D02/D02_00.png
+549,ROAD2,D02,1,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D02/D02_01.png
+550,SLOPE21,S21,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S21/S21_01.png
+551,SLOPE15,S15,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S15/S15_02.png
+552,SLOPE15,S15,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S15/S15_03.png
+553,ROAD2,D02,3,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D02/D02_03.png
+554,SLOPE27,S27,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S27/S27_03.png
+555,RIVER6,RV06,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV06/source_gpt_image.png
+556,RIVER6,RV06,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV06/source_gpt_image.png
+557,RIVER6,RV06,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV06/source_gpt_image.png
+558,RIVER6,RV06,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV06/source_gpt_image.png
+559,RIVER6,RV06,4,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV06/source_gpt_image.png
+560,RIVER6,RV06,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV06/source_gpt_image.png
+561,SLOPE14,S14,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S14/S14_00.png
+562,SLOPE14,S14,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S14/S14_01.png
+563,SLOPE14,S14,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S14/S14_02.png
+564,ROAD2,D02,2,road,new art,1,1,1,art/generated/temperate_roads/approved_style_v1/D02/D02_02.png
+565,RIVER5,RV05,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+566,RIVER5,RV05,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+567,RIVER5,RV05,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+568,SLOPE28,S28,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S28/S28_00.png
+569,SLOPE28,S28,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S28/S28_01.png
+570,RIVER5,RV05,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+571,RIVER5,RV05,4,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+572,RIVER5,RV05,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+573,SLOPE28,S28,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S28/S28_03.png
+574,RIVER5,RV05,6,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+575,RIVER5,RV05,7,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+576,RIVER5,RV05,8,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV05/source_gpt_image.png
+577,SLOPE8,S08,0,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S08/S08_00.png
+578,SLOPE8,S08,1,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S08/S08_01.png
+579,SLOPE8,S08,2,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S08/S08_02.png
+580,SLOPE8,S08,3,cliff,new art,1,1,1,art/generated/temperate_cliffs/approved_style_v1/color_matched/S08/S08_03.png
+581,SHORE34,SH34,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+582,SHORE18,SH18,1,shore,pending; Remastered fallback,0,0,0,
+583,SHORE17,SH17,0,shore,pending; Remastered fallback,0,0,0,
+584,SHORE17,SH17,1,shore,pending; Remastered fallback,0,0,0,
+585,SHORE18,SH18,0,shore,pending; Remastered fallback,0,0,0,
+586,SHORE34,SH34,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+587,SHORE34,SH34,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+588,SHORE34,SH34,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+589,SHORE18,SH18,3,shore,pending; Remastered fallback,0,0,0,
+590,SHORE17,SH17,2,shore,pending; Remastered fallback,0,0,0,
+591,SHORE17,SH17,3,shore,pending; Remastered fallback,0,0,0,
+592,SHORE18,SH18,2,shore,pending; Remastered fallback,0,0,0,
+593,SHORE33,SH33,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+594,SHORE33,SH33,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH33/source_gpt_image.png
+595,SHORE12,SH12,0,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH12/source_gpt_image.png
+596,SHORE12,SH12,1,shore,pending; Remastered fallback,0,0,0,
+597,SHORE12,SH12,2,shore,pending; Remastered fallback,0,0,0,
+598,SHORE12,SH12,3,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH12/source_gpt_image.png
+599,SHORE12,SH12,4,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH12/source_gpt_image.png
+600,SHORE12,SH12,5,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH12/source_gpt_image.png
+601,SHORE12,SH12,6,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH12/source_gpt_image.png
+602,SHORE12,SH12,7,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH12/source_gpt_image.png
+603,SHORE12,SH12,8,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH12/source_gpt_image.png
+604,RIVER4,RV04,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+605,RIVER4,RV04,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+606,RIVER11,RV11,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV11/source_gpt_image.png
+607,RIVER11,RV11,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV11/source_gpt_image.png
+608,RIVER4,RV04,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+609,RIVER4,RV04,6,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+610,RIVER4,RV04,7,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+611,RIVER11,RV11,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV11/source_gpt_image.png
+612,RIVER11,RV11,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV11/source_gpt_image.png
+613,RIVER4,RV04,8,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+614,RIVER4,RV04,9,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+615,RIVER4,RV04,10,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+616,RIVER4,RV04,11,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+617,RIVER4,RV04,12,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+618,RIVER4,RV04,13,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+619,RIVER4,RV04,14,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV04/source_gpt_image.png
+620,RIVER2,RV02,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+621,RIVER2,RV02,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+622,RIVER2,RV02,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+623,RIVER2,RV02,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+624,RIVER2,RV02,4,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+625,RIVER2,RV02,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+626,RIVER2,RV02,6,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+627,RIVER2,RV02,7,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+628,RIVER2,RV02,8,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+629,RIVER2,RV02,9,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+630,RIVER2,RV02,10,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+631,RIVER2,RV02,11,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+632,RIVER2,RV02,12,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV02/source_gpt_image.png
+633,RIVER13,RV13,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+634,RIVER13,RV13,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+635,RIVER13,RV13,4,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+636,RIVER13,RV13,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+637,RIVER13,RV13,6,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+638,RIVER13,RV13,7,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+639,RIVER13,RV13,8,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+640,RIVER13,RV13,9,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+641,RIVER13,RV13,10,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+642,RIVER13,RV13,11,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+643,RIVER8,RV08,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV08/source_gpt_image.png
+644,RIVER8,RV08,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV08/source_gpt_image.png
+645,RIVER13,RV13,12,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+646,RIVER13,RV13,13,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+647,RIVER13,RV13,14,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+648,RIVER13,RV13,15,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV13/source_gpt_image.png
+649,RIVER8,RV08,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV08/source_gpt_image.png
+650,RIVER8,RV08,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV08/source_gpt_image.png
+651,SHORE8,SH8,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+652,SHORE8,SH8,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+653,SHORE8,SH8,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+654,SHORE6,SH6,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH6/source_gpt_image.png
+655,SHORE6,SH6,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH6/source_gpt_image.png
+656,SHORE6,SH6,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH6/source_gpt_image.png
+657,SHORE11,SH11,0,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH11/source_gpt_image.png
+658,SHORE11,SH11,1,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH11/source_gpt_image.png
+659,SHORE11,SH11,2,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH11/source_gpt_image.png
+660,SHORE2,SH2,0,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+661,SHORE2,SH2,1,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+662,SHORE2,SH2,2,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+663,SHORE1,SH1,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH1/source_gpt_image.png
+664,SHORE1,SH1,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH1/source_gpt_image.png
+665,SHORE1,SH1,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH1/source_gpt_image.png
+666,SHORE5,SH5,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH5/source_gpt_image.png
+667,SHORE5,SH5,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH5/source_gpt_image.png
+668,SHORE5,SH5,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH5/source_gpt_image.png
+669,SHORE8,SH8,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+670,SHORE8,SH8,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+671,SHORE8,SH8,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+672,SHORE6,SH6,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH6/source_gpt_image.png
+673,SHORE6,SH6,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH6/source_gpt_image.png
+674,SHORE6,SH6,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH6/source_gpt_image.png
+675,SHORE11,SH11,3,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH11/source_gpt_image.png
+676,SHORE11,SH11,4,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH11/source_gpt_image.png
+677,SHORE11,SH11,5,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH11/source_gpt_image.png
+678,SHORE2,SH2,3,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+679,SHORE2,SH2,4,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+680,SHORE2,SH2,5,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+681,SHORE1,SH1,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH1/source_gpt_image.png
+682,SHORE1,SH1,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH1/source_gpt_image.png
+683,SHORE1,SH1,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH1/source_gpt_image.png
+684,SHORE5,SH5,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH5/source_gpt_image.png
+685,SHORE5,SH5,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH5/source_gpt_image.png
+686,SHORE5,SH5,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH5/source_gpt_image.png
+687,SHORE8,SH8,6,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+688,SHORE8,SH8,7,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+689,SHORE8,SH8,8,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH8/source_gpt_image.png
+690,SHORE6,SH6,6,shore,pending; Remastered fallback,0,0,0,
+691,SHORE6,SH6,7,shore,pending; Remastered fallback,0,0,0,
+692,SHORE6,SH6,8,shore,pending; Remastered fallback,0,0,0,
+693,SHORE11,SH11,6,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH11/source_gpt_image.png
+694,SHORE11,SH11,7,shore,pending; Remastered fallback,0,0,0,
+695,SHORE11,SH11,8,shore,pending; Remastered fallback,0,0,0,
+696,SHORE2,SH2,6,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+697,SHORE2,SH2,7,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+698,SHORE2,SH2,8,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH2/source_gpt_image.png
+699,SHORE1,SH1,6,shore,pending; Remastered fallback,0,0,0,
+700,SHORE1,SH1,7,shore,pending; Remastered fallback,0,0,0,
+701,SHORE1,SH1,8,shore,pending; Remastered fallback,0,0,0,
+702,SHORE5,SH5,6,shore,pending; Remastered fallback,0,0,0,
+703,SHORE5,SH5,7,shore,pending; Remastered fallback,0,0,0,
+704,SHORE5,SH5,8,shore,pending; Remastered fallback,0,0,0,
+705,SHORE7,SH7,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH7/source_gpt_image.png
+706,SHORE7,SH7,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH7/source_gpt_image.png
+707,SHORE4,SH4,0,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH4/source_gpt_image.png
+708,SHORE4,SH4,1,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH4/source_gpt_image.png
+709,SHORE7,SH7,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH7/source_gpt_image.png
+710,SHORE7,SH7,3,shore,pending; Remastered fallback,0,0,0,
+711,SHORE16,SH16,1,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH16/source_gpt_image.png
+712,SHORE16,SH16,2,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH16/source_gpt_image.png
+713,SHORE16,SH16,4,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH16/source_gpt_image.png
+714,SHORE16,SH16,5,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH16/source_gpt_image.png
+715,SHORE9,SH9,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+716,SHORE9,SH9,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+717,SHORE9,SH9,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+718,SHORE9,SH9,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+719,SHORE9,SH9,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+720,SHORE9,SH9,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+721,SHORE9,SH9,6,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+722,SHORE9,SH9,7,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+723,SHORE9,SH9,8,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH9/source_gpt_image.png
+724,SHORE35,SH35,0,shore,pending; Remastered fallback,0,0,0,
+725,SHORE35,SH35,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH35/source_gpt_image.png
+726,SHORE35,SH35,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH35/source_gpt_image.png
+727,SHORE35,SH35,3,shore,pending; Remastered fallback,0,0,0,
+728,SHORE35,SH35,4,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH35/source_gpt_image.png
+729,SHORE35,SH35,5,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH35/source_gpt_image.png
+730,SHORE35,SH35,6,shore,pending; Remastered fallback,0,0,0,
+731,SHORE35,SH35,7,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH35/source_gpt_image.png
+732,SHORE35,SH35,8,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH35/source_gpt_image.png
+733,SHORE10,SH10,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH10/source_gpt_image.png
+734,SHORE10,SH10,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH10/source_gpt_image.png
+735,SHORE10,SH10,2,shore,pending; Remastered fallback,0,0,0,
+736,SHORE10,SH10,3,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH10/source_gpt_image.png
+737,SHORE32,SH32,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+738,SHORE32,SH32,2,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH32/source_gpt_image.png
+739,RIVER12,RV12,0,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+740,RIVER12,RV12,1,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+741,RIVER12,RV12,2,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+742,RIVER12,RV12,3,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+743,RIVER12,RV12,4,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+744,RIVER12,RV12,5,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+745,RIVER12,RV12,6,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+746,RIVER12,RV12,7,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+747,RIVER12,RV12,8,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+748,RIVER12,RV12,9,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+749,RIVER12,RV12,10,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+750,RIVER12,RV12,11,river,new art,1,1,1,art/generated/temperate_rivers/remastered_style_v1/RV12/source_gpt_image.png
+751,SHORE34,SH34,0,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+752,SHORE34,SH34,1,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+753,SHORE34,SH34,6,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+754,SHORE34,SH34,7,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+755,SHORE34,SH34,8,shore,new art,1,0,0,art/generated/temperate_shores/remastered_style_v1/SH34/source_gpt_image.png
+756,SHORE16,SH16,0,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH16/source_gpt_image.png
+757,SHORE16,SH16,3,shore,new art,1,1,1,art/generated/temperate_shores/remastered_style_v1/SH16/source_gpt_image.png

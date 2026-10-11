@@ -10,24 +10,24 @@ reachable.** Nobody has to open a port on a joining machine.
 
 **The host's machine must let UDP port 17421 in.** Seeing the game in the browser proves
 nothing about that: the advert is outbound. Windows asks once, the first time MULTIPLAYER
-is opened, whether `cnc3d.exe` may accept connections; choose Allow, and on a Private
+is opened, whether `opencnc3d-game.exe` may accept connections; choose Allow, and on a Private
 network. A cancelled or hidden prompt, or a Public profile, drops the joiner's first
-packet silently. On a Mac, System Settings > Network > Firewall must allow `cnc3d` if the
+packet silently. On a Mac, System Settings > Network > Firewall must allow `opencnc3d` if the
 firewall is on, and **System Settings > Privacy & Security > Local Network must list the
 game and have it on, on BOTH Macs**: without that permission a Mac refuses the game's
 packets to LAN addresses while still receiving the host's advert, which looks like a
 host that never answers. The game asks for it the first time the launcher starts and
-again when MULTIPLAYER opens ("C&C3D would like to find and connect to devices on your
+again when MULTIPLAYER opens ("OpenCNC3D would like to find and connect to devices on your
 local network"): click Allow. If you never saw that dialog, open the Local Network list
 and switch the game on there. The log then shows `NET|send-failed` while it is refused. From v0.6.8 a joiner that
 gets no answer for ten seconds is told so, on the browser's status line, with the address
 it tried. A PRIVATE GAME with a passcode shows a `*` in the browser; a joiner without the
 passcode is refused by name.
 
-**The log.** Windows writes `cnc3d-log.txt` beside `cnc3d.exe` (or under
-`%APPDATA%\Slipgate Ironworks\CNC3D\` if that folder is read-only); from v0.6.8 a Mac
+**The log.** Windows writes `opencnc3d-log.txt` beside `opencnc3d-game.exe` (or under
+`%APPDATA%\Slipgate Ironworks\OpenCNC3D\` if that folder is read-only); from v0.6.8 a Mac
 started from Finder writes the same file under
-`~/Library/Application Support/Slipgate Ironworks/CNC3D/`. Both are overwritten on every
+`~/Library/Application Support/Slipgate Ironworks/OpenCNC3D/`. Both are overwritten on every
 start, so copy them before launching again. Every `NET|` line is in there.
 
 Every machine simulates the whole world and only ORDERS cross the wire, so all of them must
@@ -128,6 +128,7 @@ decides how the match feels**: an order is stamped three turns ahead, which at 1
 | `NET|refused-by-host|reason=order-wire layout` | Different builds. Every player must run the same one |
 | `NET|error=only 2 of 4 players joined` | The host gave up waiting. Everyone has to be in within 120 seconds |
 | `NETDESYNC|frame=N|seat=S|...` | The worlds parted. Keep every machine's output: the line names the frame, the seat, and both fingerprints |
+| `NETDESYNC-SEATS|frame=N|s0=..|s1=..` | Printed with the line above: every seat's fingerprint for that frame, this machine's marked `*`, a `?` for a seat not heard from yet. The odd one out is the machine that drifted; if every other seat differs from the starred one, it is this machine |
 | `NET|peer-left|seat=S` | Somebody quit or dropped. The match ends for everyone today; takeover and rejoin are a later phase |
 
 The lobby (HOST / JOIN from the multiplayer screen) prints its own lines: on the host

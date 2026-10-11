@@ -15,14 +15,14 @@ typedef void (__cdecl *CNC_Config_t)(const void *rules);
 typedef int  (__cdecl *CNC_Start_t)(const char *, const char *, const char *, int, int);
 typedef int  (__cdecl *CNC_Advance_t)(unsigned __int64);
 typedef int  (__cdecl *CNC_GetState_t)(int, unsigned __int64, unsigned char *, unsigned int);
-typedef int  (__cdecl *CNC3D_Dump_t)(void);
+typedef int  (__cdecl *OpenCNC3D_Dump_t)(void);
 typedef void (__cdecl *CNC_Input_t)(int, unsigned char, unsigned __int64, int, int, int, int);
 typedef int  (__cdecl *CNC_Select_t)(unsigned __int64, int, int);
 typedef void (__cdecl *CNC_ClearSel_t)(unsigned __int64);
-typedef int  (__cdecl *CNC3D_C2P_t)(int, int, int *, int *);
-/* CNC3D_Probe_Object_At: the engine's ActionType for those input pixels given the current
+typedef int  (__cdecl *OpenCNC3D_C2P_t)(int, int, int *, int *);
+/* OpenCNC3D_Probe_Object_At: the engine's ActionType for those input pixels given the current
  * selection. A pure query; -1 means it refused the pixel, 0 is ACTION_NONE. */
-typedef int  (__cdecl *CNC3D_Probe_t)(int, int);
+typedef int  (__cdecl *OpenCNC3D_Probe_t)(int, int);
 typedef void (__cdecl *CNC_Sidebar_t)(int, unsigned __int64, int, int, short, short);
 
 static HMODULE        g_dll;
@@ -31,12 +31,12 @@ static CNC_Config_t   g_config;
 static CNC_Start_t    g_start;
 static CNC_Advance_t  g_advance;
 static CNC_GetState_t g_getstate;
-static CNC3D_Dump_t   g_dump;
+static OpenCNC3D_Dump_t   g_dump;
 static CNC_Input_t    g_input;
 static CNC_Select_t   g_select;
 static CNC_ClearSel_t g_clearsel;
-static CNC3D_C2P_t    g_cell2px;
-static CNC3D_Probe_t  g_probe;
+static OpenCNC3D_C2P_t    g_cell2px;
+static OpenCNC3D_Probe_t  g_probe;
 static CNC_Sidebar_t  g_sidebarreq;
 
 /* SidebarRequestEnum, dllinterface.h:366 */
@@ -253,12 +253,12 @@ int wb_open(const char *dllpath, char *err, int errlen)
     g_start    = (CNC_Start_t)   GetProcAddress(g_dll, "CNC_Start_Custom_Instance");
     g_advance  = (CNC_Advance_t) GetProcAddress(g_dll, "CNC_Advance_Instance");
     g_getstate = (CNC_GetState_t)GetProcAddress(g_dll, "CNC_Get_Game_State");
-    g_dump     = (CNC3D_Dump_t)  GetProcAddress(g_dll, "CNC3D_Dump_Objects");
+    g_dump     = (OpenCNC3D_Dump_t)  GetProcAddress(g_dll, "OpenCNC3D_Dump_Objects");
     g_input    = (CNC_Input_t)   GetProcAddress(g_dll, "CNC_Handle_Input");
     g_select   = (CNC_Select_t)  GetProcAddress(g_dll, "CNC_Select_Object");
     g_clearsel = (CNC_ClearSel_t)GetProcAddress(g_dll, "CNC_Clear_Object_Selection");
-    g_cell2px  = (CNC3D_C2P_t)   GetProcAddress(g_dll, "CNC3D_Cell_To_Pixel");
-    g_probe    = (CNC3D_Probe_t) GetProcAddress(g_dll, "CNC3D_Probe_Object_At");
+    g_cell2px  = (OpenCNC3D_C2P_t)   GetProcAddress(g_dll, "OpenCNC3D_Cell_To_Pixel");
+    g_probe    = (OpenCNC3D_Probe_t) GetProcAddress(g_dll, "OpenCNC3D_Probe_Object_At");
     g_sidebarreq = (CNC_Sidebar_t)GetProcAddress(g_dll, "CNC_Handle_Sidebar_Request");
 
     if (!g_init || !g_config || !g_start || !g_advance || !g_getstate)
@@ -273,7 +273,7 @@ int wb_open(const char *dllpath, char *err, int errlen)
     {
         /* Not fatal, but nothing will be drawn, so say it rather than render an empty
          * map and let someone conclude the renderer is broken. */
-        _snprintf(err, errlen, "CNC3D_Dump_Objects is not exported: the brain was built "
+        _snprintf(err, errlen, "OpenCNC3D_Dump_Objects is not exported: the brain was built "
                                "without brain/patches. No objects can be drawn.");
         return 0;
     }
@@ -350,7 +350,7 @@ void wb_repair_click(void)
 /* ---- what would happen if you clicked there -----------------------------------------
  *
  * The engine's own ActionType for a cell, given the current selection: the whole basis of
- * the 3D cursor. CNC3D_Probe_Object_At is a PURE QUERY -- it changes nothing -- and it
+ * the 3D cursor. OpenCNC3D_Probe_Object_At is a PURE QUERY -- it changes nothing -- and it
  * returns the answer as its int return value, so there is no dump round trip and nothing
  * to parse back. The handoff recorded this as the cursor's blocker; it is not one.
  *

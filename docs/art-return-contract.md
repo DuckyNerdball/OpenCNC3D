@@ -3,10 +3,44 @@
 What it takes to raise a vehicle's polycount and texture resolution. Three things: what the vehicles ARE, what has to
 come back for a model to be usable, and what does not exist yet.
 
-**Read the last section first if you are about to promise a turnaround.** The export
-side is built and proven. The import side now exists for VEHICLES, on the `model-swap`
-branch, and is described in section 7. Buildings still cannot come back, because a
-remodelled building has no construction sections.
+**Read the last section first if you are about to promise a turnaround.** Section 7
+describes the legacy vehicle return path. Modern experimental art also supports C3M
+models through `game/model3d_mod.h` and `tools/art/blender_c3m.py`. FACT now has a
+completed-building preview; construction, selling and damage keep the cartridge art.
+This is not a replacement construction rig. See the delivery contract below.
+
+## Modern Construction Yard return
+
+`game/models3d/FACT.c3m` replaces a completed, healthy Construction Yard while F5
+Experimental Art is enabled. It uses the same material shader, light settings and
+environment as the Mammoth. Classic, a disabled experimental switch, absent model,
+construction/selling state, damage and collapse all retain the cartridge path.
+The selection is shared by colour, normal and baked-light-removal passes.
+
+The approved final low has 211 source meshes and 9,820 evaluated triangles. Export
+keeps the geometry, UVs, corner normals and broad chamfers; it groups the result into
+one static part and two material draws. Blender cells map to pack units as
+`(X,Y,Z) -> (1024X,1024Z,-1024Y)`. Bounds are `(-1273,0,-1353)` to
+`(1488,1104.676,1072)`. No resizing or origin recentering is applied.
+
+The portable source, manifest and replay commands are in
+`art/construction_yard/runtime_v01/README.md`. Final concrete and coating bump is
+baked into tangent normals because C3M v1 has no height input. Each atlas has its own
+explicit linear grayscale player mask paired with its BaseColor and BakeUV layout.
+The exporter explicitly packs that mask into BASE alpha; NORM is OpenGL tangent RGB
+and ORM is occlusion/roughness/metalness. Six 1024-square runtime textures occupy
+24 MiB before driver mipmaps. The 2048-square source maps remain separate.
+
+For every new Blender-authored Enhanced model, start with the
+[canonical 3D model recipe](3d-model-recipe.md). Its shared-look section requires
+the material/chamfer starter, the C3M style audit and the fixed in-game
+comparison; this return contract covers the separate technical delivery gate.
+
+The user's first engine review found excessive brightness and shine beside the
+Mammoth. `finish_construction_yard.py` records the subsequent material-value and
+roughness correction. It changes the Yard maps, not the shared lighting. Actual
+engine views and checks remain separate from the approved Blender finish direction.
+Crane/fan animation and authored construction/damage sections remain missing.
 
 ---
 

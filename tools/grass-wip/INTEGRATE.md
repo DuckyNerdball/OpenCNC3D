@@ -1059,8 +1059,8 @@ static bool grass_draw(void);
 `grass_bake.h`'s tail note flags the file-name collision with the terrain-colour design
 sketch, which was also called `grass_field.h`. That is resolved: the colour build was
 absorbed into `grass_bake.h` as `grass_colour_build` (`:951`) and the sketch does not land.
-`grass_field.h` as shipped takes `CNC3D_GRASS_CRUSH_FIELD_H` and the `grass_crush_*` /
-`g_crush*` prefixes, and `grass_bake.h` takes `CNC3D_GRASS_BAKE_H` and `g_grass*`. No symbol
+`grass_field.h` as shipped takes `OPENCNC3D_GRASS_CRUSH_FIELD_H` and the `grass_crush_*` /
+`g_crush*` prefixes, and `grass_bake.h` takes `OPENCNC3D_GRASS_BAKE_H` and `g_grass*`. No symbol
 is defined twice.
 
 ---

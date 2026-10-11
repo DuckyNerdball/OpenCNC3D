@@ -13,7 +13,7 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Adds a per-house invincibility switch: a static bitmask on ObjectClass, a
 // setter and a query, with the query added as a fourth condition on the
 // damage test in Take_Damage so objects owned by a flagged house take no
@@ -22,7 +22,7 @@
 // default return from 0xff to 0xffff so house bits above bit 7 are not
 // truncated.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -99,15 +99,15 @@ void const* ObjectTypeClass::SelectShapes = 0;
 void const* ObjectTypeClass::PipShapes = 0;
 
 /*
-**	INVINCIBILITY (project OpenCNC 3D addition; not upstream). One bit per house, in the
+**	INVINCIBILITY (project OpenCNC3D addition; not upstream). One bit per house, in the
 **	HOUSEF_* shape. Zero means nobody, which is the value every scenario starts from
 **	because Init() below resets it and Clear_Scenario() calls Init(). See object.h for
 **	why the switch lives on ObjectClass rather than in the DLL layer.
 */
-unsigned ObjectClass::CNC3D_InvincibleHouses = 0;
+unsigned ObjectClass::OpenCNC3D_InvincibleHouses = 0;
 
 /***********************************************************************************************
- * ObjectClass::CNC3D_Set_Invincible -- Turns damage immunity on or off for one house.         *
+ * ObjectClass::OpenCNC3D_Set_Invincible -- Turns damage immunity on or off for one house.         *
  *                                                                                             *
  *    Sets or clears one house's bit in the invincibility mask. Every object that house owns   *
  *    stops taking damage while the bit is set; nothing else about the object changes, so the  *
@@ -122,20 +122,20 @@ unsigned ObjectClass::CNC3D_InvincibleHouses = 0;
  *                                                                                             *
  * WARNINGS:   none                                                                            *
  *=============================================================================================*/
-void ObjectClass::CNC3D_Set_Invincible(HousesType house, bool on)
+void ObjectClass::OpenCNC3D_Set_Invincible(HousesType house, bool on)
 {
     if (house == HOUSE_NONE || house >= HOUSE_COUNT) {
         return;
     }
     if (on) {
-        CNC3D_InvincibleHouses |= (1 << house);
+        OpenCNC3D_InvincibleHouses |= (1 << house);
     } else {
-        CNC3D_InvincibleHouses &= ~(1 << house);
+        OpenCNC3D_InvincibleHouses &= ~(1 << house);
     }
 }
 
 /***********************************************************************************************
- * ObjectClass::CNC3D_Is_Invincible -- Is this object's owner currently damage immune?         *
+ * ObjectClass::OpenCNC3D_Is_Invincible -- Is this object's owner currently damage immune?         *
  *                                                                                             *
  *    Called from Take_Damage on every damage event, so the common case (no house invincible)  *
  *    is answered by one integer test before the virtual Owner() call is made at all.          *
@@ -147,16 +147,16 @@ void ObjectClass::CNC3D_Set_Invincible(HousesType house, bool on)
  * WARNINGS:   Owner() is HOUSE_NONE for anything that is not a TechnoClass, so terrain and     *
  *             other unowned objects are never covered by this.                                *
  *=============================================================================================*/
-bool ObjectClass::CNC3D_Is_Invincible(void) const
+bool ObjectClass::OpenCNC3D_Is_Invincible(void) const
 {
-    if (CNC3D_InvincibleHouses == 0) {
+    if (OpenCNC3D_InvincibleHouses == 0) {
         return (false);
     }
     HousesType owner = Owner();
     if (owner == HOUSE_NONE || owner >= HOUSE_COUNT) {
         return (false);
     }
-    return ((CNC3D_InvincibleHouses & (1 << owner)) != 0);
+    return ((OpenCNC3D_InvincibleHouses & (1 << owner)) != 0);
 }
 
 bool ObjectClass::Is_Infantry(void) const
@@ -1462,7 +1462,7 @@ ResultType ObjectClass::Take_Damage(int& damage, int distance, WarheadType warhe
     **	BuildingClass and UnitClass's own overrides) all treat RESULT_NONE as "nothing
     **	happened", which is the truth here.
     */
-    if (oldstrength && damage && !Class_Of().IsImmune && !CNC3D_Is_Invincible()) {
+    if (oldstrength && damage && !Class_Of().IsImmune && !OpenCNC3D_Is_Invincible()) {
         int maxstrength = Class_Of().MaxStrength;
 
         /*
@@ -1672,7 +1672,7 @@ void ObjectClass::Init(void)
     **	Load_Game. So the switch cannot leak out of a skirmish into a campaign mission, which
     **	is the failure a global that outlived a scenario has already caused here once.
     */
-    CNC3D_InvincibleHouses = 0;
+    OpenCNC3D_InvincibleHouses = 0;
 }
 
 /***********************************************************************************************

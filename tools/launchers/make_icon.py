@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild C&C3D.app's icon from the cartridge's own art.
+"""Rebuild OpenCNC3D.app's icon from the cartridge's own art.
 
     python3 tools/launchers/make_icon.py
 
@@ -35,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
 EAGLE = os.path.join(REPO, "tools/sidebar_redesign/gdi_eagle/02_isolated_80x69.png")
 PANEL = os.path.join(REPO, "tools/sidebar_redesign/art_new/panel_body.png")
-APP = os.path.join(HERE, "C&C3D.app")
+APP = os.path.join(HERE, "OpenCNC3D.app")
 S = 1024
 
 
@@ -87,7 +87,7 @@ def compose():
 
 def main():
     img = compose()
-    iconset = "/tmp/cnc3d.iconset"
+    iconset = "/tmp/opencnc3d.iconset"
     os.makedirs(iconset, exist_ok=True)
     for sz in (16, 32, 64, 128, 256, 512, 1024):
         img.resize((sz, sz), Image.LANCZOS).save("%s/icon_%dx%d.png" % (iconset, sz, sz))
@@ -102,7 +102,7 @@ def main():
     # executable per platform with a game icon on it. Same composed image, so the two
     # platforms cannot drift into different emblems; only the container differs.
     # PIL writes a multi-size .ico from one call, and 256 is the largest Explorer uses.
-    ico = os.path.join(os.path.dirname(APP), "cnc3d.ico")
+    ico = os.path.join(os.path.dirname(APP), "opencnc3d.ico")
     img.save(ico, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64),
                          (128, 128), (256, 256)])
     print("wrote %s" % ico)

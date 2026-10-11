@@ -1,10 +1,13 @@
 #include "mixer.h"
+#include "halfband.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-#define MUSIC_RING 65536 /* samples: 3.0 s of headroom at 22050 Hz */
-#define MOVIE_RING 65536
+/* 3.0 s of headroom, held at the OUTPUT rate: the streams are upsampled on the way in,
+ * on the game thread, so the render path only ever copies. */
+#define MUSIC_RING (65536 * MIX_STREAM_UP)
+#define MOVIE_RING (65536 * MIX_STREAM_UP)
 
 typedef struct
 {
@@ -27,7 +30,15 @@ typedef struct
     int bus;
     int priority;
     int active;
+    int stop_after_fade;
+    int channels;
+    unsigned int fraction; /* source frame fraction, Q16 */
+    int rate;             /* source frames per output frame, Q16 */
+    Gain level;
     int loop;            /* wrap to pos 0 instead of retiring; see mixer_play_loop  */
+    long loop_start;     /* crossfaded loop, mixer_voice_loop_xfade; xfade 0 = plain */
+    long loop_end;
+    long xfade;
     unsigned int serial; /* handle = slot | serial << 8, so a stale handle is inert */
 } Voice;
 
@@ -37,13 +48,22 @@ typedef struct
     int cap;
     int head; /* read  */
     int tail; /* write */
+    /* The last 2 * HB_TAPS source samples, for the 2x upsampler. The newest is at the
+     * end. A pushed sample leaves the upsampler HB_TAPS samples later (1.1 ms at 22050
+     * Hz), which is the price of a filter that looks both ways. */
+    short hist[2 * HB_TAPS];
 } Ring;
 
 struct Mixer
 {
     Gain bus[MIX_BUS_COUNT];
     Gain master;
-    Voice v[MIX_VOICES];
+    /* The cinematic duck: everything but EVA, movies and the cinematic pool itself, held
+     * down under a heavy impact. See mixer_duck. */
+    Gain duck;
+    long duck_hold;   /* output frames left before the release starts; 0 = releasing */
+    int duck_release; /* ms the release ramp takes                                   */
+    Voice v[MIX_TOTAL_VOICES];
     unsigned int serial;
 
     Ring music, movie;
@@ -171,6 +191,7 @@ Mixer *mixer_create(void)
     for (i = 0; i < MIX_BUS_COUNT; i++)
         gain_init(&m->bus[i]);
     gain_init(&m->master);
+    gain_init(&m->duck);
     if (!ring_init(&m->music, MUSIC_RING) || !ring_init(&m->movie, MOVIE_RING)) {
         mixer_destroy(m);
         return NULL;
@@ -204,6 +225,37 @@ int mixer_bus_gain_get(const Mixer *m, int bus)
 
 void mixer_master_gain(Mixer *m, int permille, int ms) { gain_set(&m->master, permille, ms); }
 int mixer_master_gain_get(const Mixer *m) { return m->master.gain; }
+
+void mixer_duck(Mixer *m, int depth, int attack_ms, int hold_ms, int release_ms)
+{
+    long hold;
+    if (!m)
+        return;
+    if (depth < 0)
+        depth = 0;
+    if (depth >= MIX_UNITY)
+        return;
+    /* A shallower request never lifts a deeper duck that is still holding. */
+    if (m->duck_hold > 0 && depth > m->duck.target)
+        return;
+    if (m->duck.target != depth)
+        gain_set(&m->duck, depth, attack_ms);
+    hold = (long)(attack_ms + hold_ms) * MIX_RATE / 1000;
+    if (hold < 1)
+        hold = 1;
+    m->duck_hold = hold;
+    m->duck_release = release_ms;
+}
+
+void mixer_duck_reset(Mixer *m)
+{
+    if (!m)
+        return;
+    gain_init(&m->duck);
+    m->duck_hold = 0;
+}
+
+int mixer_duck_get(const Mixer *m) { return m ? m->duck.gain : MIX_UNITY; }
 
 /* ------------------------------------------------------------------ voices */
 
@@ -242,7 +294,8 @@ static void pan_split(int gain, int pan, int *lvol, int *rvol)
     *rvol = (int)(r * gain / MIX_UNITY);
 }
 
-int mixer_play(Mixer *m, int bus, const short *pcm, long samples, int gain, int pan, int priority)
+static int mixer_play_range(Mixer *m, int bus, const short *pcm, long samples, int gain,
+                            int pan, int priority, int first, int last)
 {
     int i, slot = -1, worst = -1, worst_pri = 0x7FFFFFFF;
 
@@ -253,12 +306,12 @@ int mixer_play(Mixer *m, int bus, const short *pcm, long samples, int gain, int 
     if (gain > MIX_GAIN_MAX)
         gain = MIX_GAIN_MAX;
 
-    for (i = 0; i < MIX_VOICES; i++) {
+    for (i = first; i < last; i++) {
         if (!m->v[i].active) {
             slot = i;
             break;
         }
-        if (m->v[i].priority < worst_pri) {
+        if (!m->v[i].loop && m->v[i].priority < worst_pri) {
             worst_pri = m->v[i].priority;
             worst = i;
         }
@@ -272,6 +325,12 @@ int mixer_play(Mixer *m, int bus, const short *pcm, long samples, int gain, int 
     m->v[slot].pcm = pcm;
     m->v[slot].samples = samples;
     m->v[slot].pos = 0;
+    m->v[slot].fraction = 0;
+    m->v[slot].rate = 65536;
+    m->v[slot].stop_after_fade = 0;
+    m->v[slot].channels = 1;
+    gain_init(&m->v[slot].level);
+    gain_set(&m->v[slot].level, gain, 0);
     m->v[slot].gain = gain;
     m->v[slot].pan = pan;
     pan_split(gain, pan, &m->v[slot].lvol, &m->v[slot].rvol);
@@ -279,6 +338,9 @@ int mixer_play(Mixer *m, int bus, const short *pcm, long samples, int gain, int 
     m->v[slot].priority = priority;
     m->v[slot].active = 1;
     m->v[slot].loop = 0;
+    m->v[slot].loop_start = 0;
+    m->v[slot].loop_end = samples;
+    m->v[slot].xfade = 0;
     /* Serial keeps a stale handle from steering a recycled slot. 22 bits so the
      * packed handle never reaches the sign bit of an int. */
     m->serial = (m->serial + 1) & 0x3FFFFFu;
@@ -286,6 +348,49 @@ int mixer_play(Mixer *m, int bus, const short *pcm, long samples, int gain, int 
         m->serial = 1;
     m->v[slot].serial = m->serial;
     return slot | (int)(m->v[slot].serial << 8);
+}
+
+int mixer_play(Mixer *m, int bus, const short *pcm, long samples, int gain, int pan, int priority)
+{
+    return mixer_play_range(m, bus, pcm, samples, gain, pan, priority, 0, MIX_VOICES);
+}
+
+int mixer_play_vehicle_loop(Mixer *m, const short *pcm, long frames, int pan, long offset)
+{
+    int h = mixer_play_range(m, MIX_BUS_FX, pcm, frames, 0, pan, 128,
+                             MIX_VOICES, MIX_VOICES + MIX_VEHICLE_VOICES);
+    if (h >= 0) {
+        Voice *v = &m->v[h & 0xFF];
+        v->channels = 2;
+        v->loop = 1;
+        v->pos = offset >= 0 ? offset % frames : 0;
+    }
+    return h;
+}
+
+int mixer_play_foley_pitched(Mixer *m, const short *pcm, long frames, int pan, int pitch)
+{
+    int h = mixer_play_range(m, MIX_BUS_FX, pcm, frames, 0, pan, 64,
+        MIX_VOICES + MIX_VEHICLE_VOICES, MIX_VOICES + MIX_VEHICLE_VOICES + MIX_FOLEY_VOICES);
+    if (pitch < 900) pitch = 900;
+    if (pitch > 1100) pitch = 1100;
+    if (h >= 0) {
+        m->v[h & 0xFF].channels = 2;
+        m->v[h & 0xFF].rate = (65536 * pitch + 500) / 1000;
+    }
+    return h;
+}
+int mixer_play_foley(Mixer *m, const short *pcm, long frames, int pan)
+{
+    return mixer_play_foley_pitched(m, pcm, frames, pan, 1000);
+}
+
+int mixer_play_cinematic(Mixer *m, const short *pcm, long frames, int pan, int loop)
+{
+    int h = mixer_play_range(m, MIX_BUS_FX, pcm, frames, 0, pan, 200,
+        MIX_VOICES + MIX_VEHICLE_VOICES + MIX_FOLEY_VOICES, MIX_TOTAL_VOICES);
+    if (h >= 0) { m->v[h & 0xFF].channels = 2; m->v[h & 0xFF].loop = loop != 0; }
+    return h;
 }
 
 int mixer_play_loop(Mixer *m, int bus, const short *pcm, long samples, int gain, int pan, int priority)
@@ -296,15 +401,80 @@ int mixer_play_loop(Mixer *m, int bus, const short *pcm, long samples, int gain,
     return h;
 }
 
+int mixer_play_stereo(Mixer *m, int bus, const short *pcm, long frames,
+                      int gain, int pan, int priority, int loop)
+{
+    int h = mixer_play(m, bus, pcm, frames, gain, pan, priority);
+    if (h >= 0) {
+        m->v[h & 0xFF].channels = 2;
+        m->v[h & 0xFF].loop = loop != 0;
+    }
+    return h;
+}
+
+/* sin(i/256 * pi/2) in Q14, i = 0..256: the equal-power crossfade curve. A constant
+ * table rather than sin() because the sample path has no float (Tier 1). The fade-out
+ * gain is the same table read backwards, so for every i the two squared gains sum to
+ * unity within 0.01 %. */
+static const short xfade_curve[257] = {
+    0, 101, 201, 302, 402, 503, 603, 704, 804, 904, 1005, 1105,
+    1205, 1306, 1406, 1506, 1606, 1706, 1806, 1906, 2006, 2105, 2205, 2305,
+    2404, 2503, 2603, 2702, 2801, 2900, 2999, 3098, 3196, 3295, 3393, 3492,
+    3590, 3688, 3786, 3883, 3981, 4078, 4176, 4273, 4370, 4467, 4563, 4660,
+    4756, 4852, 4948, 5044, 5139, 5235, 5330, 5425, 5520, 5614, 5708, 5803,
+    5897, 5990, 6084, 6177, 6270, 6363, 6455, 6547, 6639, 6731, 6823, 6914,
+    7005, 7096, 7186, 7276, 7366, 7456, 7545, 7635, 7723, 7812, 7900, 7988,
+    8076, 8163, 8250, 8337, 8423, 8509, 8595, 8680, 8765, 8850, 8935, 9019,
+    9102, 9186, 9269, 9352, 9434, 9516, 9598, 9679, 9760, 9841, 9921, 10001,
+    10080, 10159, 10238, 10316, 10394, 10471, 10549, 10625, 10702, 10778, 10853, 10928,
+    11003, 11077, 11151, 11224, 11297, 11370, 11442, 11514, 11585, 11656, 11727, 11797,
+    11866, 11935, 12004, 12072, 12140, 12207, 12274, 12340, 12406, 12472, 12537, 12601,
+    12665, 12729, 12792, 12854, 12916, 12978, 13039, 13100, 13160, 13219, 13279, 13337,
+    13395, 13453, 13510, 13567, 13623, 13678, 13733, 13788, 13842, 13896, 13949, 14001,
+    14053, 14104, 14155, 14206, 14256, 14305, 14354, 14402, 14449, 14497, 14543, 14589,
+    14635, 14680, 14724, 14768, 14811, 14854, 14896, 14937, 14978, 15019, 15059, 15098,
+    15137, 15175, 15213, 15250, 15286, 15322, 15357, 15392, 15426, 15460, 15493, 15525,
+    15557, 15588, 15619, 15649, 15679, 15707, 15736, 15763, 15791, 15817, 15843, 15868,
+    15893, 15917, 15941, 15964, 15986, 16008, 16029, 16049, 16069, 16088, 16107, 16125,
+    16143, 16160, 16176, 16192, 16207, 16221, 16235, 16248, 16261, 16273, 16284, 16295,
+    16305, 16315, 16324, 16332, 16340, 16347, 16353, 16359, 16364, 16369, 16373, 16376,
+    16379, 16381, 16383, 16384, 16384
+};
+
+/* Equal-power gain, Q14, `t` frames into a crossfade `len` frames long. Linear between
+ * table entries; every product stays inside 32 bits so Win98 longs suffice. */
+static int xfade_gain(long t, long len)
+{
+    long k = t * 256 / len;
+    long f = ((t * 256) % len) * 256 / len;
+    if (k >= 256)
+        return xfade_curve[256];
+    return xfade_curve[k] + (int)(((long)(xfade_curve[k + 1] - xfade_curve[k]) * f) >> 8);
+}
+
 static Voice *voice_of(Mixer *m, int handle)
 {
     int slot = handle & 0xFF;
     unsigned int serial = (unsigned int)handle >> 8;
-    if (handle < 0 || slot >= MIX_VOICES)
+    if (handle < 0 || slot >= MIX_TOTAL_VOICES)
         return NULL;
     if (!m->v[slot].active || m->v[slot].serial != serial)
         return NULL;
     return &m->v[slot];
+}
+
+int mixer_voice_loop_xfade(Mixer *m, int handle, long start, long end, long xfade)
+{
+    Voice *v = voice_of(m, handle);
+    if (!v || !v->loop || v->rate != 65536 || start < 0 || end > v->samples || xfade < 1 ||
+        xfade > 8000000L || end - start < 2 * xfade)
+        return 0;
+    v->loop_start = start;
+    v->loop_end = end;
+    v->xfade = xfade;
+    if (v->pos < start || v->pos >= end)
+        v->pos = start;
+    return 1;
 }
 
 void mixer_voice_stop(Mixer *m, int handle)
@@ -323,16 +493,37 @@ void mixer_voice_gain(Mixer *m, int handle, int gain, int pan)
         gain = 0;
     if (gain > MIX_GAIN_MAX)
         gain = MIX_GAIN_MAX;
+    v->stop_after_fade = 0;
+    gain_set(&v->level, gain, 0);
     v->gain = gain;
     v->pan = pan;
     pan_split(gain, pan, &v->lvol, &v->rvol);
+}
+
+void mixer_voice_fade(Mixer *m, int handle, int gain, int pan, int ms)
+{
+    Voice *v = voice_of(m, handle);
+    if (!v) return;
+    if (gain < 0) gain = 0;
+    if (gain > MIX_GAIN_MAX) gain = MIX_GAIN_MAX;
+    v->stop_after_fade = 0;
+    if (v->level.target != gain) gain_set(&v->level, gain, ms);
+    v->pan = pan;
+}
+
+void mixer_voice_fade_stop(Mixer *m, int handle, int ms)
+{
+    Voice *v = voice_of(m, handle);
+    if (!v || v->stop_after_fade) return;
+    gain_set(&v->level, 0, ms);
+    v->stop_after_fade = 1;
 }
 
 int mixer_voice_active(const Mixer *m, int handle)
 {
     int slot = handle & 0xFF;
     unsigned int serial = (unsigned int)handle >> 8;
-    if (handle < 0 || slot >= MIX_VOICES)
+    if (handle < 0 || slot >= MIX_TOTAL_VOICES)
         return 0;
     return m->v[slot].active && m->v[slot].serial == serial;
 }
@@ -340,7 +531,7 @@ int mixer_voice_active(const Mixer *m, int handle)
 void mixer_stop_bus(Mixer *m, int bus)
 {
     int i;
-    for (i = 0; i < MIX_VOICES; i++)
+    for (i = 0; i < MIX_TOTAL_VOICES; i++)
         if (m->v[i].active && m->v[i].bus == bus)
             m->v[i].active = 0;
 }
@@ -348,7 +539,7 @@ void mixer_stop_bus(Mixer *m, int bus)
 int mixer_active_voices(const Mixer *m)
 {
     int i, n = 0;
-    for (i = 0; i < MIX_VOICES; i++)
+    for (i = 0; i < MIX_TOTAL_VOICES; i++)
         if (m->v[i].active)
             n++;
     return n;
@@ -438,25 +629,68 @@ int mixer_effect_place(int listener_cx, int listener_cy, int view_w, int view_h,
 
 /* ------------------------------------------------------------- ring facade */
 
-void mixer_music_reset(Mixer *m) { m->music.head = m->music.tail = 0; }
-int mixer_music_want(const Mixer *m) { return ring_free(&m->music); }
-int mixer_music_level(const Mixer *m) { return ring_level(&m->music); }
-int mixer_music_push(Mixer *m, const short *pcm, int samples)
+/* Everything below speaks SOURCE samples (22050 Hz), whatever MIX_RATE is: the ring
+ * holds MIX_STREAM_UP output samples for each one. A level rounds up, so a ring with
+ * one output sample left is not reported empty. */
+static void stream_reset(Ring *r)
 {
-    return ring_push(&m->music, pcm, samples);
+    r->head = r->tail = 0;
+    memset(r->hist, 0, sizeof r->hist);
 }
 
-void mixer_movie_reset(Mixer *m) { m->movie.head = m->movie.tail = 0; }
-int mixer_movie_want(const Mixer *m) { return ring_free(&m->movie); }
-int mixer_movie_level(const Mixer *m) { return ring_level(&m->movie); }
+static int stream_want(const Ring *r) { return ring_free(r) / MIX_STREAM_UP; }
+
+static int stream_level(const Ring *r)
+{
+    return (ring_level(r) + MIX_STREAM_UP - 1) / MIX_STREAM_UP;
+}
+
+static int stream_push(Ring *r, const short *pcm, int samples)
+{
+    short out[512];
+    int done = 0;
+
+    if (MIX_STREAM_UP == 1)
+        return ring_push(r, pcm, samples);
+    if (samples > stream_want(r))
+        samples = stream_want(r);
+    while (done < samples) {
+        int n = samples - done, i;
+        if (n > (int)(sizeof out / sizeof out[0]) / 2)
+            n = (int)(sizeof out / sizeof out[0]) / 2;
+        for (i = 0; i < n; i++) {
+            /* Slide the window one on and take the new sample in at the end. The
+             * pair being interpolated is hist[HB_TAPS - 1] and hist[HB_TAPS]. */
+            memmove(r->hist, r->hist + 1, (2 * HB_TAPS - 1) * sizeof(short));
+            r->hist[2 * HB_TAPS - 1] = pcm[done + i];
+            out[i * 2] = r->hist[HB_TAPS - 1];
+            HB_MID(r->hist + HB_TAPS - 1, out[i * 2 + 1]);
+        }
+        ring_push(r, out, n * 2);
+        done += n;
+    }
+    return samples;
+}
+
+void mixer_music_reset(Mixer *m) { stream_reset(&m->music); }
+int mixer_music_want(const Mixer *m) { return stream_want(&m->music); }
+int mixer_music_level(const Mixer *m) { return stream_level(&m->music); }
+int mixer_music_push(Mixer *m, const short *pcm, int samples)
+{
+    return stream_push(&m->music, pcm, samples);
+}
+
+void mixer_movie_reset(Mixer *m) { stream_reset(&m->movie); }
+int mixer_movie_want(const Mixer *m) { return stream_want(&m->movie); }
+int mixer_movie_level(const Mixer *m) { return stream_level(&m->movie); }
 int mixer_movie_push(Mixer *m, const short *pcm, int samples)
 {
-    return ring_push(&m->movie, pcm, samples);
+    return stream_push(&m->movie, pcm, samples);
 }
 
 /* ------------------------------------------------------------------ render */
 
-#define BLOCK 256 /* frames per gain step, 11.6 ms at 22050 Hz */
+#define BLOCK 256 /* frames per gain step: 5.8 ms at 44100 Hz, 11.6 ms at 22050 */
 
 /* The clipper. A hard clamp at 32767 was measured doing real damage in the
  * configuration a player actually runs: music at unity under a firefight of
@@ -508,7 +742,7 @@ void mixer_render(Mixer *m, short *dst, int frames)
 
     while (done < frames) {
         int n = frames - done;
-        int i, gm, g_music, g_movie, g_fx, g_speech;
+        int i, gm, g_music, g_movie, g_fx, g_speech, g_ambience, g_duck;
         int got;
 
         if (n > BLOCK)
@@ -520,7 +754,22 @@ void mixer_render(Mixer *m, short *dst, int frames)
         g_music = gain_advance(&m->bus[MIX_BUS_MUSIC], n);
         g_fx = gain_advance(&m->bus[MIX_BUS_FX], n);
         g_speech = gain_advance(&m->bus[MIX_BUS_SPEECH], n);
+        g_ambience = gain_advance(&m->bus[MIX_BUS_AMBIENCE], n);
         g_movie = gain_advance(&m->bus[MIX_BUS_MOVIE], n);
+        /* The duck's hold runs on the output clock, so a caller that stops asking (a
+         * pause, a mission end) cannot leave the mix held down. */
+        if (m->duck_hold > 0) {
+            m->duck_hold -= n;
+            if (m->duck_hold <= 0) {
+                m->duck_hold = 0;
+                gain_set(&m->duck, MIX_UNITY, m->duck_release);
+            }
+        }
+        g_duck = gain_advance(&m->duck, n);
+        if (g_duck != MIX_UNITY) {
+            g_music = (int)((long)g_music * g_duck / MIX_UNITY);
+            g_ambience = (int)((long)g_ambience * g_duck / MIX_UNITY);
+        }
 
         /* Music: mono bed, centred. */
         if (g_music > 0) {
@@ -549,7 +798,7 @@ void mixer_render(Mixer *m, short *dst, int frames)
         /* Voices. */
         {
             int vi;
-            for (vi = 0; vi < MIX_VOICES; vi++) {
+            for (vi = 0; vi < MIX_TOTAL_VOICES; vi++) {
                 Voice *v = &m->v[vi];
                 int bg, lv, rv, avail;
                 int want, at;
@@ -557,37 +806,102 @@ void mixer_render(Mixer *m, short *dst, int frames)
                     continue;
                 bg = (v->bus == MIX_BUS_SPEECH) ? g_speech
                      : (v->bus == MIX_BUS_MUSIC) ? g_music
+                     : (v->bus == MIX_BUS_AMBIENCE) ? g_ambience
                      : (v->bus == MIX_BUS_MOVIE) ? g_movie
                                                  : g_fx;
+                /* the FX bus ducks too, all but the cinematic pool that asked for it */
+                if (g_duck != MIX_UNITY && v->bus == MIX_BUS_FX
+                    && vi < MIX_VOICES + MIX_VEHICLE_VOICES + MIX_FOLEY_VOICES)
+                    bg = (int)((long)bg * g_duck / MIX_UNITY);
+                pan_split(gain_advance(&v->level, n), v->pan, &v->lvol, &v->rvol);
+                if (v->stop_after_fade && v->level.ramp_left == 0 && v->level.gain == 0) {
+                    v->active = 0;
+                    continue;
+                }
                 lv = (int)((long)v->lvol * bg / MIX_UNITY);
                 rv = (int)((long)v->rvol * bg / MIX_UNITY);
+                /* Variable-pitch foley only. Existing unity-rate voices retain the
+                 * original sample path. Weighted interpolation stays in signed 32-bit
+                 * range on Win98; frame/fraction are separate to avoid long-clip overflow.
+                 * Muted voices advance and retire on the same output clock. */
+                if (v->rate != 65536) {
+                    for (i = 0; i < n && v->active; ++i) {
+                        if (bg > 0) {
+                            long si = v->pos * v->channels;
+                            long next = v->pos + 1;
+                            long f = (long)v->fraction;
+                            int sl, sr;
+                            if (next >= v->samples) next = v->loop ? 0 : v->pos;
+                            next *= v->channels;
+                            sl = (int)(((long)v->pcm[si] * (65536 - f)
+                                + (long)v->pcm[next] * f) / 65536);
+                            sr = (int)(((long)v->pcm[si + 1] * (65536 - f)
+                                + (long)v->pcm[next + 1] * f) / 65536);
+                            acc[i * 2] += (sl * lv) >> 12;
+                            acc[i * 2 + 1] += (sr * rv) >> 12;
+                        }
+                        v->fraction += (unsigned int)v->rate;
+                        v->pos += v->fraction >> 16;
+                        v->fraction &= 65535;
+                        if (v->pos >= v->samples) {
+                            if (v->loop) v->pos %= v->samples;
+                            else v->active = 0;
+                        }
+                    }
+                    continue;
+                }
                 /* One pass per contiguous run of the clip. A one-shot has exactly one
                  * run (avail == the whole request, `break` on the last block), so this
                  * is byte identical to the old straight-line code; a looping voice
                  * takes a second pass from pos 0 and the seam lands on a SAMPLE
                  * boundary rather than the end of an output block. */
+                /* A crossfaded loop (mixer_voice_loop_xfade) splits the clip into a
+                 * plain run up to `fade`, then the last `xfade` frames of the loop
+                 * mixed with its first `xfade` frames on the equal-power curve, then a
+                 * jump to loop_start + xfade, which the crossfade has already played.
+                 * Without one, `fade` == `end` == samples and nothing here changes. */
                 want = n;
                 at = 0;
                 while (want > 0) {
-                    avail = (int)(v->samples - v->pos);
+                    long end = v->xfade > 0 ? v->loop_end : v->samples;
+                    long fade = end - v->xfade;
+                    int crossing = v->pos >= fade;
+                    avail = (int)((crossing ? end : fade) - v->pos);
                     if (avail > want)
                         avail = want;
-                    if (bg > 0) {
+                    if (bg > 0 && !crossing) {
                         for (i = 0; i < avail; i++) {
-                            int s = v->pcm[v->pos + i];
-                            acc[(at + i) * 2] += (s * lv) >> 12;
-                            acc[(at + i) * 2 + 1] += (s * rv) >> 12;
+                            long si = (v->pos + i) * v->channels;
+                            int sl = v->pcm[si];
+                            int sr = v->pcm[si + (v->channels == 2 ? 1 : 0)];
+                            acc[(at + i) * 2] += (sl * lv) >> 12;
+                            acc[(at + i) * 2 + 1] += (sr * rv) >> 12;
+                        }
+                    } else if (bg > 0) {
+                        int right = v->channels == 2 ? 1 : 0;
+                        for (i = 0; i < avail; i++) {
+                            long t = v->pos + i - fade;
+                            long so = (v->pos + i) * v->channels;
+                            long sn = (v->loop_start + t) * v->channels;
+                            int gin = xfade_gain(t, v->xfade);
+                            int gout = xfade_gain(v->xfade - t, v->xfade);
+                            /* Q14 times 16 bit, twice: under 2^31 for any samples. */
+                            int sl = (v->pcm[so] * gout + v->pcm[sn] * gin) >> 14;
+                            int sr = (v->pcm[so + right] * gout + v->pcm[sn + right] * gin) >> 14;
+                            acc[(at + i) * 2] += (sl * lv) >> 12;
+                            acc[(at + i) * 2 + 1] += (sr * rv) >> 12;
                         }
                     }
                     v->pos += avail;
                     at += avail;
                     want -= avail;
-                    if (v->pos >= v->samples) {
+                    if (v->pos >= end) {
                         if (!v->loop) {
                             v->active = 0;
                             break;
                         }
-                        v->pos = 0; /* the seam, sample accurate */
+                        /* the seam, sample accurate */
+                        v->pos = v->xfade > 0 ? v->loop_start + v->xfade : 0;
                     }
                 }
             }

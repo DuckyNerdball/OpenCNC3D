@@ -3,7 +3,7 @@
 template set.
 
 The TD brain has no snow theater, so SNOW is an aliased look: maps say Theater=WINTER
-to the engine and CNC3DTheater=SNOW to the pipeline. The bank this tool writes is
+to the engine and OpenCNC3DTheater=SNOW to the pipeline. The bank this tool writes is
 therefore shaped exactly like the WINTER one (tools/win_to_n64bank.py): the SAME 140
 TD winter-flagged templates, the same TL8 built per (template, cell) -- only the ART
 differs per template:

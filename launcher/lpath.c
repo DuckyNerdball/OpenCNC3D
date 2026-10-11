@@ -12,7 +12,9 @@
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
 #include <stdlib.h>
+#include <sys/statvfs.h>
 #else
+#include <sys/statvfs.h>
 #include <unistd.h>
 #endif
 
@@ -60,4 +62,26 @@ void lp_dirname(char *path)
         slash[1] = '\0';
     else
         snprintf(path, 2, ".");
+}
+
+int lp_free_bytes(const char *dir, long long *out)
+{
+#ifdef _WIN32
+    /* The bytes free TO THIS USER, which a disk quota can make smaller than the bytes
+     * free on the disk. The folder rather than its drive letter, so a folder mounted
+     * from another volume answers for that volume. */
+    ULARGE_INTEGER avail, total, free_all;
+    if (!dir || !*dir || !GetDiskFreeSpaceExA(dir, &avail, &total, &free_all))
+        return 0;
+    *out = (long long)avail.QuadPart;
+    return 1;
+#else
+    /* f_bavail, not f_bfree: the blocks an ordinary user may still take, without the
+     * reserve the file system keeps back for the system. */
+    struct statvfs v;
+    if (!dir || !*dir || statvfs(dir, &v) != 0)
+        return 0;
+    *out = (long long)v.f_bavail * (long long)v.f_frsize;
+    return 1;
+#endif
 }

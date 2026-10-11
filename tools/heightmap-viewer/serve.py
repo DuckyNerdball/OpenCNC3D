@@ -18,7 +18,7 @@ and two endpoints are added:
 WHAT PLAY ACTUALLY DOES
 
     sh tools/stage-skirmish-maps.sh --from game/authored <SCEN>
-    playable/cnc3d --scen <SCEN> --pack tools/bakery/game/<SCEN>.pack
+    playable/opencnc3d --scen <SCEN> --pack tools/bakery/game/<SCEN>.pack
 
 Both steps already existed and are validated on their own; this is the wiring. The
 bake takes the better part of a minute, so play starts a job and the page polls it,
@@ -62,8 +62,8 @@ PACKS = os.path.join(ROOT, "tools", "bakery", "game")
 # The engine binary. playable/ is the staged tree the game actually runs from; app/ is
 # the build output. Prefer the staged one, because that is the tree whose data
 # directories match what the bake writes.
-BINARIES = [os.path.join(ROOT, "playable", "cnc3d"),
-            os.path.join(ROOT, "app", "cnc3d")]
+BINARIES = [os.path.join(ROOT, "playable", "opencnc3d"),
+            os.path.join(ROOT, "app", "opencnc3d")]
 
 # A scenario name is four to eight of A-Z and 0-9 and nothing else. This is the only
 # untrusted string that reaches a path join, a shell script and a process argument.
@@ -187,7 +187,7 @@ def run_job(job, scen):
 
     exe = game_binary()
     if not exe:
-        log("no runnable cnc3d binary at playable/cnc3d or app/cnc3d -- build it first")
+        log("no runnable opencnc3d binary at playable/opencnc3d or app/opencnc3d -- build it first")
         with JOB_LOCK:
             job["state"] = "failed"
         return
@@ -318,11 +318,11 @@ def main():
     the page fetches its own endpoints relatively."""
     port = int(os.environ.get("PORT") or (sys.argv[1] if len(sys.argv) > 1 else 8099))
     exe = game_binary()
-    print("OpenCNC 3D mission editor")
+    print("OpenCNC3D mission editor")
     print("  http://127.0.0.1:%d/" % port)
     print("  authored maps -> %s" % os.path.relpath(AUTHORED, ROOT))
     print("  play launches -> %s" % (os.path.relpath(exe, ROOT) if exe
-                                     else "NOTHING: no cnc3d binary built yet"))
+                                     else "NOTHING: no opencnc3d binary built yet"))
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 
 

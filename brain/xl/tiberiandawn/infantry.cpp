@@ -720,14 +720,14 @@ void InfantryClass::Per_Cell_Process(bool center)
 
             building->IsGoingToBlow = true;
             /*
-            **	OpenCNC 3D: the saboteur's own house rather than this machine's, for the reason
+            **	OpenCNC3D: the saboteur's own house rather than this machine's, for the reason
             **	written out in BuildingClass::Sell_Back. This site never showed in a dump
             **	because the line after it immediately overwrites FlashCount with the same
             **	20 on every peer -- but FlashCountPerPlayer[] keeps whichever index it was
             **	handed, so each peer recorded a different house as having clicked, and
             **	nothing exports that array for a gate to notice.
             */
-            building->Clicked_As_Target(CNC3D_Lockstep ? Owner() : PlayerPtr->Class->House,
+            building->Clicked_As_Target(OpenCNC3D_Lockstep ? Owner() : PlayerPtr->Class->House,
                                         20); // 2019/09/20 JAS - Added record of who clicked on the object
             building->Clicked_As_Target(building->Owner(), 20);
             building->CountDown.Set(20);
@@ -749,7 +749,7 @@ void InfantryClass::Per_Cell_Process(bool center)
     */
     if (center && IsTethered) {
         /*
-        **	OpenCNC 3D: a factory's rally point. BuildingClass::Exit_Object parks it in this
+        **	OpenCNC3D: a factory's rally point. BuildingClass::Exit_Object parks it in this
         **	soldier's own ArchiveTarget (always a CELL target) and leaves the destination
         **	as the exit cell, so the soldier walks out through the door first. This is
         **	that cell: the tether is cut here and the walk to the rally begins from here,
@@ -776,16 +776,16 @@ void InfantryClass::Per_Cell_Process(bool center)
         **	own centre there and is left alone, and so is an OBJECT archive (a transport
         **	order's), which this hook never wrote.
         */
-        TechnoClass const* cnc3d_from = Contact_With_Whom();
-        const bool cnc3d_factory = cnc3d_from != NULL && cnc3d_from->What_Am_I() == RTTI_BUILDING
-                                   && ((BuildingClass const*)cnc3d_from)->Class->IsFactory && House->IsHuman;
-        const bool cnc3d_rally = cnc3d_factory && Mission == MISSION_MOVE && Target_Legal(ArchiveTarget)
+        TechnoClass const* opencnc3d_from = Contact_With_Whom();
+        const bool opencnc3d_factory = opencnc3d_from != NULL && opencnc3d_from->What_Am_I() == RTTI_BUILDING
+                                   && ((BuildingClass const*)opencnc3d_from)->Class->IsFactory && House->IsHuman;
+        const bool opencnc3d_rally = opencnc3d_factory && Mission == MISSION_MOVE && Target_Legal(ArchiveTarget)
                                  && Is_Target_Cell(ArchiveTarget) && Coord_Cell(Coord) == As_Cell(NavCom);
         Transmit_Message(RADIO_UNLOADED);
-        if (cnc3d_rally) {
+        if (opencnc3d_rally) {
             Assign_Destination(ArchiveTarget);
             ArchiveTarget = TARGET_NONE;
-        } else if (cnc3d_factory && Mission != MISSION_GUARD_AREA && Is_Target_Cell(ArchiveTarget)) {
+        } else if (opencnc3d_factory && Mission != MISSION_GUARD_AREA && Is_Target_Cell(ArchiveTarget)) {
             ArchiveTarget = TARGET_NONE;
         }
         if (House->Class->House == HOUSE_GOOD) {
@@ -1855,7 +1855,7 @@ short const* InfantryClass::Overlap_List(void) const
     Validate();
     // return(Coord_Spillage_List(Coord, 24 + ((IsSelected || Doing > DO_WALK)?12:0)));
     /*
-    **	OpenCNC 3D lockstep: the selection term is dropped IN A MATCH ONLY.
+    **	OpenCNC3D lockstep: the selection term is dropped IN A MATCH ONLY.
     **	Is_Selected_By_Player() reads the global PlayerPtr, so it answers differently on
     **	every peer, and this list is not advisory: MapClass::Place_Down / Pick_Up /
     **	Overlap_Down / Overlap_Up walk it into CellClass::Overlapper, and Overlap_Down ends
@@ -1867,7 +1867,7 @@ short const* InfantryClass::Overlap_List(void) const
     **	in both cases: it is replicated state, and the death and fire shapes need the ring.
     */
     return (Coord_Spillage_List(
-        Coord, 24 + ((Doing > DO_WALK || (!CNC3D_Lockstep && Is_Selected_By_Player())) ? 12 : 0)));
+        Coord, 24 + ((Doing > DO_WALK || (!OpenCNC3D_Lockstep && Is_Selected_By_Player())) ? 12 : 0)));
     //	return(Coord_Spillage_List(Coord, (IsSelected ? 24 : 14))+1);
 }
 

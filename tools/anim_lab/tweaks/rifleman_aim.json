@@ -1,0 +1,20 @@
+{
+ "bones": {
+  "Spine": {
+   "rot": [
+    0,
+    10,
+    0
+   ]
+  }
+ },
+ "legs": {
+  "width": 40,
+  "stagger": 45,
+  "hips_up": 18,
+  "toe_out": 6
+ },
+ "carry": {
+  "pitch": -5.9
+ }
+}

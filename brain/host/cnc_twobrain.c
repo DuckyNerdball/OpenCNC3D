@@ -26,7 +26,7 @@
  * setting the lockstep flag through A leaves B reading false.
  *
  * LOCKSTEP IS ON FOR THE RUN, deliberately. The determinism fixes are gated on
- * CNC3D_Lockstep, so a run with the flag off exercises the campaign path and proves nothing
+ * OpenCNC3D_Lockstep, so a run with the flag off exercises the campaign path and proves nothing
  * about the path a match will actually take. This gate runs the configuration that ships.
  *
  *   usage: cnc_twobrain <brain.dylib> <content_dir> <scenario_dir> <scenario> [ticks] [brainB]
@@ -58,8 +58,8 @@ typedef HMODULE cnc_lib_t;
 #define cnc_lib_open(p) LoadLibraryA(p)
 #define cnc_lib_sym(h, n) ((void*)GetProcAddress((h), (n)))
 #define cnc_lib_err() "LoadLibrary failed"
-#define TB_COPY_A "cnc3d_twobrain_A.dll"
-#define TB_COPY_B "cnc3d_twobrain_B.dll"
+#define TB_COPY_A "opencnc3d_twobrain_A.dll"
+#define TB_COPY_B "opencnc3d_twobrain_B.dll"
 #define TB_COPY_CMD "copy /Y \"%s\" \"%s\" >nul"
 #else
 #include <unistd.h>
@@ -69,8 +69,8 @@ typedef void* cnc_lib_t;
 #define cnc_lib_open(p) dlopen((p), RTLD_NOW | RTLD_LOCAL)
 #define cnc_lib_sym(h, n) dlsym((h), (n))
 #define cnc_lib_err() dlerror()
-#define TB_COPY_A "/tmp/cnc3d_twobrain_A.dylib"
-#define TB_COPY_B "/tmp/cnc3d_twobrain_B.dylib"
+#define TB_COPY_A "/tmp/opencnc3d_twobrain_A.dylib"
+#define TB_COPY_B "/tmp/opencnc3d_twobrain_B.dylib"
 #define TB_COPY_CMD "cp '%s' '%s'"
 #endif
 
@@ -114,7 +114,7 @@ _Static_assert(sizeof(CNCDifficultyDataStruct) == 39,
 /* Mirrored from cnc_host.c, which keeps them honest against the brain with _Static_assert.
    Needed because the ORDER leg has to arm a real multiplayer match: the pump that executes
    a posted order only runs on the multiplayer arm, so a campaign mission would accept an
-   order through CNC3D_Post_Event and never execute it, which would look like a pass. */
+   order through OpenCNC3D_Post_Event and never execute it, which would look like a pass. */
 #define TB_MAX_HOUSES 32
 #define TB_MAX_EXPORT_CELLS (128 * 128)
 
@@ -180,7 +180,7 @@ typedef struct
 #pragma pack(pop)
 
 /* The 22-byte order on the wire. The harness never interprets it, only moves it, so it is
-   an opaque block of the size the brain reports through CNC3D_Event_ABI. Asserting that
+   an opaque block of the size the brain reports through OpenCNC3D_Event_ABI. Asserting that
    the two agree is the point; hardcoding 22 here would be a second place to be wrong. */
 #define TB_EVENT_MAX 64
 
@@ -241,19 +241,29 @@ static void CNC_CALL noop_callback(const void* event)
 /* The dump prints to stdout from inside the library. To compare two of them we redirect
    fd 1 into a temp file around each call and read it back. fflush(NULL) rather than
    fflush(stdout) because the buffered bytes may belong to either image's stream. */
-/* The one field in the dump that names the CONTEXT that dumped rather than the world:
-   HOUSE|...|player=1 marks the house the caller's player id resolved to. The two instances
-   are advanced under different ids on purpose (see main), so that field differs by design
-   and is blanked before the compare. Everything else in the dump is simulation. */
-static void normalise_dump(char* d)
+/* The fields in the dump that name the CONTEXT that dumped rather than the world:
+   HOUSE|...|player=1 marks the house the caller's player id resolved to, and an OBJ line's
+   flashme= says whether the target blush is that house's to see. The two instances are
+   advanced under different ids on purpose (see main), so both differ by design and are
+   blanked before the compare. Everything else in the dump is simulation. (The lockstep
+   world hash in the renderer skips the same fields, plus sel= and group=, which a
+   headless brain never sets.) */
+static void blank_field(char* d, const char* key)
 {
     char* p = d;
-    while ((p = strstr(p, "|player=")) != NULL) {
-        p += 8;
+    const size_t n = strlen(key);
+    while ((p = strstr(p, key)) != NULL) {
+        p += n;
         while (*p >= '0' && *p <= '9') {
             *p++ = '?';
         }
     }
+}
+
+static void normalise_dump(char* d)
+{
+    blank_field(d, "|player=");
+    blank_field(d, "|flashme=");
 }
 
 static char* capture_dump(Brain* b, size_t* len_out)
@@ -382,13 +392,13 @@ static int load_brain(Brain* b, const char* src, const char* copy_path, const ch
     SYM(Config, "CNC_Config")
     SYM(Start, "CNC_Start_Custom_Instance")
     SYM(Advance, "CNC_Advance_Instance")
-    SYM(Dump, "CNC3D_Dump_Objects")
-    SYM(SetLockstep, "CNC3D_Set_Lockstep")
-    SYM(GetLockstep, "CNC3D_Get_Lockstep")
-    SYM(EventABI, "CNC3D_Event_ABI")
+    SYM(Dump, "OpenCNC3D_Dump_Objects")
+    SYM(SetLockstep, "OpenCNC3D_Set_Lockstep")
+    SYM(GetLockstep, "OpenCNC3D_Get_Lockstep")
+    SYM(EventABI, "OpenCNC3D_Event_ABI")
     SYM(SetMP, "CNC_Set_Multiplayer_Data")
-    SYM(Drain, "CNC3D_Drain_Events")
-    SYM(Post, "CNC3D_Post_Event")
+    SYM(Drain, "OpenCNC3D_Drain_Events")
+    SYM(Post, "OpenCNC3D_Post_Event")
     SYM(Beacon, "CNC_Handle_Beacon_Request")
     SYM(Structure, "CNC_Handle_Structure_Request")
     SYM(Sidebar, "CNC_Handle_Sidebar_Request")
@@ -424,7 +434,7 @@ static void fill_rules(CNCRulesDataStruct* r)
 /* ------------------------------------------------------------- multiplayer arming -- */
 
 /*
- * The ORDER leg needs a real multiplayer match, not a campaign mission. CNC3D_Post_Event
+ * The ORDER leg needs a real multiplayer match, not a campaign mission. OpenCNC3D_Post_Event
  * puts an order into DoList on any game type, but the pump that EXECUTES it only runs on
  * the multiplayer arm, so a campaign run would accept every order and quietly execute
  * none. That is a pass that proves nothing, which is the one outcome this file exists to
@@ -494,6 +504,7 @@ static int arm_multiplayer(Brain* b, int seats)
 #define TB_P0 1ULL /* seat 0's GlyphxPlayerID, as arm_multiplayer assigns them */
 #define TB_STRUCTURE_REPAIR 2
 #define TB_STRUCTURE_SELL 4
+#define TB_STRUCTURE_POWER 6
 #define TB_SIDEBAR_START_CONSTRUCTION 0
 #define TB_SIDEBAR_START_PLACEMENT 3
 #define TB_SIDEBAR_PLACE 4
@@ -749,7 +760,7 @@ static int gesture_legs(Brain* A, Brain* B, unsigned event_size)
     int fact_id, fact_x, fact_y, fpx, fpy;
     int nuke_id, npx, npy;
 
-    printf("\n--- the gesture legs: repair, sell, wall sell and placement are ORDERS now ---\n");
+    printf("\n--- the gesture legs: repair, power switching, sell, wall sell and placement are ORDERS now ---\n");
 
     /* The playable rectangle, for turning an absolute cell into the sidebar's relative one,
        which is the form CNC_Handle_Sidebar_Request takes a placement cell in. */
@@ -891,6 +902,93 @@ static int gesture_legs(Brain* A, Brain* B, unsigned event_size)
     }
     free(line);
     printf("  repair: executed on both, the yard is repairing\n");
+
+    /* POWER SWITCHING must cross as one order, with no local mutation before it.
+
+       THE FIXTURE IS STILL BEING BUILT when the repair leg ends. A debug spawn starts a
+       building in MISSION_CONSTRUCTION, playing its build-up, and the yard needs about 45
+       ticks of that before it reaches MISSION_GUARD; the legs above take fewer. A building
+       under construction refuses the switch on purpose (Toggle_Power), so a switch thrown
+       at this point crosses the wire, executes on both, and changes nothing. That refusal
+       is asserted first, as its own leg, because it is the reason the switch below has to
+       wait; then the build-up is run out on both and the switch is thrown off and on. */
+    {
+        int off, wait;
+        A->Structure(TB_STRUCTURE_POWER, TB_P0, fact_id);
+        if (!tb_agree(A, B, "after the power click on a yard still being built and BEFORE the drain", NULL)) {
+            return (0);
+        }
+        if (!tb_cross(A, B, event_size, "power switch during build-up", 1)) {
+            return (0);
+        }
+        if (!tb_settle(A, B, 6, "after the power switch during build-up executed")) {
+            return (0);
+        }
+        if (!tb_agree(A, B, "reading the yard after the power switch during build-up", &dump)) {
+            return (0);
+        }
+        line = tb_find_building(dump, "FACT", fact_id);
+        free(dump);
+        if (line == NULL || strstr(line, "|mission=Construction|") == NULL || tb_field(line, "poweroff", -1) != 0) {
+            printf("FAILED: a power switch thrown while the yard was still being built was not refused on both: %s\n",
+                   line ? line : "(gone)");
+            free(line);
+            return (0);
+        }
+        free(line);
+        printf("  power: a switch thrown during the yard's build-up crossed and was refused on both\n");
+
+        for (wait = 0;; wait++) {
+            if (!tb_agree(A, B, "while the yard's build-up runs out", &dump)) {
+                return (0);
+            }
+            line = tb_find_building(dump, "FACT", fact_id);
+            free(dump);
+            if (line == NULL) {
+                printf("FAILED: the yard disappeared while its build-up ran out\n");
+                return (0);
+            }
+            if (strstr(line, "|mission=Construction|") == NULL) {
+                free(line);
+                break;
+            }
+            free(line);
+            if (wait >= 300) {
+                printf("FAILED: the yard was still under construction %d ticks after the switch thrown during its build-up\n", wait);
+                return (0);
+            }
+            if (!tb_settle(A, B, 1, "while the yard's build-up runs out")) {
+                return (0);
+            }
+        }
+        printf("  power: the yard finished its build-up %d tick(s) later, on both\n", wait);
+
+        for (off = 1; off >= 0; off--) {
+            A->Structure(TB_STRUCTURE_POWER, TB_P0, fact_id);
+            if (!tb_agree(A, B, "after the power click and BEFORE the drain: the switch went straight into A's world, so the power bypass is OPEN", NULL)) {
+                return (0);
+            }
+            if (!tb_cross(A, B, event_size, off ? "power off" : "power on", 1)) {
+                return (0);
+            }
+            if (!tb_settle(A, B, 6, "after the power switch executed")) {
+                return (0);
+            }
+            if (!tb_agree(A, B, "reading the power state on both", &dump)) {
+                return (0);
+            }
+            line = tb_find_building(dump, "FACT", fact_id);
+            free(dump);
+            if (line == NULL || tb_field(line, "poweroff", -1) != off) {
+                printf("FAILED: the power switch did not land on both worlds (want poweroff=%d): %s\n", off,
+                       line ? line : "(gone)");
+                free(line);
+                return (0);
+            }
+            free(line);
+        }
+        printf("  power: switched off and on through one order each, identical on both brains\n");
+    }
 
     /* 4. PLACE. Start a Power Plant (an order too, now that the reentrant pump is off),
        finish it by the debug path on both, then place it: TWICE, in the same window, which
@@ -1042,11 +1140,11 @@ int main(int argc, char** argv)
                argv[0]);
         printf("\n");
         printf("Loads the brain TWICE as two independent instances, runs the same scenario on\n");
-        printf("both with CNC3D_Lockstep ON, and compares the full engine dump every tick.\n");
+        printf("both with OpenCNC3D_Lockstep ON, and compares the full engine dump every tick.\n");
         printf("\n");
-        printf("CNC3D_TB_WARM=<SCEN>  run that scenario on instance A first and throw it away,\n");
+        printf("OPENCNC3D_TB_WARM=<SCEN>  run that scenario on instance A first and throw it away,\n");
         printf("                      so the two differ in what their process has already done.\n");
-        printf("CNC3D_TB_WARM_TICKS=N how long to run it (default 200).\n");
+        printf("OPENCNC3D_TB_WARM_TICKS=N how long to run it (default 200).\n");
         return (2);
     }
 
@@ -1062,7 +1160,7 @@ int main(int argc, char** argv)
     memset(&A, 0, sizeof(A));
     memset(&B, 0, sizeof(B));
 
-    printf("OpenCNC 3D two-brain lockstep gate\n");
+    printf("OpenCNC3D two-brain lockstep gate\n");
     printf("  brain A  : %s\n", src);
     printf("  brain B  : %s%s\n", srcB, (srcB == src) ? "  (same library, the normal case)" : "  (DIFFERENT library)");
     printf("  scenario : %s   ticks: %d\n\n", scenario, ticks);
@@ -1136,14 +1234,14 @@ int main(int argc, char** argv)
     **	skirmish, host a match, and your stream is hundreds of draws along while a freshly
     **	launched joiner's is at zero.
     **
-    **	So with CNC3D_TB_WARM set, instance A runs that scenario first and throws it away,
+    **	So with OPENCNC3D_TB_WARM set, instance A runs that scenario first and throws it away,
     **	and instance B does not. If anything survives a scenario change that the simulation
     **	then reads, the two disagree and this gate says where.
     */
     {
-        const char* warm = getenv("CNC3D_TB_WARM");
+        const char* warm = getenv("OPENCNC3D_TB_WARM");
         if (warm != NULL && *warm != '\0') {
-            const char* wt = getenv("CNC3D_TB_WARM_TICKS");
+            const char* wt = getenv("OPENCNC3D_TB_WARM_TICKS");
             int wticks = (wt != NULL && *wt != '\0') ? atoi(wt) : 200;
             int w;
             if (wticks < 1) {
@@ -1476,7 +1574,7 @@ int main(int argc, char** argv)
     printf("          That is the property lockstep needs and that one binary run twice\n");
     printf("          cannot demonstrate.\n");
     if (want_order_leg) {
-        printf("          Repair, sell, wall sell and placement each changed nothing until their\n");
+        printf("          Repair, power switching, sell, wall sell and placement each changed nothing until their\n");
         printf("          order crossed, and then changed both worlds alike.\n");
     }
     return (0);

@@ -13,12 +13,18 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Under the EIGHTPLAYERS build switch, adds two more multiplayer colour
 // entries (grey and brown) to MPlayerGColors and MPlayerTColors, and raises
 // MPlayerMax from 6 to 8. With the switch off the file reads as upstream.
+// MODIFIED again in September 2026: defines OpenCNC3D_FreeInfantry, the free
+// infantry movement switch read by InfantryClass::AI (default off), and
+// OpenCNC3D_FastShells, the tank shell speed switch read by TechnoClass::Fire_At
+// (default off).
+// MODIFIED again in October 2026: defines OpenCNC3D_WallFill, the wall line fill
+// reach read by BuildingClass::Unlimbo (default 0, off).
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -47,7 +53,10 @@
 bool ForceEnglish = false;
 #endif
 
-bool CNC3D_Lockstep = false; /* see externs.h; only CNC3D_Set_Lockstep writes this */
+bool OpenCNC3D_Lockstep = false; /* see externs.h; only OpenCNC3D_Set_Lockstep writes this */
+bool OpenCNC3D_FreeInfantry = false; /* see externs.h; only OpenCNC3D_Set_Free_Infantry writes this */
+bool OpenCNC3D_FastShells = false; /* see externs.h; only OpenCNC3D_Set_Fast_Shells writes this */
+int OpenCNC3D_WallFill = 0;          /* see externs.h; only OpenCNC3D_Set_Wall_Fill writes this */
 bool Debug_Quiet = false;
 bool Debug_Cheat = false;
 bool Debug_Remap = false;

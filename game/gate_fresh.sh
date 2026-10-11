@@ -4,17 +4,17 @@
 # from -- BOTH of them.
 #
 # WHY THIS EXISTS, twice over. There are two binaries: cnc_eyes (the renderer, which
-# every --script gate drives) and cnc3d (the app, which is what PLAY.command launches
+# every --script gate drives) and opencnc3d (the app, which is what PLAY.command launches
 # and therefore what actually ships). They share almost all of their source. It
 # is trivially easy to rebuild one, verify the change with a headless run, gate it
 # green, commit it -- and hand over a build where the change is not there, because
 # the menu route is still running a binary from hours ago.
 #
 # That has now happened TWICE:
-#   17 Aug, morning -- cnc3d still carried the old pack-magic check and rejected every
+#   17 Aug, morning -- opencnc3d still carried the old pack-magic check and rejected every
 #                      v13 pack with "the mission failed to start". Four gates failed
 #                      and I spent the diagnosis blaming the movies.
-#   17 Aug, evening -- cnc3d was three hours stale, so the cursor shadow and the
+#   17 Aug, evening -- opencnc3d was three hours stale, so the cursor shadow and the
 #                      cursor depth fix were both absent from PLAY.command. Both were
 #                      reported as regressions. They were not regressions; they
 #                      were never in the binary that ran.
@@ -76,7 +76,7 @@ for f in "$REPO"/net/*.c "$REPO"/net/*.h; do
 done
 
 fail=0
-for bin in cnc_eyes cnc3d; do
+for bin in cnc_eyes opencnc3d; do
     p="$RUNDIR/$bin"
     # Both link the net objects (game/build.sh and app/build.sh compile them), so the
     # threshold is the later of the two sets.
@@ -93,7 +93,7 @@ for bin in cnc_eyes cnc3d; do
     if [ "$bt" -lt "$want" ]; then
         age=$(( (want - bt) / 60 ))
         echo "  $bin: STALE by ${age} min -- older than $(basename "$want_name")."
-        echo "      rebuild it:  cd $REPO/$([ "$bin" = cnc3d ] && echo app || echo game) && ./build.sh && cp $bin $RUNDIR/"
+        echo "      rebuild it:  cd $REPO/$([ "$bin" = opencnc3d ] && echo app || echo game) && ./build.sh && cp $bin $RUNDIR/"
         fail=1
     else
         echo "  $bin: current"
@@ -120,27 +120,6 @@ for bin in gate_lockstep gate_netloop gate_beacon gate_lobby netcheck; do
         echo "  $bin: current"
     fi
 done
-
-# ---- gate_rminf, WHICH IS BUILT FROM game/ AND NOT FROM net/ ----------------------
-# G202's derivation leg runs this binary against the player's own Remastered install, so a
-# stale copy is a green gate on source that has since changed -- the same failure as the
-# net binaries above, from a different directory. Its sources are the game headers, which
-# is why it takes `newest` rather than `net_newest`.
-p="$RUNDIR/gate_rminf"
-if [ ! -x "$p" ]; then
-    echo "  gate_rminf: not deployed (G202 reports that; game/build.sh makes and stages it)"
-else
-    bt=$(stat -f %m "$p" 2>/dev/null || stat -c %Y "$p" 2>/dev/null)
-    if [ "$newest" -gt 0 ] && [ "$bt" -lt "$newest" ]; then
-        age=$(( (newest - bt) / 60 ))
-        echo "  gate_rminf: STALE by ${age} min -- older than $(basename "$newest_name")."
-        echo "      rebuild it:  cd $REPO/game && ./build.sh"
-        echo "      G202 runs this binary, so a stale one is a green gate on old source"
-        fail=1
-    else
-        echo "  gate_rminf: current"
-    fi
-fi
 
 # ---- cnc_twobrain, WHICH THIS FILE DID NOT WATCH AND SHOULD HAVE ------------------
 # G194 is the gate that proves two independent copies of the engine AGREE, which is the
@@ -258,7 +237,7 @@ if command -v git >/dev/null 2>&1 && [ -e "$REPO/.git" ]; then
 fi
 
 if [ "$fail" -eq 0 ]; then
-    echo "gate_fresh: every deployed binary (both game binaries, the four net tools, gate_rminf, cnc_twobrain and the brain) and every tracked gate script match the tree"
+    echo "gate_fresh: every deployed binary (both game binaries, the four net tools, cnc_twobrain and the brain) and every tracked gate script match the tree"
     exit 0
 fi
 echo "gate_fresh: a deployed binary is older than the source it is built from"

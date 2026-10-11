@@ -12,6 +12,15 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
+// BulletClass::AI detonates a tank shell flying at twice its class speed
+// (OpenCNC3D_FastShells, default off) on the step that reaches or crosses its fuse
+// target, which the proximity fuse can step over at that speed.
+// It DOES change the game simulation.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\bullet.cpv   2.18   16 Oct 1995 16:50:00   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -396,7 +405,25 @@ void BulletClass::AI(void)
             }
         }
 
-        if (!forced && (Class->IsDropping || !Fuse_Checkup(coord))) {
+        /*
+        **	OpenCNC3D: a tank shell flying at twice its class speed (OpenCNC3D_FastShells) can step
+        **	from short of its target to past it in one tick while the distance still
+        **	shrinks, and the next step lands outside the one-cell window Fuse_Checkup
+        **	watches, so the fuse misses and the round flies on until its timer. A boosted
+        **	round whose step reaches or crosses the fuse target detonates on this step
+        **	instead, snapped to the target below as any straight round is. A round at its
+        **	class speed never takes this path.
+        */
+        bool opencnc3d_crossed = false;
+        if (OpenCNC3D_FastShells && !forced && !Class->IsArcing && !Class->IsHoming && Fuse_Target()
+            && Get_Speed() > Class->MaxSpeed) {
+            const long tx = Coord_X(Fuse_Target()), ty = Coord_Y(Fuse_Target());
+            const long ax = tx - Coord_X(Coord), ay = ty - Coord_Y(Coord);
+            const long bx = tx - Coord_X(coord), by = ty - Coord_Y(coord);
+            opencnc3d_crossed = (ax * bx + ay * by) <= 0;
+        }
+
+        if (!forced && !opencnc3d_crossed && (Class->IsDropping || !Fuse_Checkup(coord))) {
             Coord = coord;
             Mark();
 

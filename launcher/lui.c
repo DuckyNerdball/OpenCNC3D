@@ -75,6 +75,107 @@ void lui_print_shadowed(DB_Surface *s, const DB_Font *f, const char *text, int x
     db_print(s, f, text, x, y, fp, DB_FONT6_XSPACING);
 }
 
+static int lui_char_w(const DB_Font *f, unsigned char c)
+{
+    return (c < f->nchars) ? f->width[c] + DB_FONT6_XSPACING : 0;
+}
+
+/* The same greedy wrap the changelog panel uses (lui_wrap below), printing as it
+ * goes instead of keeping the rows. */
+int lui_print_wrapped(DB_Surface *s, const DB_Font *f, const char *text, int x, int y,
+                      int w, unsigned char colour, int centered, int max_rows)
+{
+    char row[256];
+    int start = 0, n, rows = 0;
+
+    if (!f || !text)
+        return 0;
+    n = (int)strlen(text);
+    if (w < 8)
+        w = 8;
+    while (start < n) {
+        int take, lastspace = -1, width = 0, i;
+        if (max_rows > 0 && rows == max_rows - 1) {
+            /* The last row there is room for takes the rest, cut to fit. */
+            const char *rest = text + start;
+            const char *nl = strchr(rest, '\n');
+            take = nl ? (int)(nl - rest) : n - start;
+            if (take > (int)sizeof row - 1)
+                take = (int)sizeof row - 1;
+            memcpy(row, rest, (size_t)take);
+            row[take] = '\0';
+            if (s) {
+                if (centered && db_string_width(f, row, DB_FONT6_XSPACING) <= w)
+                    lui_print_centered(s, f, row, x + w / 2, y + rows * LUI_LINE_H, colour);
+                else
+                    lui_print_fit(s, f, row, x, y + rows * LUI_LINE_H, w, colour);
+            }
+            return rows + 1;
+        }
+        for (i = start; i < n; i++) {
+            const int cw = lui_char_w(f, (unsigned char)text[i]);
+            if (text[i] == '\n' || width + cw > w)
+                break;
+            width += cw;
+            if (text[i] == ' ')
+                lastspace = i;
+        }
+        if (i >= n || text[i] == '\n')
+            take = i - start;
+        else if (lastspace > start)
+            take = lastspace - start;
+        else
+            take = (i - start) < 1 ? 1 : i - start; /* one unbreakable word: break it */
+        if (take > (int)sizeof row - 1)
+            take = (int)sizeof row - 1;
+        memcpy(row, text + start, (size_t)take);
+        row[take] = '\0';
+        if (s) {
+            if (centered)
+                lui_print_centered(s, f, row, x + w / 2, y + rows * LUI_LINE_H, colour);
+            else
+                lui_print(s, f, row, x, y + rows * LUI_LINE_H, colour);
+        }
+        rows++;
+        start += take;
+        if (start < n && text[start] == '\n')
+            start++;
+        else
+            while (start < n && text[start] == ' ')
+                start++;
+    }
+    return rows;
+}
+
+void lui_print_fit(DB_Surface *s, const DB_Font *f, const char *text, int x, int y,
+                   int maxw, unsigned char colour)
+{
+    char cut[256];
+    int n, dots;
+
+    if (!f || !text || !*text)
+        return;
+    if (db_string_width(f, text, DB_FONT6_XSPACING) <= maxw) {
+        lui_print(s, f, text, x, y, colour);
+        return;
+    }
+    dots = db_string_width(f, "...", DB_FONT6_XSPACING);
+    n = (int)strlen(text);
+    if (n > (int)sizeof cut - 4)
+        n = (int)sizeof cut - 4;
+    while (n > 0) {
+        memcpy(cut, text, (size_t)n);
+        cut[n] = '\0';
+        if (db_string_width(f, cut, DB_FONT6_XSPACING) + dots <= maxw)
+            break;
+        n--;
+    }
+    while (n > 0 && cut[n - 1] == ' ')
+        n--;
+    memcpy(cut + n, "...", 4);
+    lui_print(s, f, cut, x, y, colour);
+}
+
 /* ------------------------------------------------------------------------ *
  * Buttons.
  * ------------------------------------------------------------------------ */
@@ -84,6 +185,9 @@ void lui_button_draw(DB_Surface *s, const DB_Font *grad, const LUI_Button *b, in
 {
     unsigned char fp[16];
     int i, tx;
+
+    if (b->hidden)
+        return;
 
     /* The disabled arm is the engine's, not a dimmed green: textbtn.cpp:297-305
      * tests IsDisabled first, so a disabled button has no pressed state at all
@@ -110,11 +214,103 @@ void lui_button_draw(DB_Surface *s, const DB_Font *grad, const LUI_Button *b, in
     db_print(s, grad, b->label, tx, b->y + 1, fp, DB_FONT6_XSPACING);
 }
 
+/* The ink a control's word or picture takes, from the same three states a button's
+ * label has: flat CC_GREEN when disabled, bright under the highlight or the mouse,
+ * medium otherwise. */
+static unsigned char lui_ink(const LUI_Button *b, int pressed, int hot)
+{
+    if (b->disabled)
+        return DM_TEXT_DISABLED;
+    return (pressed || hot) ? DM_TEXT_BRIGHT : DM_TEXT_MEDIUM;
+}
+
+void lui_check_draw(DB_Surface *s, const DB_Font *grad, const DB_Font *f6,
+                    const LUI_Button *b, int pressed, int hot)
+{
+    const int last = LUI_CHECK_BOX - 1;
+    const unsigned char ink = lui_ink(b, pressed, hot);
+    int bx, by;
+
+    if (b->hidden)
+        return;
+    bx = b->x;
+    by = b->y + (b->h - LUI_CHECK_BOX) / 2;
+
+    /* After dosmp.c's mp_check: the shadow-green well, the black inset along its
+     * top and left, the light green square two pixels in. A press shows as the
+     * well lifting to the dialog's own green, the nearest thing a box has to the
+     * pressed bevel a button draws. A disabled box leaves the green ramp for the grey
+     * slab the disabled buttons use, so the two read as the same state. */
+    db_fill_rect(s, bx, by, bx + last, by + last,
+                 b->disabled ? DM_DIS_FILL : (pressed ? DM_GREEN_BKGD : DM_GREEN_SHADOW));
+    db_line_h(s, bx, bx + last, by, DM_DIS_SHADOW);
+    db_line_v(s, bx, by, by + last, DM_DIS_SHADOW);
+    if (b->checked)
+        db_fill_rect(s, bx + 2, by + 2, bx + last - 2, by + last - 2,
+                     b->disabled ? DM_DIS_HILITE : DM_LIGHT_GREEN);
+
+    if (b->label)
+        lui_print(s, grad, b->label, bx + LUI_CHECK_TEXT, by + 1, ink);
+    if (b->note)
+        lui_print_right(s, f6 ? f6 : grad, b->note, b->x + b->w, by + 1,
+                        b->disabled ? DM_TEXT_DISABLED : DM_TEXT_MEDIUM);
+}
+
+/* THE GEAR, eleven pixels square: four square teeth on the axes, four on the
+ * diagonals, a ring, and a three pixel hole. Small enough to sit in a heading row,
+ * and still a gear rather than a blob at the launcher's 1x. */
+static const char *const lui_gear_bits[LUI_GEAR_PX] = {
+    "....###....",
+    ".##.###.##.",
+    ".#########.",
+    "..#######..",
+    "####...####",
+    "####...####",
+    "####...####",
+    "..#######..",
+    ".#########.",
+    ".##.###.##.",
+    "....###....",
+};
+
+void lui_gear_draw(DB_Surface *s, const LUI_Button *b, int pressed, int hot)
+{
+    const unsigned char ink = lui_ink(b, pressed, hot);
+    int gx, gy, i, j;
+
+    if (b->hidden)
+        return;
+    dm_green_button(s, b->x, b->y, b->w, b->h, pressed && !b->disabled, b->disabled);
+    gx = b->x + (b->w - LUI_GEAR_PX) / 2;
+    gy = b->y + (b->h - LUI_GEAR_PX) / 2;
+    for (j = 0; j < LUI_GEAR_PX; j++)
+        for (i = 0; i < LUI_GEAR_PX; i++)
+            if (lui_gear_bits[j][i] == '#')
+                db_put_pixel(s, gx + i, gy + j, ink);
+}
+
+void lui_control_draw(DB_Surface *s, const DB_Font *grad, const DB_Font *f6,
+                      const LUI_Button *b, int pressed, int hot)
+{
+    switch (b->kind) {
+    case LUI_KIND_CHECK:
+        lui_check_draw(s, grad, f6, b, pressed, hot);
+        break;
+    case LUI_KIND_GEAR:
+        lui_gear_draw(s, b, pressed, hot);
+        break;
+    default:
+        lui_button_draw(s, grad, b, pressed, hot);
+        break;
+    }
+}
+
 int lui_button_hit(const LUI_Button *b, int mx, int my)
 {
     /* gadget.cpp:632 guards the whole Clicked_On dispatch with !IsDisabled, so a
-     * disabled button is not merely inert when clicked: the mouse cannot reach it. */
-    if (b->disabled)
+     * disabled button is not merely inert when clicked: the mouse cannot reach it.
+     * A hidden one is not on the screen, so the same answer for a different reason. */
+    if (b->disabled || b->hidden)
         return 0;
     return mx >= b->x && mx < b->x + b->w && my >= b->y && my < b->y + b->h;
 }
@@ -432,4 +628,52 @@ void lui_gauge_draw(DB_Surface *s, int x, int y, int w, int h, int frac, int pha
     fill = (inner * frac) / 1000;
     if (fill > 0)
         db_fill_rect(s, x + 1, y + 1, x + fill, y + h - 2, DM_LIGHT_GREEN);
+}
+
+/* ------------------------------------------------------------------------ *
+ * Pictures and marks.
+ * ------------------------------------------------------------------------ */
+
+void lui_blit_scaled(DB_Surface *s, const DB_Shape *sh, int frame, int sx, int sy, int sw,
+                     int sh_h, int dx, int dy, int dw, int dh)
+{
+    int i, j;
+
+    if (!sh || dw < 1 || dh < 1 || sw < 1 || sh_h < 1)
+        return;
+    if (frame < 0 || frame >= sh->frames)
+        return;
+
+    for (j = 0; j < dh; j++) {
+        int srcy = sy + (j * sh_h) / dh;
+        if (srcy < 0 || srcy >= sh->h)
+            continue;
+        for (i = 0; i < dw; i++) {
+            int srcx = sx + (i * sw) / dw;
+            unsigned char c;
+            if (srcx < 0 || srcx >= sh->w)
+                continue;
+            c = sh->pixels[(long)frame * sh->w * sh->h + (long)srcy * sh->w + srcx];
+            /* Index 0 is the shape blitter's transparency and this keeps that
+             * contract: the emblem stands on the tile rather than on a black
+             * square cut out of it. */
+            if (c != LUI_TRANSPARENT)
+                db_put_pixel(s, dx + i, dy + j, c);
+        }
+    }
+}
+
+void lui_plus(DB_Surface *s, int cx, int cy, int arm, int thick, unsigned char colour)
+{
+    int half = thick / 2;
+    db_fill_rect(s, cx - arm, cy - half, cx + arm, cy - half + thick - 1, colour);
+    db_fill_rect(s, cx - half, cy - arm, cx - half + thick - 1, cy + arm, colour);
+}
+
+void lui_outline(DB_Surface *s, int x, int y, int w, int h, unsigned char colour)
+{
+    db_line_h(s, x, x + w - 1, y, colour);
+    db_line_h(s, x, x + w - 1, y + h - 1, colour);
+    db_line_v(s, x, y, y + h - 1, colour);
+    db_line_v(s, x + w - 1, y, y + h - 1, colour);
 }

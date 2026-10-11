@@ -44,8 +44,8 @@
  *  the resolve line itself and the test is built from it, so a pointer added later
  *  cannot be forgotten by a list somewhere else in the file.
  * ==================================================================================== */
-#ifndef CNC3D_FX_GL_H
-#define CNC3D_FX_GL_H
+#ifndef OPENCNC3D_FX_GL_H
+#define OPENCNC3D_FX_GL_H
 
 #include <SDL.h>
 #include <stdio.h>
@@ -100,6 +100,17 @@
 #endif
 #ifndef GL_TEXTURE_BORDER_COLOR
 #define GL_TEXTURE_BORDER_COLOR           0x1004
+#endif
+/* THE ONE TOKEN IN THIS FILE THAT IS NEWER THAN BOTH SYSTEM HEADERS AGREE ON, and the
+   one that proved the paragraph above is not hypothetical. GL_RGBA16F is OpenGL 3.0. On
+   Windows it arrives through the <GL/glext.h> the compat header includes, so the first
+   build of the high-range target compiled there and looked finished. A compatibility
+   profile Mac is served the 2.1 header, which carries this extension under its ARB
+   spelling and nothing else, so the same line failed there with an undeclared
+   identifier. Same number, 0x881A, either way. Whether the DRIVER will accept the format
+   is a separate question and is asked separately, at the glTexImage2D that uses this. */
+#ifndef GL_RGBA16F
+#define GL_RGBA16F                        0x881A
 #endif
 
 typedef char           FxGLchar;
@@ -332,9 +343,18 @@ static inline void fx_setmat(GLuint p, const char* n, const float* m)
    this game's palette wants (nothing in a 1995 sprite or an N64 texture is brighter
    than white) and it costs the chain one whole class of extension checks. If HDR is
    ever wanted, this is the struct that grows a format field. */
+/* FX_RT_FLOAT asks for a SIXTEEN BIT FLOAT colour attachment instead of eight bit
+   fixed. It is a request and not a demand: `hdr` below records what the driver actually
+   gave, because a target that silently came back eight bit while the chain believes it
+   is working in high range would clip every highlight and look like a shader bug. */
+#define FX_RT_COLOUR 1
+#define FX_RT_DEPTH  2
+#define FX_RT_FLOAT  4
+
 struct FxRT {
     GLuint fbo, tex, depth;
     int    w, h;
+    int    hdr;      /* 1 if the colour attachment really is float */
 };
 
 static void fx_rt_free(FxRT* rt)
@@ -343,13 +363,19 @@ static void fx_rt_free(FxRT* rt)
     if (rt->tex)   { glDeleteTextures(1, &rt->tex); rt->tex = 0; }
     if (rt->depth) { glDeleteTextures(1, &rt->depth); rt->depth = 0; }
     rt->w = rt->h = 0;
+    rt->hdr = 0;
 }
 
 /* want: bit 0 = a colour attachment, bit 1 = a sampleable depth attachment.
    Returns 0 and frees everything if the driver calls the combination incomplete. */
 static int fx_rt_init(FxRT* rt, int w, int h, int want, GLint filter)
 {
-    if (rt->fbo && rt->w == w && rt->h == h) return 1;
+    /* A target already at this size AND in the format now being asked for is kept. The
+       format test is why the high-range switch can be thrown from the panel mid-game:
+       without it the old eight bit target would survive the toggle and nothing would
+       appear to happen. */
+    if (rt->fbo && rt->w == w && rt->h == h
+        && rt->hdr == ((want & FX_RT_FLOAT) ? 1 : 0)) return 1;
     fx_rt_free(rt);
     if (w < 1 || h < 1) return 0;
     rt->w = w; rt->h = h;
@@ -360,7 +386,23 @@ static int fx_rt_init(FxRT* rt, int w, int h, int want, GLint filter)
     if (want & 1) {
         glGenTextures(1, &rt->tex);
         glBindTexture(GL_TEXTURE_2D, rt->tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        /* THE FLOAT ATTEMPT, AND THE FALLBACK THAT MAKES IT SAFE TO ASK FOR. GL_RGBA16F
+           is OpenGL 3.0 (ARB_texture_float before that) and the token comes from
+           <GL/glext.h>, which compat/win/OpenGL/gl.h already includes; the CALL is
+           glTexImage2D, which is 1.0, so nothing new has to be resolved by hand on
+           Windows. What can still fail is the driver, so the error queue is drained,
+           the format is requested, and the queue is read again: a driver that will not
+           take it says so there and this falls back to the eight bit format rather than
+           handing the chain a target it cannot render to. */
+        rt->hdr = 0;
+        if (want & FX_RT_FLOAT) {
+            while (glGetError() != GL_NO_ERROR) { }
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, w, h, 0, GL_RGBA, GL_FLOAT, NULL);
+            if (glGetError() == GL_NO_ERROR)
+                rt->hdr = 1;
+        }
+        if (!rt->hdr)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -495,4 +537,4 @@ static int fx_mat_invert(const float* m, float* inv)
     return 1;
 }
 
-#endif /* CNC3D_FX_GL_H */
+#endif /* OPENCNC3D_FX_GL_H */

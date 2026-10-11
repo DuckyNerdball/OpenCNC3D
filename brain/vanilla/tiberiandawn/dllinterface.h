@@ -13,13 +13,13 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Adds a compile-time static_assert, under an EIGHTPLAYERS guard, that
 // GAME_OVER_MULTIPLAYER_MAX_PLAYERS_TRACKED is still 8, so the end-of-game
 // stats block cannot silently drop players if the maximum player count is
 // widened further.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -234,6 +234,7 @@ struct CNCObjectStruct
     bool IsDumping;
     bool IsTheaterSpecific;
     unsigned int FlashingFlags;
+    bool IsBlushing;
     unsigned char Cloak;
     bool CanRepair;
     bool CanDemolish;
@@ -439,6 +440,7 @@ enum StructureRequestEnum
     INPUT_STRUCTURE_SELL_START,
     INPUT_STRUCTURE_SELL,
     INPUT_STRUCTURE_CANCEL,
+    INPUT_STRUCTURE_POWER,
 };
 
 /**************************************************************************************
@@ -765,7 +767,7 @@ struct CNCMultiplayerOptionsStruct
     bool MPlayerAftermathUnits;
     bool CaptureTheFlag;
     bool DestroyStructures; // New early win condition via destroying all a player's structures
-    bool ShortGame;         // OpenCNC 3D: defences and walls do not keep a player alive
+    bool ShortGame;         // OpenCNC3D: defences and walls do not keep a player alive
     bool ModernBalance;
 };
 

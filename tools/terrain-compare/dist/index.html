@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111714">
+  <meta name="description" content="Compare OpenCNC3D terrain renders from the same GDI 1 camera.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='13' fill='%23111714'/%3E%3Cpath d='M7 48 25 22l9 12 8-9 15 23Z' fill='%23c3a77c'/%3E%3Cpath d='M7 48 25 22l9 12 8-9 15 23' fill='none' stroke='%23f1e3c4' stroke-width='3'/%3E%3C/svg%3E">
+  <title>OpenCNC3D · Terrain comparison</title>
+  <style>
+    :root { color-scheme: dark; --bg: #111714; --panel: #19221d; --line: #344238; --text: #f1f1e9; --muted: #a9b5a9; --accent: #d5bc8c; }
+    * { box-sizing: border-box; }
+    html { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); }
+    body { margin: 0; min-height: 100vh; color: var(--text); }
+    .shell { width: min(100%, 1740px); margin: 0 auto; padding: clamp(16px, 2.3vw, 38px); }
+    header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 20px; }
+    h1 { margin: 0; font-size: clamp(1.35rem, 2vw, 1.9rem); letter-spacing: -.025em; line-height: 1.2; }
+    .context { margin: 0; color: var(--muted); font-size: .9rem; }
+    .controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .group { border: 1px solid var(--line); border-radius: 13px; background: var(--panel); padding: 12px; min-width: 0; }
+    .group-title { display: block; margin: 0 0 9px 2px; color: var(--muted); font-size: .88rem; font-weight: 700; letter-spacing: .02em; }
+    .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+    button { appearance: none; border: 1px solid transparent; background: #29352c; border-radius: 8px; color: var(--text); cursor: pointer; font: inherit; font-size: .9rem; font-weight: 650; padding: 9px 13px; line-height: 1.2; transition: background .12s, border-color .12s; }
+    button:hover { background: #364538; }
+    button:focus-visible, input:focus-visible + .divider { outline: 3px solid #f2d29b; outline-offset: 3px; }
+    button[aria-pressed="true"] { background: #66583c; border-color: var(--accent); color: #fff7e8; }
+    .comparison { --split: 50%; position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; isolation: isolate; border: 1px solid #586457; border-radius: 12px; background: #070b08; touch-action: none; }
+    .comparison img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; pointer-events: none; }
+    .comparison .after { clip-path: inset(0 calc(100% - var(--split)) 0 0); }
+    .divider { position: absolute; inset: 0 auto 0 var(--split); z-index: 3; width: 2px; background: rgba(255,255,255,.96); box-shadow: 0 0 0 1px rgba(0,0,0,.3), 0 0 20px rgba(0,0,0,.35); transform: translateX(-50%); pointer-events: none; }
+    .handle { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); display: grid; place-items: center; width: 48px; height: 48px; border: 2px solid white; border-radius: 50%; background: rgba(20,26,22,.94); box-shadow: 0 3px 18px rgba(0,0,0,.45); font-size: 1.25rem; letter-spacing: -.2em; padding-right: .2em; }
+    .label { position: absolute; z-index: 2; top: 15px; padding: 7px 10px; border-radius: 7px; background: rgba(11,17,13,.84); color: white; font-size: .85rem; font-weight: 700; pointer-events: none; }
+    .label.after-label { left: 15px; }
+    .label.before-label { right: 15px; }
+    .comparison input[type="range"] { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+    .hint { margin: 12px 1px 0; color: var(--muted); font-size: .88rem; }
+    @media (max-width: 760px) { header { display: block; } .context { margin-top: 5px; } .controls { grid-template-columns: 1fr; } .comparison { border-radius: 8px; } .handle { width: 40px; height: 40px; } .label { top: 8px; font-size: .75rem; } .label.after-label { left: 8px; } .label.before-label { right: 8px; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <h1>OpenCNC3D terrain comparison</h1>
+      <p class="context">GDI 1 · same camera and lighting</p>
+    </header>
+    <div class="controls" aria-label="Choose comparison images">
+      <section class="group" aria-labelledby="before-title">
+        <span class="group-title" id="before-title">Before</span>
+        <div class="choices" id="before-choices"></div>
+      </section>
+      <section class="group" aria-labelledby="after-title">
+        <span class="group-title" id="after-title">After</span>
+        <div class="choices" id="after-choices"></div>
+      </section>
+    </div>
+    <div class="comparison" id="comparison">
+      <img id="before-image" alt="Before terrain render" draggable="false">
+      <img class="after" id="after-image" alt="After terrain render" draggable="false">
+      <span class="label after-label" id="after-label"></span>
+      <span class="label before-label" id="before-label"></span>
+      <span class="divider" aria-hidden="true"><span class="handle">‹ ›</span></span>
+      <input type="range" id="split" min="0" max="100" value="50" aria-label="Drag to compare before and after; use arrow keys for fine adjustment">
+    </div>
+    <p class="hint">Drag the divider or use the arrow keys. Select either image above to compare any pair.</p>
+  </main>
+  <script>
+    const base = '../../../art/generated/temperate_cliffs/approved_style_v1/';
+    const images = {
+      DOS: base + 'gdi1_dos.png',
+      Remastered: base + 'gdi1_remastered_final.png',
+      New: base + 'gdi1_material_flat.png',
+      Displacement: base + 'gdi1_material_displaced.png'
+    };
+    const state = { before: 'New', after: 'Displacement' };
+    const comparison = document.getElementById('comparison');
+    const range = document.getElementById('split');
+    function renderChoice(side) {
+      document.getElementById(side + '-image').src = images[state[side]];
+      document.getElementById(side + '-image').alt = state[side] + ' terrain render';
+      document.getElementById(side + '-label').textContent = state[side];
+      document.querySelectorAll('#' + side + '-choices button').forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.image === state[side]));
+      });
+    }
+    for (const side of ['before', 'after']) {
+      const group = document.getElementById(side + '-choices');
+      for (const name of Object.keys(images)) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = name;
+        button.dataset.image = name;
+        button.setAttribute('aria-pressed', String(state[side] === name));
+        button.addEventListener('click', () => { state[side] = name; renderChoice(side); });
+        group.append(button);
+      }
+      renderChoice(side);
+    }
+    for (const src of Object.values(images)) { const preload = new Image(); preload.src = src; }
+    range.addEventListener('input', () => comparison.style.setProperty('--split', range.value + '%'));
+  </script>
+</body>
+</html>

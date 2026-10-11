@@ -1,0 +1,126 @@
+# G304. A REMASTERED STRUCTURE GOES UP PART BY PART, AS THE LAB'S PLACE PLAYS IT.
+#
+# Under Enhanced a structure put down (game/ebld_place.h, game/eplc/<TYPE>.eplc) rises out
+# of the ground slab first, then part by part, with the dust of every part passing through
+# the slab, the game's placement jolt and a rumble as the main structure rises, and at the
+# end it is exactly the remastered model at rest. This script stages it four ways on
+# SCG90EA and dumps the system's own state; gates.sh runs it four times (Enhanced twice,
+# Enhanced with --noeplc, and Classic) and reads the dumps.
+#
+# 1. THE REAL THING: a Power Plant built from the sidebar and put down south of the
+#    Construction Yard (cell 52,53, out of reach of the enemy, so no hit cuts it short),
+#    dumped and shot at the press, 0.4 s (the slab's phase), 1.2 and 1.6 s (the main
+#    structure rising: the rumble), 2.2 s, its end, and six seconds after the end (the dust
+#    and the ring long gone: the hand-over frame).
+# 2. THE WEAPONS FACTORY'S PLACEMENT PLAYED AGAIN (eplcplay, the lab's Place button) and
+#    dumped tick by tick across its end, where its two roof fans hand over from their spin
+#    up to the idle turn.
+# 3. THE CONSTRUCTION YARD'S, whose one jolt is the placement's own, 1.724 s in, as its
+#    MCV's box lands on the slab: the camera's state read on the ticks round it.
+# 4. THE WEAPONS FACTORY SOLD: the placement backwards on the engine's own sell clock.
+#
+# The ECHO lines name each dump for the suite; gates.sh rewrites the shot names per run.
+tick 20
+cam 53 54
+zoom max
+echo g304 first
+eplcdump
+sidebar
+build NUKE
+ready NUKE 400
+startplace NUKE
+place 52 53
+echo g304 n0
+eplcdump
+shakedump
+shot shots/g304_n0.png
+tick 6
+echo g304 n1
+eplcdump
+efxdump
+shakedump
+shot shots/g304_n1.png
+tick 12
+echo g304 n2
+eplcdump
+shakedump
+shot shots/g304_n2.png
+tick 6
+echo g304 n3
+eplcdump
+shakedump
+shot shots/g304_n3.png
+tick 9
+echo g304 n4
+eplcdump
+shakedump
+shot shots/g304_n4.png
+tick 25
+echo g304 n5
+eplcdump
+shakedump
+tick 4
+echo g304 n6
+eplcdump
+shakedump
+tick 90
+echo g304 n7
+eplcdump
+shot shots/g304_n7.png
+cam 54 47
+eplcplay WEAP 0
+tick 55
+echo g304 w55
+eplcdump
+ebldump
+tick 1
+echo g304 w56
+eplcdump
+ebldump
+tick 1
+echo g304 w57
+eplcdump
+ebldump
+tick 1
+shot shots/g304_w57.png
+echo g304 w58
+eplcdump
+shot shots/g304_w58.png
+ebldump
+tick 1
+echo g304 w59
+eplcdump
+shot shots/g304_w59.png
+ebldump
+tick 1
+echo g304 w60
+eplcdump
+ebldump
+shot shots/g304_w60.png
+cam 54 52
+eplcplay FACT 0
+tick 25
+echo g304 f25
+shakedump
+tick 1
+echo g304 f26
+shakedump
+tick 1
+echo g304 f27
+shakedump
+tick 40
+echo g304 f67
+eplcdump
+shot shots/g304_f67.png
+tick 60
+cam 54 47
+sellmode 1
+lclickobj WEAP 0
+tick 10
+echo g304 s10
+eplcdump
+tick 20
+echo g304 s30
+eplcdump
+shot shots/g304_s30.png
+quit

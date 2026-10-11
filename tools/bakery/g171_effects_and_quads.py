@@ -57,9 +57,9 @@ _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-ROM_PATH = os.environ.get("CNC3D_ROM",
+ROM_PATH = os.environ.get("OPENCNC3D_ROM",
                           os.path.join(os.path.dirname(os.path.dirname(HERE)),
-                                       "CNC3D", "data", "rom", "cnc_eu.z64"))
+                                       "OpenCNC3D", "data", "rom", "cnc_eu.z64"))
 if not os.path.isfile(ROM_PATH):
     ROM_PATH = os.path.join(_REPO, "data", "rom", "cnc_eu.z64")
 ROM = open(ROM_PATH, "rb").read()

@@ -1,5 +1,5 @@
 /* ==================================================================================== *
- *  OpenCNC 3D -- THE SIDEBAR
+ *  OpenCNC3D -- THE SIDEBAR
  *
  *  Everything the player needs in order to BUILD: the buildable list with its cameo art,
  *  the credits/power readout, construction progress, and the placement cursor with the
@@ -130,6 +130,8 @@ static int g_sbUiDiv = 1;
 /* The 640x480 replacement HUD. Both paths are compiled; g_hudNew picks one at runtime so
  * the old DOS bar stays available for comparison until the new one is signed off. */
 #include "hud640.h"
+#include "hud_enhanced.h"
+#include "hud_enhanced_catalog.h"
 
 /* ---- the engine's cell stride, which is NOT a constant ------------------------------
  *
@@ -146,7 +148,7 @@ static int g_sbUiDiv = 1;
  * classic brain the literal is right.
  *
  * So the host tells this file what the loaded brain's stride actually is, taken from the
- * brain's own CNC3D_ABI_Facts export rather than assumed. 128 remains the default for a
+ * brain's own OpenCNC3D_ABI_Facts export rather than assumed. 128 remains the default for a
  * brain that does not export it, which is every classic build.
  */
 static int g_sbStride = 128;
@@ -181,6 +183,8 @@ struct SbRosterRow {
 /* ---- what the host must provide ---------------------------------------------------- */
 
 struct SbHooks {
+    float (*EffectTime)(void);
+    bool (*OwnedBuilding)(const char*);
     /* the brain, already dlsym'd by the host */
     bool (*GetState)(GameStateRequestEnum, uint64, unsigned char*, unsigned int);
     void (*SidebarReq)(SidebarRequestEnum, uint64, int, int, short, short);
@@ -260,6 +264,19 @@ struct SbHooks {
        A NULL hook means no captions at all, which is what this file did before the hook
        existed. */
     const char* (*CellBlocker)(int cellx, int celly);
+    /* IS A STRUCTURE STANDING ON THIS CELL. The modern placement grid paints the cells of
+       nearby buildings amber, so the player can read where the base already is and why the
+       grid stops there; the placement grid's own flags say only "not clear", which a tree
+       and a barracks share. NULL means no amber, and nothing else changes. */
+    int (*CellStructure)(int cellx, int celly);
+    /* HOW MUCH OF THE GROUND AT A WORLD POINT THE PLAYER CAN SEE, 1 in the open and 0
+       under full shroud. The modern grid fades with it, so it never draws a lattice over
+       ground nobody has explored. NULL means everything is seen. */
+    float (*GroundSeen)(float wx, float wz);
+    /* THE PLAYER'S OWN WALL ON A CELL: its kind (0 SBAG, 1 CYCL, 2 BRIK, 3 BARB, 4 WOOD)
+       when the local player owns a wall there, else -1. The wall line preview anchors on
+       it. NULL means no preview, and placing a wall shows the one piece. */
+    int (*OwnWallKind)(int cellx, int celly);
     /* GAME_STATE_STATIC_MAP geometry; also the placement grid origin and size */
     int mapX, mapY, mapW, mapH;
     /* THE PLAYABLE RECTANGLE, WHICH IS NOT THE ONE ABOVE. The brain widens the rectangle
@@ -493,6 +510,10 @@ static int g_sbPlaceIdx = -1;                 /* which entry is pending */
 static int g_sbPlaceBType = -1, g_sbPlaceBId = -1;
 static std::vector<unsigned char> g_sbPlaceProx, g_sbPlaceClear;
 static int g_sbHoverX = -1, g_sbHoverY = -1;
+/* THE LAST PLACEMENT SENT, the origin cell of the last SIDEBAR_REQUEST_PLACE this side
+   made, or -1. The host reads it to know which new wall piece the player put down, so a
+   wall line can rise outward from it; it clears it once used. */
+static int g_sbLastPlaceX = -1, g_sbLastPlaceY = -1;
 
 /* ---- the DOS sidebar ---------------------------------------------------------------
    One 8-bit 320x200 screen, drawn by dosbar.c, converted once, uploaded once per frame
@@ -504,6 +525,7 @@ static int g_sbHoverX = -1, g_sbHoverY = -1;
    into RGBA, so there is no palette conversion between rasterise and upload. */
 static H6_Pack*   g_h6Pack = NULL;
 static bool       g_hudNew = false;          /* see sb_set_hud_new */
+static bool       g_sbRa = false;            /* original Red Alert sidebar pack */
 
 /* IS THERE A DATABASE PLATE. Defined in codex_mod.h, which is included thousands of
    lines below this because it draws through the renderer's own camera helpers. It is
@@ -516,15 +538,15 @@ static bool codex_available(void);
    same reason: update_cursor, thousands of lines below this and thousands above
    codex_mod.h, has to know, or the pointer is drawn into the world underneath the page. */
 static bool codex_holds_the_world(void);
-/* -1 = nobody has asked, so the CNC3D_HUD environment variable still decides. 0/1 = the
+/* -1 = nobody has asked, so the OPENCNC3D_HUD environment variable still decides. 0/1 = the
    Visuals dialog or the Enhanced path has an opinion and it wins. */
 static int        g_hudNewWish = -1;
-/* CNC3D_HUD IS A STARTING VALUE, NOT A VETO, and this was got wrong once in the obvious
+/* OPENCNC3D_HUD IS A STARTING VALUE, NOT A VETO, and this was got wrong once in the obvious
    direction. When G53 went red on the day the New HUD dial landed, the env var was made a
    HARD override so the gate could pin the HUD it wanted. That broke the feature outright
-   for the person who asked for it: `tools/launchers/C&C3D.app/.../cnc3d-launch:39` and
-   `PLAY-HUD-MENU.command` both set CNC3D_HUD=new, so on the project owner's own launcher the new
-   checkbox did nothing at all in either direction. He reported it within the hour.
+   for the person who asked for it: `tools/launchers/OpenCNC3D.app/.../opencnc3d-launch:39` and
+   `PLAY-HUD-MENU.command` both set OPENCNC3D_HUD=new, so on any launcher started that way the new
+   checkbox did nothing at all in either direction.
 
    THE PLAYER'S DIAL ALWAYS WINS. A launcher's environment says what to start with; a
    checkbox the player just clicked says what they want now. G53's real problem was
@@ -542,7 +564,7 @@ static void sb_set_ui_scale(int div)
 static void sb_set_hud_new(int on)
 {
     g_hudNewWish = on ? 1 : 0;
-    g_hudNew = (g_h6Pack && g_hudNewWish == 1);
+    g_hudNew = (!g_sbRa && g_h6Pack && g_hudNewWish == 1);
 }
 
 /* WHICH SIDEBAR IS ACTUALLY ON SCREEN, as opposed to which one was asked for. The two can
@@ -559,7 +581,7 @@ static int g_h6Rows = H6_ROWS;
    hud640_layout.h. Leaving this at the well size overruns each slot into the next by
    1308 bytes and the last one past the end of the array. */
 static unsigned char g_h6Cameo[H6_COLUMNS * H6_MAX_ROWS][H6_CAMEO_W * H6_CAMEO_H * 4];
-static unsigned char g_h6Radar[H6_RADAR_W * H6_RADAR_H * 4];
+static unsigned char g_h6Radar[EH_RADAR_W * EH_RADAR_H * 4];
 
 /* THE TRUE-COLOUR CAMEOS. 64x48 RGBA, one per buildable, baked by
    tools/sidebar_redesign/cameos_tdr.py from the 128x96 source art in art/cameos-tdr.
@@ -620,7 +642,7 @@ static void h6_tdr_load(const char* path)
    correctness one.
 
    THE CACHED TEXTURES OUTLIVE sb_free ON PURPOSE, like the tdr pack itself. There is one
-   GL context for the process (app/cnc3d.cpp creates it once and the editor's
+   GL context for the process (app/opencnc3d.cpp creates it once and the editor's
    shutdown/boot round trip reuses it), the ceiling is four 64x64 RGBA textures at 64 KB
    built once, and rebuilding them on every boot would cost more than it saves. Note that
    sb_free's opening line already overstates itself for g_tipTex, g_qdTex, g_ptTex and
@@ -711,6 +733,7 @@ static GLuint     g_h6TexDb = 0;   /* the DATABASE plate */
 #define H6_POT_H 1024
 
 static DB_Pack*   g_dbPack = NULL;
+static DB_Pack*   g_ra95Pack = NULL;
 static DB_Pack*   g_h6CamPack = NULL;      /* C&C95 cameos at 61x45, optional */
 static DB_State   g_dbState;
 static DB_Surface g_dbSurf;
@@ -725,6 +748,21 @@ static unsigned char g_dbScreen[DB_SCREEN_W * DB_SCREEN_H];
 static unsigned char g_dbCrop[SB_TEX_W * SB_TEX_H];
 static unsigned char g_dbRGBA[SB_TEX_W * SB_TEX_H * 4];
 static GLuint g_dbTex = 0;
+/* The RA Win95 sidebar is split into 160x200 halves, plus its 160x14 credits
+   tab. Each GL texture stays within the original 256x256 hardware limit. */
+#define RA95_MAX_H (400 + 48 * DB_RA95_MAX_EXTRA_ROWS)
+#define RA95_CHUNKS ((RA95_MAX_H + 199) / 200)
+static unsigned char g_ra95Screen[640 * RA95_MAX_H];
+static unsigned char g_ra95Crop[160 * 200];
+static unsigned char g_ra95RGBA[160 * 200 * 4];
+static GLuint g_ra95Tex[RA95_CHUNKS + 1] = {0};
+static int g_ra95ExtraRows = 0;
+static int g_ra95Pad = 0;
+static int g_ra95Height = 400;
+static int g_ra95ViewW = 480;
+static int g_ra95ViewH = 400;
+static int g_ra95WorldScale = 1;
+static float g_ra95UiScale = 1.0f;
 
 /* Layout, recomputed every frame. The DOS sidebar is a fixed 80x200 pixel column, so the
    only free parameter is a WHOLE-number magnification; anything else would resample
@@ -742,7 +780,7 @@ enum SbHit {
     /* The DATABASE plate, in the slot immediately right of OPTIONS. It exists only in
        Enhanced with the Enhanced HUD; codex_available() below is what decides, and the
        hit test asks it rather than assuming. */
-    SBH_DATABASE
+    SBH_DATABASE, SBH_POWER, SBH_CATEGORY, SBH_LOCKED
 };
 
 /* THE DRAWER. The bar slides out to the right and back, in BAR-LOCAL INTEGER pixels so
@@ -762,7 +800,7 @@ static int g_dbFbw = 0, g_dbFbh = 0;
 static int g_sbTop[DB_COLUMNS] = {0, 0};
 /* The Repair and Sell toggles. TextButtonClass IsToggleType: the caption goes RED while
    the mode is on (textbtn.cpp:336 via the ButtonColorsClassic table). */
-static bool g_sbRepairOn = false, g_sbSellOn = false;
+static bool g_sbRepairOn = false, g_sbSellOn = false, g_sbPowerOn = false;
 /* The MAP button. In DOS this is the radar Zoom toggle; here it turns the radar plot on
    and off, which is also what the M key does.
    The ENGINE decides whether there is a radar at all: RadarMapActive is
@@ -952,6 +990,15 @@ static int sb_find(const char* name)
 static const char* sb_art_name(const char* n)
 {
     if (!n) return "";
+    if (g_sbRa) {
+        if (!strcmp(n, "SW_SonarPulse"))    return "SONR";
+        if (!strcmp(n, "SW_Chrono") || !strcmp(n, "SW_Chrono2")) return "WARP";
+        if (!strcmp(n, "SW_ParaBomb"))      return "PBMB";
+        if (!strcmp(n, "SW_ParaInfantry"))  return "PINF";
+        if (!strcmp(n, "SW_SpyMission"))    return "CAM";
+        if (!strcmp(n, "SW_IronCurtain"))   return "INFX";
+        if (!strcmp(n, "SW_GPS"))           return "GPSS";
+    }
     if (!strcmp(n, "SW_Ion"))       return "ION";
     if (!strcmp(n, "SW_Nuke"))      return "ATOM";
     if (!strcmp(n, "SW_AirStrike")) return "BOMB";
@@ -1126,12 +1173,34 @@ static bool g_sbQueueOn = true;            /* --noqueue is the A/B */
  *  start calls On_Speech(VOX_BUILDING) (dllinterface.cpp:4858-4870), so a naive
  *  `while (count && !busy) start` would announce "Building" fifteen times a second.
  */
+/* A START THE FACTORY HAS NOT YET TAKEN. In a single-player mission a start is an act:
+ *  the factory reads busy on the very next frame. In a lockstep match it is an ORDER,
+ *  stamped for a turn several frames ahead (the lookahead the host chose from the worst
+ *  round trip, up to 800 ms), and for every one of those frames the factory still reads
+ *  idle. The pump used to read that idle as "free" and fire again, once per frame, until
+ *  the queue was empty: ten riflemen queued became ten orders posted in ten frames, of
+ *  which the engine could take ONE, because Begin_Production refuses while the slot is
+ *  occupied, and the other nine were gone with nothing said. Measured over loopback:
+ *  five queued, five pumps in five consecutive frames, two delivered.
+ *
+ *  So a start is now held open until the factory is SEEN to take it (busy, constructing
+ *  or completed for that entry), and only then is the queue counted down; a key with a
+ *  start open is not pumped again. A start nobody takes within SB_QUEUE_WAIT frames is
+ *  called lost, said so by name, and fired again: the count was never decremented for
+ *  it, so nothing the player queued is dropped on the floor. The wait is generous next
+ *  to the longest lookahead and short next to the shortest build (a rifleman is 107
+ *  ticks), so a taken start is always seen before it times out. */
+static std::map<std::pair<int,int>, int> g_sbQueueOpen;   /* key -> pump tick it was sent */
+static int g_sbPumpTick = 0;                              /* one per pump call, one per engine frame */
+#define SB_QUEUE_WAIT 60
+
 static void sb_queue_pump(void)
 {
+    g_sbPumpTick++;
     if (!g_sbQueueOn || g_sbQueue.empty() || !g_sbState.valid) return;
     for (std::map<std::pair<int,int>, int>::iterator it = g_sbQueue.begin();
          it != g_sbQueue.end(); ) {
-        if (it->second <= 0) { g_sbQueue.erase(it++); continue; }
+        if (it->second <= 0) { g_sbQueueOpen.erase(it->first); g_sbQueue.erase(it++); continue; }
         int idx = -1;
         for (size_t i = 0; i < g_sbState.entry.size(); i++)
             if (g_sbState.entry[i].btype == it->first.first &&
@@ -1143,15 +1212,35 @@ static void sb_queue_pump(void)
             printf("SBQUEUE|drop|btype=%d|bid=%d|n=%d|reason=gone\n",
                    it->first.first, it->first.second, it->second);
             fflush(stdout);
+            g_sbQueueOpen.erase(it->first);
             g_sbQueue.erase(it++);
             continue;
         }
         const SbEntry& e = g_sbState.entry[idx];
+        std::map<std::pair<int,int>, int>::iterator open = g_sbQueueOpen.find(it->first);
+        if (open != g_sbQueueOpen.end()) {
+            if (e.busy || e.constructing || e.completed) {
+                /* The factory took it: now it counts. */
+                g_sbQueueOpen.erase(open);
+                it->second--;
+                printf("SBQUEUE|took|%s|btype=%d|bid=%d|left=%d\n",
+                       e.name, e.btype, e.bid, it->second);
+                fflush(stdout);
+                if (it->second <= 0) { g_sbQueue.erase(it++); continue; }
+                ++it;
+                continue;
+            }
+            if (g_sbPumpTick - open->second < SB_QUEUE_WAIT) { ++it; continue; }
+            printf("SBQUEUE|lost|%s|btype=%d|bid=%d|after=%d|retrying\n",
+                   e.name, e.btype, e.bid, g_sbPumpTick - open->second);
+            fflush(stdout);
+            g_sbQueueOpen.erase(open);
+        }
         if (!e.busy && !e.constructing && !e.completed && !e.onHold) {
             sb_start(idx);
-            it->second--;
+            g_sbQueueOpen[it->first] = g_sbPumpTick;
             printf("SBQUEUE|pump|%s|btype=%d|bid=%d|left=%d\n",
-                   e.name, e.btype, e.bid, it->second);
+                   e.name, e.btype, e.bid, it->second - 1);
             fflush(stdout);
             return;                  /* one per engine frame, maximum */
         }
@@ -1325,6 +1414,8 @@ static bool sb_place_at(int cellx, int celly)
         return false;
     }
     sb_request(SIDEBAR_REQUEST_PLACE, g_sbPlaceIdx, (short)gx, (short)gy);
+    g_sbLastPlaceX = cellx;
+    g_sbLastPlaceY = celly;
     return true;
 }
 
@@ -1364,6 +1455,8 @@ static float sb_panel_x(int fbw) { return (float)fbw - g_dbW; }
    is anchored at BOTH ends -- the tab plate at row 0, the scroll arrows at rows 188..199
    -- so stretching it or splitting it would put engine-authored pixels where the engine
    never put them. Bands top and bottom keep the whole 200-row column intact. */
+static bool eh_enabled(void);
+static int eh_travel(void);
 static void sb_layout(int fbw, int fbh)
 {
     if (g_sb.Layout) g_sb.Layout(fbw, fbh);
@@ -1385,7 +1478,7 @@ static void sb_layout(int fbw, int fbh)
        at 1x and centre it. Run the window at a multiple of 480 - 960 is 2x - to fill the
        height AND stay pixel-exact. The launchers do that. */
     if (g_hudNew && g_h6Pack) {
-        int s = fbh / H6_BAR_H;
+        int s = fbh / (eh_enabled()?EH_MAX_H:H6_BAR_H);
         if (s < 1) s = 1;
         while (s > 1 && H6_BAR_W * s * 3 > fbw) s--;
         /* THE UI SCALE: the largest zoom divided by the player's divisor and
@@ -1408,22 +1501,59 @@ static void sb_layout(int fbw, int fbh)
         g_h6Rows = hud640_rows_for(fbh / s);
         g_dbW = (float)H6_BAR_W * g_h6Scale;
         g_dbH = (float)hud640_bar_h(g_h6Rows) * g_h6Scale;
+        if(eh_enabled()) {
+            g_h6Rows=(fbh/s-309)/48;
+            if(g_h6Rows<3)g_h6Rows=3;if(g_h6Rows>8)g_h6Rows=8;
+            g_dbW=172.0f*s;g_dbH=(float)hud_enhanced_height(g_h6Rows)*s;
+        }
     } else {
+        /* Keep the tactical map's whole-pixel zoom independent of the Win95
+           sidebar. Five build rows need 448 native pixels, so a 16:9 window
+           uses a smaller sidebar while its units keep their existing size. */
         int s = fbh / DB_SCREEN_H;
-        if (s < 1) s = 1;
-        while (s > 1 && DB_SIDEBARWIDTH * s * 3 > fbw) s--;
+        if (g_sbRa && g_fx.dos_classic) {
+            int unit = fbw / 640;
+            const int heightUnit = fbh / 352;
+            if (unit > heightUnit) unit = heightUnit;
+            if (unit < 1) unit = 1;
+            g_ra95WorldScale = unit;
+            g_ra95UiScale = (float)fbh / 480.0f;
+            if (g_ra95UiScale > (float)unit) g_ra95UiScale = (float)unit;
+            if (g_ra95UiScale < 1.0f) g_ra95UiScale = 1.0f;
+            s = (int)floorf(2.0f * g_ra95UiScale + 0.5f);
+            g_ra95Height = (int)floorf((float)fbh / g_ra95UiScale + 0.01f);
+            if (g_ra95Height > RA95_MAX_H) g_ra95Height = RA95_MAX_H;
+            g_ra95ExtraRows = g_ra95Height < 400 ? -1 : (g_ra95Height - 400) / 48;
+            if (g_ra95ExtraRows > DB_RA95_MAX_EXTRA_ROWS)
+                g_ra95ExtraRows = DB_RA95_MAX_EXTRA_ROWS;
+            g_ra95Pad = g_ra95Height - (400 + 48 * g_ra95ExtraRows);
+            g_ra95ViewW = (int)floorf(((float)fbw - 160.0f * g_ra95UiScale)
+                                          / (float)unit);
+            g_ra95ViewH = fbh / unit;
+        } else if (s < 1) s = 1;
+        if (g_fx.dos_classic && !g_sbRa) {
+            while (s > 1 && DB_SCREEN_W * s > fbw) s--;
+        } else if (!g_fx.dos_classic) {
+            while (s > 1 && DB_SIDEBARWIDTH * s * 3 > fbw) s--;
+        }
         g_dbScale = s;
-        g_dbW = (float)(DB_SIDEBARWIDTH * s);
-        g_dbH = (float)(DB_SCREEN_H * s);
+        g_dbW = g_sbRa && g_fx.dos_classic
+              ? 160.0f * g_ra95UiScale : (float)(DB_SIDEBARWIDTH * s);
+        g_dbH = g_sbRa && g_fx.dos_classic
+              ? (float)g_ra95Height * g_ra95UiScale : (float)DB_SCREEN_H * s;
     }
     g_dbX0 = (float)fbw - g_dbW;
+    if (g_fx.dos_classic && !(g_hudNew && g_h6Pack) && !g_sbRa)
+        g_dbX0 = floorf(((float)fbw - 320.0f * g_dbScale) * 0.5f) + 240.0f * g_dbScale;
     /* THE DRAWER OFFSET, applied in exactly ONE place so the hit test, the item rects,
        the minimap hotspot, the wheel and the edge-scroll suppression all follow for free
        -- every one of them reads g_dbX0. Gated on the new HUD: the DOS bar shares g_dbX0
        and is not part of this. */
     if (g_hudNew && g_h6Pack)
         g_dbX0 += (float)g_h6SlideX * g_h6Scale;
-    g_dbY0 = floorf(((float)fbh - g_dbH) * 0.5f);
+    /* Enhanced chrome starts at the viewport top. Any spare height stays below
+       the panel; drawing and hit tests share this origin. */
+    g_dbY0 = eh_enabled() ? 0.0f : floorf(((float)fbh - g_dbH) * 0.5f);
     g_dbFbw = fbw;
     g_dbFbh = fbh;
 }
@@ -1474,6 +1604,7 @@ static float sb_dos_px(void)
        plate can never pick a scale the geometry around it disagrees with. Both values are
        written by sb_layout, which the draw path runs before either of these overlays. */
     if (g_hudNew && g_h6Pack) return g_h6Scale * SB_HUD640_DOS_ZOOM;
+    if (g_sbRa && g_fx.dos_classic) return 2.0f * g_ra95UiScale;
     return (float)g_dbScale;
 }
 
@@ -1528,21 +1659,24 @@ static float sb_tactical_right(int fbw, int fbh)
 {
     if (!g_sbOn) return (float)fbw;
     sb_layout(fbw, fbh);
-    return g_dbX0 < (float)fbw ? g_dbX0 : (float)fbw;
+    const float edge=g_dbX0-(eh_enabled()?12*g_h6Scale:0);
+    return edge < (float)fbw ? edge : (float)fbw;
 }
 
 /* Screen pixel -> DOS pixel, and back. These two are the ONLY place the magnification
    is applied, so what is drawn and what is clicked cannot drift apart. */
 static void sb_screen_to_dos(float col, float row, int* dx, int* dy)
 {
-    *dx = DB_SIDE_X + (int)floorf((col - g_dbX0) / (float)g_dbScale);
-    *dy = (int)floorf((row - g_dbY0) / (float)g_dbScale);
+    const float scale = sb_dos_px();
+    *dx = DB_SIDE_X + (int)floorf((col - g_dbX0) / scale);
+    *dy = (int)floorf((row - g_dbY0) / scale);
 }
 
 static void sb_dos_to_screen(int dx, int dy, float* col, float* row)
 {
-    *col = g_dbX0 + (float)((dx - DB_SIDE_X) * g_dbScale);
-    *row = g_dbY0 + (float)(dy * g_dbScale);
+    const float scale = sb_dos_px();
+    *col = g_dbX0 + (float)(dx - DB_SIDE_X) * scale;
+    *row = g_dbY0 + (float)dy * scale;
 }
 
 /* Screen pixel -> the 640x480 HUD's own pixels. The counterpart of sb_screen_to_dos and,
@@ -1570,6 +1704,15 @@ static SbHit sb_chrome_hit(float col, float row, int fbw, int fbh)
     sb_layout(fbw, fbh);
     {
         const float th = (float)H6_TAB_H * g_h6Scale;
+        if(eh_enabled()) {
+            float w=(fbw<664*g_h6Scale?148:160)*g_h6Scale,side=184*g_h6Scale;
+            if(row<g_dbY0||row>=g_dbY0+th)return SBH_NONE;
+            if(col>=0&&col<w)return SBH_OPTIONS;
+            if(codex_available()&&col>=w&&col<2*w)return SBH_DATABASE;
+            if(col>=fbw-side-160*g_h6Scale&&col<fbw-side)return SBH_CREDITS;
+            if(col>=fbw-side&&col<fbw)return SBH_SIDEBAR;
+            return SBH_NONE;
+        }
         if (row < g_dbY0 || row >= g_dbY0 + th) return SBH_NONE;
         if (col >= 0.0f && col < g_dbW)                            return SBH_OPTIONS;
         if (codex_available() && col >= g_dbW && col < 2.0f * g_dbW) return SBH_DATABASE;
@@ -1583,12 +1726,66 @@ static bool sb_over_panel(float col, float row, int fbw, int fbh)
 {
     if (!g_sbOn) return false;
     sb_layout(fbw, fbh);
+    if(eh_enabled()) {
+        int x,y;sb_screen_to_h6(col,row,&x,&y);
+        if(sb_chrome_hit(col,row,fbw,fbh)!=SBH_NONE)return true;
+        if(x>=-12&&x<172&&y>=18&&y<205){
+            const H6_Asset *a=hud640_asset(g_h6Pack,"eh_map");int lx=x+12,ly=y-18;
+            if(lx<12||lx>=172||ly<12||ly>=175)return a->rgba[(ly*184+lx)*4+3]!=0;
+            return true;
+        }
+        if(x>=-12&&x<172&&y>=205&&y<hud_enhanced_height(g_h6Rows)){
+            const H6_Asset *a=hud640_asset(g_h6Pack,"eh_body");int lx=x+12,ly=y-205,h=hud_enhanced_height(g_h6Rows)-205;
+            if(ly>=h-48)ly=440+ly-(h-48);
+            if(lx<12||lx>=172||ly<24||ly>=440)return a->rgba[(ly*184+lx)*4+3]!=0;
+            return true;
+        }
+        if(x>=-73&&x< -12&&y>=32&&y<191){const H6_Asset *a=hud640_asset(g_h6Pack,"eh_wing");return a->rgba[((y-32)*85+x+73)*4+3]!=0;}
+        return false;
+    }
     /* The whole right-hand column, letterbox bands included: those bands are the panel's
        own bezel, not tactical view, and a click or an edge-scroll there is not the map's. */
     return (col >= g_dbX0 && col < (float)fbw && row >= 0 && row < (float)fbh)
            || sb_chrome_hit(col, row, fbw, fbh) != SBH_NONE;
 }
 
+static int sb_col_base(int column);
+/* Enhanced tabs map display slots to unchanged engine identities. */
+static int g_ehCategory=0, g_ehTop[4]={0,0,0,0};
+struct EH_Display { int engine; const EH_Catalog *catalog; const char *name; };
+static std::vector<EH_Display> g_ehItems;
+static bool eh_enabled(void) { return g_hudNew && g_h6Pack && hud_enhanced_ok(g_h6Pack); }
+static int eh_travel(void) { return eh_enabled()?EH_TRAVEL:H6_BAR_W; }
+static int eh_category(const SbEntry& e) {
+    return e.type==INFANTRY_TYPE?1:e.type==UNIT_TYPE?2:e.type==AIRCRAFT_TYPE?3:0;
+}
+static void eh_refresh(void) {
+    g_ehItems.clear();
+    if(g_sbSpectator) return;
+    for(size_t k=0;k<sizeof(eh_catalog)/sizeof(eh_catalog[0]);k++) {
+        const EH_Catalog& a=eh_catalog[k];
+        if(a.faction!=g_sb.nod || a.category!=g_ehCategory) continue;
+        EH_Display d={-1,&a,a.name};
+        for(size_t i=0;i<g_sbState.entry.size();i++) if(!strcasecmp(a.name,g_sbState.entry[i].name)) {d.engine=(int)i;break;}
+        g_ehItems.push_back(d);
+    }
+    for(size_t i=0;i<g_sbState.entry.size();i++) {
+        const SbEntry& e=g_sbState.entry[i];if(eh_category(e)!=g_ehCategory)continue;
+        bool found=false;for(size_t k=0;k<g_ehItems.size();k++)if(g_ehItems[k].engine==(int)i)found=true;
+        if(!found){EH_Display d={(int)i,0,e.name};g_ehItems.push_back(d);}
+    }
+    int maximum=((int)g_ehItems.size()+1)/2-g_h6Rows;if(maximum<0)maximum=0;
+    if(g_ehTop[g_ehCategory]>maximum)g_ehTop[g_ehCategory]=maximum;
+    if(g_ehTop[g_ehCategory]<0)g_ehTop[g_ehCategory]=0;
+}
+static const EH_Display* eh_display(int c,int row) {
+    eh_refresh();int i=2*(g_ehTop[g_ehCategory]+row)+c;
+    return c>=0 && row>=0 && i>=0 && i<(int)g_ehItems.size()?&g_ehItems[i]:0;
+}
+static int sb_display_index(int c,int row) {
+    if(eh_enabled()){const EH_Display *d=eh_display(c,row);return d?d->engine:-1;}
+    return sb_col_base(c)+g_sbTop[c]+row;
+}
 /* ---- where things are, in DOS pixels ----------------------------------------------- *
  * sidebar.cpp:1260 Init_IO:  SelectButton[id][i].X = strip X, .Y = COLUMN_Y + 24*i,
  * 32 wide by 24 tall. The DRAWN cameo is one pixel right and one pixel up of that
@@ -1621,7 +1818,9 @@ static int sb_col_count(int column)
    on-screen test both have to ask, or the last row of the new HUD scrolls off by one. */
 static int sb_visible_rows(void)
 {
-    return (g_hudNew && g_h6Pack) ? g_h6Rows : DB_MAX_VISIBLE;
+    return (g_hudNew && g_h6Pack) ? g_h6Rows
+         : (g_sbRa && g_fx.dos_classic && g_ra95Pack)
+         ? DB_MAX_VISIBLE + g_ra95ExtraRows : DB_MAX_VISIBLE;
 }
 
 static void sb_clamp_top(void)
@@ -1644,9 +1843,9 @@ static void sb_map_button_centre(float* col, float* row)
         *row = g_dbY0 + ((float)H6_BTN_MAP_Y + (float)H6_BTN_MAP_H * 0.5f) * g_h6Scale;
         return;
     }
-    sb_dos_to_screen(DB_MAP_X, DB_REPAIR_Y, col, row);
-    *col += (float)(DB_MAP_W * g_dbScale) * 0.5f;
-    *row += (float)(DB_BUTTON_HEIGHT * g_dbScale) * 0.5f;
+    sb_dos_to_screen(g_sbRa ? 294 : DB_MAP_X, g_sbRa ? 75 : DB_REPAIR_Y, col, row);
+    *col += (float)(g_sbRa ? 17 : DB_MAP_W) * sb_dos_px() * 0.5f;
+    *row += (float)(g_sbRa ? 14 : DB_BUTTON_HEIGHT) * sb_dos_px() * 0.5f;
 }
 
 /* item index -> screen rect; false when it is scrolled out of the four visible slots */
@@ -1654,6 +1853,15 @@ static bool sb_item_rect(int idx, float* x0, float* y0, float* x1, float* y1)
 {
     if (idx < 0 || idx >= (int)g_sbState.entry.size()) return false;
     const SbEntry& e = g_sbState.entry[idx];
+    if(eh_enabled()) {
+        eh_refresh();int at=-1;
+        for(size_t k=0;k<g_ehItems.size();k++)if(g_ehItems[k].engine==idx){at=(int)k;break;}
+        int r=at/2-g_ehTop[g_ehCategory];
+        if(at<0||r<0||r>=g_h6Rows)return false;
+        *x0=g_dbX0+H6_COL_X[at%2]*g_h6Scale;
+        *y0=g_dbY0+(hud640_row_y(r)+66)*g_h6Scale;
+        *x1=*x0+61*g_h6Scale;*y1=*y0+45*g_h6Scale;return true;
+    }
     sb_clamp_top();
     int rowInCol = idx - sb_col_base(e.column) - g_sbTop[e.column];
     if (rowInCol < 0 || rowInCol >= sb_visible_rows()) return false;
@@ -1666,9 +1874,9 @@ static bool sb_item_rect(int idx, float* x0, float* y0, float* x1, float* y1)
         *y1 = *y0 + (float)H6_CELL_H * g_h6Scale;
         return true;
     }
-    sb_dos_to_screen(sb_strip_x(e.column), DB_COLUMN_Y + rowInCol * DB_OBJECT_HEIGHT, x0, y0);
-    *x1 = *x0 + (float)(DB_OBJECT_WIDTH * g_dbScale);
-    *y1 = *y0 + (float)(DB_OBJECT_HEIGHT * g_dbScale);
+    sb_dos_to_screen(sb_strip_x(e.column), (g_sbRa ? 90 : DB_COLUMN_Y) + rowInCol * DB_OBJECT_HEIGHT, x0, y0);
+    *x1 = *x0 + (float)DB_OBJECT_WIDTH * sb_dos_px();
+    *y1 = *y0 + (float)DB_OBJECT_HEIGHT * sb_dos_px();
     return true;
 }
 
@@ -1843,12 +2051,13 @@ static void sb_fill_dos_state(void)
         /* Progress is Completion()/STEP_COUNT, a float in 0..1 (dllinterface.cpp:4205),
            so the wedge stage is Progress * 108 bounded to the 0..107 the engine uses;
            dosbar.c then draws CLOCK.SHP frame stage+1 (sidebar.cpp:1977). */
-        int stage = (int)(e.progress * (float)DB_STEP_COUNT + 0.5f);
+        const int steps = g_sbRa ? 54 : DB_STEP_COUNT;
+        int stage = (int)(e.progress * (float)steps + 0.5f);
         if (stage < 0) stage = 0;
-        if (stage > DB_STEP_COUNT - 1) stage = DB_STEP_COUNT - 1;
+        if (stage > steps - 1) stage = steps - 1;
         s->completion = stage;
         s->darken = (!factory && e.busy) ? 1 : 0;
-        if (getenv("CNC3D_CLOCKDBG"))
+        if (getenv("OPENCNC3D_CLOCKDBG"))
             fprintf(stderr, "CLOCKDBG|%s|prog=%.3f|producing=%d|ready=%d|stage=%d|darken=%d\n",
                     e.name, e.progress, s->producing, s->ready, stage, s->darken);
     }
@@ -1970,16 +2179,108 @@ static int  sb_frame_for(SbHit which, int column, int engaged);
    The host has already called begin_overlay(), so we are in y-down pixel space with the
    depth test off. */
 static void sb_draw_panel_640(int fbw, int fbh);
+static void sb_draw_panel_ra95(int fbw, int fbh)
+{
+    DB_Surface surf;
+    sb_layout(fbw, fbh);
+    const float unit = g_ra95UiScale;
+    sb_pointer_refresh(fbw, fbh);
+    sb_fill_dos_state();
+    const int ra95Height = g_ra95Height;
+    /* The authored 400-row chrome is composed before the 360-row variant
+       removes one cameo row. Keep the temporary surface at least 400 high. */
+    const int composeHeight = ra95Height < 400 ? 400 : ra95Height;
+    db_surface_init(&surf, 640, composeHeight, g_ra95Screen);
+    memset(g_ra95Screen, DB_BLACK, (size_t)640 * composeHeight);
+    db_draw_ra_sidebar_win95(&surf, g_ra95Pack, &g_dbState,
+                              g_sbState.valid ? g_sbState.creditsCounter : 0,
+                              g_ra95ExtraRows, g_ra95Pad);
+
+    /* RadarPlot still writes the engine's indexed map at DOS coordinates. The
+       Win95 radar opening is exactly twice the source rectangle in each axis. */
+    if (g_dbState.radar_active && (sb_roster_shown() || g_sb.RadarPlot)) {
+        DB_Surface radar;
+        db_surface_init(&radar, DB_SCREEN_W, DB_SCREEN_H, g_dbScreen);
+        memset(g_dbScreen, DB_BLACK, sizeof g_dbScreen);
+        if (sb_roster_shown())
+            sb_roster_draw(&radar, g_dbPack, 246, 14, 73, 65);
+        else
+            g_sb.RadarPlot(&radar, g_dbPack, 1);
+        for (int y = 0; y < 130; y++)
+            for (int x = 0; x < 146; x++)
+                g_ra95Screen[(28+y)*640+492+x] =
+                    g_dbScreen[(14+y/2)*DB_SCREEN_W+246+x/2];
+    }
+    {
+        const unsigned char ix = g_ra95Screen[(351+48*g_ra95ExtraRows+g_ra95Pad)*640+492];
+        g_sbDrawnDosIndex = ix;
+        g_sbDrawnDosPower = ix == 3 || ix == 4 ? 0
+                          : ix == 214 || ix == 211 ? 1
+                          : ix == 235 || ix == 230 ? 2 : -1;
+    }
+
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_BLEND);
+    glColor4f(1,1,1,1);
+    const int chunks = (ra95Height + 199) / 200;
+    for (int part = 0; part <= chunks; part++) {
+        const bool credit = part == chunks;
+        const int xsrc = credit ? 320 : 480;
+        const int ysrc = credit ? 0 : part * 200;
+        const int height = credit ? 14
+                         : ra95Height - ysrc < 200 ? ra95Height - ysrc : 200;
+        DB_Surface crop;
+        for (int y = 0; y < height; y++)
+            memcpy(g_ra95Crop+y*160,
+                   g_ra95Screen+(ysrc+y)*640+xsrc, 160);
+        crop.w = 160; crop.h = height; crop.px = g_ra95Crop;
+        db_clip_reset(&crop);
+        db_surface_to_rgba(&crop, g_ra95Pack->pal8, g_ra95RGBA, 0);
+        if (!g_ra95Tex[part]) {
+            unsigned char zero[256*256*4] = {0};
+            glGenTextures(1, &g_ra95Tex[part]);
+            glBindTexture(GL_TEXTURE_2D, g_ra95Tex[part]);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0,
+                         GL_RGBA, GL_UNSIGNED_BYTE, zero);
+        }
+        glBindTexture(GL_TEXTURE_2D, g_ra95Tex[part]);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 160, height,
+                        GL_RGBA, GL_UNSIGNED_BYTE, g_ra95RGBA);
+        {
+            const float x0 = credit ? g_dbX0-160*unit : g_dbX0;
+            const float x1 = x0 + 160*unit;
+            const float y0 = g_dbY0 + ysrc*unit;
+            const float y1 = y0 + height*unit;
+            const float u = 160.0f/256.0f, v = (float)height/256.0f;
+            glBegin(GL_QUADS);
+            glTexCoord2f(0,0); glVertex2f(x0,y0);
+            glTexCoord2f(u,0); glVertex2f(x1,y0);
+            glTexCoord2f(u,v); glVertex2f(x1,y1);
+            glTexCoord2f(0,v); glVertex2f(x0,y1);
+            glEnd();
+        }
+    }
+    glDisable(GL_TEXTURE_2D);
+}
 
 static void sb_draw_panel(int fbw, int fbh)
 {
     if (!g_sbOn) return;
     if (g_hudNew && g_h6Pack) { sb_draw_panel_640(fbw, fbh); return; }
+    if (g_sbRa && g_ra95Pack && g_fx.dos_classic) {
+        sb_draw_panel_ra95(fbw, fbh);
+        return;
+    }
     if (!g_dbPack) return;
     sb_layout(fbw, fbh);
     /* THE DOS PATH REFRESHES THE HOVER TOO. Only sb_draw_panel_640 did, so on the DOS bar
        -- which is what bare cnc_eyes draws, and what every gate that does not set
-       CNC3D_HUD=new sees -- g_sbHover was whatever the last 640 frame or the last script
+       OPENCNC3D_HUD=new sees -- g_sbHover was whatever the last 640 frame or the last script
        verb left it. Nothing depended on it before the tooltip, which is why it was never
        noticed. */
     sb_pointer_refresh(fbw, fbh);
@@ -1988,7 +2289,8 @@ static void sb_draw_panel(int fbw, int fbh)
     db_surface_init(&g_dbSurf, DB_SCREEN_W, DB_SCREEN_H, g_dbScreen);
     memset(g_dbScreen, DB_BLACK, sizeof(g_dbScreen));
     sb_fill_dos_state();
-    db_draw_sidebar(&g_dbSurf, g_dbPack, &g_dbState);
+    if (g_sbRa) db_draw_ra_sidebar(&g_dbSurf, g_dbPack, &g_dbState);
+    else db_draw_sidebar(&g_dbSurf, g_dbPack, &g_dbState);
     /* radar.cpp:356-360: in player-name mode Draw_It draws the names and RETURNS, so the
        plot never runs. db_draw_sidebar above has already laid down the ACTIVATED bezel
        and filled its interior black, because sb_fill_dos_state raises radar_active for
@@ -2014,10 +2316,13 @@ static void sb_draw_panel(int fbw, int fbh)
        nor the drain marker, which sits at bottom - dh, can be. An empty gauge leaves the
        light grey inside of the bar there and reads -1. */
     {
-        const unsigned char ix =
-            g_dbScreen[(DB_POW_Y + DB_POW_HEIGHT - 2) * DB_SCREEN_W + DB_POW_X + 3];
+        const unsigned char ix = g_sbRa
+            ? g_dbScreen[175 * DB_SCREEN_W + 246]
+            : g_dbScreen[(DB_POW_Y + DB_POW_HEIGHT - 2) * DB_SCREEN_W + DB_POW_X + 3];
         g_sbDrawnDosIndex = ix;
-        g_sbDrawnDosPower = (ix == DB_GREEN) ? 0 : (ix == DB_YELLOW) ? 1 : (ix == DB_RED) ? 2 : -1;
+        g_sbDrawnDosPower = g_sbRa
+            ? (ix == 3 || ix == 4 ? 0 : ix == 214 || ix == 211 ? 1 : ix == 235 || ix == 230 ? 2 : -1)
+            : (ix == DB_GREEN ? 0 : ix == DB_YELLOW ? 1 : ix == DB_RED ? 2 : -1);
     }
 
     /* 2. one conversion ---------------------------------------------------------- */
@@ -2185,10 +2490,10 @@ static void h6_fill_state(H6_State* st)
            sb_fill_dos_state just above -- Draw_Names' unconditional ACTIVATED bezel,
            radar.cpp:1871-1873 -- so hud640_draw_bar blits these pixels instead of the
            faction emblem (hud640.c:345-353) with or without a radar. */
-        sb_roster_rgba(g_h6Radar, H6_RADAR_W, H6_RADAR_H, g_dbPack);
+        sb_roster_rgba(g_h6Radar, eh_enabled()?160:H6_RADAR_W, eh_enabled()?144:H6_RADAR_H, g_dbPack);
         st->radar_rgba = g_h6Radar;
     } else if (st->radar_active && g_sb.RadarPlotRGBA && g_dbPack) {
-        g_sb.RadarPlotRGBA(g_h6Radar, H6_RADAR_W, H6_RADAR_H, g_dbPack, 1);
+        g_sb.RadarPlotRGBA(g_h6Radar, eh_enabled()?160:H6_RADAR_W, eh_enabled()?144:H6_RADAR_H, g_dbPack, 1);
         st->radar_rgba = g_h6Radar;
     }
     st->nod          = g_dbState.nod;
@@ -2244,6 +2549,7 @@ static void h6_fill_state(H6_State* st)
        The 2x pack carries its own CLOCK and PIPS at 2x so the overlays match the bigger
        cell. Its CLOCK is 64x48 against a 61x45 cell, so it is drawn at (-1,-1) to centre
        it; db_draw_shape_ghost clips negative coordinates, so that costs nothing. */
+    if(eh_enabled())return;
     for (int c = 0; c < H6_COLUMNS && c < DB_COLUMNS; c++) {
         for (int r = 0; r < g_h6Rows; r++) {
             const int slot = c + r * H6_COLUMNS;
@@ -2423,13 +2729,14 @@ static void sb_slide_step(void)
 #include "dosnames.h"
 
 static bool g_sbTips = true;              /* --notooltips is the A/B */
-#define SBTIP_W 192                        /* DOS px: wider than "Construction Yard" */
-#define SBTIP_H 24
+#define SBTIP_W 240                        /* DOS px: wider than "Construction Yard" */
+#define SBTIP_H 64
 static unsigned char g_tipPx[SBTIP_W * SBTIP_H];
 static unsigned char g_tipRGBA[SBTIP_W * SBTIP_H * 4];
 static GLuint g_tipTex = 0;
 /* What the last draw resolved, so a script can assert it without reading pixels. */
-static char g_tipName[32] = {0};
+static char g_tipName[64] = {0};
+static char g_tipRequires[160]={0};
 static int  g_tipCost = -1;
 /* AND WHAT SIZE IT CAME OUT AT: the DOS-pixel box that was rasterised and the whole step
    it was magnified by, both zero when the last frame drew no plate. Same argument as the
@@ -2459,9 +2766,9 @@ static const char* sb_hover_subject(int* cost)
     if (g_sbHover != SBH_ITEM || g_sbHoverCol < 0 || g_sbHoverSlot < 0) return 0;
     /* THE CLICK PATH'S OWN EXPRESSION, copied rather than re-derived. g_sbTop is the
        term a second copy gets wrong, and the bug only shows after the player scrolls. */
-    const int idx = sb_col_base(g_sbHoverCol) + g_sbTop[g_sbHoverCol] + g_sbHoverSlot;
+    const int idx = sb_display_index(g_sbHoverCol,g_sbHoverSlot);
     if (idx < 0 || idx >= (int)g_sbState.entry.size()) return 0;
-    if (g_sbState.entry[idx].column != g_sbHoverCol) return 0;
+    if (!eh_enabled() && g_sbState.entry[idx].column != g_sbHoverCol) return 0;
     const SbEntry& e = g_sbState.entry[idx];
     /* Cost 0 is not a free unit, it is a SPECIAL: Fetch_Techno_Type yields NULL for
        RTTI_SPECIAL and the export leaves Cost at 0 (dllinterface.cpp:4131-4139). 1995
@@ -2475,7 +2782,17 @@ static const char* sb_hover_subject(int* cost)
    move with no shot in between -- the same split sbstate already makes at :2549. */
 static bool sb_tip_resolve(void)
 {
-    g_tipName[0] = 0; g_tipCost = -1;
+    g_tipName[0] = 0; g_tipRequires[0]=0; g_tipCost = -1;
+    if(g_sbTips&&eh_enabled()&&(g_sbHover==SBH_LOCKED||g_sbHover==SBH_POWER||g_sbHover==SBH_CATEGORY)){
+        if(g_sbHover==SBH_POWER){snprintf(g_tipName,sizeof g_tipName,"SWITCH BUILDING POWER");return true;}
+        if(g_sbHover==SBH_CATEGORY){static const char *n[]={"STRUCTURES","INFANTRY","VEHICLES","AIRCRAFT"};if(g_sbHoverCol>=0&&g_sbHoverCol<4)snprintf(g_tipName,sizeof g_tipName,"%s",n[g_sbHoverCol]);return g_tipName[0]!=0;}
+        const EH_Display *d=eh_display(g_sbHoverCol,g_sbHoverSlot);if(!d)return false;
+        const char *title=sb_title_for(d->name);snprintf(g_tipName,sizeof g_tipName,"%s",title?title:d->name);
+        g_tipCost=d->catalog?d->catalog->cost:-1;
+        std::string need;
+        if(d->catalog){char buf[128];snprintf(buf,sizeof buf,"%s",d->catalog->required);char *a=strtok(buf,",");while(a){if(!g_sb.OwnedBuilding||!g_sb.OwnedBuilding(a)){const char *t=sb_title_for(a);if(!need.empty())need+=", ";need+=t?t:a;}a=strtok(NULL,",");}}
+        snprintf(g_tipRequires,sizeof g_tipRequires,"%s%s / tech level %d",need.empty()?"Requires mission unlock":"Requires: ",need.c_str(),d->catalog?d->catalog->level:0);return true;
+    }
     if (!g_sbTips) return false;
     int cost = -1;
     const char* asset = sb_hover_subject(&cost);
@@ -2505,8 +2822,17 @@ static void sb_draw_tooltip(int fbw, int fbh)
     const int wName = db_string_width(f, title, DB_FONT6_XSPACING);
     const int wCost = price[0] ? db_string_width(f, price, DB_FONT6_XSPACING) : 0;
     const int lh    = 10;
-    const int w     = (wName > wCost ? wName : wCost) + 4;
-    const int h     = (price[0] ? lh * 2 : lh) + 2;
+    std::vector<std::string> requirements;
+    if(g_tipRequires[0]){
+        char text[160];snprintf(text,sizeof text,"%s",g_tipRequires);char *word=strtok(text," ");std::string line;
+        while(word){std::string next=line.empty()?word:line+" "+word;
+            if(!line.empty()&&db_string_width(f,next.c_str(),DB_FONT6_XSPACING)>SBTIP_W-4){requirements.push_back(line);line=word;}else line=next;
+            word=strtok(NULL," ");}
+        if(!line.empty())requirements.push_back(line);
+    }
+    int w=(wName>wCost?wName:wCost)+4;
+    for(size_t k=0;k<requirements.size();k++){int rw=db_string_width(f,requirements[k].c_str(),DB_FONT6_XSPACING)+4;if(rw>w)w=rw;}
+    const int h=(price[0]?lh*2:lh)+(int)requirements.size()*lh+2;
     if (w > SBTIP_W || h > SBTIP_H) return;
 
     DB_Surface surf; surf.w = SBTIP_W; surf.h = SBTIP_H; surf.px = g_tipPx;
@@ -2516,6 +2842,7 @@ static void sb_draw_tooltip(int fbw, int fbh)
     db_font_palette(fp, DB_GREEN, DB_TBLACK);
     db_print(&surf, f, title, 2, 1, fp, DB_FONT6_XSPACING);
     if (price[0]) db_print(&surf, f, price, 2, 1 + lh, fp, DB_FONT6_XSPACING);
+    for(size_t k=0;k<requirements.size();k++)db_print(&surf,f,requirements[k].c_str(),2,1+(price[0]?lh*2:lh)+(int)k*lh,fp,DB_FONT6_XSPACING);
     /* the 1995 box: one pixel of the text colour around the plate */
     db_line_h(&surf, 0, w - 1, 0,     DB_GREEN);
     db_line_h(&surf, 0, w - 1, h - 1, DB_GREEN);
@@ -2544,7 +2871,7 @@ static void sb_draw_tooltip(int fbw, int fbh)
        help.cpp:325-331 clamps. */
     float ix0 = 0, iy0 = 0, ix1 = 0, iy1 = 0;
     if (g_sbHover == SBH_ITEM) {
-        const int idx = sb_col_base(g_sbHoverCol) + g_sbTop[g_sbHoverCol] + g_sbHoverSlot;
+        const int idx = sb_display_index(g_sbHoverCol,g_sbHoverSlot);
         if (!sb_item_rect(idx, &ix0, &iy0, &ix1, &iy1)) return;
     } else {
         /* The chrome controls have a hit test but no rect helper (the hit test works in
@@ -2672,6 +2999,8 @@ static void sb_draw_queue_digits(int fbw, int fbh)
     }
 }
 
+#include "cnc_sidebar_enhanced.h"
+
 static void sb_draw_panel_640(int fbw, int fbh)
 {
     H6_State st;
@@ -2681,6 +3010,7 @@ static void sb_draw_panel_640(int fbw, int fbh)
     sb_pointer_refresh(fbw, fbh);
     sb_fill_dos_state();
     h6_fill_state(&st);
+    if(eh_enabled()){eh_draw_panel(st,fbw,fbh);return;}
 
     hud640_draw_bar(g_h6Bar, g_h6Pack, &st);
     const int barh = hud640_bar_h(g_h6Rows);
@@ -2904,9 +3234,621 @@ static void sb_draw_place_tip(int fbw, int fbh)
     (void)fbw;
 }
 
+/* ==================================================================================== *
+ *  THE MODERN PLACEMENT CURSOR (Enhanced only)
+ *
+ *  Classic keeps the 1995 picture above: the cells the pending building would cover,
+ *  green or red, and nothing else. Enhanced replaces it with the placement cursor of a
+ *  modern RTS, in four layers, drawn in this order:
+ *
+ *    1. THE FIELD. A ground grid of small "+" marks at cell corners, out to a radius of
+ *       about seven cells around the footprint and fading to nothing at its rim. A mark
+ *       is drawn only where a cell this building could really cover meets it, so the
+ *       grid itself is the answer to "where may this go": it stops at trees, water,
+ *       cliffs, the map's edge and the edge of the base's build range, and where it stops
+ *       the marks thin to L and T shapes that outline the boundary.
+ *    2. THE BASE. Cells a structure stands on are washed amber with an amber rim, so the
+ *       player can see the base the grid is growing out of and why it stops there.
+ *    3. THE FOOTPRINT. Every cell the building would occupy, apron included, filled green
+ *       with a bright inner rim, or red where that cell refuses a foundation. Out of build
+ *       range, every cell is red.
+ *    4. THE GHOST, drawn by the host (it needs the model path), a see-through copy of the
+ *       building itself, green or red with the verdict, standing where it would stand.
+ *
+ *  And above everything, a red prohibition sign on each refused cell (in the pixel pass,
+ *  so it is never hidden by the ghost), plus the blocker's name plate as before.
+ *
+ *  Layers 1 to 3 are world geometry draped on the terrain's exact corner heights, drawn in
+ *  the 3D pass BEFORE the ghost, so the ghost stands on its own footprint rather than
+ *  under a decal. The field and the base are depth tested, as ground marks that what
+ *  stands on them hides; the footprint is not, which is how the 1995 cells have always
+ *  behaved: a cell the building needs must never be hidden by a tree in front of it. The
+ *  field also fades out under the shroud.
+ *
+ *  THE BUILDING IS CENTRED ON THE POINTER, which is how the modern cursor behaves and is
+ *  a deliberate departure from 1995 in Enhanced only. 1995 meant to centre it too
+ *  (DisplayClass::Set_Cursor_Shape offsets ZoneCell by half the occupy list's size), but
+ *  Get_Occupy_Dimensions tests `if (!list)` before walking the list, so with a real list
+ *  the size comes back 0 x 0 and the top-left cell sits under the pointer. Classic keeps
+ *  that. The host picks the origin; see place_origin_at.
+ *
+ *  TIER 1: everything here is immediate-mode, untextured, alpha blended geometry, which
+ *  the Voodoo 2 draws as it stands. The ghost uses a colour-masked depth pre-pass, which
+ *  Glide also has (grColorMask, grDepthMask).
+ * ==================================================================================== */
+
+/* Enhanced and the 3D view: the host decides, because the switches live in its state. */
+static bool place_modern(void);
+
+/* THE BUILDING'S OWN SIZE, which is not the size of its occupy list. The list carries
+   the apron (Occupy_List(true) prepends the bib's cells), and centring or drawing the
+   ghost on that would put every bibbed building half a cell too far south. These are the
+   BSIZE each type declares in bdata.cpp; BuildingClass::Center_Coord is the origin plus
+   half of exactly this rectangle. Anything not listed falls back to the occupy list's
+   bounding box, which is right for every building without an apron. */
+static bool sb_bsize(const char* name, int* w, int* h)
+{
+    static const struct { const char* n; unsigned char w, h; } T[] = {
+        { "AFLD", 4, 2 }, { "ARCO", 2, 1 }, { "ATWR", 1, 2 }, { "BIO",  2, 2 },
+        { "EYE",  2, 2 }, { "FACT", 3, 2 }, { "FIX",  3, 3 }, { "GTWR", 1, 1 },
+        { "GUN",  1, 1 }, { "HAND", 2, 3 }, { "HOSP", 2, 2 }, { "HPAD", 2, 2 },
+        { "HQ",   2, 2 }, { "MISS", 3, 2 }, { "NUK2", 2, 2 }, { "NUKE", 2, 2 },
+        { "OBLI", 1, 2 }, { "PROC", 3, 3 }, { "PYLE", 2, 2 }, { "SAM",  2, 1 },
+        { "SILO", 2, 1 }, { "TMPL", 3, 3 }, { "WEAP", 3, 3 },
+        { "SBAG", 1, 1 }, { "CYCL", 1, 1 }, { "BRIK", 1, 1 }, { "BARB", 1, 1 },
+        { "WOOD", 1, 1 }, { "ROAD", 1, 1 },
+    };
+    for (size_t i = 0; i < sizeof T / sizeof T[0]; i++)
+        if (!strcmp(T[i].n, name)) { *w = T[i].w; *h = T[i].h; return true; }
+    return false;
+}
+
+/* THE WALL LINE (Tiberian Sun and Red Alert 2). A wall piece put down in line with one of
+   the player's own walls of the same kind, at most place_wall_reach() cells away along a
+   cell axis, fills the gap with wall at no cost; the brain does it when the piece is
+   placed (OpenCNC3D_Wall_Fill in building.cpp). This is the same walk, so the cursor can show
+   the pieces that will appear before the click: from the origin along N, E, S and W, the
+   first wall of the player's own of this kind is the anchor, and every cell before it must
+   be on the map and generally clear, or that direction lays nothing. Returns how many cells
+   it wrote to `out` (absolute cell numbers). Only from a legal origin, because the brain
+   lays nothing for a piece it refuses. */
+static int place_wall_reach(void);     /* the host: 0 when the rule is off */
+static int sb_place_wall_kind(void)
+{
+    if (!g_sbPlacing || g_sbPlaceIdx < 0
+        || g_sbPlaceIdx >= (int)g_sbState.entry.size()) return -1;
+    static const char* const K[5] = { "SBAG", "CYCL", "BRIK", "BARB", "WOOD" };
+    for (int k = 0; k < 5; k++)
+        if (!strcmp(g_sbState.entry[g_sbPlaceIdx].name, K[k])) return k;
+    return -1;
+}
+static int sb_wall_fill_cells(int* out, int maxn)
+{
+    const int kind = sb_place_wall_kind();
+    const int reach = place_wall_reach();
+    if (kind < 0 || reach <= 0 || !g_sb.OwnWallKind || g_sbHoverX < 0) return 0;
+    if (!sb_legal_origin(g_sbHoverX, g_sbHoverY)) return 0;
+    static const int DX[4] = { 0, 1, 0, -1 }, DY[4] = { -1, 0, 1, 0 };
+    int n = 0;
+    for (int d = 0; d < 4; d++) {
+        int gap[16], ng = 0;
+        bool anchored = false;
+        for (int step = 1; step <= reach && step <= 16; step++) {
+            const int ax = g_sbHoverX + DX[d] * step, ay = g_sbHoverY + DY[d] * step;
+            if (!sb_on_play_map(ax, ay)) break;
+            if (g_sb.OwnWallKind(ax, ay) == kind) { anchored = true; break; }
+            const int gi = sb_grid_index(ax, ay);
+            if (gi < 0 || !g_sbPlaceClear[gi]) break;
+            gap[ng++] = ay * SB_STRIDE + ax;
+        }
+        if (!anchored) continue;
+        for (int i = 0; i < ng && n < maxn; i++) out[n++] = gap[i];
+    }
+    return n;
+}
+
+/* The pending building's size in cells (its BSIZE, apron excluded). */
+static bool sb_place_dims(int* w, int* h)
+{
+    *w = *h = 1;
+    if (!g_sbPlacing || g_sbPlaceIdx < 0
+        || g_sbPlaceIdx >= (int)g_sbState.entry.size()) return false;
+    const SbEntry& e = g_sbState.entry[g_sbPlaceIdx];
+    if (sb_bsize(e.name, w, h)) return true;
+    int mx = 0, my = 0;
+    for (size_t k = 0; k < e.occupy.size(); k++) {
+        const int o = e.occupy[k];
+        if (o < 0) continue;
+        if (o % SB_STRIDE > mx) mx = o % SB_STRIDE;
+        if (o / SB_STRIDE > my) my = o / SB_STRIDE;
+    }
+    *w = mx + 1; *h = my + 1;
+    return true;
+}
+
+/* The ground under a world point, on the terrain's own two triangles (the SW-NE split
+   sb_place_cell_tris documents), so a mark inside a cell lies on the surface drawn. */
+static float sb_ground_y(float x, float z)
+{
+    if (!g_sb.TerrainCornerY) return 0.0f;
+    const int cx = (int)floorf(x), cz = (int)floorf(z);
+    const float fx = x - (float)cx, fz = z - (float)cz;
+    const float nw = g_sb.TerrainCornerY(cx, cz),     ne = g_sb.TerrainCornerY(cx + 1, cz);
+    const float sw = g_sb.TerrainCornerY(cx, cz + 1), se = g_sb.TerrainCornerY(cx + 1, cz + 1);
+    if (fx + fz <= 1.0f) return nw + fx * (ne - nw) + fz * (sw - nw);
+    return se + (1.0f - fx) * (sw - se) + (1.0f - fz) * (ne - se);
+}
+
+/* The window the field is worked out over, re-done every frame (a few thousand byte
+   tests). Cells are relative to (x0, y0). */
+#define SBM_R       6.5f      /* cells past the footprint's edge where the field is gone */
+#define SBM_HALF    10        /* window half-size: half the widest footprint plus SBM_R  */
+#define SBM_N       (2 * SBM_HALF + 1)
+#define SBM_FOOT    12        /* the widest footprint's reach, cells            */
+struct SbmField {
+    int x0, y0;                         /* absolute cell of window (0,0)            */
+    float ctrX, ctrZ;                   /* the footprint's centre, world             */
+    float fx0, fz0, fx1, fz1;           /* the footprint's bounding box, world       */
+    unsigned char ok[SBM_N * SBM_N];    /* a cell this building could cover          */
+    unsigned char bld[SBM_N * SBM_N];   /* a structure stands on it                  */
+};
+static SbmField g_sbm;
+
+static bool sbm_ok(int ax, int ay)
+{
+    const int i = ax - g_sbm.x0, j = ay - g_sbm.y0;
+    if (i < 0 || j < 0 || i >= SBM_N || j >= SBM_N) return false;
+    return g_sbm.ok[j * SBM_N + i] != 0;
+}
+
+/* HOW STRONGLY THE FIELD SHOWS AT A WORLD POINT. Measured from the footprint's EDGE
+   rather than its centre, so a Weapons Factory and a Guard Tower both have bright marks
+   right up against them, and falling off all the way out rather than holding full
+   strength for a while: the field is brightest where the building is and thins steadily
+   toward its rim, which is how a modern placement grid reads. Under the shroud it fades
+   as well. */
+static float sbm_fade(float x, float z)
+{
+    const float dx = x < g_sbm.fx0 ? g_sbm.fx0 - x : (x > g_sbm.fx1 ? x - g_sbm.fx1 : 0.0f);
+    const float dz = z < g_sbm.fz0 ? g_sbm.fz0 - z : (z > g_sbm.fz1 ? z - g_sbm.fz1 : 0.0f);
+    const float d = sqrtf(dx * dx + dz * dz);
+    if (d >= SBM_R) return 0.0f;
+    const float t = 1.0f - d / SBM_R;
+    float f = t * t;                            /* bright at the building, thin at the rim */
+    if (g_sb.GroundSeen) {
+        float v = g_sb.GroundSeen(x, z);
+        if (v < 0.0f) v = 0.0f;
+        f *= v * v;
+    }
+    return f;
+}
+
+static void sbm_build(void)
+{
+    const SbEntry& e = g_sbState.entry[g_sbPlaceIdx];
+    int bw, bh;
+    sb_place_dims(&bw, &bh);
+    g_sbm.ctrX = (float)g_sbHoverX + (float)bw * 0.5f;
+    g_sbm.ctrZ = (float)g_sbHoverY + (float)bh * 0.5f;
+    g_sbm.x0 = (int)floorf(g_sbm.ctrX) - SBM_HALF;
+    g_sbm.y0 = (int)floorf(g_sbm.ctrZ) - SBM_HALF;
+    memset(g_sbm.ok, 0, sizeof g_sbm.ok);
+    memset(g_sbm.bld, 0, sizeof g_sbm.bld);
+    /* the footprint's box, apron included, for the fall-off */
+    {
+        const int origin = g_sbHoverY * SB_STRIDE + g_sbHoverX;
+        int mnx = g_sbHoverX, mxx = g_sbHoverX, mnz = g_sbHoverY, mxz = g_sbHoverY;
+        for (size_t k = 0; k < e.occupy.size(); k++) {
+            const int c = origin + e.occupy[k];
+            const int cx = c % SB_STRIDE, cz = c / SB_STRIDE;
+            if (cx < mnx) mnx = cx;
+            if (cx > mxx) mxx = cx;
+            if (cz < mnz) mnz = cz;
+            if (cz > mxz) mxz = cz;
+        }
+        g_sbm.fx0 = (float)mnx; g_sbm.fx1 = (float)(mxx + 1);
+        g_sbm.fz0 = (float)mnz; g_sbm.fz1 = (float)(mxz + 1);
+    }
+
+    /* IN RANGE: some origin that passes the engine's proximity test would cover the
+       cell. Proximity is the engine's verdict on an ORIGIN for THIS building, so the
+       union of the footprints of every passing origin is exactly "cells this building
+       can reach". Origins are walked over the window grown by the widest footprint, so
+       a cell at the window's edge still hears from an origin outside it. */
+    for (int oy = g_sbm.y0 - SBM_FOOT; oy < g_sbm.y0 + SBM_N; oy++)
+        for (int ox = g_sbm.x0 - SBM_FOOT; ox < g_sbm.x0 + SBM_N; ox++) {
+            const int oi = sb_grid_index(ox, oy);
+            if (oi < 0 || !g_sbPlaceProx[oi]) continue;
+            const int origin = oy * SB_STRIDE + ox;
+            for (size_t k = 0; k < e.occupy.size(); k++) {
+                const int c = origin + e.occupy[k];
+                const int i = c % SB_STRIDE - g_sbm.x0, j = c / SB_STRIDE - g_sbm.y0;
+                if (i >= 0 && j >= 0 && i < SBM_N && j < SBM_N) g_sbm.ok[j * SBM_N + i] = 1;
+            }
+        }
+    /* ... and the cell itself takes a foundation and is on the playable map. */
+    for (int j = 0; j < SBM_N; j++)
+        for (int i = 0; i < SBM_N; i++) {
+            const int ax = g_sbm.x0 + i, ay = g_sbm.y0 + j;
+            const int gi = sb_grid_index(ax, ay);
+            unsigned char& ok = g_sbm.ok[j * SBM_N + i];
+            if (gi < 0 || !g_sbPlaceClear[gi] || !sb_on_play_map(ax, ay)) ok = 0;
+            if (g_sb.CellStructure && gi >= 0 && !g_sbPlaceClear[gi]
+                && g_sb.CellStructure(ax, ay))
+                g_sbm.bld[j * SBM_N + i] = 1;
+        }
+}
+
+/* ---- the two materials ---------------------------------------------------------------
+ *
+ * Both are made here, once, from a few lines of arithmetic: no file, no pack, nothing to
+ * bake. They are LUMINANCE masks, white in RGB with the shape in alpha (and a little
+ * shading in RGB), and take their colour from the vertex colour under GL_MODULATE, so one
+ * cell material serves the green, the red and the amber.
+ *
+ * THE MARK, one arm of a "+": a hard, bright core, narrowing slightly and rounding off
+ * at its tip, inside a soft cool halo that fades with it. Laid along the arm (u from just
+ * behind the grid corner out to the tip, v across), so the four arms of a corner overlap
+ * at the root and the corner itself reads as a brighter node.
+ *
+ * THE CELL, one per footprint cell: a glass panel. A thin bright rim set just inside the
+ * cell's edge, thickening into brackets at the four corners; a glow running in from the
+ * edge; a faint body; and fine scan lines across it. Neighbouring cells meet rim to rim,
+ * so the footprint reads as a grid of panels, the way the field reads as a grid of marks.
+ *
+ * Mipmapped by hand (box filter, no GLU), so neither shimmers in the distance.
+ * GL_CLAMP, not GL_CLAMP_TO_EDGE: both masks are transparent at their borders, so the
+ * border colour GL 1.1 blends in at the edge is the value the edge already has. */
+#define SBM_MARK_W 64
+#define SBM_MARK_H 32
+#define SBM_CELL_N 128
+static GLuint g_sbmMarkTex = 0, g_sbmCellTex = 0;
+
+static float sbm_clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+
+static GLuint sbm_upload_mipped(int w, int h, std::vector<unsigned char>& px)
+{
+    GLuint id = 0;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D, id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    int level = 0;
+    for (;;) {
+        glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, &px[0]);
+        if (w == 1 && h == 1) break;
+        const int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+        std::vector<unsigned char> nx((size_t)nw * nh * 4);
+        for (int y = 0; y < nh; y++)
+            for (int x = 0; x < nw; x++)
+                for (int ch = 0; ch < 4; ch++) {
+                    const int x0 = x * w / nw, x1 = (w > 1) ? x0 + 1 : x0;
+                    const int y0 = y * h / nh, y1 = (h > 1) ? y0 + 1 : y0;
+                    const int sum = px[((size_t)y0 * w + x0) * 4 + ch] + px[((size_t)y0 * w + x1) * 4 + ch]
+                                  + px[((size_t)y1 * w + x0) * 4 + ch] + px[((size_t)y1 * w + x1) * 4 + ch];
+                    nx[((size_t)y * nw + x) * 4 + ch] = (unsigned char)((sum + 2) / 4);
+                }
+        px.swap(nx);
+        w = nw; h = nh;
+        level++;
+    }
+    return id;
+}
+
+static void sbm_make_materials(void)
+{
+    if (g_sbmMarkTex && g_sbmCellTex) return;
+    /* the mark */
+    {
+        std::vector<unsigned char> px((size_t)SBM_MARK_W * SBM_MARK_H * 4);
+        for (int y = 0; y < SBM_MARK_H; y++)
+            for (int x = 0; x < SBM_MARK_W; x++) {
+                const float u = ((float)x + 0.5f) / (float)SBM_MARK_W;
+                const float t = fabsf(((float)y + 0.5f) / (float)SBM_MARK_H - 0.5f) * 2.0f;
+                const float taper = 1.0f - 0.22f * u;             /* the core narrows a little outward */
+                const float ct = t / (0.17f * taper);
+                float core = expf(-ct * ct * ct * ct);
+                core *= 1.0f - sbm_clamp01((u - 0.84f) / 0.16f);  /* and rounds off at the tip */
+                const float ht = t / 0.55f;
+                float halo = 0.38f * expf(-ht * ht) * (1.0f - u * u);
+                const float a = sbm_clamp01(core + halo * (1.0f - core));
+                const float k = a > 0.0f ? core / a : 0.0f;       /* how much of it is core */
+                unsigned char* p = &px[((size_t)y * SBM_MARK_W + x) * 4];
+                p[0] = (unsigned char)(255.0f * (0.78f + 0.22f * k));
+                p[1] = (unsigned char)(255.0f * (0.90f + 0.10f * k));
+                p[2] = 255;
+                p[3] = (unsigned char)(255.0f * a + 0.5f);
+            }
+        g_sbmMarkTex = sbm_upload_mipped(SBM_MARK_W, SBM_MARK_H, px);
+    }
+    /* the cell */
+    {
+        const int N = SBM_CELL_N;
+        std::vector<unsigned char> px((size_t)N * N * 4);
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++) {
+                const float u = ((float)x + 0.5f) / (float)N, v = ((float)y + 0.5f) / (float)N;
+                const float e = fminf(fminf(u, 1.0f - u), fminf(v, 1.0f - v));   /* to the edge */
+                const float re = (e - 0.035f) / 0.011f;
+                const float rim = expf(-re * re);
+                /* the corner brackets: the rim, heavier, for the first fifth of each side */
+                const bool corner = (u < 0.2f || u > 0.8f) && (v < 0.2f || v > 0.8f);
+                const float be = (e - 0.045f) / 0.022f;
+                const float bracket = corner ? expf(-be * be) : 0.0f;
+                const float glow = 0.55f * expf(-e / 0.07f);
+                const float sl = 0.5f + 0.5f * cosf(6.2831853f * 16.0f * v);
+                const float scan = 0.06f * sl * sl * sl * sl;
+                const float body = 0.15f;
+                const float hot = sbm_clamp01(rim + bracket);
+                const float a = sbm_clamp01(body + scan + glow + hot);
+                const float L = 0.70f + 0.30f * sbm_clamp01(hot + 0.5f * glow);
+                unsigned char* p = &px[((size_t)y * N + x) * 4];
+                p[0] = p[1] = p[2] = (unsigned char)(255.0f * L);
+                p[3] = (unsigned char)(255.0f * a + 0.5f);
+            }
+        g_sbmCellTex = sbm_upload_mipped(N, N, px);
+    }
+}
+
+/* One cell in the cell material. */
+static void sbm_cell(int cx, int cz)
+{
+    const float x = (float)cx, z = (float)cz;
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(x,        sb_ground_y(x, z),                     z);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(x + 1.0f, sb_ground_y(x + 0.999f, z),            z);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(x + 1.0f, sb_ground_y(x + 0.999f, z + 0.999f), z + 1.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(x,        sb_ground_y(x, z + 0.999f),            z + 1.0f);
+}
+
+/* One arm of a mark, from the corner (vx, vz) along (dx, dz), in the mark material. */
+#define SBM_ARM   0.21f       /* the arm's reach from the corner, cells */
+#define SBM_BACK  0.03f       /* how far it starts behind the corner    */
+#define SBM_HALO  0.06f       /* half the arm's width, halo included    */
+static void sbm_arm(float vx, float vz, float dx, float dz)
+{
+    const float rx = vx - dx * SBM_BACK, rz = vz - dz * SBM_BACK;   /* root */
+    const float tx = vx + dx * SBM_ARM,  tz = vz + dz * SBM_ARM;    /* tip  */
+    const float px = -dz * SBM_HALO, pz = dx * SBM_HALO;            /* across */
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(rx + px, sb_ground_y(rx + px, rz + pz), rz + pz);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(tx + px, sb_ground_y(tx + px, tz + pz), tz + pz);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(tx - px, sb_ground_y(tx - px, tz - pz), tz - pz);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(rx - px, sb_ground_y(rx - px, rz - pz), rz - pz);
+}
+
+/* THE FOOTPRINT AS A SET OF CELLS. The occupy list names a cell twice wherever the apron
+   overlaps the building (Occupy_List(true) is the bib's list followed by the building's,
+   unmerged), and a translucent cell painted twice comes out twice as strong. Absolute
+   cell numbers, each once, in list order. */
+static int sbm_footprint(int origin, int* out, int maxn)
+{
+    const SbEntry& e = g_sbState.entry[g_sbPlaceIdx];
+    int n = 0;
+    for (size_t k = 0; k < e.occupy.size() && n < maxn; k++) {
+        const int c = origin + e.occupy[k];
+        bool seen = false;
+        for (int i = 0; i < n && !seen; i++) seen = (out[i] == c);
+        if (!seen) out[n++] = c;
+    }
+    return n;
+}
+
+/* Is footprint cell (ax, ay) refused, and is the whole origin out of range? */
+static bool sbm_cell_refused(int ax, int ay, bool prox)
+{
+    const int gi = sb_grid_index(ax, ay);
+    return !prox || gi < 0 || !g_sbPlaceClear[gi] || !sb_on_play_map(ax, ay);
+}
+
+/* Layers 1 to 3, in the world pass. The host calls this with the world's projection
+   current and nothing bound; it leaves blending on, depth test off, no depth write and
+   texturing off, and the host restores what it needs after.
+
+   EVERY LAYER IS DRAWN TWICE: once blended, which is its body, and once ADDED at a
+   fraction of that, which is its glow. The added pass is what makes the marks and the
+   rims read as light on the ground rather than as paint, and under Enhanced's bloom it
+   also gives them a soft bleed. */
+static void sb_draw_place_world(void)
+{
+    if (!place_modern() || !g_sbOn || !g_sbPlacing || g_sbHoverX < 0
+        || g_sbPlaceIdx < 0 || g_sbPlaceIdx >= (int)g_sbState.entry.size()
+        || g_sbPlaceProx.empty()) return;
+    sbm_build();
+    sbm_make_materials();
+
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_ALPHA_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    /* THE FIELD AND THE BASE ARE PART OF THE GROUND, so they are depth tested and a
+       building or a tree standing on a cell hides that cell's marks, the way a decal sits
+       under what stands on it. Pulled toward the camera so they never fight the terrain
+       they are draped on. The footprint is NOT: like the 1995 cells it must show whatever
+       stands in front of it. */
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-2.0f, -8.0f);
+
+    for (int pass = 0; pass < 2; pass++) {
+        const bool glow = (pass == 1);
+        glBlendFunc(GL_SRC_ALPHA, glow ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA);
+
+        /* 2. THE BASE, under the grid: the cell material in amber. */
+        glBindTexture(GL_TEXTURE_2D, g_sbmCellTex);
+        glBegin(GL_QUADS);
+        for (int j = 0; j < SBM_N; j++)
+            for (int i = 0; i < SBM_N; i++) {
+                if (!g_sbm.bld[j * SBM_N + i]) continue;
+                const int ax = g_sbm.x0 + i, ay = g_sbm.y0 + j;
+                const float f = sbm_fade((float)ax + 0.5f, (float)ay + 0.5f);
+                if (f <= 0.0f) continue;
+                if (glow) glColor4f(1.0f, 0.62f, 0.16f, 0.22f * f);
+                else      glColor4f(1.0f, 0.66f, 0.18f, 0.70f * f);
+                sbm_cell(ax, ay);
+            }
+        glEnd();
+
+        /* 1. THE FIELD. One "+" per grid corner, each of its four arms drawn only if a
+           cell on either side of that arm's edge can take this building. */
+        glBindTexture(GL_TEXTURE_2D, g_sbmMarkTex);
+        glBegin(GL_QUADS);
+        for (int j = 1; j < SBM_N; j++)
+            for (int i = 1; i < SBM_N; i++) {
+                const int ax = g_sbm.x0 + i, ay = g_sbm.y0 + j;     /* the corner (ax, ay) */
+                const float vx = (float)ax, vz = (float)ay;
+                const float f = sbm_fade(vx, vz);
+                if (f <= 0.0f) continue;
+                const bool nw = sbm_ok(ax - 1, ay - 1), ne = sbm_ok(ax, ay - 1);
+                const bool sw = sbm_ok(ax - 1, ay),     se = sbm_ok(ax, ay);
+                if (!(nw || ne || sw || se)) continue;
+                if (glow) glColor4f(0.75f, 0.88f, 1.0f, 0.45f * f);
+                else      glColor4f(1.0f, 1.0f, 1.0f, 0.95f * f);
+                if (ne || se) sbm_arm(vx, vz,  1.0f,  0.0f);    /* east  */
+                if (nw || sw) sbm_arm(vx, vz, -1.0f,  0.0f);    /* west  */
+                if (sw || se) sbm_arm(vx, vz,  0.0f,  1.0f);    /* south */
+                if (nw || ne) sbm_arm(vx, vz,  0.0f, -1.0f);    /* north */
+            }
+        glEnd();
+    }
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(0.0f, 0.0f);
+    glDisable(GL_DEPTH_TEST);
+
+    /* 3. THE FOOTPRINT, over both, in the cell material: green where the cell takes the
+       foundation, red where it does not. The verdict is the same one sb_legal_origin
+       gives: proximity on the origin, and every cell clear and on the map. */
+    const int oi = sb_grid_index(g_sbHoverX, g_sbHoverY);
+    const bool prox = (oi >= 0 && g_sbPlaceProx[oi]);
+    const int origin = g_sbHoverY * SB_STRIDE + g_sbHoverX;
+    int foot[64];
+    const int nfoot = sbm_footprint(origin, foot, 64);
+    glBindTexture(GL_TEXTURE_2D, g_sbmCellTex);
+    for (int pass = 0; pass < 2; pass++) {
+        const bool glow = (pass == 1);
+        glBlendFunc(GL_SRC_ALPHA, glow ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA);
+        glBegin(GL_QUADS);
+        for (int k = 0; k < nfoot; k++) {
+            const int ax = foot[k] % SB_STRIDE, ay = foot[k] / SB_STRIDE;
+            if (sbm_cell_refused(ax, ay, prox)) {
+                if (glow) glColor4f(1.0f, 0.22f, 0.16f, 0.40f);
+                else      glColor4f(1.0f, 0.16f, 0.12f, 0.95f);
+            } else {
+                if (glow) glColor4f(0.30f, 1.0f, 0.42f, 0.36f);
+                else      glColor4f(0.24f, 0.98f, 0.36f, 0.90f);
+            }
+            sbm_cell(ax, ay);
+        }
+        /* and the wall line's pieces, which the brain lays with this one */
+        int fill[64];
+        const int nfill = sb_wall_fill_cells(fill, 64);
+        for (int k = 0; k < nfill; k++) {
+            if (glow) glColor4f(0.30f, 1.0f, 0.42f, 0.36f);
+            else      glColor4f(0.24f, 0.98f, 0.36f, 0.90f);
+            sbm_cell(fill[k] % SB_STRIDE, fill[k] / SB_STRIDE);
+        }
+        glEnd();
+    }
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_TEXTURE_2D);
+}
+
+/* The prohibition sign, a red ring and bar over a pale disc with a dark halo, centred on
+   the screen point (cx, cy) with outer radius r, in the pixel pass. */
+static void sbm_no_sign(float cx, float cy, float r)
+{
+    const int N = 28;
+    const float t = r * 0.24f;                 /* ring and bar thickness */
+    #define SBM_RING(r0, r1) do {                                                   \
+        glBegin(GL_TRIANGLE_STRIP);                                                 \
+        for (int k = 0; k <= N; k++) {                                              \
+            const float a = (float)k * 6.2831853f / (float)N;                       \
+            const float ca = cosf(a), sa = sinf(a);                                 \
+            glVertex2f(cx + ca * (r1), cy + sa * (r1));                             \
+            glVertex2f(cx + ca * (r0), cy + sa * (r0));                             \
+        }                                                                           \
+        glEnd(); } while (0)
+    /* the pale face */
+    glColor4f(1.0f, 0.92f, 0.90f, 0.42f);
+    glBegin(GL_TRIANGLE_FAN);
+    glVertex2f(cx, cy);
+    for (int k = 0; k <= N; k++) {
+        const float a = (float)k * 6.2831853f / (float)N;
+        glVertex2f(cx + cosf(a) * (r - t), cy + sinf(a) * (r - t));
+    }
+    glEnd();
+    /* the halo, so the sign reads on bright ground and on the red fill alike */
+    glColor4f(0.0f, 0.0f, 0.0f, 0.55f);
+    SBM_RING(r - 0.5f, r + 1.5f);
+    SBM_RING(r - t - 1.5f, r - t + 0.5f);
+    /* the ring */
+    glColor4f(0.86f, 0.06f, 0.05f, 1.0f);
+    SBM_RING(r - t, r);
+    #undef SBM_RING
+    /* the bar, top left to bottom right, inside the ring */
+    const float d = 0.70710678f * (r - t * 0.5f), h = t * 0.5f * 0.70710678f;
+    glBegin(GL_QUADS);
+    glVertex2f(cx - d + h, cy - d - h);
+    glVertex2f(cx + d + h, cy + d - h);
+    glVertex2f(cx + d - h, cy + d + h);
+    glVertex2f(cx - d - h, cy - d + h);
+    glEnd();
+}
+
+/* The pixel-pass half: a sign on every refused footprint cell, or one sign on the
+   footprint's centre when the whole of it is merely out of range. */
+static void sb_draw_place_signs(int fbw, int fbh)
+{
+    const int oi = sb_grid_index(g_sbHoverX, g_sbHoverY);
+    const bool prox = (oi >= 0 && g_sbPlaceProx[oi]);
+    const int origin = g_sbHoverY * SB_STRIDE + g_sbHoverX;
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_TEXTURE_2D);
+    /* the size follows the cell on screen, so the sign zooms with the grid */
+    #define SBM_SIGN_AT(wx, wz) do {                                                \
+        const float gy = sb_ground_y((wx), (wz));                                   \
+        float c0, r0, c1, r1, c2, r2;                                               \
+        g_sb.WorldToScreen((wx), gy, (wz), fbw, fbh, &c0, &r0);                     \
+        g_sb.WorldToScreen((wx) - 0.5f, gy, (wz), fbw, fbh, &c1, &r1);              \
+        g_sb.WorldToScreen((wx) + 0.5f, gy, (wz), fbw, fbh, &c2, &r2);              \
+        float rad = 0.30f * sqrtf((c2 - c1) * (c2 - c1) + (r2 - r1) * (r2 - r1));   \
+        if (rad < 7.0f) rad = 7.0f;                                                 \
+        if (rad > 26.0f) rad = 26.0f;                                               \
+        sbm_no_sign(c0, r0, rad);                                                   \
+    } while (0)
+    if (!prox) {
+        int bw, bh;
+        sb_place_dims(&bw, &bh);
+        SBM_SIGN_AT((float)g_sbHoverX + (float)bw * 0.5f, (float)g_sbHoverY + (float)bh * 0.5f);
+    } else {
+        int foot[64];
+        const int nfoot = sbm_footprint(origin, foot, 64);
+        for (int k = 0; k < nfoot; k++) {
+            const int ax = foot[k] % SB_STRIDE, ay = foot[k] / SB_STRIDE;
+            if (sbm_cell_refused(ax, ay, true))
+                SBM_SIGN_AT((float)ax + 0.5f, (float)ay + 0.5f);
+        }
+    }
+    #undef SBM_SIGN_AT
+    glDisable(GL_BLEND);
+}
+
 static void sb_draw_placement(int fbw, int fbh)
 {
     if (!g_sbOn || !g_sbPlacing || g_sbPlaceIdx < 0 || !g_sb.WorldToScreen) return;
+    /* ENHANCED: the field, the footprint and the ghost were drawn in the world pass;
+       only the signs and the caption are left for the glass. */
+    if (place_modern()) {
+        if (g_sbHoverX >= 0 && g_sbPlaceIdx < (int)g_sbState.entry.size()
+            && !g_sbPlaceProx.empty())
+            sb_draw_place_signs(fbw, fbh);
+        sb_draw_place_tip(fbw, fbh);
+        return;
+    }
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_TEXTURE_2D);
@@ -2966,39 +3908,48 @@ static void sb_draw_placement(int fbw, int fbh)
 /* (enum SbHit is declared further up, next to the pointer state that uses it.) */
 
 /* dx,dy are DOS screen pixels. For SBH_ITEM/UP/DOWN *column is the strip and, for
-   SBH_ITEM, *slot is 0..3, the visible row. */
+   SBH_ITEM, *slot is the visible row. */
 static SbHit sb_hit_dos(int dx, int dy, int* column, int* slot)
 {
     *column = -1;
     *slot = -1;
 
     /* the three text buttons.  sidebar.cpp:371-384 Init_IO, lo-res branch */
-    if (dy >= DB_REPAIR_Y && dy < DB_REPAIR_Y + DB_BUTTON_HEIGHT) {
+    if (g_sbRa && dy >= 75 && dy < 89) {
+        if (dx >= 249 && dx < 266) return SBH_REPAIR;
+        if (dx >= 271 && dx < 288) return SBH_SELL;
+        if (dx >= 294 && dx < 311) return SBH_MAP;
+    } else if (!g_sbRa && dy >= DB_REPAIR_Y && dy < DB_REPAIR_Y + DB_BUTTON_HEIGHT) {
         if (dx >= DB_REPAIR_X && dx < DB_REPAIR_X + DB_REPAIR_W) return SBH_REPAIR;
         if (dx >= DB_SELL_X   && dx < DB_SELL_X   + DB_SELL_W)   return SBH_SELL;
         if (dx >= DB_MAP_X    && dx < DB_MAP_X    + DB_MAP_W)    return SBH_MAP;
     }
 
     /* the radar interior.  radar.cpp:141-144 */
-    if (dx >= DB_RAD_X + DB_RAD_OFF_X && dx < DB_RAD_X + DB_RAD_OFF_X + DB_RAD_I_WIDTH &&
-        dy >= DB_RAD_Y + DB_RAD_OFF_Y && dy < DB_RAD_Y + DB_RAD_OFF_Y + DB_RAD_I_HEIGHT)
+    if (dx >= (g_sbRa ? 246 : DB_RAD_X + DB_RAD_OFF_X) &&
+        dx < (g_sbRa ? 319 : DB_RAD_X + DB_RAD_OFF_X + DB_RAD_I_WIDTH) &&
+        dy >= (g_sbRa ? 14 : DB_RAD_Y + DB_RAD_OFF_Y) &&
+        dy < (g_sbRa ? 79 : DB_RAD_Y + DB_RAD_OFF_Y + DB_RAD_I_HEIGHT))
         return SBH_RADAR;
 
     for (int c = 0; c < DB_COLUMNS; c++) {
         const int sx = sb_strip_x(c);
         /* the scroll pair, drawn flush with the bottom of the screen */
-        if (dy >= DB_COLUMN_Y - 1 + DB_UP_Y_OFFSET &&
-            dy < DB_COLUMN_Y - 1 + DB_UP_Y_OFFSET + DB_SBUTTON_HEIGHT) {
+        const int stripy = g_sbRa ? 90 : DB_COLUMN_Y;
+        const int arrow_y = stripy - 1 + DB_UP_Y_OFFSET +
+            (g_sbRa && g_fx.dos_classic && g_ra95Pack
+             ? 24 * g_ra95ExtraRows + g_ra95Pad / 2 : 0);
+        if (dy >= arrow_y && dy < arrow_y + DB_SBUTTON_HEIGHT) {
             if (dx >= sx + DB_UP_X_OFFSET && dx < sx + DB_UP_X_OFFSET + DB_BUTTON_WIDTH)
                 { *column = c; return SBH_UP; }
             if (dx >= sx + DB_DOWN_X_OFFSET && dx < sx + DB_DOWN_X_OFFSET + DB_BUTTON_WIDTH)
                 { *column = c; return SBH_DOWN; }
         }
-        /* the four cameo buttons.  SelectButton[c][i] at (sx, COLUMN_Y + 24*i), 32x24 */
+        /* Cameo buttons use the same native 24-pixel row interval as the art. */
         if (dx >= sx && dx < sx + DB_OBJECT_WIDTH &&
-            dy >= DB_COLUMN_Y && dy < DB_COLUMN_Y + DB_MAX_VISIBLE * DB_OBJECT_HEIGHT) {
+            dy >= stripy && dy < stripy + sb_visible_rows() * DB_OBJECT_HEIGHT) {
             *column = c;
-            *slot = (dy - DB_COLUMN_Y) / DB_OBJECT_HEIGHT;
+            *slot = (dy - stripy) / DB_OBJECT_HEIGHT;
             return SBH_ITEM;
         }
     }
@@ -3013,6 +3964,16 @@ static SbHit sb_hit_h6(int hx, int hy, int* column, int* slot)
     *column = -1;
     *slot = -1;
 
+    if(eh_enabled()) {
+        static const int tx[4]={7,44,81,118};
+        if(hx>=-54&&hx< -19)for(i=0;i<3;i++)if(hy>=52+i*42&&hy<87+i*42)return i==0?SBH_REPAIR:i==1?SBH_SELL:SBH_POWER;
+        if(hy>=229&&hy<264)for(i=0;i<4;i++)if(hx>=tx[i]&&hx<tx[i]+35){*column=i;return SBH_CATEGORY;}
+        if(hx>=-1&&hx<159&&hy>=31&&hy<175)return SBH_RADAR;
+        for(c=0;c<2;c++)if(hx>=H6_COL_X[c]&&hx<H6_COL_X[c]+61)for(r=0;r<g_h6Rows;r++)if(hy>=hud640_row_y(r)+66&&hy<hud640_row_y(r)+111){
+            *column=c;*slot=r;const EH_Display *d=eh_display(c,r);return d?(d->engine<0?SBH_LOCKED:SBH_ITEM):SBH_NONE;
+        }
+        return SBH_NONE;
+    }
     if (hy >= H6_BTN_REPAIR_Y && hy < H6_BTN_REPAIR_Y + H6_BTN_REPAIR_H) {
         if (hx >= H6_BTN_REPAIR_X && hx < H6_BTN_REPAIR_X + H6_BTN_REPAIR_W) return SBH_REPAIR;
         if (hx >= H6_BTN_SELL_X   && hx < H6_BTN_SELL_X   + H6_BTN_SELL_W)   return SBH_SELL;
@@ -3107,6 +4068,7 @@ static int sb_frame_for(SbHit which, int column, int engaged)
 static void sb_toggle_repair(void)
 {
     if (!g_sbState.repairEnabled) { printf("SIDEBAR-INPUT|repair|DISABLED\n"); return; }
+    g_sbPowerOn=false;
     g_sbRepairOn = !g_sbRepairOn;
     if (g_sbRepairOn) g_sbSellOn = false;
     if (g_sb.StructureReq)
@@ -3118,6 +4080,7 @@ static void sb_toggle_repair(void)
 static void sb_toggle_sell(void)
 {
     if (!g_sbState.sellEnabled) { printf("SIDEBAR-INPUT|sell|DISABLED\n"); return; }
+    g_sbPowerOn=false;
     g_sbSellOn = !g_sbSellOn;
     if (g_sbSellOn) g_sbRepairOn = false;
     if (g_sb.StructureReq)
@@ -3165,7 +4128,7 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
                control that looks dead has to be dead. */
             if (!right && !g_sbCodexUp) {
                 g_sbPress = ch; g_sbHover = ch;
-                g_h6SlideTarget = g_h6SlideTarget ? 0 : H6_BAR_W;
+                g_h6SlideTarget = g_h6SlideTarget ? 0 : eh_travel();
                 printf("SIDEBAR-INPUT|slide|%s\n", g_h6SlideTarget ? "hide" : "show");
                 fflush(stdout);
             }
@@ -3202,6 +4165,8 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
        button that still latches a mode a spectator cannot use is a control that lies. */
     if (g_sbSpectator && (hit == SBH_REPAIR || hit == SBH_SELL || hit == SBH_ITEM))
         return true;
+    if(hit==SBH_CATEGORY){if(!right){g_ehCategory=c;eh_refresh();printf("SIDEBAR-INPUT|category|%d\n",c);}return true;}
+    if(hit==SBH_POWER){if(!right&&!g_sbSpectator){g_sbPowerOn=!g_sbPowerOn;if(g_sbPowerOn&&g_sb.Unselect)g_sb.Unselect();g_sbRepairOn=g_sbSellOn=false;sb_cancel_placement();if(g_sb.StructureReq)g_sb.StructureReq(INPUT_STRUCTURE_CANCEL,0,0);printf("SIDEBAR-INPUT|power|%s\n",g_sbPowerOn?"on":"off");}return true;}
     if (hit == SBH_REPAIR) { if (!right) sb_toggle_repair(); return true; }
     if (hit == SBH_SELL)   { if (!right) sb_toggle_sell();   return true; }
     if (hit == SBH_MAP) {
@@ -3241,9 +4206,9 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
     }
     if (hit != SBH_ITEM) return true;   /* the panel ate it, but there is nothing there */
 
-    const int idx = sb_col_base(c) + g_sbTop[c] + slot;
+    const int idx = sb_display_index(c,slot);
     if (idx < 0 || idx >= (int)g_sbState.entry.size()) return true;
-    if (g_sbState.entry[idx].column != c) return true;   /* past the end of this column */
+    if (!eh_enabled() && g_sbState.entry[idx].column != c) return true;   /* past the end of this column */
 
     {
         const size_t i = (size_t)idx;
@@ -3271,7 +4236,12 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
                    (dllinterface.cpp:3906-3908, "subsequenct right-clicks to decrement
                    that queue count"), so this rung is faithful rather than invented. */
                 int& n = g_sbQueue[std::make_pair(e.btype, e.bid)];
-                if (--n <= 0) g_sbQueue.erase(std::make_pair(e.btype, e.bid));
+                if (--n <= 0) {
+                    g_sbQueue.erase(std::make_pair(e.btype, e.bid));
+                    /* A start still open for this key would otherwise be read as lost
+                       and fired again the next time the key is queued. */
+                    g_sbQueueOpen.erase(std::make_pair(e.btype, e.bid));
+                }
                 printf("SBQUEUE|sub|%s|btype=%d|bid=%d|n=%d\n", e.name, e.btype, e.bid,
                        n > 0 ? n : 0);
                 fflush(stdout);
@@ -3324,6 +4294,7 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
 static void sb_scroll_at(float col, float row, int fbw, int fbh, int dir)
 {
     sb_layout(fbw, fbh);
+    if(eh_enabled()){g_ehTop[g_ehCategory]+=dir;eh_refresh();return;}
     int c, slot;
     const SbHit hit = sb_hit_at(col, row, &c, &slot);
     if (hit == SBH_ITEM || hit == SBH_UP || hit == SBH_DOWN) {
@@ -3480,6 +4451,15 @@ static int g_sbFails = 0;
 static bool sb_script_verb(const char* v, const char* a1, const char* a2, const char* a3,
                            SbTickFn tick, int fbw, int fbh)
 {
+    if(!strcasecmp(v,"sbcategory")){if(a1){static const char *names[]={"structures","infantry","vehicles","aircraft"};for(int i=0;i<4;i++)if(!strcasecmp(a1,names[i]))g_ehCategory=i;}eh_refresh();printf("EHUD|category=%d|items=%d|rows=%d|top=%d\n",g_ehCategory,(int)g_ehItems.size(),g_h6Rows,g_ehTop[g_ehCategory]);return true;}
+    /* The production queue strip: hudqlog 1 prints a HUDQ line every drawn frame,
+       hudqdump prints the last one, hudqstep S sets the automated clock's seconds per
+       drawn frame. */
+    if(!strcasecmp(v,"hudqlog")){g_ehqLog=a1&&atoi(a1)!=0;printf("HUDQLOG|%d\n",g_ehqLog?1:0);fflush(stdout);return true;}
+    if(!strcasecmp(v,"hudqdump")){printf("%s\n",g_ehqLine.empty()?"HUDQ|none":g_ehqLine.c_str());fflush(stdout);return true;}
+    if(!strcasecmp(v,"hudqstep")){g_ehqStep=a1?(float)atof(a1):-1.0f;printf("HUDQSTEP|%.4f\n",g_ehqStep);fflush(stdout);return true;}
+    if(!strcasecmp(v,"sbtool")){int k=a1&&!strcasecmp(a1,"sell")?1:a1&&!strcasecmp(a1,"power")?2:0;sb_layout(fbw,fbh);float x=g_dbX0-36.5f*g_h6Scale,y=g_dbY0+(69.5f+k*42)*g_h6Scale;sb_click(x,y,fbw,fbh,false);sb_pointer_up();return true;}
+
     (void)a3;
     if (!strcasecmp(v, "sidebar")) {
         sb_poll();
@@ -3492,7 +4472,7 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
            a placement really happened: the new building shows up with limbo=0 at the
            cell that was asked for. */
         if (g_sb.Dump) g_sb.Dump();
-        else printf("OBJDUMP|CNC3D_Dump_Objects not exported\n");
+        else printf("OBJDUMP|OpenCNC3D_Dump_Objects not exported\n");
         return true;
     }
 
@@ -3726,6 +4706,10 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
         sb_poll();
         sb_layout(fbw, fbh);
         int i = sb_find(a1);
+        if(eh_enabled()&&i>=0&&eh_category(g_sbState.entry[i])!=g_ehCategory){
+            const int category=eh_category(g_sbState.entry[i]);static const int tx[]={7,44,81,118};
+            sb_click(g_dbX0+(tx[category]+17.5f)*g_h6Scale,g_dbY0+246.5f*g_h6Scale,fbw,fbh,false);sb_pointer_up();
+        }
         float x0, y0, x1, y1;
         if (i < 0 || !sb_item_rect(i, &x0, &y0, &x1, &y1)) {
             printf("SCRIPT|%s|%s|FAIL not a visible button\n", v, a1 ? a1 : "");
@@ -3747,9 +4731,9 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
         /* Drive and read the drawer in text. `settle` is what keeps every EXISTING
            sidebar gate byte-identical: the default is 0/0, so a script that never says
            sbslide moves nothing at all. */
-        if (a1 && !strcasecmp(a1, "hide"))        g_h6SlideTarget = H6_BAR_W;
+        if (a1 && !strcasecmp(a1, "hide"))        g_h6SlideTarget = eh_travel();
         else if (a1 && !strcasecmp(a1, "show"))   g_h6SlideTarget = 0;
-        else if (a1 && !strcasecmp(a1, "toggle")) g_h6SlideTarget = g_h6SlideTarget ? 0 : H6_BAR_W;
+        else if (a1 && !strcasecmp(a1, "toggle")) g_h6SlideTarget = g_h6SlideTarget ? 0 : eh_travel();
         else if (a1 && !strcasecmp(a1, "settle")) g_h6SlideX = g_h6SlideTarget;
         sb_layout(fbw, fbh);
         printf("SBSLIDE|x=%d|target=%d|dbx0=%.0f\n",
@@ -3839,10 +4823,10 @@ static bool sb_init(const SbHooks& h, const char* cameopack, const char* dospack
 
     /* The 640x480 HUD is OPTIONAL and OFF by default: it is signed off on look but not
        yet on behaviour, so the DOS bar stays the one the player gets until it is.
-       CNC3D_HUD=new switches it on. A missing pack is not fatal; it just means the new
+       OPENCNC3D_HUD=new switches it on. A missing pack is not fatal; it just means the new
        path is unavailable and we say so once. */
     {
-        const char* want = getenv("CNC3D_HUD");
+        const char* want = getenv("OPENCNC3D_HUD");
         char h6err[256];
         std::string h6path(dospack ? dospack : "");
         size_t slash = h6path.find_last_of("/\\");
@@ -3889,6 +4873,26 @@ static bool sb_init(const SbHooks& h, const char* cameopack, const char* dospack
                         "pass --dospack PATH\n");
         return false;
     }
+    g_sbRa = db_shape(g_dbPack, "SIDE1NA") != NULL;
+    if (g_sbRa) g_hudNew = false; /* TD's Enhanced HUD has no Red Alert art. */
+    if (g_sbRa) {
+        std::string path(dospack);
+        const size_t suffix = path.rfind(".pack");
+        if (suffix != std::string::npos) path.erase(suffix);
+        path += "-win95.pack";
+        g_ra95Pack = db_pack_load(path.c_str(), err, sizeof err);
+        if (g_ra95Pack && (!db_shape(g_ra95Pack, "SIDE1NA") ||
+                           db_shape(g_ra95Pack, "SIDE1NA")->w != 160)) {
+            db_pack_free(g_ra95Pack);
+            g_ra95Pack = NULL;
+        }
+        if (g_ra95Pack)
+            fprintf(stderr, "sidebar: Red Alert Win95 pack %s (%d shapes)\n",
+                    path.c_str(), g_ra95Pack->nshapes);
+        else
+            fprintf(stderr, "sidebar: Red Alert Win95 pack unavailable (%s)\n",
+                    err);
+    }
     fprintf(stderr, "sidebar: DOS pack %s (%d shapes, %d fonts)\n", dospack,
             g_dbPack->nshapes, g_dbPack->nfonts);
     return true;
@@ -3914,10 +4918,16 @@ static void sb_free(void)
     if (g_dbTex)
         glDeleteTextures(1, &g_dbTex);
     g_dbTex = 0;
+    glDeleteTextures(RA95_CHUNKS + 1, g_ra95Tex);
+    memset(g_ra95Tex, 0, sizeof g_ra95Tex);
 
     if (g_dbPack)
         db_pack_free(g_dbPack);
     g_dbPack = NULL;
+    if (g_ra95Pack)
+        db_pack_free(g_ra95Pack);
+    g_ra95Pack = NULL;
+    g_sbRa = false;
     db_state_clear(&g_dbState);
 
     /* THE OTHER TWO PACKS sb_init READS GO BACK HERE AS WELL, and until now neither did.
@@ -3947,7 +4957,8 @@ static void sb_free(void)
     g_sbPlaceClear.clear();
     g_sbHoverX = g_sbHoverY = -1;
     g_sbTop[0] = g_sbTop[1] = 0;
-    g_sbRepairOn = g_sbSellOn = false;
+    g_sbRepairOn = g_sbSellOn = g_sbPowerOn = false;
+    g_ehCategory=0;for(int k=0;k<4;k++)g_ehTop[k]=0;g_ehItems.clear();g_ehProgress.clear();g_ehqCards.clear();
     g_sbRadarShown = true;
     g_sbRadarForce = false;      /* see the declaration: faithful by default */
     g_sbRoster = false;          /* a mission latch like the two above */

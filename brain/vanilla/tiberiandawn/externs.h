@@ -14,12 +14,19 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Adds extern declarations for two further house colour remap tables,
 // RemapGrey and RemapBrown, inside an EIGHTPLAYERS guard. Declarations only,
 // with no code and no data defined here.
+// MODIFIED again in September 2026: declares OpenCNC3D_FreeInfantry, the free
+// infantry movement switch. A declaration only. Also declares
+// OpenCNC3D_Note_Fire, the renderer's shot record written by TechnoClass::Fire_At,
+// and OpenCNC3D_FastShells, the switch for the faster tank shell.
+// MODIFIED again in October 2026: declares OpenCNC3D_WallFill, the wall line
+// fill reach. A declaration only. Also declares OpenCNC3D_Note_Line, the
+// renderer's laser line record written by TechnoClass::Fire_At.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -87,9 +94,9 @@ extern bool ForceEnglish;
 typedef MixFileClass<CCFileClass> MFCD;
 
 /*
-**	CNC3D_Lockstep -- is this simulation one peer of a deterministic lockstep match?
+**	OpenCNC3D_Lockstep -- is this simulation one peer of a deterministic lockstep match?
 **
-**	FALSE unless the host calls CNC3D_Set_Lockstep, so the campaign and skirmish behave
+**	FALSE unless the host calls OpenCNC3D_Set_Lockstep, so the campaign and skirmish behave
 **	exactly as they did in 1995 and nothing below this flag can move them. It exists
 **	because the two things we want are in tension: a network match needs every machine to
 **	compute one identical world, and the campaign needs to keep the behaviour thirty years
@@ -101,13 +108,70 @@ typedef MixFileClass<CCFileClass> MFCD;
 **	selection). It is not a general "new engine" switch and must never gate a balance or
 **	content change.
 */
-extern bool CNC3D_Lockstep;
+extern bool OpenCNC3D_Lockstep;
+/*
+**	OpenCNC3D_FreeInfantry -- may an infantryman walk a straight line across several cells?
+**
+**	FALSE unless the host calls OpenCNC3D_Set_Free_Infantry. In 1995 every walking leg ends at the
+**	next cell of the path, so a soldier only ever moves in the eight path directions. With
+**	this on, InfantryClass::AI aims a leg at the furthest cell of the path it can reach in a
+**	straight line through cells it could enter anyway, so he walks at any angle. The path
+**	itself, occupancy, speed and everything a cell does to the man who enters it are the
+**	1995 rules. It IS a change to the simulation, so it is off in the campaign and skirmish
+**	unless the renderer turns it on, and a lockstep match must have every peer agree on it.
+*/
+extern bool OpenCNC3D_FreeInfantry;
+/*
+**	OpenCNC3D_FastShells -- does a vehicle's tank shell fly at twice its 1995 speed?
+**
+**	FALSE unless the host calls OpenCNC3D_Set_Fast_Shells. With it on, TechnoClass::Fire_At
+**	doubles the flight speed of a BULLET_APDS round fired by a vehicle (the light, medium
+**	and Mammoth tanks); a turret's round is unchanged. The round still lands on the point
+**	it was fired at, since a straight round detonates on its fuse target, so only the time
+**	in flight changes. It IS a change to the simulation, like OpenCNC3D_FreeInfantry, and a
+**	lockstep match must have every peer agree on it.
+*/
+extern bool OpenCNC3D_FastShells;
+/*
+**	OpenCNC3D_Note_Fire -- the renderer's record of a shot, written by TechnoClass::Fire_At.
+**
+**	Read only as far as the game is concerned: it copies who fired, with which weapon,
+**	which barrel of a two-shooter and which projectile came of it into a small list that
+**	the object dump prints and empties (EFX|FIRE). Nothing in the simulation reads it back.
+*/
+class TechnoClass;
+class BulletClass;
+void OpenCNC3D_Note_Fire(TechnoClass* firer, int which, BulletClass* bullet, int second, COORDINATE fire);
+/*
+**	OpenCNC3D_Note_Line -- the renderer's record of a laser line, written by
+**	TechnoClass::Fire_At where it sets up the Obelisk's beam.
+**
+**	Read only as far as the game is concerned: it copies the firer and its centre, the beam's
+**	two ends as coordinates, what it was aimed at and the engine's own line colours and
+**	duration into a
+**	small list that the object dump prints and empties (EFX|LINE). Nothing in the
+**	simulation reads it back.
+*/
+void OpenCNC3D_Note_Line(TechnoClass* firer, int which, COORDINATE source, COORDINATE dest, TARGET target);
+/*
+**	OpenCNC3D_WallFill -- how far a newly placed wall reaches to join one of its own kind.
+**
+**	ZERO unless the host calls OpenCNC3D_Set_Wall_Fill, and zero is 1995: a wall piece covers the
+**	one cell it was placed on. Above zero it is the wall-building rule Tiberian Sun and Red
+**	Alert 2 shipped: when a human player places a wall piece, BuildingClass::Unlimbo looks
+**	along each of the four cell axes for the nearest wall of the SAME type owned by the SAME
+**	house, at most this many cells away, and if every cell between the two would take a
+**	wall it lays one in each of them, at no further cost. Red Alert 2's walls carry
+**	GuardRange=5, which is the value the renderer asks for. It IS a change to the
+**	simulation, so a lockstep match must have every peer agree on it.
+*/
+extern int OpenCNC3D_WallFill;
 
 /*
-**	How many u32 slots CNC3D_Event_ABI reports. Grows at the END only, so a host built
+**	How many u32 slots OpenCNC3D_Event_ABI reports. Grows at the END only, so a host built
 **	against an older count still reads the slots it knows correctly.
 */
-#define CNC3D_EVENT_ABI_SLOTS 11
+#define OPENCNC3D_EVENT_ABI_SLOTS 11
 
 extern bool Debug_Quiet;
 extern bool Debug_Cheat;

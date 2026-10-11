@@ -13,7 +13,7 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Under an EIGHTPLAYERS build flag, widens the playable house set from six
 // multiplayer houses to eight: adds HOUSE_MULTI7 and HOUSE_MULTI8 to
 // HousesType, adds their ownership bit macros, adds REMAP_GREY and
@@ -24,8 +24,10 @@
 // pinning the score screen row count, and, when EIGHTPLAYERS is off, defines
 // the two new ownership bits as 0 so ownership literals elsewhere can name
 // them unconditionally without changing the stock masks.
+// MODIFIED again in September 2026: appends INFANTRY_E1TR to InfantryType,
+// a test infantry type that is a copy of the minigunner (see idata.cpp).
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -1028,6 +1030,8 @@ typedef enum InfantryType : signed char
     INFANTRY_MOEBIUS, // Dr. Moebius
     INFANTRY_DELPHI,  // Agent "Delphi"
     INFANTRY_CHAN,    // Dr. Chan
+
+    INFANTRY_E1TR, // Test infantry: a copy of the minigunner, drawn by OpenCNC3D as its own model.
 
     INFANTRY_COUNT,
     INFANTRY_FIRST = 0

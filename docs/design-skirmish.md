@@ -1,4 +1,4 @@
-# Skirmish vs AI: what the Remastered source gives us, and what OpenCNC 3D has to build
+# Skirmish vs AI: what the Remastered source gives us, and what OpenCNC3D has to build
 
 Investigation. Claims are read out of the source in `brain/vanilla/tiberiandawn`
 (the checkout at `brain/patches/UPSTREAM.txt`, EA's GPL Tiberian Dawn with Vanilla-Conquer's
@@ -65,7 +65,7 @@ What is missing is otherwise all on our side:
    is `Multi1`..`Multi6`, so the player's own units draw as Nod. MEASURED on screen: see 6.2,
    and the symptom is not what this document first claimed.
 4. **No skirmish map**, because the N64 port cut multiplayer. Solved: section 5. All nine
-   retail skirmish maps now bake into valid OpenCNC 3D packs.
+   retail skirmish maps now bake into valid OpenCNC3D packs.
 
 ---
 
@@ -279,7 +279,7 @@ opts.DestroyStructures = true;   /* -> Special.IsEarlyWin */
 opts.ModernBalance     = false;  /* keep 1995 balance */
 
 CNCPlayerInfoStruct players[2] = {0};
-/* [0] MUST be the human and MUST carry GlyphxPlayerID 0: every OpenCNC 3D call passes
+/* [0] MUST be the human and MUST carry GlyphxPlayerID 0: every OpenCNC3D call passes
        player_id 0 and Set_Player_Context matches on that id. */
 players[0].GlyphxPlayerID = 0; players[0].House = GDI; players[0].ColorIndex = 0;
 players[0].Team = 0; players[0].StartLocationIndex = 0; players[0].IsAI = false;
@@ -337,7 +337,7 @@ byte-identical logs and crashed on the same tick.
 > that diffs whole logs will flap on those lines; a gate that diffs sim state will not.
 
 Consequences: the existing two-run determinism gate can be pointed at a skirmish map if it
-ignores the message callbacks. **Drop the `CNC3D_Set_Seed` idea rather than deferring it**:
+ignores the message callbacks. **Drop the `OpenCNC3D_Set_Seed` idea rather than deferring it**:
 `Seed` is written and never read on our path, so there is nothing to pin. This determinism is
 **accidental**, depending on `Start_Scenario` staying commented out, so a gate should assert
 it rather than assume it.
@@ -390,13 +390,13 @@ Three things make it worse than a one-off:
   `refused = vis && !ctrl && (probe == 0 || probe == 2)`, which does not include 21, so it
   paints the green order-accepted mark and logs MOVE. The engine meanwhile reaches
   `case ACTION_NO_DEPLOY: Speak(VOX_DEPLOY); break;` (`foot.cpp:1290`) and does nothing, and
-  OpenCNC 3D plays no audio for it. **That is a legibility-rail violation: the client tells the
+  OpenCNC3D plays no audio for it. **That is a legibility-rail violation: the client tells the
   player the order was heard.**
 
 ### 3.3 Nothing takes effect before the first tick
 
-MEASURED with zero ticks run: `CNC_Select_Object` returns TRUE while `CNC3D_Sel_Info`
-reports 0 selected, `CNC3D_Probe_Object_At` returns `ACTION_NONE`, and
+MEASURED with zero ticks run: `CNC_Select_Object` returns TRUE while `OpenCNC3D_Sel_Info`
+reports 0 selected, `OpenCNC3D_Probe_Object_At` returns `ACTION_NONE`, and
 `GAME_STATE_PLAYER_INFO` gives `SelectedID = -1`. One tick later all three are correct.
 
 `Set_Selected_By_Player` adds into `CurrentObject`'s bucket for the owner house
@@ -460,7 +460,7 @@ in `GAME_NORMAL` (`house.cpp:1927`), so it is inert in a skirmish.
 
 ### 5.1 The problem
 
-OpenCNC 3D draws terrain from the cartridge's own `<SCEN>.MAP` (64x64 big-endian u16 N64 tile
+OpenCNC3D draws terrain from the cartridge's own `<SCEN>.MAP` (64x64 big-endian u16 N64 tile
 IDs), which `n64_terrain.py` turns into `terrain_<SCEN>.json` and `bake5.py:1509` turns into
 `<SCEN>.pack`. The ROM holds 79 `.MAP` files and none is an `SCM*`, and there is no
 `SCM*.IMG` heightmap or `CMM*.IMG` tint map either. The N64 port cut multiplayer.
@@ -501,7 +501,7 @@ SCM01EA.BIN (GENERAL.MIX)
    -> <SCEN>.pack
 ```
 
-`n64_terrain.py`'s `share/CNC3D` tree is a set of relative symlinks into
+`n64_terrain.py`'s `share/OpenCNC3D` tree is a set of relative symlinks into
 `tools/bakery/sharecopy` and `data/rom`, so it runs from a plain checkout with no SMB mount.
 The one real gap is small: `n64_terrain.py` reads the theater from `EX/INI/<SCEN>.INI` and no
 `SCM*.INI` exists in the extracted tree, so the nine INIs must be staged out of `GENERAL.MIX`
@@ -536,7 +536,7 @@ one.
 
 ---
 
-## 6. The OpenCNC 3D work list
+## 6. The OpenCNC3D work list
 
 In dependency order. **6.13 is the highest player-visible severity of the lot** despite
 sitting last; it is numbered late only so the cross-references above stay valid.
@@ -567,7 +567,7 @@ The first draft's list was also incomplete. It misses the **infantry uniform row
 turns light blue rather than merely losing GDI gold.
 
 The fix is to ask the engine instead of parsing a name. Add one field to the OBJ line in
-`brain/patches/vanilla-cnc3d.patch`:
+`brain/patches/vanilla-opencnc3d.patch`:
 
 ```c
 int act = -1;
@@ -602,7 +602,7 @@ banner, return to the menu.
 > house instead, or give the human a non-zero id and thread it through every call rather than
 > relying on the 0 shortcut.
 
-### 6.5 The menu  (`menu/dosmenu.c:61`, `app/cnc3d.cpp:987`)
+### 6.5 The menu  (`menu/dosmenu.c:61`, `app/opencnc3d.cpp:987`)
 
 `DM_MULTI` already exists, drawn disabled the way the 1995 engine drew an unavailable gadget.
 Flip `dm_items[DM_MULTI].disabled` to 0 and add an arm. Reuse `DM_MULTI` rather than adding a
@@ -623,7 +623,7 @@ only**, so it would not catch a missing data file.
 
 ### 6.7 Determinism
 
-Superseded by 3.1. Do not build `CNC3D_Set_Seed` to write `Seed`; it would do nothing.
+Superseded by 3.1. Do not build `OpenCNC3D_Set_Seed` to write `Seed`; it would do nothing.
 Phase 1 gets the free rule (explicit `StartLocationIndex` for every player) and a gate that
 **asserts** the accidental determinism rather than assuming it.
 
@@ -666,7 +666,7 @@ Three brain changes are now known to be required, and nobody had costed them:
 
 Each carries the same fixed overhead, so batch them into one commit:
 
-- `brain/patches/vanilla-cnc3d.patch` must be regenerated in the same commit or
+- `brain/patches/vanilla-opencnc3d.patch` must be regenerated in the same commit or
   `tools/check-brain-checkout.sh` fails, and CI runs it on every push
   (`.github/workflows/build.yml:60-61`).
 - There is a **second** CI guard at `build.yml:65-72` that greps `dllinterface.cpp` for
@@ -807,18 +807,18 @@ Known gaps this work owes:
 - **Six cells have no cartridge tile.** `TEMPLATE_ROAD43` (TEMPERATE 135) on SCM03EA and
   `TEMPLATE_ROAD33` (DESERT 125) on SCM06EA are absent from their theater's `TL4`/`TL8`.
   `tools/bin_to_n64map.py` lists them and refuses to write silently.
-- **TD skirmish has no AI difficulty setting** in the Remastered source. Anything OpenCNC 3D offers
+- **TD skirmish has no AI difficulty setting** in the Remastered source. Anything OpenCNC3D offers
   is ours, not the engine's.
 - **`Special` leaks across a mode switch.** A skirmish with tiberium off disables tiberium
   growth for every later campaign mission in the same process.
-- **Loading a skirmish save silently converts it to single player**, because OpenCNC 3D hardcodes
+- **Loading a skirmish save silently converts it to single player**, because OpenCNC3D hardcodes
   `"GAME_NORMAL"` and `CNC_Save_Load` uses that string to set the mode.
 - **The AI never designates an `Enemy`** in a GlyphX skirmish, so two urgency heuristics run
   on their fallbacks.
 - **`packinspect.py` is stale for PKD/PKE** and reports the wrong heightmap and tint for any
   current pack. Found while validating the skirmish packs; not a skirmish bug.
 - **The MCV cannot deploy where the starting escort stands**, and the engine's only feedback
-  is `Speak(VOX_DEPLOY)` (`foot.cpp:1290`), which OpenCNC 3D does not play. 7 of 8 start positions
+  is `Speak(VOX_DEPLOY)` (`foot.cpp:1290`), which OpenCNC3D does not play. 7 of 8 start positions
   on SCM01EA at `MPlayerUnitCount = 10`; retrying stays dead for about 140 ticks because the
   escort drives back across the pad. Faithful to 1995 in the engine, but 1995 had the voice
   line and never painted a positive order mark.
@@ -829,7 +829,7 @@ Known gaps this work owes:
   Active context is the constructor default until the first `Logic.AI()` switches it. Vanilla
   Conquer's fix is `#ifndef REMASTER_BUILD` and compiled out (`scenarioini.cpp:409-411`).
 - **`GAME_STATE_LAYERS` returns false headless**, because it counts draw-intercept callbacks
-  and no shape art is loaded. Pre-existing and campaign-wide, not skirmish; the OpenCNC 3D client
+  and no shape art is loaded. Pre-existing and campaign-wide, not skirmish; the OpenCNC3D client
   never calls it. No gate may depend on it.
 - **Two cell-grid conventions in one API.** `PLAYER_INFO`'s `ActionWithSelected` is indexed
   58x49 on SCM01EA while `SHROUD`, `PLACEMENT` and `STATIC_MAP` are 60x51. Anything reading

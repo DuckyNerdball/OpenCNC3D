@@ -35,6 +35,7 @@
 
 #include "mixer.h"
 #include "sndbank.h"
+#include "sfxtable.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -101,6 +102,9 @@ void cnc_audio_begin_tick(CncAudio *au);
  * -1 if it was dropped or the sound is not on the disc, or CNC_SFX_DUPLICATE if this
  * tick has already had its fill of that clip. */
 int cnc_audio_on_sound_effect(CncAudio *au, int sfx_index, int variation, int x, int y);
+/* Red Alert's callback names the source clip and already carries its Allied .V0x or
+ * Soviet .R0x accent. Use that name instead of Tiberian Dawn's unrelated index table. */
+int cnc_audio_on_named_effect(CncAudio *au, const char *name, int priority, int x, int y);
 
 /* The 1995 engine's OTHER Sound_Effect: an effect with no map position and a volume of
  * its own (audio.cpp, `Sound_Effect(VocType, VolType)`), which is how the credit
@@ -118,6 +122,7 @@ int cnc_audio_on_ui_effect(CncAudio *au, int sfx_index, int gain);
  * and starts immediately, so the newest always wins. That is a cut, not a crossfade,
  * because the 1995 behaviour is a cut. */
 int cnc_audio_on_speech(CncAudio *au, int speech_index);
+int cnc_audio_on_named_speech(CncAudio *au, const char *base);
 
 /* Call at every mission boundary. The audio engine outlives a mission (one device per
  * process), so EVA's queue and its "what is talking now" handle would otherwise carry
@@ -171,6 +176,11 @@ int cnc_music_busy(const CncAudio *au);
  * asked for last keeps playing (the menu, which loops one track).
  */
 int cnc_music_theme_index(const char *base);          /* "AOI" -> ThemeType, or -1  */
+void cnc_music_set_red_alert(CncAudio *au, int side); /* 0 TD, 1 Allied, 2 Soviet */
+int cnc_music_find_theme(const CncAudio *au, const char *base);
+int cnc_music_theme_count(const CncAudio *au);
+const ThemeEntry *cnc_music_theme(const CncAudio *au, int index);
+int cnc_music_theme_available(CncAudio *au, int index);
 int cnc_music_next_theme(CncAudio *au, int current);  /* ThemeClass::Next_Song      */
 int cnc_music_play_index(CncAudio *au, int index);    /* play that ThemeType now    */
 int cnc_music_index(const CncAudio *au);              /* what is playing, or -1     */

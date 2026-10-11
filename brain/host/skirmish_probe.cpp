@@ -1,5 +1,5 @@
 /*
- * OpenCNC 3D -- skirmish_probe: does the Tiberian Dawn brain actually PLAY a skirmish?
+ * OpenCNC3D -- skirmish_probe: does the Tiberian Dawn brain actually PLAY a skirmish?
  *
  * The claim under test: CNC_Set_Multiplayer_Data + CNC_Start_Custom_Instance(multiplayer=true)
  * gives us a match in which a house flagged IsAI builds a base with no client help at all.
@@ -9,7 +9,7 @@
  * problems (__declspec, __int64, -fms-extensions -fdeclspec) and already know where the
  * dylib and the content live.
  *
- * Method. CNC3D_Dump_Objects() prints one line per live object straight from the engine's
+ * Method. OpenCNC3D_Dump_Objects() prints one line per live object straight from the engine's
  * heaps, plus one HOUSE| line per house. It writes to stdout and it is huge, so stdout is
  * redirected to a log file for the whole run and the human-readable report is written to
  * the process's ORIGINAL stdout, which is dup'd before the redirect. A "@@@SAMPLE <tick>"
@@ -75,7 +75,7 @@ typedef void (*CNC_Config_t)(const CNCRulesDataStruct&);
 typedef bool (*CNC_Start_Custom_t)(const char*, const char*, const char*, int, bool);
 typedef bool (*CNC_Get_State_t)(GameStateRequestEnum, uint64, unsigned char*, unsigned int);
 typedef bool (*CNC_Advance_t)(uint64);
-typedef int (*CNC3D_Dump_t)(void);
+typedef int (*OpenCNC3D_Dump_t)(void);
 typedef bool (*CNC_Set_MP_t)(int, CNCMultiplayerOptionsStruct&, int, CNCPlayerInfoStruct*, int);
 
 /* ------------------------------------------------------------------ events ---- */
@@ -345,7 +345,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    fprintf(g_rep, "=== OpenCNC 3D skirmish probe ===\n");
+    fprintf(g_rep, "=== OpenCNC3D skirmish probe ===\n");
     fprintf(g_rep, "dylib   : %s\n", dylib);
     fprintf(g_rep, "dir     : %s\n", dir);
     fprintf(g_rep, "scenario: %s   (reads %s%s.INI and %s%s.BIN)\n", scen, dir, scen, dir, scen);
@@ -364,7 +364,7 @@ int main(int argc, char** argv)
     CNC_Start_Custom_t Start = (CNC_Start_Custom_t)dlsym(h, "CNC_Start_Custom_Instance");
     CNC_Get_State_t GetState = (CNC_Get_State_t)dlsym(h, "CNC_Get_Game_State");
     CNC_Advance_t Advance = (CNC_Advance_t)dlsym(h, "CNC_Advance_Instance");
-    CNC3D_Dump_t Dump = (CNC3D_Dump_t)dlsym(h, "CNC3D_Dump_Objects");
+    OpenCNC3D_Dump_t Dump = (OpenCNC3D_Dump_t)dlsym(h, "OpenCNC3D_Dump_Objects");
 
     fprintf(g_rep,
             "symbols: Init=%p Config=%p SetMP=%p Start=%p GetState=%p Advance=%p Dump=%p\n",
@@ -545,7 +545,7 @@ int main(int argc, char** argv)
     }
 
     /* ------------------------------- the run ------------------------------- */
-    fprintf(g_rep, "\n-- advancing %d ticks, CNC3D_Dump_Objects() every %d --\n", nticks, interval);
+    fprintf(g_rep, "\n-- advancing %d ticks, OpenCNC3D_Dump_Objects() every %d --\n", nticks, interval);
 
     int advance_false_at = -1;
     int done = 0;

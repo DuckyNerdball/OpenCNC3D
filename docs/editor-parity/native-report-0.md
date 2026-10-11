@@ -7,13 +7,13 @@ All line numbers below are against `game/cnc_eyes.cpp` at sha1 `be86abb` (18320 
 - `game/cnc_eyes.cpp:15844` -- inside `game_parse_args`: `int fbw = 1280, fbh = 720;`
 - Overridden by `--w N` / `--h N` at `cnc_eyes.cpp:15958-15959`.
 - Copied out at `cnc_eyes.cpp:16213`: `out->w = fbw; out->h = fbh;`
-- A second, identical default lives in the same function's sibling in the shipping shell, `app/cnc3d.cpp` (that binary owns the real window; `cnc_eyes.cpp`'s `main` is the standalone renderer, guarded by `#ifndef CNC3D_NO_MAIN` at `cnc_eyes.cpp:18218`).
+- A second, identical default lives in the same function's sibling in the shipping shell, `app/opencnc3d.cpp` (that binary owns the real window; `cnc_eyes.cpp`'s `main` is the standalone renderer, guarded by `#ifndef OPENCNC3D_NO_MAIN` at `cnc_eyes.cpp:18218`).
 
 **2. `SDL_CreateWindow` and flags**
 
 `game/cnc_eyes.cpp:18246-18247`:
 ```c
-SDL_Window* win = SDL_CreateWindow("OpenCNC 3D eyes", SDL_WINDOWPOS_CENTERED,
+SDL_Window* win = SDL_CreateWindow("OpenCNC3D eyes", SDL_WINDOWPOS_CENTERED,
                                    SDL_WINDOWPOS_CENTERED, o.w, o.h, flags);
 ```
 Flags assembled at `cnc_eyes.cpp:18239-18245`:

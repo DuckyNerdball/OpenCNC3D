@@ -12,6 +12,13 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D. This is not EA's original file.
+// Adds headless startup diagnostics, deterministic custom-scenario seeding, and
+// suppresses presentation-only rendering when explicit headless mode is active.
+// It changes initialization but not Red Alert gameplay rules.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
 
 /*
 ** DLLInterfac.cpp
@@ -23,6 +30,8 @@
 **
 **
 */
+
+#include "../tiberiandawn/opencnc3d_compat.h"
 
 #include <string>
 #include <vector>
@@ -45,6 +54,7 @@
 ** Externs
 */
 extern int DLL_Startup(const char* command_line);
+extern bool OpenCNC3DHeadless;
 extern void Reallocate_Big_Shape_Buffer(void);
 extern bool ProgEndCalled;
 extern int Write_PCX_File(char* name, GraphicViewPortClass& pic, unsigned char* palette);
@@ -703,11 +713,13 @@ extern "C" __declspec(dllexport) void __cdecl CNC_Init(const char* command_line,
 {
     DLLExportClass::Set_Content_Directory(NULL);
 
-    DLL_Startup(command_line);
-
+    /* OpenCNC3D installs the callback first so a failed startup still reports its last stage. */
     DLLExportClass::Set_Event_Callback(event_callback);
-
+    GlyphX_Debug_Print("RA3D|stage|startup.begin");
+    DLL_Startup(command_line);
+    GlyphX_Debug_Print("RA3D|stage|startup.engine-ready");
     DLLExportClass::Init();
+    GlyphX_Debug_Print("RA3D|stage|startup.abi-ready");
 }
 
 /**************************************************************************************************
@@ -937,6 +949,10 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Clear_Object_Selection(uint64 
     }
 
     Unselect_All();
+    /* One selection response per gesture. CNC_Select_Object latches this false
+       after the first object in a batch; the renderer clears once before the
+       next click or band, so reset here rather than for every selected unit. */
+    AllowVoice = true;
 
     return true;
 }
@@ -1363,7 +1379,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Instance_Variation(int s
 
     GlyphXClientSidebarWidthInLeptons = 0;
 
-    Seed = GetRandSeed();
+    Seed = CustomSeed != 0 ? CustomSeed : GetRandSeed();
     Scen.RandomNumber = Seed;
 
     if (!Start_Scenario(Scen.ScenarioName)) {
@@ -1525,6 +1541,8 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Custom_Instance(const ch
                                                                         bool multiplayer)
 {
 
+    GlyphX_Debug_Print("RA3D|stage|scenario.begin");
+
     DLLExportClass::Set_Content_Directory(content_directory);
 
     char fullname[_MAX_FNAME + _MAX_EXT];
@@ -1600,12 +1618,15 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Custom_Instance(const ch
 
     GlyphXClientSidebarWidthInLeptons = 0;
 
-    Seed = GetRandSeed();
+    Seed = CustomSeed != 0 ? CustomSeed : GetRandSeed();
     Scen.RandomNumber = Seed;
 
     if (!Start_Scenario(Scen.ScenarioName)) {
+        GlyphX_Debug_Print("RA3D|stage|scenario.failed");
         return (false);
     }
+
+    GlyphX_Debug_Print("RA3D|stage|scenario.loaded");
 
     DLLExportClass::Reset_Sidebars();
     DLLExportClass::Reset_Player_Context();
@@ -1653,12 +1674,14 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Custom_Instance(const ch
     if (!Debug_Map) {
         Map.SidebarClass::Activate(1);
     }
-    Map.Flag_To_Redraw(true);
+    if (!OpenCNC3DHeadless) {
+        Map.Flag_To_Redraw(true);
+        Set_Palette(GamePalette.Get_Data());
+        Map.Render();
+        Set_Palette(GamePalette.Get_Data());
+    }
 
-    Set_Palette(GamePalette.Get_Data());
-    Map.Render();
-
-    Set_Palette(GamePalette.Get_Data());
+    GlyphX_Debug_Print("RA3D|stage|scenario.ready");
 
     return true;
 }
@@ -1943,7 +1966,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Advance_Instance(uint64 player
         GameActive = false;
     }
 
-    if (DLLExportClass::Legacy_Render_Enabled()) {
+    if (!OpenCNC3DHeadless && DLLExportClass::Legacy_Render_Enabled()) {
         Map.Render();
     }
 
@@ -2037,6 +2060,27 @@ extern "C" __declspec(dllexport) void __cdecl CNC_Set_Difficulty(int difficulty)
 {
     if (GAME_TO_PLAY == GAME_NORMAL) {
         Set_Scenario_Difficulty(difficulty);
+    }
+}
+
+/* Campaign difficulty is chosen before the mission loads, just as Red Alert's
+ * Fetch_Difficulty does. CNC_Set_Difficulty changes only the player after boot;
+ * this sets both campaign handicaps while Read_Scenario can still inherit them. */
+extern "C" __declspec(dllexport) void __cdecl OpenCNC3D_Set_Campaign_Difficulty(int choice)
+{
+    switch (choice) {
+    case 0:
+        Scen.CDifficulty = DIFF_HARD;
+        Scen.Difficulty = DIFF_EASY;
+        break;
+    case 2:
+        Scen.CDifficulty = DIFF_EASY;
+        Scen.Difficulty = DIFF_HARD;
+        break;
+    default:
+        Scen.CDifficulty = DIFF_NORMAL;
+        Scen.Difficulty = DIFF_NORMAL;
+        break;
     }
 }
 
@@ -2461,14 +2505,16 @@ void DLLExportClass::On_Sound_Effect(const HouseClass* player_ptr,
     }
 
     if (sound_effect_index >= VOC_FIRST && sound_effect_index < VOC_COUNT) {
-        strncpy(new_event.SoundEffect.SoundEffectName, SoundEffectName[sound_effect_index].Name, 16);
+        strncpy(new_event.SoundEffect.SoundEffectName, SoundEffectName[sound_effect_index].Name, 15);
+        new_event.SoundEffect.SoundEffectName[15] = 0;
         if (extension != NULL) {
-            strncat(new_event.SoundEffect.SoundEffectName, extension, 16);
+            const size_t used = strlen(new_event.SoundEffect.SoundEffectName);
+            strncat(new_event.SoundEffect.SoundEffectName, extension, 15 - used);
         }
         new_event.SoundEffect.SoundEffectPriority = SoundEffectName[sound_effect_index].Priority;
         new_event.SoundEffect.SoundEffectContext = SoundEffectName[sound_effect_index].Where;
     } else {
-        strncpy(new_event.SoundEffect.SoundEffectName, "BADINDEX", 16);
+        strcpy(new_event.SoundEffect.SoundEffectName, "BADINDEX");
         new_event.SoundEffect.SoundEffectPriority = -1;
         new_event.SoundEffect.SoundEffectContext = -1;
     }
@@ -2505,9 +2551,10 @@ void DLLExportClass::On_Speech(const HouseClass* player_ptr, int speech_index)
     }
 
     if (speech_index >= VOX_FIRST && speech_index < VOX_COUNT) {
-        strncpy(new_event.Speech.SpeechName, Speech[speech_index], 16);
+        strncpy(new_event.Speech.SpeechName, Speech[speech_index], 15);
+        new_event.Speech.SpeechName[15] = 0;
     } else {
-        strncpy(new_event.Speech.SpeechName, "BAD_SPEECH_INDEX", 16);
+        strncpy(new_event.Speech.SpeechName, "BAD_SPEECH_INDE", 16);
     }
 
     EventCallback(new_event);
@@ -3242,7 +3289,23 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Get_Game_State(GameStateReques
         map_data->MapCellWidth = map_cell_width;
         map_data->MapCellHeight = map_cell_height;
 
-        map_data->Theater = (CnCTheaterType)Scen.Theater;
+        /*
+        ** Red Alert's enum is Temperate, Snow, Interior. The shared remaster ABI is
+        ** Desert, Jungle, Temperate, Winter, so a direct cast silently mislabels every
+        ** RA map. Interior has no shared Phase 2 value and is reported as NONE until the
+        ** unified Phase 3 ABI adds it explicitly.
+        */
+        switch (Scen.Theater) {
+        case THEATER_TEMPERATE:
+            map_data->Theater = CNC_THEATER_TEMPERATE;
+            break;
+        case THEATER_SNOW:
+            map_data->Theater = CNC_THEATER_WINTER;
+            break;
+        default:
+            map_data->Theater = CNC_THEATER_NONE;
+            break;
+        }
 
         char* dot_ptr = strchr(Scen.ScenarioName, '.');
         const int count = (dot_ptr != nullptr) ? (dot_ptr - Scen.ScenarioName) : sizeof(Scen.ScenarioName);
@@ -3435,11 +3498,19 @@ void DLLExportClass::DLL_Draw_Intercept(int shape_number,
         new_object.Altitude = object->Height;
         new_object.DrawFlags = flags;
         new_object.SubObject = 0;
-        new_object.ShapeIndex = (unsigned short)shape_number;
+        /* The virtual draw uses DoControlsVirtual, whose infantry offsets
+           deliberately point into the TD compatibility sheet (E1 deaths are
+           94 frames later). Classic draws the original RA SHPs, so export the
+           tactical frame for the body while retaining the virtual draw's
+           coordinates and other callbacks. */
+        new_object.ShapeIndex = (unsigned short)(new_object.Type == INFANTRY
+            ? static_cast<const InfantryClass*>(object)->Shape_Number(WINDOW_TACTICAL)
+            : shape_number);
         new_object.IsTheaterSpecific = IsTheaterShape;
         new_object.Rotation = (unsigned char)rotation;
         new_object.Scale = scale;
         new_object.FlashingFlags = 0;
+        new_object.IsBlushing = false;
         new_object.Cloak = (CurrentDrawCount > 0) ? root_object.Cloak : UNCLOAKED;
         new_object.VisibleFlags = CNCObjectStruct::VISIBLE_FLAGS_ALL;
         new_object.SpiedByFlags = 0U;
@@ -3600,6 +3671,7 @@ void DLLExportClass::DLL_Draw_Intercept(int shape_number,
         case RTTI_VESSELTYPE: {
             const TechnoClass* techno_object = static_cast<const TechnoClass*>(object);
             new_object.FlashingFlags = techno_object->Get_Flashing_Flags();
+            new_object.IsBlushing = techno_object->IsBlushing;
             new_object.Cloak = techno_object->Cloak;
             new_object.SpiedByFlags = techno_object->Spied_By();
 
@@ -3666,6 +3738,7 @@ void DLLExportClass::DLL_Draw_Intercept(int shape_number,
         new_object.BaseObjectType = base_object->Type;
 
         new_object.FlashingFlags = base_object->FlashingFlags;
+        new_object.IsBlushing = base_object->IsBlushing;
         new_object.Cloak = base_object->Cloak;
         new_object.OccupyListLength = 0;
         new_object.NumPips = 0;
@@ -6380,9 +6453,6 @@ bool DLLExportClass::Get_Dynamic_Map_State(uint64 player_id, unsigned char* buff
 
     CNCDynamicMapStruct* dynamic_map = (CNCDynamicMapStruct*)buffer_in;
 
-    unsigned int memory_needed =
-        sizeof(*dynamic_map) + 256; // Base amount needed. Will need more depending on how many entries there are
-
     int entry_index = 0;
 
     /*
@@ -6430,8 +6500,11 @@ bool DLLExportClass::Get_Dynamic_Map_State(uint64 player_id, unsigned char* buff
             CELL cell = XY_Cell(map_cell_x + x, map_cell_y + y);
             COORDINATE coord = Cell_Coord(cell) & 0xFF00FF00;
 
-            memory_needed += sizeof(CNCDynamicMapEntryStruct) * 2;
-            if (memory_needed >= buffer_size) {
+            /* Reserve room for the most this cell can emit: smudge, overlay and
+               flag. Charging two entries for every terrain cell made a large
+               mission's entire overlay export fail even when it held little ore. */
+            if (sizeof(*dynamic_map) +
+                (size_t)(entry_index + 3) * sizeof(CNCDynamicMapEntryStruct) > buffer_size) {
                 return false;
             }
 
@@ -6449,9 +6522,10 @@ bool DLLExportClass::Get_Dynamic_Map_State(uint64 player_id, unsigned char* buff
                 **	If there is a portion of the underlying icon that could be visible,
                 **	then draw it.  Also draw the cell if the shroud is off.
                 */
-                if (GAME_TO_PLAY == GAME_GLYPHX_MULTIPLAYER || cellptr->IsMapped || Debug_Unshroud) {
-                    Cell_Class_Draw_It(dynamic_map, entry_index, cellptr, xpixel, ypixel, debug_output);
-                }
+                /* Export the world state independent of exploration. The caller
+                   clips each cell with the player's current shroud; this also
+                   makes the presentation-only reveal show ore and gems. */
+                Cell_Class_Draw_It(dynamic_map, entry_index, cellptr, xpixel, ypixel, debug_output);
 
                 /*
                 **	If any cell is not fully mapped, then flag it so that the shadow drawing
@@ -8743,4 +8817,379 @@ void DLL_Code_Pointers(void)
 void DLL_Decode_Pointers(void)
 {
     DLLExportClass::Decode_Pointers();
+}
+
+/* Read-only object state for headless RA3D probes. The first slice uses the
+   renderer's text protocol for common identity and placement fields; RA-specific
+   presentation states and controls need separate validation. */
+static int OpenCNC3D_RA_Print_Object(const char* kind, ObjectClass* object, int id)
+{
+    if (object == NULL || !object->IsActive) {
+        return 0;
+    }
+    HousesType house = object->Owner();
+    const char* owner = house == HOUSE_NONE ? "None" : HouseTypeClass::As_Reference(house).IniName;
+    CELL cell = Coord_Cell(object->Coord);
+    CELL center = Coord_Cell(object->Center_Coord());
+    int face = object->Is_Techno() ? (int)(unsigned char)((TechnoClass*)object)->PrimaryFacing.Current() : -1;
+    const char* mission = object->Is_Techno()
+        ? MissionClass::Mission_Name(((TechnoClass*)object)->Get_Mission()) : "-";
+    /* These values come from the RA object and type, not the TD type tables.
+       Vessel is a FootClass and has its own secondary facing. */
+    const RTTIType rtti = object->What_Am_I();
+    int fw = 1, fh = 1, tcx = Cell_X(cell), tcy = Cell_Y(cell);
+    int tface = -1, nav = -1, tar = -1, group = -1, alt = 0;
+    int selected = 0;
+    if (rtti == RTTI_BUILDING) {
+        BuildingClass* building = (BuildingClass*)object;
+        fw = building->Class->Width();
+        fh = building->Class->Height();
+        CELL target_cell = Coord_Cell(building->Target_Coord());
+        tcx = Cell_X(target_cell);
+        tcy = Cell_Y(target_cell);
+    }
+    if (rtti == RTTI_UNIT)
+        tface = (int)(unsigned char)((UnitClass*)object)->SecondaryFacing.Current();
+    else if (rtti == RTTI_VESSEL)
+        tface = (int)(unsigned char)((VesselClass*)object)->Turret_Facing();
+    else if (rtti == RTTI_AIRCRAFT) {
+        tface = (int)(unsigned char)((AircraftClass*)object)->SecondaryFacing.Current();
+        alt = ((AircraftClass*)object)->Height;
+    }
+    if (rtti == RTTI_INFANTRY || rtti == RTTI_UNIT || rtti == RTTI_VESSEL || rtti == RTTI_AIRCRAFT) {
+        FootClass* foot = (FootClass*)object;
+        if (Target_Legal(foot->NavCom))
+            nav = (int)::As_Cell(foot->NavCom);
+        group = foot->Group <= 9 ? (int)foot->Group : -1;
+    }
+    if (object->Is_Techno()) {
+        TechnoClass* techno = (TechnoClass*)object;
+        if (Target_Legal(techno->TarCom))
+            tar = (int)::As_Cell(techno->TarCom);
+    }
+    if (PlayerPtr != NULL && PlayerPtr->Class.Is_Valid())
+        selected = (object->IsSelectedMask & (1U << (int)PlayerPtr->Class->House)) ? 1 : 0;
+    /*
+    **	OpenCNC3D infantry presentation. The renderer's 3-D soldiers play a clip for what the
+    **	engine has the man doing (InfantryClass::Doing) and time a shot or a death by its
+    **	stage (Fetch_Stage), as the Tiberian Dawn brain exports them. They are reported in
+    **	TIBERIAN DAWN'S DoType numbering, which the renderer reads: Red Alert dropped Tiberian
+    **	Dawn's fist fight (DO_ON_GUARD .. DO_READY_WEAPON, 11 values), so its deaths and
+    **	gestures sit 11 lower, and it added DO_DOG_MAUL, reported as 40, past any Tiberian
+    **	Dawn value. dying is 1 through a death's whole sequence. -1 for anything else.
+    */
+    int doing = -1, dostage = -1, dying = 0;
+    if (rtti == RTTI_INFANTRY) {
+        InfantryClass* inf = (InfantryClass*)object;
+        int d = (int)inf->Doing;
+        if (d >= DO_GUN_DEATH && d <= DO_SALUTE2)
+            doing = d + 11;
+        else if (d == DO_DOG_MAUL)
+            doing = 40;
+        else
+            doing = d;
+        dostage = inf->Fetch_Stage();
+        dying = (inf->Doing >= DO_GUN_DEATH && inf->Doing <= DO_FIRE_DEATH) ? 1 : 0;
+    }
+    /* OpenCNC3D building presentation, read from the simulation. An intact mesh may
+       replace the idle art only; construction and an open factory door retain the
+       engine's original shape. These fields do not alter the simulation. */
+    int makecnt = -1, doorstage = -1;
+    if (rtti == RTTI_BUILDING) {
+        BuildingClass* building = (BuildingClass*)object;
+        doing = (int)building->BState;
+        dostage = building->Fetch_Stage();
+        makecnt = building->Class->Anims[BSTATE_CONSTRUCTION].Count;
+        doorstage = building->Door_Stage();
+    }
+    int blush = object->Is_Techno() ? (((TechnoClass*)object)->IsBlushing ? 1 : 0) : 0;
+    /*
+    **	OpenCNC3D side colour. The owner's remap colour as the row of the disc's PALETTE.CPS it
+    **	draws from (gold, light blue, red, green, orange, grey, blue, brown), which is how
+    **	a 3-D soldier's uniform takes the side's colour the 1996 sprite would. A house
+    **	name cannot say it: a multiplayer house's colour is the player's choice. The rows
+    **	are named rather than counted because the remaster build swaps PCOLOR_BLUE and
+    **	PCOLOR_GREY in the enum. -1 for anything that is not a techno.
+    */
+    int remap = -1;
+    if (object->Is_Techno() && ((TechnoClass*)object)->House.Is_Valid()) {
+        const PlayerColorType c = ((TechnoClass*)object)->House->RemapColor;
+        remap = c == PCOLOR_GREY ? 5 : c == PCOLOR_BLUE ? 6 : (int)c;
+        if (remap < 0 || remap > 7) remap = -1;
+    }
+    printf("OBJ|%s|%s|%s|newcell=%d|x=%d|y=%d|inicell=%d|centercell=%d|str=%d|max=%d"
+           "|limbo=%d|down=%d|mission=%s|lx=%d|ly=%d|clx=%d|cly=%d|face=%d|id=%d"
+           "|fw=%d|fh=%d|tcx=%d|tcy=%d|tface=%d|sel=%d|nav=%d|tar=%d|group=%d|alt=%d"
+           "|doing=%d|dostage=%d|dying=%d|remap=%d|makecnt=%d|door=%d|blush=%d\n",
+           kind, object->Class_Of().IniName, owner, (int)cell, Cell_X(cell), Cell_Y(cell),
+           (int)cell, (int)center, (int)object->Strength, (int)object->Class_Of().MaxStrength,
+           (int)object->IsInLimbo, (int)object->IsDown, mission ? mission : "-",
+           (int)Coord_X(object->Coord), (int)Coord_Y(object->Coord),
+           (int)Coord_X(object->Center_Coord()), (int)Coord_Y(object->Center_Coord()), face, id,
+           fw, fh, tcx, tcy, tface, selected, nav, tar, group, alt, doing, dostage, dying, remap, makecnt, doorstage, blush);
+    return 1;
+}
+
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Objects(void)
+{
+    int total = 0;
+    printf("OBJDUMP-BEGIN heaps: Infantry=%d Units=%d Vessels=%d Buildings=%d Terrains=%d Aircraft=%d Houses=%d\n",
+           Infantry.Count(), Units.Count(), Vessels.Count(), Buildings.Count(), Terrains.Count(),
+           Aircraft.Count(), Houses.Count());
+    for (int i = 0; i < Infantry.Count(); ++i) {
+        InfantryClass* object = Infantry.Ptr(i);
+        total += OpenCNC3D_RA_Print_Object("INFANTRY", object, Infantry.ID(object));
+    }
+    for (int i = 0; i < Units.Count(); ++i) {
+        UnitClass* object = Units.Ptr(i);
+        total += OpenCNC3D_RA_Print_Object("UNIT", object, Units.ID(object));
+    }
+    for (int i = 0; i < Vessels.Count(); ++i) {
+        VesselClass* object = Vessels.Ptr(i);
+        total += OpenCNC3D_RA_Print_Object("VESSEL", object, Vessels.ID(object));
+    }
+    for (int i = 0; i < Buildings.Count(); ++i) {
+        BuildingClass* object = Buildings.Ptr(i);
+        total += OpenCNC3D_RA_Print_Object("BUILDING", object, Buildings.ID(object));
+    }
+    for (int i = 0; i < Terrains.Count(); ++i) {
+        TerrainClass* object = Terrains.Ptr(i);
+        total += OpenCNC3D_RA_Print_Object("TERRAIN", object, Terrains.ID(object));
+    }
+    for (int i = 0; i < Aircraft.Count(); ++i) {
+        AircraftClass* object = Aircraft.Ptr(i);
+        total += OpenCNC3D_RA_Print_Object("AIRCRAFT", object, Aircraft.ID(object));
+    }
+    /* The Classic renderer draws the engine's own explosion, impact and order
+       acknowledgement SHPs from this live animation stream. Match the TD dump
+       contract so both brains feed the same effect parser. */
+    for (int i = 0; i < Anims.Count(); ++i) {
+        AnimClass* anim = Anims.Ptr(i);
+        if (anim == NULL || !anim->IsActive || anim->IsInLimbo)
+            continue;
+        const AnimTypeClass& type = (const AnimTypeClass&)anim->Class_Of();
+        COORDINATE center = anim->Center_Coord();
+        int attref = -1;
+        int attkind = -1;
+        if (Target_Legal(anim->xObject)) {
+            ObjectClass* attached = As_Object(anim->xObject);
+            if (attached != NULL && attached->IsActive) {
+                attkind = (int)attached->What_Am_I();
+                switch (attached->What_Am_I()) {
+                case RTTI_INFANTRY: attref = Infantry.ID((InfantryClass*)attached); break;
+                case RTTI_UNIT: attref = Units.ID((UnitClass*)attached); break;
+                case RTTI_VESSEL: attref = Vessels.ID((VesselClass*)attached); break;
+                case RTTI_AIRCRAFT: attref = Aircraft.ID((AircraftClass*)attached); break;
+                case RTTI_BUILDING: attref = Buildings.ID((BuildingClass*)attached); break;
+                default: break;
+                }
+            }
+        }
+        printf("EFX|ANIM|id=%d|type=%d|name=%s|lx=%d|ly=%d|stage=%d|start=%d|stages=%d|"
+               "loops=%d|size=%d|ground=%d|attref=%d|attkind=%d|owner=%d|biggest=%d\n",
+               Anims.ID(anim), (int)(AnimType)*anim, type.IniName,
+               (int)Coord_X(center), (int)Coord_Y(center), anim->Fetch_Stage(),
+               type.Start, type.Stages, (int)anim->Loops, type.Size,
+               (int)type.IsGroundLayer, attref, attkind,
+               (int)anim->OwnerHouse, type.Biggest);
+        total++;
+    }
+    for (int i = 0; i < Houses.Count(); ++i) {
+        HouseClass* house = Houses.Ptr(i);
+        if (house == NULL || !house->IsActive)
+            continue;
+        printf("HOUSE|%s|credits=%d|human=%d|player=%d|units=%d|buildings=%d|tiberium=%d|capacity=%d\n",
+               house->Class->IniName, (int)house->Credits, (int)house->IsHuman,
+               (int)(house == PlayerPtr), (int)house->CurUnits, (int)house->CurBuildings,
+               (int)house->Tiberium, (int)house->Capacity);
+    }
+    printf("VIEW|%d|%d\n", Cell_X(Scen.Views[0]), Cell_Y(Scen.Views[0]));
+    printf("OBJDUMP-END count=%d frame=%d\n", total, (int)Frame);
+    fflush(stdout);
+    return total;
+}
+
+/* Local effect probes use the same hooks as the TD brain. Normal play never
+   calls them; the anim and damage still run through Red Alert's own classes. */
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Spawn_Anim(int type, int x, int y)
+{
+    if (type < ANIM_FIRST || type >= ANIM_COUNT || x < 0 || y < 0)
+        return false;
+    return new AnimClass((AnimType)type, XY_Coord(x, y)) != NULL;
+}
+
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Hurt_Object(int rtti, int id, int damage)
+{
+    TechnoClass* victim = NULL;
+    if (rtti == RTTI_AIRCRAFT && id >= 0 && id < Aircraft.Length()) {
+        AircraftClass* air = Aircraft.Raw_Ptr(id);
+        if (air != NULL && air->IsActive) victim = air;
+    } else if (rtti == RTTI_UNIT && id >= 0 && id < Units.Length()) {
+        UnitClass* unit = Units.Raw_Ptr(id);
+        if (unit != NULL && unit->IsActive) victim = unit;
+    } else if (rtti == RTTI_INFANTRY && id >= 0 && id < Infantry.Length()) {
+        InfantryClass* man = Infantry.Raw_Ptr(id);
+        if (man != NULL && man->IsActive) victim = man;
+    }
+    if (victim == NULL || victim->Strength <= 0 || damage <= 0)
+        return false;
+    int dealt = damage;
+    victim->Take_Damage(dealt, 0, WARHEAD_HE, 0);
+    return true;
+}
+
+/* Tactical coordinates use the same 11-int renderer contract as the TD brain.
+   Keep the conversion in this brain so input follows Red Alert's own viewport. */
+extern "C" __declspec(dllexport) void __cdecl OpenCNC3D_Get_View(int* out)
+{
+    if (out == NULL)
+        return;
+    out[0] = Map.TacPixelX;
+    out[1] = Map.TacPixelY;
+    out[2] = Map.TacLeptonWidth;
+    out[3] = Map.TacLeptonHeight;
+    out[4] = (int)Coord_X(Map.TacticalCoord);
+    out[5] = (int)Coord_Y(Map.TacticalCoord);
+    out[6] = Map.MapCellX;
+    out[7] = Map.MapCellY;
+    out[8] = Map.MapCellWidth;
+    out[9] = Map.MapCellHeight;
+    out[10] = DLLExportClass::Legacy_Render_Enabled() ? 1 : 0;
+}
+
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Cell_To_Pixel(int cell_x, int cell_y, int* px, int* py)
+{
+    int lx = Cell_To_Lepton(cell_x) + CELL_LEPTON_W / 2 - (int)Coord_X(Map.TacticalCoord);
+    int ly = Cell_To_Lepton(cell_y) + CELL_LEPTON_H / 2 - (int)Coord_Y(Map.TacticalCoord);
+    int x = Lepton_To_Pixel(lx) + Map.TacPixelX;
+    int y = Lepton_To_Pixel(ly) + Map.TacPixelY;
+    if (px != NULL)
+        *px = x;
+    if (py != NULL)
+        *py = y;
+    COORDINATE coord = Map.Pixel_To_Coord(x, y);
+    return coord != 0 && Coord_Cell(coord) == XY_Cell(cell_x, cell_y);
+}
+
+/* Selection reports use Red Alert's active player context, including vessels. */
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Selection(void)
+{
+    printf("SEL-BEGIN count=%d frame=%d\n", CurrentObject.Count(), (int)Frame);
+    for (int i = 0; i < CurrentObject.Count(); ++i) {
+        ObjectClass* obj = CurrentObject[i];
+        if (obj == NULL)
+            continue;
+        const char* kind = "OTHER";
+        int id = -1;
+        switch (obj->What_Am_I()) {
+        case RTTI_INFANTRY: kind = "INFANTRY"; id = Infantry.ID((InfantryClass*)obj); break;
+        case RTTI_UNIT: kind = "UNIT"; id = Units.ID((UnitClass*)obj); break;
+        case RTTI_VESSEL: kind = "VESSEL"; id = Vessels.ID((VesselClass*)obj); break;
+        case RTTI_AIRCRAFT: kind = "AIRCRAFT"; id = Aircraft.ID((AircraftClass*)obj); break;
+        case RTTI_BUILDING: kind = "BUILDING"; id = Buildings.ID((BuildingClass*)obj); break;
+        default: break;
+        }
+        int nav = -1, tar = -1;
+        const char* mission = "-";
+        if (obj->Is_Foot()) {
+            FootClass* foot = (FootClass*)obj;
+            if (Target_Legal(foot->NavCom))
+                nav = (int)::As_Cell(foot->NavCom);
+        }
+        if (obj->Is_Techno()) {
+            TechnoClass* techno = (TechnoClass*)obj;
+            if (Target_Legal(techno->TarCom))
+                tar = (int)::As_Cell(techno->TarCom);
+            mission = MissionClass::Mission_Name(techno->Get_Mission());
+        }
+        CELL cell = Coord_Cell(obj->Coord);
+        printf("SEL|%s|%s|id=%d|cell=%d|x=%d|y=%d|mission=%s|navcell=%d|tarcell=%d\n",
+               kind, obj->Class_Of().IniName, id, (int)cell, Cell_X(cell), Cell_Y(cell),
+               mission ? mission : "-", nav, tar);
+    }
+    printf("SEL-END\n");
+    fflush(stdout);
+    return CurrentObject.Count();
+}
+
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Sel_Info(int index, int* out)
+{
+    if (out == NULL || index < 0 || index >= CurrentObject.Count())
+        return false;
+    ObjectClass* obj = CurrentObject[index];
+    if (obj == NULL)
+        return false;
+    CELL cell = Coord_Cell(obj->Coord);
+    out[0] = (int)cell;
+    out[1] = Cell_X(cell);
+    out[2] = Cell_Y(cell);
+    out[3] = (int)Coord_X(obj->Coord);
+    out[4] = (int)Coord_Y(obj->Coord);
+    out[5] = obj->Is_Techno() ? (int)((TechnoClass*)obj)->Get_Mission() : -1;
+    out[6] = -1;
+    out[7] = -1;
+    if (obj->Is_Foot()) {
+        FootClass* foot = (FootClass*)obj;
+        if (Target_Legal(foot->NavCom))
+            out[6] = (int)::As_Cell(foot->NavCom);
+    }
+    if (obj->Is_Techno()) {
+        TechnoClass* techno = (TechnoClass*)obj;
+        if (Target_Legal(techno->TarCom))
+            out[7] = (int)::As_Cell(techno->TarCom);
+    }
+    return true;
+}
+
+extern "C" __declspec(dllexport) const char* __cdecl OpenCNC3D_Mission_Name(int mission)
+{
+    return MissionClass::Mission_Name((MissionType)mission);
+}
+
+/* Ask Red Alert's own hit test and action rules what the pointer would do here.
+   The query leaves selection and orders untouched. */
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Probe_Object_At(int x, int y)
+{
+    COORDINATE coord = Map.Pixel_To_Coord(x, y);
+    if (coord == 0) {
+        printf("PROBE|px=%d,%d|REJECTED (outside tactical view)\n", x, y);
+        fflush(stdout);
+        return -1;
+    }
+    CELL cell = Coord_Cell(coord);
+    ObjectClass* object = Map.Close_Object(coord);
+    ActionType action = ACTION_NONE;
+    if (CurrentObject.Count() != 0)
+        action = object != NULL ? Best_Object_Action(object) : Best_Object_Action(cell);
+    printf("PROBE|px=%d,%d|coord=%d,%d|cell=%d|cx=%d|cy=%d|obj=%s|action=%d\n",
+           x, y, (int)Coord_X(coord), (int)Coord_Y(coord), (int)cell,
+           Cell_X(cell), Cell_Y(cell), object ? object->Class_Of().IniName : "(none)",
+           (int)action);
+    fflush(stdout);
+    return (int)action;
+}
+
+/* Use Red Alert's own house verdict flags. The engine finishes the mission on
+   its next simulation tick and emits the normal game-over event with its score
+   and movie list; the caller does not manufacture a result. Player ID zero is
+   the campaign. Multiplayer IDs are resolved through the same session table
+   used for the other exported player actions. */
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Force_Verdict(uint64 player_id, bool win)
+{
+    HouseClass* house = NULL;
+    if (GAME_TO_PLAY == GAME_NORMAL) {
+        if (player_id != 0)
+            return false;
+        house = PlayerPtr;
+    } else {
+        for (int i = 0; i < MULTIPLAYER_COUNT; ++i) {
+            if (DLLExportClass::GlyphxPlayerIDs[i] == player_id && Session.Players[i] != NULL) {
+                house = HouseClass::As_Pointer(Session.Players[i]->Player.ID);
+                break;
+            }
+        }
+    }
+    if (house == NULL)
+        return false;
+    return win ? house->Flag_To_Win() : house->Flag_To_Lose();
 }

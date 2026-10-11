@@ -1,5 +1,5 @@
 /*
- * ljson.h -- just enough JSON to read cnc3dgame.com's two API routes.
+ * ljson.h -- just enough JSON to read opencnc3d.com's two API routes.
  *
  * WHY A PARSER AND NOT strstr(). The launcher decides which 500 MB file to
  * download and then overwrites a player's game with it, from a document it did

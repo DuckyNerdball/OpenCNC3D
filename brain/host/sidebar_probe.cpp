@@ -1,7 +1,7 @@
-/* OpenCNC 3D: decode GAME_STATE_SIDEBAR / GAME_STATE_PLACEMENT and drive construction.
+/* OpenCNC3D: decode GAME_STATE_SIDEBAR / GAME_STATE_PLACEMENT and drive construction.
  *
  * Everything printed here comes from the public DLL API (CNC_Get_Game_State,
- * CNC_Handle_Sidebar_Request) plus the project's art-free CNC3D_Dump_Objects.
+ * CNC_Handle_Sidebar_Request) plus the project's art-free OpenCNC3D_Dump_Objects.
  */
 #include <cstdio>
 #include <cstdlib>
@@ -26,14 +26,14 @@ typedef void (*CNC_Config_t)(const CNCRulesDataStruct&);
 typedef bool (*CNC_Start_Custom_t)(const char*, const char*, const char*, int, bool);
 typedef bool (*CNC_Get_State_t)(GameStateRequestEnum, uint64, unsigned char*, unsigned int);
 typedef bool (*CNC_Advance_t)(uint64);
-typedef int (*CNC3D_Dump_t)(void);
+typedef int (*OpenCNC3D_Dump_t)(void);
 typedef void (*CNC_Sidebar_t)(SidebarRequestEnum, uint64, int, int, short, short);
 typedef void (*CNC_Debug_t)(DebugRequestEnum, uint64, const char*, int, int, bool, bool);
 typedef void (*CNC_Home_t)(int, int, uint64);
 
 static CNC_Get_State_t GetState;
 static CNC_Advance_t Advance;
-static CNC3D_Dump_t Dump;
+static OpenCNC3D_Dump_t Dump;
 static CNC_Sidebar_t Sidebar;
 static CNC_Debug_t Debug;
 
@@ -162,7 +162,7 @@ int main(int argc, char** argv)
     auto Start = (CNC_Start_Custom_t)dlsym(h, "CNC_Start_Custom_Instance");
     GetState = (CNC_Get_State_t)dlsym(h, "CNC_Get_Game_State");
     Advance = (CNC_Advance_t)dlsym(h, "CNC_Advance_Instance");
-    Dump = (CNC3D_Dump_t)dlsym(h, "CNC3D_Dump_Objects");
+    Dump = (OpenCNC3D_Dump_t)dlsym(h, "OpenCNC3D_Dump_Objects");
     Sidebar = (CNC_Sidebar_t)dlsym(h, "CNC_Handle_Sidebar_Request");
     Debug = (CNC_Debug_t)dlsym(h, "CNC_Handle_Debug_Request");
     printf("symbols: Sidebar=%p Debug=%p\n", (void*)Sidebar, (void*)Debug);

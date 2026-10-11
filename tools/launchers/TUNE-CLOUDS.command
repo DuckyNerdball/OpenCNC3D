@@ -32,7 +32,7 @@
 #  is built so that those two dials are independent.
 #
 #  When it looks right press SAVE at the top of the panel. That writes
-#  cnc3d-clouds.cfg beside the game; send that file back and the numbers in it
+#  opencnc3d-clouds.cfg beside the game; send that file back and the numbers in it
 #  become the new defaults.
 #
 #  SPACE pauses, ESC opens options, C flips the camera, + and - zoom, F5
@@ -43,12 +43,12 @@ cd "$(dirname "$0")"
 echo "==========================================================="
 echo "  F5 opens and closes the panel."
 echo "  Scroll to the group  3b  CLOUD SHADOWS  and drag."
-echo "  SAVE writes cnc3d-clouds.cfg beside the game."
+echo "  SAVE writes opencnc3d-clouds.cfg beside the game."
 echo "==========================================================="
 echo
 
-exec ./cnc3d --menupack dosmenu.pack \
+exec ./opencnc3d --menupack dosmenu.pack \
      --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack \
      --dylib ./TiberianDawn.dylib --dir ./missions/ --content ./content/ \
      --w 1280 --h 720 \
-     --gfx cnc3d-clouds.cfg --gfxpanel --gfxsave cnc3d-clouds.cfg
+     --gfx opencnc3d-clouds.cfg --gfxpanel --gfxsave opencnc3d-clouds.cfg

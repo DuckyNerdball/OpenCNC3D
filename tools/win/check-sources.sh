@@ -30,10 +30,6 @@
 #                       browses for it with no game running at all. Standalone.
 #   gate_lobby.c        a standalone GATE binary: it drives the lobby state machine end
 #                       to end -- host, seat, ready, start, kick. Standalone.
-#   gate_rminf.cpp      a standalone GATE binary: it re-derives the Remastered infantry
-#                       placement from the player's own install, with no window and no
-#                       GL. THE ONE .cpp ON THIS LIST, which is why the pattern below
-#                       carries a second alternative rather than only a .c one.
 #   netcheck.c          the two peer connectivity tool a person runs BY HAND before
 #                       blaming the game for a match that will not start. Standalone, and
 #                       deliberately not shipped inside either binary.
@@ -56,7 +52,7 @@ mac_list=$( { grep -oE '\.\./[a-z]+/[a-zA-Z0-9_]+\.(c|cpp)|(^|[ 	])[a-zA-Z0-9_]+
                   | grep -E '^[a-z0-9]+$' | sed 's/$/.c/'
               # audio_sdl.c is compiled on its own line in game/build.sh, not via AUDIO.
             } | xargs -n1 basename 2>/dev/null | sort -u \
-                | grep -vE '^(audio_null|playvqa|gate_optlayout|gate_lockstep|gate_netloop|gate_tunnel|netcheck|gate_beacon|gate_lobby|gate_roomcode|gate_mpbrowse)\.c$|^gate_rminf\.cpp$' )
+                | grep -vE '^(audio_null|playvqa|gate_optlayout|gate_lockstep|gate_netloop|gate_tunnel|netcheck|gate_beacon|gate_lobby|gate_roomcode|gate_mpbrowse)\.c$' )
 
 missing=$(comm -13 "$(echo "$win_list" > /tmp/.w$$; echo /tmp/.w$$)" \
                    "$(echo "$mac_list" > /tmp/.m$$; echo /tmp/.m$$)")

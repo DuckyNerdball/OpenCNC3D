@@ -13,12 +13,12 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in September 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
 // Narrows EventClass::Frame from 27 bits to 24 and widens ID from 4 bits to
 // 7, so an order can name one of 128 houses, and pins the structure at 22
 // bytes with a static_assert because it is the network wire unit.
 // It does not change the game simulation; it changes the wire format.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -94,6 +94,7 @@ public:
         ARCHIVE,       // Updates archive target on specified object.
         TIMING,        // new timing values for all systems to use
         PROCESS_TIME,  // a system's average processing time, in ticks per frame
+        POWER_SWITCH, // Enhanced building power toggle, appended for wire compatibility.
         LAST_EVENT,    // one past the last event
     } EventType;
 
@@ -101,7 +102,7 @@ public:
 
     /*
     ** 'Frame' is the frame that the command should execute on.
-    ** OpenCNC 3D: was 27 bits, narrowed to 24 to pay for the wider ID below. 24 bits is
+    ** OpenCNC3D: was 27 bits, narrowed to 24 to pay for the wider ID below. 24 bits is
     ** 6.4 days at 30 frames per second and 12.9 days at the 15 Hz this game runs at,
     ** which is still absurdly more than any single match. Westwood made this exact
     ** trade themselves: redalert/event.h is the same class at Frame:26 / ID:5.
@@ -110,7 +111,7 @@ public:
 
     /*
     ** House index of the player originating this event
-    ** OpenCNC 3D: was 4 bits, which names 16 houses, and four of those are the campaign
+    ** OpenCNC3D: was 4 bits, which names 16 houses, and four of those are the campaign
     ** houses, so the classic wire tops out at twelve multiplayer slots. 7 bits names
     ** 128 and is what lets the roster grow to sixteen players and beyond. The three
     ** bits come out of Frame above, so the word is still 32 bits and the structure is
@@ -260,7 +261,7 @@ public:
 #pragma pack(pop)
 
 /*
-**	OpenCNC 3D: the wire unit's size, pinned rather than remembered.
+**	OpenCNC3D: the wire unit's size, pinned rather than remembered.
 **
 **	This structure IS the network wire unit: lockstep sends orders by copying it whole.
 **	Its three bitfields share one 32-bit word, so the Frame:24 / ID:7 respin is meant to

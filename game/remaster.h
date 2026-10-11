@@ -10,7 +10,7 @@
  *
  *  HOW IT LOOKS, and the ordering is deliberate:
  *
- *    1. CNC3D_REMASTER_DIR in the environment. An explicit answer always wins, which is
+ *    1. OPENCNC3D_REMASTER_DIR in the environment. An explicit answer always wins, which is
  *       also what makes this testable without owning the game.
  *    2. Every Steam library this machine can see. Steam records its extra libraries in
  *       steamapps/libraryfolders.vdf, and each library records what is installed in
@@ -31,8 +31,8 @@
  *  .vdf was FOUND in is always searched too, and every mounted volume is a candidate
  *  root. Verified against exactly such a library.
  * ==================================================================================== */
-#ifndef CNC3D_REMASTER_H
-#define CNC3D_REMASTER_H
+#ifndef OPENCNC3D_REMASTER_H
+#define OPENCNC3D_REMASTER_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -445,7 +445,7 @@ static int rm_scan_steam_root(const char* root, char* out, size_t n)
 /* THE ANSWER. 1 and `out` filled when this machine has an install we can read. */
 RM_MAYBE_UNUSED static int rm_find_install(char* out, size_t n)
 {
-    const char* env = getenv("CNC3D_REMASTER_DIR");
+    const char* env = getenv("OPENCNC3D_REMASTER_DIR");
     char p[RM_PATH_MAX];
     const char* home = getenv("HOME");
     int i;
@@ -458,7 +458,7 @@ RM_MAYBE_UNUSED static int rm_find_install(char* out, size_t n)
         if (rm_accept(env, out, n)) return 1;
         snprintf(out, n, "%s", env);
         if (!rm_looks_like_install(env))
-            fprintf(stderr, "remaster: CNC3D_REMASTER_DIR=%s has no .MEG archives under "
+            fprintf(stderr, "remaster: OPENCNC3D_REMASTER_DIR=%s has no .MEG archives under "
                             "it; taking it anyway because it was named explicitly\n", env);
         return 1;
     }
@@ -487,6 +487,38 @@ RM_MAYBE_UNUSED static int rm_find_install(char* out, size_t n)
                 if (r == ERROR_SUCCESS && type == REG_SZ && cb) {
                     p[cb < sizeof p ? cb : sizeof p - 1] = 0;
                     if (rm_accept(p, out, n)) return 1;
+                }
+            }
+        }
+    }
+    /* STEAM'S OWN IDEA OF WHERE IT IS, before the two default folders. A Steam installed
+       on another drive (D:\Steam, a games partition) keeps its library list under its
+       own root, and nothing below would ever open that root: a player with the game in
+       such a library was told there was no install (the first online playtest). Steam
+       writes SteamPath for the user and InstallPath for the machine; both are read, and
+       the library-folders file under whichever answers then names every library on the
+       machine as it always did. */
+    {
+        static const struct { HKEY hive; const char* key; const char* value; } sk[] = {
+            { HKEY_CURRENT_USER,  "Software\\Valve\\Steam",                    "SteamPath"   },
+            { HKEY_LOCAL_MACHINE, "SOFTWARE\\Wow6432Node\\Valve\\Steam",     "InstallPath" },
+            { HKEY_LOCAL_MACHINE, "SOFTWARE\\Valve\\Steam",                    "InstallPath" },
+        };
+        for (i = 0; i < (int)(sizeof sk / sizeof sk[0]); i++) {
+            HKEY h;
+            if (RegOpenKeyExA(sk[i].hive, sk[i].key, 0, KEY_READ, &h) != ERROR_SUCCESS)
+                continue;
+            {
+                DWORD type = 0, cb = (DWORD)sizeof p;
+                const LONG r = RegQueryValueExA(h, sk[i].value, NULL, &type, (LPBYTE)p, &cb);
+                RegCloseKey(h);
+                if (r == ERROR_SUCCESS && type == REG_SZ && cb) {
+                    size_t k;
+                    p[cb < sizeof p ? cb : sizeof p - 1] = 0;
+                    /* SteamPath is written with forward slashes; the scanner joins with
+                       backslashes and Windows takes either, but the log reads better. */
+                    for (k = 0; p[k]; k++) if (p[k] == '/') p[k] = '\\';
+                    if (rm_scan_steam_root(p, out, n)) return 1;
                 }
             }
         }
@@ -540,4 +572,4 @@ RM_MAYBE_UNUSED static int rm_find_install(char* out, size_t n)
     return 0;
 }
 
-#endif /* CNC3D_REMASTER_H */
+#endif /* OPENCNC3D_REMASTER_H */

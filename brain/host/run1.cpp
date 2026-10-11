@@ -1,4 +1,4 @@
-// OpenCNC 3D: actually run an N64 mission in the TD brain and print the truth.
+// OpenCNC3D: actually run an N64 mission in the TD brain and print the truth.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -34,7 +34,7 @@ typedef void (*CNC_Config_t)(const CNCRulesDataStruct&);
 typedef bool (*CNC_Start_Custom_t)(const char*, const char*, const char*, int, bool);
 typedef bool (*CNC_Get_State_t)(GameStateRequestEnum, uint64, unsigned char*, unsigned int);
 typedef bool (*CNC_Advance_t)(uint64);
-typedef int (*CNC3D_Dump_t)(void);
+typedef int (*OpenCNC3D_Dump_t)(void);
 
 static int g_events = 0;
 static void ev_cb(const EventCallbackStruct& e)
@@ -79,7 +79,7 @@ int main(int argc, char** argv)
     auto Start = (CNC_Start_Custom_t)dlsym(h, "CNC_Start_Custom_Instance");
     auto GetState = (CNC_Get_State_t)dlsym(h, "CNC_Get_Game_State");
     auto Advance = (CNC_Advance_t)dlsym(h, "CNC_Advance_Instance");
-    auto Dump = (CNC3D_Dump_t)dlsym(h, "CNC3D_Dump_Objects");
+    auto Dump = (OpenCNC3D_Dump_t)dlsym(h, "OpenCNC3D_Dump_Objects");
     printf("symbols: Init=%p Config=%p Start=%p GetState=%p Advance=%p Dump=%p\n",
            (void*)Init, (void*)Config, (void*)Start, (void*)GetState, (void*)Advance, (void*)Dump);
     if (!Init || !Config || !Start || !GetState || !Advance) {
@@ -132,7 +132,7 @@ int main(int argc, char** argv)
     if (Dump)
         Dump();
     else
-        printf("(CNC3D_Dump_Objects not exported)\n");
+        printf("(OpenCNC3D_Dump_Objects not exported)\n");
 
     /* ---------- occupier, parsed CORRECTLY ----------
        NOTE: Get_Occupier_State advances `entry` to (occupier + 1), which skips an

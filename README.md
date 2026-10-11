@@ -1,4 +1,4 @@
-# OpenCNC 3D
+# OpenCNC3D
 
 A faithful PC recreation of the Nintendo 64 presentation of Command & Conquer:
 the GPL Tiberian Dawn game logic (the brain), the N64 cartridge's own 3D assets

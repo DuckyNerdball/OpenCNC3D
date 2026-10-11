@@ -29,7 +29,7 @@
 /* THE ADDRESS THE GAME ASKS BY DEFAULT. A compiled-in address with no way to change it
    is the mistake the relay already carries, so this one is overridable. */
 #ifndef MB_DEFAULT_URL
-#define MB_DEFAULT_URL "https://cnc3dgame.com/api/games"
+#define MB_DEFAULT_URL "https://opencnc3d.com/api/games"
 #endif
 
 /* A list of thirty-two rows is a few kilobytes. The cap is what stops a reply that is
@@ -271,7 +271,7 @@ void mb_refresh(void)
     s_b.phase = MB_FETCHING;
     SDL_UnlockMutex(s_b.lock);
 
-    t = SDL_CreateThread(mb_fetch_thread, "cnc3d-gamelist", NULL);
+    t = SDL_CreateThread(mb_fetch_thread, "opencnc3d-gamelist", NULL);
     if (!t) {
         SDL_LockMutex(s_b.lock);
         snprintf(s_b.error, sizeof s_b.error, "COULD NOT LOOK FOR GAMES.");
@@ -424,7 +424,7 @@ static int mb_post_thread(void *unused)
 
 static void mb_post_now(void)
 {
-    SDL_Thread *t = SDL_CreateThread(mb_post_thread, "cnc3d-gamelist-post", NULL);
+    SDL_Thread *t = SDL_CreateThread(mb_post_thread, "opencnc3d-gamelist-post", NULL);
     if (!t) {
         SDL_LockMutex(s_p.lock);
         snprintf(s_p.error, sizeof s_p.error, "COULD NOT LIST THIS GAME.");

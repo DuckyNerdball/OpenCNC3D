@@ -116,7 +116,7 @@ Four menu items are enabled in the shared menu module and have no Tier 1 handler
 Tier 1 dispatches exactly `DM_EXIT` (`tier1/w98_glidegame.c:1771`), `DM_TESTMAP`/`DM_START`
 (`:1772`) and `DM_INTRO` (`:1799`). Live on Tier 2 and dead on Tier 1:
 **`DM_SPECIAL`, `DM_USERMAPS`, `DM_SKIRMISH`, `DM_VISUALS`** (Tier 2 handles all four at
-`app/cnc3d.cpp:1647`, `:1687`, `:1720`, `:1797`).
+`app/opencnc3d.cpp:1647`, `:1687`, `:1720`, `:1797`).
 
 Also absent: the options dialog, the campaign shell, the score tally, and the eighteen
 separate vehicle shadow quads.

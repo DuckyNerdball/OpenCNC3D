@@ -13,9 +13,10 @@
  *   - Every entry's bytes are checked against the CRC-32 and size the archive
  *     records for it, so a release published without a SHA-256 still cannot
  *     install a corrupt file and report success.
- *   - Zip64 is refused rather than misread. The release zips are ~500 MB, so the
- *     32-bit fields are correct today; the day one is not, this says so instead
- *     of extracting from the wrong offset.
+ *   - Zip64 is refused rather than misread. The 32-bit fields reach 4 GiB, which
+ *     holds every release zip so far, and offsets are read as 64-bit numbers so the
+ *     32-bit Windows launcher reaches all of it; the day a zip is larger, this says
+ *     so instead of extracting from the wrong offset.
  *
  * The unix permission bits in the central directory ARE honoured on POSIX. They
  * carry the executable bit, and an update that installed a game binary without
@@ -30,10 +31,12 @@
  * last. The extractor's header in lzip.c carries the argument.
  *
  * AND IT CHANGES NOTHING BUT THE INSTALL. Every call here that changes the disk
- * needs a held LZ_Lock, lz_lock is the only thing that makes one, and lz_lock
- * refuses a folder that is not an install. Inside the install, the only files
- * removed that the launcher did not itself just write are copies an update's
- * journal records that update making, each by the exact name its line gives.
+ * needs a held LZ_Lock, and lz_lock, which makes one, refuses a folder that is not an
+ * install. lz_lock_new is the single exception, for the first install of the game
+ * into a folder that has no record yet, and only that install calls it. Inside the
+ * install, the only files removed that the launcher did not itself just write are
+ * copies an update's journal records that update making, each by the exact name its
+ * line gives.
  */
 
 #ifndef LZIP_H
@@ -44,14 +47,22 @@
 /* The journal lz_extract keeps in the folder it is updating, for as long as the
  * update is unfinished. Its presence at start-up means the last update was killed
  * or could not be fully undone, and lz_settle finishes the job. */
-#define LZ_JOURNAL "cnc3d-update.journal"
+#define LZ_JOURNAL "opencnc3d-update.journal"
 
 /* The journal of an update that is over, kept only because some of the old copies
  * it names could not be removed yet (on Windows, the launcher that ran the update
  * still had them loaded). lz_settle removes those copies later, by name. The
  * Windows installer also renames an unfinished journal to this, because the files
  * it installs replace everything that update would have undone. */
-#define LZ_DONE "cnc3d-update.done"
+#define LZ_DONE "opencnc3d-update.done"
+
+/* The movies-and-music record (launcher/lmedia.h), at the top of the install. Only
+ * lmedia writes it; no update may carry, replace or remove it. */
+#define LZ_MEDIA_RECORD "opencnc3d-media.txt"
+
+/* The ending of a download that is still arriving, kept so it can resume. A name
+ * ending in it is the launcher's own, anywhere in the install. */
+#define LZ_PART ".ocpart"
 
 /* Called per entry, so a long extraction can move a gauge. Return 0 to abort. */
 typedef int (*LZ_Progress)(void *user, int done, int total);
@@ -59,8 +70,8 @@ typedef int (*LZ_Progress)(void *user, int done, int total);
 /* Hex, lowercase, 64 characters plus a NUL. Returns 1 on success. */
 int lz_sha256_file(const char *path, char *hex65, char *err, int errlen);
 
-/* 1 when `dir` is a OpenCNC 3D install, the only kind of folder the calls below will
- * change: it holds the install record, cnc3d-install.txt, as a plain file, which
+/* 1 when `dir` is an OpenCNC3D install, the only kind of folder the calls below will
+ * change: it holds the install record, opencnc3d-install.txt, as a plain file, which
  * both release packagers write into every package. What the record says is not
  * asked: launchers up to v0.6.11 rewrote it in place, so a kill could leave it empty,
  * and that folder is still an install. Or, for the moment an update is replacing
@@ -93,6 +104,28 @@ typedef struct
 int lz_lock(const char *dir, LZ_Lock *lock);
 void lz_unlock(LZ_Lock *lock);
 
+/* lz_lock for a folder that may not be an install yet: the first install of the game
+ * into it. The folder has to be a real folder, not a link to one; -2 otherwise, with
+ * nothing done. Everything else is lz_lock's, answers included. ONLY the explicit
+ * fresh install (lupdate's lu_create_fresh) calls this; an update over a folder with
+ * no record still goes through lz_lock and is refused. */
+int lz_lock_new(const char *dir, LZ_Lock *lock);
+
+/* 1 while THIS process holds the lock on `dir` (taken by lz_lock or lz_lock_new and
+ * not yet released). A second job inside the launcher that already owns the folder
+ * uses this instead of taking the lock again, which would be refused. */
+int lz_held_here(const char *dir);
+
+/* The checks every change to the disk is made through, for callers outside this file.
+ * lz_name_safe: the name is relative, names no drive or stream, has no control
+ * character and never climbs out with "..". lz_inside: that, and every folder on its
+ * way down from `dir` that exists is a real folder rather than a link or a file; on a
+ * refusal `out` is empty, or ends at the folder that is in the way. lz_is_symlink: the
+ * path itself is a symbolic link, or on Windows any reparse point. */
+int lz_name_safe(const char *rel);
+int lz_inside(const char *dir, const char *rel, char *out, size_t outlen);
+int lz_is_symlink(const char *path);
+
 /* A file the caller supplies whole, rather than one read out of the archive. */
 typedef struct
 {
@@ -103,7 +136,7 @@ typedef struct
 
 /* Extract every entry of `zip` into the install `install` was taken on, creating
  * directories as needed. `strip` drops that many leading path components from each
- * entry, which is how a zip whose entries all begin "CNC3D-macos-v0.6.3/" lands as
+ * entry, which is how a zip whose entries all begin "OpenCNC3D-macos-v0.6.3/" lands as
  * the folder's contents rather than as a folder inside it.
  *
  * `last` is a NULL-terminated list of names, as they read after stripping, that
@@ -114,11 +147,11 @@ typedef struct
  * after everything in `last` and inside the same journal, so they are undone with
  * the rest. An archive entry of the same name is not written at all. NULL for none.
  *
- * Each changed file is written as "<name>.cnc3d-new" and renamed into place once
+ * Each changed file is written as "<name>.opencnc3d-new" and renamed into place once
  * it is whole and checked, so a name never holds a partial file, even after a kill.
  * An entry reached through a symbolic link or a junction inside the install fails
  * the extraction, naming the folder, as does one on a name the launcher keeps for
- * itself, and a changed file whose "<name>.cnc3d-new" is already taken: whatever is
+ * itself, and a changed file whose "<name>.opencnc3d-new" is already taken: whatever is
  * on that name is left alone.
  *
  * Returns 1 on success. On failure every file this call created is removed and
@@ -152,10 +185,21 @@ int lz_wrapped(const char *zip);
  *
  * What it removes is only ever the exact copy a journal line records its update
  * making: "<name>.old<n>" for an "A <n>" line or the undo's "S <n>" line, and
- * "<name>.cnc3d-new" for an "A" or "N" line, each only while <name> itself exists.
+ * "<name>.opencnc3d-new" for an "A" or "N" line, each only while <name> itself exists.
  * Nothing is looked for by pattern: any other file beside <name> is never touched,
  * whatever it is called. */
 void lz_settle(const LZ_Lock *install);
+
+/* ONE FILE OUT OF AN ARCHIVE, into the folder `lock` was taken on, which need not be an
+ * install yet: the menu pack a launcher needs before it can draw its own screens, taken
+ * out of a release's binary-only package in a folder that holds only the launcher.
+ * `name` is the entry as it reads after `strip` leading folders, and the file it lands
+ * on. It is written to "<name>.ocpart" and renamed in only once its CRC and size match
+ * the archive's record. A name already taken is never written over: that is a refusal,
+ * with `err` saying so, and so is a name the launcher keeps for itself. Not journalled,
+ * because the one name it changes was empty. Returns 1 on success. */
+int lz_extract_one(const LZ_Lock *lock, const char *zip, int strip, const char *name,
+                   char *err, int errlen);
 
 /* Make a directory and every missing parent. Returns 1 if it exists afterwards. */
 int lz_mkdirs(const char *path);

@@ -37,8 +37,8 @@
  *
  *  Plain C, no C++, because menu/dosmenu_shell.c and video/movieplay.c include it.
  * ==================================================================================== */
-#ifndef CNC3D_FX_FILTER_H
-#define CNC3D_FX_FILTER_H
+#ifndef OPENCNC3D_FX_FILTER_H
+#define OPENCNC3D_FX_FILTER_H
 
 /* NO GL HEADER OF ITS OWN, on purpose. Every file that includes this one has already
    set OpenGL up its own way -- the Apple framework path, the mingw compat shim, or
@@ -234,4 +234,4 @@ FX_MAYBE_UNUSED static void fx_filter_set(int on)
 }
 #endif
 
-#endif /* CNC3D_FX_FILTER_H */
+#endif /* OPENCNC3D_FX_FILTER_H */

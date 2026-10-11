@@ -35,8 +35,8 @@
  *  being off rather than the art being missing.
  * ================================================================================== */
 
-#ifndef CNC3D_DOSCRATE_MOD_H
-#define CNC3D_DOSCRATE_MOD_H
+#ifndef OPENCNC3D_DOSCRATE_MOD_H
+#define OPENCNC3D_DOSCRATE_MOD_H
 
 /* The DOS cell, in pixels. The sprite's size over this is its size in cells. */
 #define DOSCRATE_CELL_PX 24.0f
@@ -136,4 +136,4 @@ static void doscrate_free(void)
     g_doswrenchHave = false;
 }
 
-#endif /* CNC3D_DOSCRATE_MOD_H */
+#endif /* OPENCNC3D_DOSCRATE_MOD_H */

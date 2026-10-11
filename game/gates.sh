@@ -1,9 +1,9 @@
 #!/bin/bash
-# EVERY verification gate for CNC3D, in one script.
+# EVERY verification gate for OpenCNC3D, in one script.
 #
 #   ./gates.sh <label>          runs all of them, writes ../gates/<label>.log
 #
-# It expects to be run from a RUNTIME FOLDER: the binaries (cnc_eyes, cnc3d), the
+# It expects to be run from a RUNTIME FOLDER: the binaries (cnc_eyes, opencnc3d), the
 # packs, missions/, content/, dosdata/ and the gate scripts from game/*.txt all in
 # one place. Copy this file and the gate_*.txt next to a built play folder, or point
 # RUNDIR at one.
@@ -27,7 +27,7 @@ GATEDIR="$(cd "$(dirname "$0")" && pwd)"
 # Absolutise RUNDIR before the cd, and export it, because two gates resolve it a SECOND
 # time inside a sibling script: G27's gate_campaign.sh and G30's gate_fresh.sh. Given a
 # relative RUNDIR they resolve it against a working directory that is already the run
-# folder, so "run/cnc3d" becomes "run/run/cnc3d" and G30 reports the deployed binaries
+# folder, so "run/opencnc3d" becomes "run/run/opencnc3d" and G30 reports the deployed binaries
 # MISSING and STALE when both are present and current. That is a false red on the one
 # gate whose whole job is to be believed about staleness, so it is worth three lines.
 RUNDIR="${RUNDIR:-$GATEDIR/../run}"
@@ -45,7 +45,7 @@ cd "$RUNDIR" || { echo "FAIL: RUNDIR is not a directory: $RUNDIR" >&2; exit 1; }
 LABEL="${1:-run}"
 # A run folder that EXISTS but holds no game is the same lie told more slowly, so say so
 # once and plainly rather than through 158 failures that each blame the code.
-[ -x ./cnc3d ] || { echo "FAIL: $RUNDIR is not a run folder (no cnc3d in it)" >&2; exit 1; }
+[ -x ./opencnc3d ] || { echo "FAIL: $RUNDIR is not a run folder (no opencnc3d in it)" >&2; exit 1; }
 # THE PICTURE FOLDER EXISTS BEFORE THE FIRST GATE THAT WRITES INTO IT. Nothing below
 # created shots/ until G6 made a subfolder of it, two gates after G4 had written its two
 # determinism shots there. On a run folder built minutes earlier, G4 therefore could not
@@ -89,11 +89,21 @@ SKIPPED=0
 # A TEST RUN MUST NOT TAKE THE SCREEN OR THE POINTER unasked, so a gate that can only work
 # by doing both is OFF by default and the suite says SKIP rather than quietly passing.
 #
-#   CNC3D_GATES_INTERACTIVE=1 sh gates.sh    run them, when nobody is using the machine
+#   OPENCNC3D_GATES_INTERACTIVE=1 sh gates.sh    run them, when nobody is using the machine
 #
 # THE COST IS REAL AND IS NOT HIDDEN: with this unset, the edge-scroll gesture through the
-# live loop is NOT covered. A release should run the suite once with it set.
-INTERACTIVE="${CNC3D_GATES_INTERACTIVE:-0}"
+# live loop is NOT covered. Set it only when the person at the machine has said it is free
+# for that run: the game then comes to the front and the pointer moves on its own, which
+# takes the desk away from whoever is working. tools/release.sh leaves it off unless run
+# with --interactive-gates.
+INTERACTIVE="${OPENCNC3D_GATES_INTERACTIVE:-0}"
+# AND EVERYTHING ELSE STAYS IN THE BACKGROUND, including the runs that start the shell or
+# the renderer bare on purpose (G233, G251: they prove the player's own files are read,
+# which only happens when nothing is driving the run). OPENCNC3D_BACKGROUND=1 keeps their
+# window hidden and their process a background one without changing what they read or do
+# (game/fullscreen.h). --edgeplay, the one run whose subject IS the window, ignores it.
+OPENCNC3D_BACKGROUND=1
+export OPENCNC3D_BACKGROUND
 
 # =====================================================================================
 # THE STALE-SHOT WRAPPER. Every gate that measures a PNG must go through this.
@@ -237,7 +247,21 @@ E5=$(echo "$G" | grep -E "^SCRIPT\|end")
 # also accepted "10 failures", and the status used to be lost inside a tee.
 G5F=$(echo "$E5" | sed -n 's/^SCRIPT|end .*: [0-9]* lines, \([0-9]*\) failures$/\1/p' | head -1)
 REF=../gates/facewatch.sha
-[ -f "$REF" ] || echo "$FW" > "$REF"
+# A REFERENCE IS BASELINED FROM A GOOD RUN OR NOT AT ALL. This used to baseline from
+# WHATEVER the first run produced, including nothing: on a run folder missing the gate's
+# own script file the binary printed no FACEWATCH lines, the digest was the SHA1 of the
+# empty string, and that was written down as the thing every later run must reproduce.
+# The gate then failed for ever against a reference that recorded a failure, which is the
+# "suite lies about itself" family this file keeps finding. An empty or failed run now
+# leaves no reference behind, so the next good run baselines instead.
+if [ ! -f "$REF" ]; then
+  if [ "$G5RC" = "0" ] && [ "$G5F" = "0" ] && [ "${FN:-0}" -gt 0 ] && [ -n "$FW" ]; then
+    echo "$FW" > "$REF"
+    echo "G5: baselined ../gates/facewatch.sha from this run ($FN FACEWATCH lines)" >&2
+  else
+    echo "G5: NOT baselining a reference from a run that produced $FN FACEWATCH line(s),"          "exit $G5RC, $G5F failure(s). Fix the run first." >&2
+  fi
+fi
 if [ "$FW" = "$(cat "$REF")" ] && [ "$G5RC" = "0" ] && [ "$G5F" = "0" ]; then
   ok "G5 gunboat $FN FACEWATCH lines, $TURNS hull turns, digest ${FW:0:12}"
 else
@@ -260,7 +284,7 @@ fi
 # gives. The extra rounds cost about four minutes and buy a separation that holds, because
 # the noise stays where it is while a leak grows with every round.
 rm -rf shots/h; mkdir -p shots/h
-H=$(./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+H=$(./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
       --harness 120 --rounds 16 --shotdir shots/h 2>>"$OUT")
 echo "$H" >> "$OUT"
 E=$(echo "$H" | grep -E "^HARNESS\|end")
@@ -277,7 +301,7 @@ NF=$(echo "$E" | sed -n 's/.*[,|] *\([0-9][0-9]*\) failure(s).*/\1/p')
 # was under rather than on the build: three runs of ONE unchanged binary on an idle machine
 # reported the first cycle's growth as 20288, 33864 and 45936 KiB. One pass, two failures,
 # same code. It is now the LIVE HEAP (what malloc has handed out and not taken back), and
-# it is a drift across the whole run rather than a single difference; app/cnc3d.cpp carries
+# it is a drift across the whole run rather than a single difference; app/opencnc3d.cpp carries
 # the measurements both changes were made on. Proved on two builds of this tree, one with
 # three pack leaks in it and one with them fixed, sixteen rounds each: the leaking build
 # drifted +16003 and +23433 KiB and the clean one -114, +954 and -2473 KiB, against a limit
@@ -602,7 +626,7 @@ fi
 # Watchdogged like G15/G16's run_flow: a mission that fails to boot leaves the
 # autopilot parked at the menu forever, and a hung gate is worse than a red one
 # (it wedged a whole suite run once -- stale binary, mission failed to start).
-./cnc3d --flowtest 60 --dylib ./TiberianDawn.dylib --dir ./missions/ \
+./opencnc3d --flowtest 60 --dylib ./TiberianDawn.dylib --dir ./missions/ \
       --content ./content/ --cameos cameos.pack --dospack dossidebar.pack \
       --dosinf dosinfantry.pack > shots/flow14.log 2>>"$OUT" &
 FP=$!; FW=0
@@ -691,7 +715,7 @@ flow_assert() {
 # disabled (--flowtest 999999 is never reached), watchdogged so a hang cannot wedge
 # the suite. Both scratch scenarios end themselves, so this normally exits on its own.
 run_flow() {
-  ./cnc3d --flowtest 999999 --dylib ./TiberianDawn.dylib --dir "$1" \
+  ./opencnc3d --flowtest 999999 --dylib ./TiberianDawn.dylib --dir "$1" \
           --content ./content/ --cameos cameos.pack --dospack dossidebar.pack \
           --dosinf dosinfantry.pack > "$2" 2>&1 &
   local p=$! w=0
@@ -1514,7 +1538,13 @@ CBR33=$(echo "$CMB" | grep -cE '^CMPEAK\|(52,40|54,40|51,41)\|33,')
 CBR33ANY=$(echo "$CMB" | grep -cE '^CMPEAK\|[0-9]+,[0-9]+\|33,')
 CG=$(echo "$CMG" | grep -c '^CMDUMP-BEGIN live=1 block=1 corners=4225 nonzero=223 max=16,11,3 over48=0$')
 CGR16=$(echo "$CMG" | grep -cE '^CMPEAK\|[0-9]+,[0-9]+\|16,')
-CCOMB=$(echo "$CMB" | grep -c '^CMCOMBINE-END cases=180 failures=0 exact=146 gl_brighter_by_1=34 gl_darker_by_1=0 ')
+# THE SPLIT BETWEEN EXACT AND ONE-BRIGHTER IS THE GPU'S, not ours: which of the 180 land a
+# level high depends on how the driver rounds the divide. An Intel Mac's GL gave 146 exact
+# and 34 brighter, Apple Silicon's gives 144 and 36, both inside the rule the verb checks
+# (never darker, never more than one level off). Pinning one GPU's tally failed the other
+# on a correct combiner, so the claim is the rule, and the tally is reported, not pinned.
+CCOMB=$(echo "$CMB" | grep -cE '^CMCOMBINE-END cases=180 failures=0 exact=[0-9]+ gl_brighter_by_1=[0-9]+ gl_darker_by_1=0 worst_residual=[01] ')
+CCEX=$(echo "$CMB" | sed -n 's/^CMCOMBINE-END .* exact=\([0-9]*\) gl_brighter_by_1=\([0-9]*\) .*/\1 exact, \2/p' | head -1)
 COFF=$(echo "$CMOFF" | grep -c '^CMDUMP-BEGIN live=0 block=1 ')
 
 # The picture, at the strongest tint inside SCB01EA's own playable rect.
@@ -1558,7 +1588,7 @@ elif [ "$CB" = "1" ] && [ "$CBFULL" = "1" ] && [ "$CBR33" = "3" ] && [ "$CBR33AN
    && [ "$CG" = "1" ] && [ "$CGR16" = "1" ] && [ "$CCOMB" = "1" ] && [ "$COFF" = "1" ] \
    && [ -n "$CN" ] && [ "$CN" -ge 100000 ] && [ "$CLIGHT" = "0" ] && [ "$CBAR" = "0" ] \
    && [ "$CWORST" -ge 20 ] && [ "$CWORST" -le 30 ]; then
-  ok "G26 terrain CM tint: SCB01EA 876 corners max (33,24,20) with the full triple only at 52,40 and R=33 only at 52,40/54,40/51,41, SCG01EA 223 corners max (16,11,3) with one R=16; the combiner matches the RDP on 180 read-back pixels (146 exact, 34 one level brighter, 0 darker); $CN pixels change and every one is DARKER, worst channel $CWORST, sidebar untouched; --nocmtint returns to the plain modulate"
+  ok "G26 terrain CM tint: SCB01EA 876 corners max (33,24,20) with the full triple only at 52,40 and R=33 only at 52,40/54,40/51,41, SCG01EA 223 corners max (16,11,3) with one R=16; the combiner matches the RDP on 180 read-back pixels ($CCEX one level brighter, 0 darker); $CN pixels change and every one is DARKER, worst channel $CWORST, sidebar untouched; --nocmtint returns to the plain modulate"
 else
   bad "G26 terrain CM tint: SCB01EA-hdr=$CB full-triple-at-52,40=$CBFULL R33-at-expected=$CBR33(want 3) R33-anywhere=$CBR33ANY(want 3) SCG01EA-hdr=$CG R16=$CGR16(want 1) combiner=$CCOMB nocmtint-falls-back=$COFF changed=$CN(want >=100000) lighter=$CLIGHT(want 0) worst=$CWORST(want 20..30) sidebar-moved=$CBAR(want 0)"
 fi
@@ -1605,8 +1635,8 @@ fi
 
 # G30 THE DEPLOYED BINARIES ARE NOT STALE. Runs FIRST in spirit even though it is last
 # in the file: every other gate here drives cnc_eyes, so none of them can notice that
-# cnc3d -- the binary PLAY.command launches, and therefore the one actually ships --
-# was never rebuilt. That has bitten twice in one day: once leaving cnc3d rejecting every
+# opencnc3d -- the binary PLAY.command launches, and therefore the one actually ships --
+# was never rebuilt. That has bitten twice in one day: once leaving opencnc3d rejecting every
 # v13 pack, and once shipping a cursor shadow and a cursor depth fix that were simply
 # absent from the menu route. Both were reported as regressions; neither was one. The
 # check is on file times rather than pixels, because a picture gate cannot see it.
@@ -2308,6 +2338,26 @@ blush "helipad"     SCG41EA gate_flash_hpad.txt gate_flash_hpad_off.txt flashh n
 # camera's 44-degree pitch is 0.719 of the man's real height, so every shadow is about a
 # third short. That is a live defect, not a gate gap; it is recorded as a known gap and the
 # length leg belongs in gate_sprshadow.py the day it is fixed.
+#
+# THE SOLDIERS ARE THE SPRITES, PINNED (einf_on 0 in both presets). Under Enhanced the
+# remastered soldiers' row is on by default and draws E1 as a 3D model, and a 3D soldier
+# does not cast through the sprite card at all: he casts from a sun map of his own
+# (fx_draw_inf_casters), arms, legs and rifle, and at 315/52 that shadow falls mostly
+# behind him, so the band under his boots reads 27,15,64,31 with the models drawn. That is
+# the model's shadow, not this gate's subject, and these thresholds were never calibrated
+# on it. The sprite casters still ship (the row off puts every soldier back on his card),
+# so the row is pinned off and the measurement stays the one this gate was written for.
+# Nothing measures the 3D soldiers' own shadow yet; that is a gap, not a pass.
+#
+# AND THE SHADOW'S SIZE, PINNED AT THE SHIPPED 1.7, WITH THE FLOORS MEASURED AT IT. The
+# floors of 35 a man and 200 together were set when the sprite's shadow was drawn at its
+# own size; spr_shadow_scale has since shipped at 1.7, and at that size the blob is big
+# enough to cover the band even when it starts a sprite-width from the boots. Measured with
+# the defect this gate exists for put back (the caster's base pushed `side + 0.02` along
+# the light): per-man band 237,167,88,102, 594 together, which passed the old floors. The
+# fixed caster gives 429,432,321,298, 1480 together. So the floors are 200 a man and 1000
+# together, between the two, and the dial is named in the preset so a new default cannot
+# move the blob out from under them unseen.
 for SSEL in 52 14; do
   SSAZ=315
   # Clouds off in both arms: they are the same in each and would therefore look like a
@@ -2324,8 +2374,8 @@ for SSEL in 52 14; do
   # whatever the picture happens to look like this month. Change them only with the
   # thresholds, and say so.
   G52GRADE='grade_on 1\nexposure -0.03571\ncontrast 1.07589\nsaturation 1.08000\ntemperature 0.12500\ntint 0.0\nlift 0.0\ngain 1.10268\n'
-  printf "enabled 1\nshadow_on 1\nsun_az %s\nsun_el %s\ncloud_on 0\ninf_scale 1.0\nsun_lambert 0\n$G52GRADE" "$SSAZ" "$SSEL" > gfx_g52_on.cfg
-  printf "enabled 1\nshadow_on 0\nsun_az %s\nsun_el %s\ncloud_on 0\ninf_scale 1.0\nsun_lambert 0\n$G52GRADE" "$SSAZ" "$SSEL" > gfx_g52_off.cfg
+  printf "enabled 1\nshadow_on 1\nsun_az %s\nsun_el %s\ncloud_on 0\nfog_fx 0\nsand_fx 0\ninf_scale 1.0\nsun_lambert 0\neinf_on 0\nspr_shadow_scale 1.7\n$G52GRADE" "$SSAZ" "$SSEL" > gfx_g52_on.cfg
+  printf "enabled 1\nshadow_on 0\nsun_az %s\nsun_el %s\ncloud_on 0\nfog_fx 0\nsand_fx 0\ninf_scale 1.0\nsun_lambert 0\neinf_on 0\nspr_shadow_scale 1.7\n$G52GRADE" "$SSAZ" "$SSEL" > gfx_g52_off.cfg
   rm -f shots/sprshadow_on.png shots/sprshadow_off.png shots/g52.log
   ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --noshroud --nominimap --nosidebar \
       --gfx gfx_g52_on.cfg --w 1000 --h 650 --script gate_sprshadow.txt > shots/g52.log 2>&1
@@ -2334,13 +2384,13 @@ for SSEL in 52 14; do
       --gfx gfx_g52_off.cfg --w 1000 --h 650 --script gate_sprshadow_off.txt >> shots/g52.log 2>&1
   SSRC2=$?
   cat shots/g52.log >> "$OUT"
-  SSPRE=$(grep -c "FX|preset|gfx_g52_o[nf]*\.cfg: 15 applied, 0 unknown" shots/g52.log)
+  SSPRE=$(grep -c "FX|preset|gfx_g52_o[nf]*\.cfg: 19 applied, 0 unknown" shots/g52.log)
   SSBOX=$(sed -n 's/^CLICKOBJ|want=E1[^|]*|silhouette=\([0-9]*\),\([0-9]*\)\.\.\([0-9]*\),\([0-9]*\).*/\1,\2,\3,\4/p' shots/g52.log | head -4 | tr '\n' ' ')
   SSNB=$(echo $SSBOX | wc -w | tr -d ' ')
   if [ "$SSRC" != "0" ] || [ "$SSRC2" != "0" ]; then
     bad "G52 infantry shadows at sun $SSAZ/$SSEL: the run itself failed (exit $SSRC / $SSRC2)"
   elif [ "$SSPRE" != "2" ]; then
-    bad "G52 infantry shadows at sun $SSAZ/$SSEL: the preset did not apply in both arms -- $SSPRE of 2 runs said '15 applied, 0 unknown', so the numbers below would be the DEFAULT sun and the DEFAULT grade rather than the ones this gate asked for"
+    bad "G52 infantry shadows at sun $SSAZ/$SSEL: the preset did not apply in both arms -- $SSPRE of 2 runs said '19 applied, 0 unknown', so the numbers below would be the DEFAULT sun, grade, soldiers and shadow size rather than the ones this gate asked for"
   elif [ "$SSNB" != "4" ]; then
     bad "G52 infantry shadows at sun $SSAZ/$SSEL: the squad is not in frame -- $SSNB of 4 silhouettes [$SSBOX]"
   elif [ ! -s shots/sprshadow_on.png ] || [ ! -s shots/sprshadow_off.png ]; then
@@ -2350,10 +2400,10 @@ for SSEL in 52 14; do
     SSPER=$(echo "$SSR" | cut -d'|' -f2); SSMIN=$(echo "$SSR" | cut -d'|' -f4)
     SSTOT=$(echo "$SSR" | cut -d'|' -f6); SSAP=$(echo "$SSR" | cut -d'|' -f8)
     if [ "$SSEL" = "52" ]; then
-      if [ "${SSMIN:-0}" -ge 35 ] && [ "${SSTOT:-0}" -ge 200 ]; then
+      if [ "${SSMIN:-0}" -ge 200 ] && [ "${SSTOT:-0}" -ge 1000 ]; then
         ok "G52 infantry shadows at the SHIPPED sun $SSAZ/$SSEL: all four men have a shadow under their own boots ($SSPER darkened pixels each, $SSTOT together, $SSAP in the whole apron)"
       else
-        bad "G52 infantry shadows at the SHIPPED sun $SSAZ/$SSEL: per-man band=[$SSPER] smallest=$SSMIN(want >=35) together=$SSTOT(want >=200) apron=$SSAP"
+        bad "G52 infantry shadows at the SHIPPED sun $SSAZ/$SSEL: per-man band=[$SSPER] smallest=$SSMIN(want >=200) together=$SSTOT(want >=1000) apron=$SSAP"
       fi
     else
       if [ "${SSAP:-0}" -ge 600 ]; then
@@ -2377,11 +2427,11 @@ done
 # and the dialog applies the whole visual state on the way in. With the chain OFF it reads
 # that state as CLASSIC, which correctly means the 1995 DOS bar, and the new HUD this gate
 # is testing vanished mid-run: the drawer slid to dbx0=960 instead of 1280 and two of the
-# five claims below failed. The first fix made CNC3D_HUD a hard override so it could not
+# five claims below failed. The first fix made OPENCNC3D_HUD a hard override so it could not
 # be stomped, and that broke the player's own checkbox on a launcher that sets the
 # variable. So the gate states its intent instead: chain on, hence ENHANCED, hence the
 # HUD it asked for survives its own dialog.
-HCL=$(CNC3D_HUD=new ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
+HCL=$(OPENCNC3D_HUD=new ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
       --gfx --script gate_hudchrome.txt 2>&1 | tee -a "$OUT")
 # THREE PLATES ARE THREE CLAIMS, and one count over a three-alternative regex was not
 # making any of them. It asked for four matches in TOTAL, and the run produces exactly
@@ -2392,17 +2442,22 @@ HCL=$(CNC3D_HUD=new ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280
 # every one of them part of the map). Each label is now counted on its own, and the
 # handle's two probes are asserted as two: hit-testable with the bar OUT and again with it
 # HIDDEN, or the drawer is a one-way door.
-HCOPTH=$(echo "$HCL" | grep -c "^SBHIT|160,17|options")
-HCCRDH=$(echo "$HCL" | grep -c "^SBHIT|800,17|credits")
-HCSBH=$(echo "$HCL" | grep -c "^SBHIT|1120,17|sidebar")
-HCPTR=$(echo "$HCL" | grep -c "^PANELPROBE|160,17|.*onmap=0|sprite=1")
+#
+# THE DRAWER'S NUMBERS ARE THE ENHANCED HUD'S. At 1280x960 it draws at zoom 1, so the bar
+# column is 172 wide and g_dbX0 is 1108 deployed. Its tool wing hangs 73 columns left of
+# g_dbX0, so the drawer travels the whole 245-column housing (EH_TRAVEL): hidden, g_dbX0
+# is 1353 and the wing's left edge sits exactly on the window's right edge at 1280.
+HCOPTH=$(echo "$HCL" | grep -c "^SBHIT|80,8|options")
+HCCRDH=$(echo "$HCL" | grep -c "^SBHIT|1016,8|credits")
+HCSBH=$(echo "$HCL" | grep -c "^SBHIT|1188,8|sidebar")
+HCPTR=$(echo "$HCL" | grep -c "^PANELPROBE|80,8|.*onmap=0|sprite=1")
 HCOPT=$(echo "$HCL" | grep -c "^OPTIONS|open")
-HCHIDE=$(echo "$HCL" | grep -c "^SBSLIDE|x=160|target=160|dbx0=1280")
-HCSHOW=$(echo "$HCL" | grep -c "^SBSLIDE|x=0|target=0|dbx0=960")
+HCHIDE=$(echo "$HCL" | grep -c "^SBSLIDE|x=245|target=245|dbx0=1353")
+HCSHOW=$(echo "$HCL" | grep -c "^SBSLIDE|x=0|target=0|dbx0=1108")
 if [ "${HCOPTH:-0}" -ge 1 ] && [ "${HCCRDH:-0}" -ge 1 ] && [ "${HCSBH:-0}" -ge 2 ] \
    && [ "${HCPTR:-0}" -ge 1 ] && [ "${HCOPT:-0}" -ge 1 ] \
    && [ "${HCHIDE:-0}" -ge 1 ] && [ "${HCSHOW:-0}" -ge 1 ]; then
-  ok "G53 HUD plates: OPTIONS and CREDITS each hit-test, the SIDEBAR handle hit-tests $HCSBH times (out and hidden), the pointer owns OPTIONS, it opens the dialog, and the drawer slides out to 1280 and back to 960"
+  ok "G53 HUD plates: OPTIONS and CREDITS each hit-test, the SIDEBAR handle hit-tests $HCSBH times (out and hidden), the pointer owns OPTIONS, it opens the dialog, and the drawer slides its whole housing past the window edge (bar origin 1353, wing edge 1280) and back to 1108"
 else
   bad "G53 HUD plates: options-hit=$HCOPTH(want >=1) credits-hit=$HCCRDH(want >=1) sidebar-hit=$HCSBH(want >=2, one of them with the bar hidden) pointer=$HCPTR(want 1) options-opened=$HCOPT(want 1) hidden=$HCHIDE(want 1) shown=$HCSHOW(want 1)"
 fi
@@ -2594,7 +2649,18 @@ fi
 # second, independent trap for any NATIVE tool, which gets no MSYS fallback on its
 # arguments. tr is in coreutils on both platforms and the shell redirect resolves the .exe
 # by itself, so this line needs neither the tool nor the suffix.
-SOBTN=$(LC_ALL=C tr -c '[:print:]' '\n' < ./cnc3d 2>/dev/null | grep -c '^Special Ops$')
+#
+# ONE SLICE, because the counts below are counts. A universal Mac binary is two whole
+# programs in one file, arm64 and x86_64, so every string in it is there twice and a count
+# of "exactly one" reads 2 on a menu that is correct. Counted in one architecture's copy,
+# the number means what it meant when the binary was thin. lipo exists only on a Mac, and
+# a thin file or a Windows PE is read as it is.
+SOBIN=./opencnc3d
+if command -v lipo >/dev/null 2>&1 && [ "$(lipo -archs ./opencnc3d 2>/dev/null | wc -w)" -gt 1 ]; then
+  lipo ./opencnc3d -thin "$(lipo -archs ./opencnc3d | awk '{print $1}')" -output gate_g46_slice.bin 2>/dev/null \
+    && SOBIN=gate_g46_slice.bin
+fi
+SOBTN=$(LC_ALL=C tr -c '[:print:]' '\n' < "$SOBIN" 2>/dev/null | grep -c '^Special Ops$')
 SOINI=0; SOPACK=0; SOMISS=""
 for f in missions/SC[BG][2-8][0-9]E[A-C].INI; do
   [ -e "$f" ] || continue
@@ -2627,7 +2693,7 @@ done
 #      to look at. The mission count must be the INI count plus one, the Test Map, so a
 #      row that dropped out of the filing cannot pass as "still 27".
 rm -rf shots/so; mkdir -p shots/so
-SOLOG=$(./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+SOLOG=$(./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
           --specopsshot shots/so 2>&1)
 SORC=$?
 echo "$SOLOG" >> "$OUT"
@@ -2637,7 +2703,8 @@ SOLAST=$(echo "$SOEND" | sed -n 's/.*|last=\([^|]*\)|.*/\1/p')
 SOLISTED=$(echo "$SOEND" | sed -n 's/.*|missions=\([0-9]*\)|.*/\1/p')
 SOWANT="GDI COVERT OPERATIONS,GDI SPECIAL OPS,NOD COVERT OPERATIONS,NOD SPECIAL OPS,TEST MAPS"
 SOPNG=0; [ -s shots/so/specops_top.png ] && [ -s shots/so/specops_end.png ] && SOPNG=1
-SOMENU=$(LC_ALL=C tr -c '[:print:]' '\n' < ./cnc3d 2>/dev/null | grep -c '^Test Map$')
+SOMENU=$(LC_ALL=C tr -c '[:print:]' '\n' < "$SOBIN" 2>/dev/null | grep -c '^Test Map$')
+rm -f gate_g46_slice.bin
 if [ "${SOBTN:-0}" -ge 1 ] && [ "${SOINI:-0}" -ge 20 ] && [ "$SOINI" = "$SOPACK" ] \
    && [ "${SODRAW:-0}" -eq 3 ] && [ "$SORC" = "0" ] && [ "$SOORDER" = "$SOWANT" ] \
    && [ "$SOLAST" = "SCG90EA" ] && [ "${SOLISTED:-0}" -eq $((SOINI + 1)) ] \
@@ -2819,6 +2886,8 @@ lights_on 0
 grade_on 0
 crt_on 0
 cloud_on 0
+fog_fx 0
+sand_fx 0
 CFG
 sed 's/^shadow_on 1/shadow_on 0/' gfx_g36_sun.cfg > gfx_g36_nosun.cfg
 sed 's/^sun_el 40/sun_el 18/'     gfx_g36_sun.cfg > gfx_g36_lowsun.cfg
@@ -3083,52 +3152,54 @@ else
 fi
 
 # =====================================================================================
-# G38 THE 640x480 HUD GROWS BUILD ROWS ON A TALLER SCREEN.
+# G38 THE HUD'S BUILD ROWS FOLLOW THE SCREEN HEIGHT.
 #
-# The bar is authored 160x480 and the zoom is a whole number, so any screen that is not a
-# multiple of 480 tall used to letterbox: the 3008x1692 display drew it at 3x = 1440
-# and left 252 rows of black. It spends that on cameos now -- one 48px band of the
-# chassis repeated per extra row, everything below the split sliding down.
+# The 640x480 art HUD grew one 48px band of cameos per spare 48 rows. The Enhanced HUD
+# replaced it under OPENCNC3D_HUD=new and keeps the same idea from the other end: it draws
+# at a whole-number zoom of the window height over its 693-row housing, which holds eight
+# rows of two cameos, and a screen too short for all eight SHEDS rows (309 rows of housing
+# plus 48 per row, never fewer than three) instead of scaling the art. The cut is made
+# between the last row and the housing's foot, so both corner joins stay as authored.
 #
-# Both halves are asserted, and the first is the one that protects the shipped picture:
-#   AT A MULTIPLE OF 480 NOTHING CHANGES. 960 rows must still be exactly five, because
-#   that is the authored art and every other sidebar gate assumes it.
-#   AT 1692 IT GROWS. And every visible cell has to hit-test to its OWN row and column,
-#   including the new ones, or the picture would be right and the clicks would not.
+# Three sizes, and each one is asserted:
+#   1280x600 rows=6 and a 597-row bar: a short screen loses rows, not pixels.
+#   1280x960 rows=8, the whole housing: the size every other HUD gate measures at.
+#   3008x1200 rows=8 still, at zoom 1: a taller screen does not stretch the housing.
+# And at every size every visible cell has to hit-test to its OWN row and column, as what
+# is drawn there (a buildable, a locked entry, or nothing past the end of the list), and
+# the row below the last one must not answer as a cell, or the picture would be right and
+# the clicks would not.
 #
 # sbwalk computes its own probe coordinates from the layout rather than carrying pixels,
 # which matters because the row count is the variable: a test with hardcoded coordinates
 # would need rewriting per window size and would stop testing what it is named after.
 G38A=$(./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
            --script "$GATEDIR/gate_hudrows.txt" 2>&1 | tee -a "$OUT" | grep '^SBWALK|rows=')
-G38B=$(CNC3D_HUD=new ./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
+G38B=$(OPENCNC3D_HUD=new ./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
            --script "$GATEDIR/gate_hudrows.txt" 2>&1 | tee -a "$OUT" | grep '^SBWALK|rows=')
-# 1200 AND NOT 1692, changed 25 Aug 2026, and the reason is worth writing down because
-# the old number is still in the prose above and was right when it was written.
-#
-# This used to ask for 3008x1692, the project owner's display's exact size in points. On 24 Aug a
-# commit made the window SDL_WINDOW_RESIZABLE *always* rather than only under --resize,
-# and macOS constrains a resizable window to the visible frame -- so a 1692-tall window on
-# a 1692-tall display now caps at 1547 and the gate went red having tested nothing. The
-# drawable line says it plainly: "surface 3008x1547".
-#
-# 1200 IS NOT MERELY SMALLER, IT IS A BETTER TEST. The row count is NOT monotonic in
-# height, because the zoom is a whole number: measured on this display, 1200 gives 7 rows,
-# 1400 gives 9, and 1547 gives FIVE -- fewer than 1200 -- because at 1547 the zoom steps
-# up to 3 and each row costs three times as much. A height the window can actually be
-# granted is therefore worth more than the display's nominal size, and 1200 also fits any
-# development screen rather than only the project owner's.
-G38C=$(CNC3D_HUD=new ./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 3008 --h 1200 \
+G38S=$(OPENCNC3D_HUD=new ./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 600 \
+           --script "$GATEDIR/gate_hudrows.txt" 2>&1 | tee -a "$OUT" | grep '^SBWALK|rows=')
+# 1200 AND NOT 1692. This used to ask for 3008x1692, one display's exact size in points.
+# Once the window became SDL_WINDOW_RESIZABLE always, macOS constrained it to the visible
+# frame, so a 1692-tall window on a 1692-tall display capped at 1547 and the gate went red
+# having tested nothing; the drawable line says it plainly ("surface 3008x1547"). 1200 fits
+# any development screen, and it is still under the 1386 rows at which this HUD's zoom
+# steps up to 2, so it is the tallest zoom-1 screen the gate can rely on being granted.
+G38C=$(OPENCNC3D_HUD=new ./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 3008 --h 1200 \
            --script "$GATEDIR/gate_hudrows.txt" 2>&1 | tee -a "$OUT" | grep '^SBWALK|rows=')
 g38f() { echo "$1" | sed -n "s/.*|$2=\([0-9]*\).*/\1/p"; }
 G38BR=$(g38f "$G38B" rows); G38BP=$(g38f "$G38B" probes); G38BO=$(g38f "$G38B" ok)
+G38BH=$(g38f "$G38B" barh)
+G38SR=$(g38f "$G38S" rows); G38SP=$(g38f "$G38S" probes); G38SO=$(g38f "$G38S" ok)
+G38SH=$(g38f "$G38S" barh)
 G38CR=$(g38f "$G38C" rows); G38CP=$(g38f "$G38C" probes); G38CO=$(g38f "$G38C" ok)
 G38CH=$(g38f "$G38C" barh)
-if [ "${G38BR:-0}" = "5" ] && [ -n "$G38BP" ] && [ "$G38BP" = "$G38BO" ] && \
-   [ "${G38CR:-0}" -gt 5 ] && [ -n "$G38CP" ] && [ "$G38CP" = "$G38CO" ]; then
-  ok "G38 HUD rows follow the screen: 5 rows at 960 (the authored art, unchanged), $G38CR rows and a ${G38CH}px bar at 1200, and every one of $G38CP probed cells hit-tests to its own row"
+if [ "${G38SR:-0}" = "6" ] && [ "${G38SH:-0}" = "597" ] && [ -n "$G38SP" ] && [ "$G38SP" = "$G38SO" ] && \
+   [ "${G38BR:-0}" = "8" ] && [ "${G38BH:-0}" = "693" ] && [ -n "$G38BP" ] && [ "$G38BP" = "$G38BO" ] && \
+   [ "${G38CR:-0}" = "8" ] && [ "${G38CH:-0}" = "693" ] && [ -n "$G38CP" ] && [ "$G38CP" = "$G38CO" ]; then
+  ok "G38 HUD rows follow the screen: 6 rows and a ${G38SH}px bar at 600, the whole 8-row ${G38BH}px housing at 960 and still 8 at 1200, and every one of $G38SP, $G38BP and $G38CP probes hit-tests as what its cell draws, the row below the last answering as no cell"
 else
-  bad "G38 HUD rows: at 960 rows=$G38BR(want 5) probes=$G38BP ok=$G38BO; at 1200 rows=$G38CR(want >5; if the drawable line reads shorter than asked, the window manager clamped it and the height needs choosing again) probes=$G38CP ok=$G38CO"
+  bad "G38 HUD rows: at 600 rows=$G38SR(want 6) barh=$G38SH(want 597) probes=$G38SP ok=$G38SO; at 960 rows=$G38BR(want 8) barh=$G38BH(want 693) probes=$G38BP ok=$G38BO; at 1200 rows=$G38CR(want 8, the housing does not stretch; if the drawable line reads shorter than asked, the window manager clamped it and the height needs choosing again) barh=$G38CH(want 693) probes=$G38CP ok=$G38CO (probes must equal ok at every size)"
 fi
 
 # =====================================================================================
@@ -3186,8 +3257,13 @@ fi
 #   back over the picture. Offset (-3,-4), measured by correlating it against the
 #   chassis's own baked frames, not chosen.
 #
-# Everything is at --w 1280 --h 960, where the bar scale is 2 and the bar starts at
-# x=960, so the radar surface is (982,62)..(1254,302) and column 0 row 1 is (996,518).
+# THE ENHANCED HUD REPLACED THE 640x480 ART HUD under OPENCNC3D_HUD=new, and both claims
+# carry over to it because it is built on top of that HUD: its build grid is the art HUD's
+# own bar (cameos, cell_frame and all) composited 66 rows lower into the Enhanced housing,
+# and its minimap aperture draws the same plotter's surface, or the faction artwork when
+# there is no map. At --w 1280 --h 960 its whole-number zoom is 1 and the bar column starts
+# at x=1108, so the 160x144 aperture is (1107,31)..(1267,175) and the build grid's column 0
+# row 1 is (1126,325)..(1187,370), the same cell the art HUD gate measured at its zoom 2.
 G4SCEN="--noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960"
 # THE RENAME-INTO-PLACE FORM, which the note at G45 calls the worst case of the trap and
 # which this was the last instance of. Three runs each write shots/g40_x.png and a mv
@@ -3196,10 +3272,10 @@ G4SCEN="--noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960"
 # measured, and said nothing about it. Three changes: the scratch name g40_x.png goes into
 # gbegin as well (or run two would inherit run one's picture), the mv's stderr goes to the
 # log rather than /dev/null, and the status of each run is read.
-# CNC3D_HUD is exported rather than prefixed to the call, because grun is a shell function
+# OPENCNC3D_HUD is exported rather than prefixed to the call, because grun is a shell function
 # and an assignment prefixed to a function call does not reliably stay scoped to it.
 gbegin shots/g40_x.png shots/g40_on.png shots/g40_off.png shots/g40_noframe.png
-export CNC3D_HUD=new
+export OPENCNC3D_HUD=new
 # --forceradar since v0.6.0. The radar used to be forced ON for everybody by default,
 # which is the bug players reported (a minimap before you have built a Communications
 # Center). Now it obeys RadarMapActive, so this gate -- whose whole job is to photograph
@@ -3211,36 +3287,43 @@ grun - $G4SCEN --forceradar --script "$GATEDIR/gate_hudradar.txt" --nominimap
 mv -f shots/g40_x.png shots/g40_off.png 2>>"$OUT"
 grun - $G4SCEN --forceradar --script "$GATEDIR/gate_hudradar.txt" --nocellframe
 mv -f shots/g40_x.png shots/g40_noframe.png 2>>"$OUT"
-unset CNC3D_HUD
+unset OPENCNC3D_HUD
 gshots shots/g40_on.png shots/g40_off.png shots/g40_noframe.png
 
 if [ "$GRC" != "0" ]; then
   bad "G40 new HUD radar: a run failed or wrote no shot (GRC=$GRC)"
   bad "G41 new HUD cameo frame: a run failed or wrote no shot (GRC=$GRC)"
 else
-  G40R=$(python3 "$GATEDIR/gate_gfx.py" rect shots/g40_off.png shots/g40_on.png 982 62 1254 302 | cut -d'|' -f2)
-  if [ "${G40R:-0}" -ge 20000 ]; then
-    ok "G40 the new HUD has a radar: $G40R pixels inside the 136x120 bezel become map instead of the faction emblem, and --nominimap puts the emblem back"
+  # HALF THE APERTURE, 11520 of its 23040 pixels. The art HUD's bezel was 65280 pixels at
+  # zoom 2 and this asked for 20000 of them, under a third; the plot fills the aperture to
+  # its fit, so asking for half of a box that is all map or all emblem is the stricter form
+  # of the same claim, not a looser number.
+  G40R=$(python3 "$GATEDIR/gate_gfx.py" rect shots/g40_off.png shots/g40_on.png 1107 31 1267 175 | cut -d'|' -f2)
+  if [ "${G40R:-0}" -ge 11520 ]; then
+    ok "G40 the new HUD has a radar: $G40R pixels inside the 160x144 minimap aperture become map instead of the faction artwork, and --nominimap puts the artwork back"
   else
-    bad "G40 new HUD radar: only $G40R pixels changed inside the bezel (want >=20000) -- the emblem is still being drawn"
+    bad "G40 new HUD radar: only $G40R pixels changed inside the 160x144 aperture (want >=11520, half of it) -- the faction artwork is still being drawn"
   fi
 
-  G41C=$(python3 "$GATEDIR/gate_gfx.py" rect shots/g40_noframe.png shots/g40_on.png 988 510 1126 616 | cut -d'|' -f2)
-  G41RING=$(python3 "$GATEDIR/gate_gfx.py" ring shots/g40_noframe.png shots/g40_on.png 996 518 1118 608)
+  # At zoom 1 one HUD pixel is one screen pixel, so the cell rect, the 4-pixel margin round
+  # it and the cut are the art HUD's native numbers, and the 1500 this asked for at zoom 2
+  # is 375 here: the same quarter of the same cell. The ring is (61+45)*2-4 = 208 pixels.
+  G41C=$(python3 "$GATEDIR/gate_gfx.py" rect shots/g40_noframe.png shots/g40_on.png 1122 321 1191 374 | cut -d'|' -f2)
+  G41RING=$(python3 "$GATEDIR/gate_gfx.py" ring shots/g40_noframe.png shots/g40_on.png 1126 325 1187 370)
   G41A=$(echo "$G41RING" | cut -d'|' -f3); G41B=$(echo "$G41RING" | cut -d'|' -f4)
   # The corners are their own claim. The frame ring closes the four STRAIGHT edges and
   # leaves the 45-degree cuts open, which is exactly what was still visible, so a
-  # gate that only measured the border would have called the half-fix done. cut=14 is
-  # H6_CHAMFER 7 at the bar's zoom of 2.
-  G41CH=$(python3 "$GATEDIR/gate_gfx.py" chamfer shots/g40_noframe.png shots/g40_on.png 996 518 1118 608 14)
+  # gate that only measured the border would have called the half-fix done. cut=7 is
+  # H6_CHAMFER 7 at the bar's zoom of 1.
+  G41CH=$(python3 "$GATEDIR/gate_gfx.py" chamfer shots/g40_noframe.png shots/g40_on.png 1126 325 1187 370 7)
   G41CT=$(echo "$G41CH" | cut -d'|' -f2)
   G41CA=$(echo "$G41CH" | cut -d'|' -f3); G41CB=$(echo "$G41CH" | cut -d'|' -f4)
   G41CW=$(awk -v t="${G41CT:-1}" 'BEGIN { print int(t * 0.75) }')
-  if [ "${G41C:-0}" -ge 1500 ] && [ "${G41B:-0}" -gt "${G41A:-0}" ] && \
+  if [ "${G41C:-0}" -ge 375 ] && [ "${G41B:-0}" -gt "${G41A:-0}" ] && \
      [ "${G41CB:-0}" -ge "${G41CW:-999999}" ] && [ "${G41CB:-0}" -gt "${G41CA:-0}" ]; then
-    ok "G41 the cameo is inside its frame: the treatment repaints $G41C pixels of one cell, its 1px border goes from $G41A to $G41B frame-coloured of 420, and the four 45-degree corner cuts go from $G41CA to $G41CB of $G41CT"
+    ok "G41 the cameo is inside its frame: the treatment repaints $G41C pixels of one cell, its 1px border goes from $G41A to $G41B frame-coloured of 208, and the four 45-degree corner cuts go from $G41CA to $G41CB of $G41CT"
   else
-    bad "G41 cameo frame: changed $G41C px (want >=1500), border $G41A -> $G41B (want up), corners $G41CA -> $G41CB of $G41CT (want up and >= $G41CW)"
+    bad "G41 cameo frame: changed $G41C px (want >=375), border $G41A -> $G41B (want up), corners $G41CA -> $G41CB of $G41CT (want up and >= $G41CW)"
   fi
 fi
 
@@ -3251,9 +3334,10 @@ fi
 # claims, so optvis prints both sides of every one and this walks them together:
 #
 #   open        ENHANCED, so ADVANCED is live and the chain is on
-#   CLASSIC     ADVANCED greys out (gadget.cpp:632 draws a disabled gadget, never
-#               hides it) and the chain switches OFF -- not "on with nothing ticked",
-#               which is a different and nearly identical picture
+#   CLASSIC     the chain switches OFF -- not "on with nothing ticked", which is a
+#               different and nearly identical picture -- and ADVANCED stays live,
+#               because every graphics mode has settings of its own now (G271 covers
+#               the three modes and their tabs)
 #   ENHANCED    back on
 #   Bloom       one checkbox, one element, both off
 #   Supersample the float follows the checkbox down to 1.00
@@ -3264,7 +3348,7 @@ G42L=$(./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 -
 g42() { echo "$G42L" | sed -n "$1p"; }
 G42OK=1
 echo "$(g42 1)" | grep -q 'enhanced=1|advdisabled=0|.*fx_enabled=1' || G42OK=0
-echo "$(g42 2)" | grep -q 'enhanced=0|advdisabled=1|.*fx_enabled=0' || G42OK=0
+echo "$(g42 2)" | grep -q 'enhanced=0|advdisabled=0|.*fx_enabled=0' || G42OK=0
 echo "$(g42 3)" | grep -q 'enhanced=1|advdisabled=0|.*fx_enabled=1' || G42OK=0
 echo "$(g42 4)" | grep -q 'page=3|.*bloom=0|.*fx_bloom=0'           || G42OK=0
 # SUPERSAMPLING: assert the PAIRING and the MOVEMENT, not a fixed direction.
@@ -3285,7 +3369,7 @@ G42SS5=$(g42 5 | sed -n 's/.*|ss=\([01]\)|.*/\1/p')
 echo "$(g42 5)" | grep -qE 'ss=0\|.*fx_ss=1\.00|ss=1\|.*fx_ss=2\.00'  || G42OK=0
 [ -n "$G42SS4" ] && [ -n "$G42SS5" ] && [ "$G42SS4" != "$G42SS5" ]        || G42OK=0
 if [ "$G42OK" = "1" ] && [ "$(echo "$G42L" | wc -l | tr -d ' ')" = "5" ]; then
-  ok "G42 the Visuals screen drives the chain: CLASSIC greys ADVANCED out and switches the chain off, ENHANCED brings both back, and a checkbox moves its element -- supersampling's float included, down to 1.00"
+  ok "G42 the Visuals screen drives the chain: CLASSIC switches the chain off with ADVANCED still live, ENHANCED brings it back, and a checkbox moves its element -- supersampling's float included, down to 1.00"
 else
   bad "G42 Visuals screen: the dialog and the chain disagree. Lines: $G42L"
 fi
@@ -3341,17 +3425,17 @@ PY
   fi
 fi
 
-# G63 THE "NEW HUD" CHECKBOX SWITCHES THE SIDEBAR, WITH CNC3D_HUD SET.
+# G63 THE "NEW HUD" CHECKBOX SWITCHES THE SIDEBAR, WITH OPENCNC3D_HUD SET.
 #
 # Reported within the hour of the dial shipping: toggling the New vs Old HUD did nothing
 # at all. It did not, and the cause was an earlier fix made for G53.
 #
 # G53 went red because the pause dialog applies the whole visual state on the way in, and
 # with the post chain off it reads that state as CLASSIC, which correctly means the DOS
-# bar -- so the new HUD that gate sets up vanished mid-run. The fix made CNC3D_HUD a HARD
+# bar -- so the new HUD that gate sets up vanished mid-run. The fix made OPENCNC3D_HUD a HARD
 # OVERRIDE that nothing could stomp. That satisfied the gate and broke the feature: both
-# `tools/launchers/C&C3D.app/Contents/MacOS/cnc3d-launch:39` and `PLAY-HUD-MENU.command`
-# set CNC3D_HUD=new, so on the original launcher the checkbox did nothing in either
+# `tools/launchers/OpenCNC3D.app/Contents/MacOS/opencnc3d-launch:39` and `PLAY-HUD-MENU.command`
+# set OPENCNC3D_HUD=new, so on the original launcher the checkbox did nothing in either
 # direction. A gate was made green by disabling the thing it was meant to protect.
 #
 # THIS GATE ASSERTS STATE, NOT PIXELS, and the first draft of it did the opposite and was
@@ -3367,7 +3451,7 @@ fi
 # The third is the one that matters. A gate asserting only the checkbox would have passed
 # through the whole week the dial was inert, because the checkbox always moved.
 rm -f shots/g63.log
-CNC3D_HUD=new ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 \
+OPENCNC3D_HUD=new ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 \
     --noshroud --nosound --gfx --script gate_hudtoggle.txt > shots/g63.log 2>&1
 HTRC=$?
 cat shots/g63.log >> "$OUT"
@@ -3378,9 +3462,9 @@ if [ "$HTRC" != "0" ]; then
 elif [ -z "$HTBEF" ] || [ -z "$HTAFT" ]; then
   bad "G63 New HUD toggle: optvis did not report the HUD triple twice [$HTBEF/$HTAFT]"
 elif [ "$HTBEF" = "111" ] && [ "$HTAFT" = "000" ]; then
-  ok "G63 New HUD toggle: checkbox, dial and DRAWN sidebar all go 1 -> 0 together when the box is clicked, with CNC3D_HUD=new set, so the player's dial outranks the launcher's environment"
+  ok "G63 New HUD toggle: checkbox, dial and DRAWN sidebar all go 1 -> 0 together when the box is clicked, with OPENCNC3D_HUD=new set, so the player's dial outranks the launcher's environment"
 else
-  bad "G63 New HUD toggle: hud/fx_hud/sb_hud went [$HTBEF] -> [$HTAFT], want [111] -> [000]. If the first two moved and the third did not, the dial is inert and the drawn sidebar is ignoring it -- check that nothing has made CNC3D_HUD an override again"
+  bad "G63 New HUD toggle: hud/fx_hud/sb_hud went [$HTBEF] -> [$HTAFT], want [111] -> [000]. If the first two moved and the third did not, the dial is inert and the drawn sidebar is ignoring it -- check that nothing has made OPENCNC3D_HUD an override again"
 fi
 
 # G62 SELLING A STRUCTURE SHEDS IT FROM THE FIRST TICK.
@@ -3630,7 +3714,7 @@ fi
 # line NEVER APPEARS and the mission runs on the DOS sprite.
 rm -rf shots/h59; mkdir -p shots/h59
 rm -f shots/g59.log
-./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack --visualsfirst \
+./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack --visualsfirst \
         --harness 60 --rounds 1 --shotdir shots/h59 > shots/g59.log 2>&1
 C3RC=$?
 cat shots/g59.log >> "$OUT"
@@ -3716,12 +3800,12 @@ fi
 #              63441 after, at 1280x720. The 558 is the pointer alone -- itself only there
 #              because the same fix calls cur_init, which had also never run on this path.
 #              The floor below sits an order of magnitude above the broken case.
-#   NO WRITE   closing the screen used to save cnc3d-fx.cfg unconditionally, so merely
+#   NO WRITE   closing the screen used to save opencnc3d-fx.cfg unconditionally, so merely
 #              opening it pinned the player to those dials for ever and no future default
 #              could reach them. The binary reports the file's size on the way in and out;
 #              they must be equal, because nothing was touched.
 rm -f shots/g57_vis.png
-VISOUT=$(./cnc3d --visualsshot shots/g57_vis.png --nosound 2>&1)
+VISOUT=$(./opencnc3d --visualsshot shots/g57_vis.png --nosound 2>&1)
 VISRC=$?
 echo "$VISOUT" >> "$OUT"
 VISLINE=$(echo "$VISOUT" | grep -m1 '^VISUALSSHOT|')
@@ -4027,7 +4111,7 @@ fi
 
 # G70 AIRCRAFT: the heap the object dump walked past for the whole life of the project.
 #
-# CNC3D_Dump_Objects looped Infantry, Units, Buildings and Terrains and stopped, so no
+# OpenCNC3D_Dump_Objects looped Infantry, Units, Buildings and Terrains and stopped, so no
 # aircraft had ever reached the renderer. One missing loop, four player-visible symptoms:
 # an invisible Orca on its helipad, an Airstrike whose A-10s never appeared, no Orca ammo
 # in the pip row, and Chinook cargo nothing could name.
@@ -4138,7 +4222,7 @@ ESL=$(./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --nosound --w 1280 --h
       --script gate_edgescroll.txt 2>&1 | tee -a "$OUT")
 ESNL=$(./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --nosound --nosidebar \
       --w 1280 --h 720 --script gate_edgescroll.txt 2>&1 | tee -a "$OUT")
-ESHL=$(CNC3D_HUD=new ./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --nosound --gfx \
+ESHL=$(OPENCNC3D_HUD=new ./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --nosound --gfx \
       --w 1280 --h 960 --script gate_edgescroll_h6.txt 2>&1 | tee -a "$OUT")
 # The DOS bar is 240 wide at 1280x720, so the map ends at 1040, the map-side strip is
 # [1028,1040) and the window strip is [1268,1280). The verb has to AIM at the map-side
@@ -4146,13 +4230,15 @@ ESHL=$(CNC3D_HUD=new ./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --nosou
 # window strip twice and the map-side one not at all. 1200 is DOS x 293, inside column
 # two's cameos, and is the bar between the two strips; 1267 is the last column before the
 # window strip, which is what pins that strip's width at 12 rather than "near the edge".
-# The 640x480 HUD runs at 1280x960, where the whole-number zoom is 2 and the bar is 320
-# wide, so its map ends at 960 and its EDGEAT lines say so.
+# The 640x480 HUD's run is the Enhanced HUD, which replaced that art HUD and is what
+# OPENCNC3D_HUD=new draws. At 1280x960 its whole-number zoom is 1, the bar column starts at
+# 1108 and its radar frame reaches 12 columns further left, so its map ends at 1096 and its
+# EDGEAT lines say so.
 ESAIM=$(echo "$ESL"  | grep -c '^EDGE|R|frames=20|mouse=1038,360|tacright=1040|guard=pass')
 ESPASS=$(echo "$ESL" | grep -c '^EDGEAT|frames=20|mouse=1278,360|tacright=1040|guard=pass')
 ESBLK=$(echo "$ESL"  | grep -c '^EDGEAT|frames=20|mouse=1200,360|tacright=1040|guard=blocked')
-ESH6P=$(echo "$ESHL" | grep -c '^EDGEAT|frames=20|mouse=1278,400|tacright=960|guard=pass')
-ESH6B=$(echo "$ESHL" | grep -c '^EDGEAT|frames=20|mouse=1200,400|tacright=960|guard=blocked')
+ESH6P=$(echo "$ESHL" | grep -c '^EDGEAT|frames=20|mouse=1278,400|tacright=1096|guard=pass')
+ESH6B=$(echo "$ESHL" | grep -c '^EDGEAT|frames=20|mouse=1200,400|tacright=1096|guard=blocked')
 ESEAST=$(es_x "$ESL" edge 1); ESWEST=$(es_x "$ESL" edge 2)
 ESWIN=$(es_x "$ESL" edgeat 1); ESOFF=$(es_x "$ESL" edgeat 2)
 ESBAR=$(es_x "$ESL" edgeat 3); ESLIP=$(es_x "$ESL" edgeat 4)
@@ -4191,9 +4277,9 @@ BEGIN{
 }')
 if [ "${ESAIM:-0}" -ge 1 ] && [ "${ESPASS:-0}" -ge 1 ] && [ "${ESBLK:-0}" -ge 1 ] \
    && [ "${ESH6P:-0}" -ge 1 ] && [ "${ESH6B:-0}" -ge 1 ] && [ "${ESVERDICT:-0}" = "1" ]; then
-  ok "G79 right edge scroll (the SHARED CORE only; the live gesture is G124's). Only the SCREEN edge scrolls east: the window's own last 12 columns pan from 1278 ($ESWIN) although that pixel is on the bar, the same distance the left edge pans west, and the same distance as the --nosidebar control ($ESCTL) whose map edge and window edge are the same columns. THE MAP-SIDE STRIP REFUSES: aiming at tacRight-2 with the guard passing moves nothing ($ESEAST), so sliding the pointer off the map onto the sidebar no longer drags the map. A pixel just left of it at 1020 ($ESOFF), the middle of the bar at 1200 ($ESBAR) and the last column before the window strip at 1267 ($ESLIP) all refuse too. On the 640x480 HUD it pans east from the window edge deployed ($ESH6WIN) and with the drawer hidden ($ESH6HID), while the map edge deployed ($ESH6OUT), the middle of the bar ($ESH6BAR) and the SIDEBAR handle plate inside the window strip ($ESH6TAB) all refuse"
+  ok "G79 right edge scroll (the SHARED CORE only; the live gesture is G124's). Only the SCREEN edge scrolls east: the window's own last 12 columns pan from 1278 ($ESWIN) although that pixel is on the bar, the same distance the left edge pans west, and the same distance as the --nosidebar control ($ESCTL) whose map edge and window edge are the same columns. THE MAP-SIDE STRIP REFUSES: aiming at tacRight-2 with the guard passing moves nothing ($ESEAST), so sliding the pointer off the map onto the sidebar no longer drags the map. A pixel just left of it at 1020 ($ESOFF), the middle of the bar at 1200 ($ESBAR) and the last column before the window strip at 1267 ($ESLIP) all refuse too. On the Enhanced HUD it pans east from the window edge deployed ($ESH6WIN) and with the drawer hidden ($ESH6HID), while the map edge deployed ($ESH6OUT), the middle of the bar ($ESH6BAR) and the SIDEBAR handle plate inside the window strip ($ESH6TAB) all refuse"
 else
-  bad "G79 right edge scroll: aimed-at-map=$ESAIM(want >=1; 0 means the verb is aiming at the window edge again) window-edge-passes=$ESPASS(want >=1; 0 means the last 12 columns are still vetoed by the panel) bar-blocked=$ESBLK(want >=1) h6-window-passes=$ESH6P(want >=1) h6-bar-blocked=$ESH6B(want >=1) east=$ESEAST west=$ESWEST window=$ESWIN control=$ESCTL mid-bar=$ESBAR before-strip=$ESLIP off-strip=$ESOFF h6-out=$ESH6OUT h6-window=$ESH6WIN h6-hidden=$ESH6HID h6-mid-bar=$ESH6BAR h6-tab=$ESH6TAB (start 45.000; WEST, WINDOW and CONTROL must differ from it by one same amount, and EAST must EQUAL it because the map-side strip was removed -- a non-zero east means that strip is back and the pointer drags the map on its way onto the sidebar; mid-bar, before-strip and off-strip must equal it; on the 640 HUD h6-window and h6-hidden must differ by one same amount and h6-out, h6-mid-bar and h6-tab must equal it)"
+  bad "G79 right edge scroll: aimed-at-map=$ESAIM(want >=1; 0 means the verb is aiming at the window edge again) window-edge-passes=$ESPASS(want >=1; 0 means the last 12 columns are still vetoed by the panel) bar-blocked=$ESBLK(want >=1) h6-window-passes=$ESH6P(want >=1) h6-bar-blocked=$ESH6B(want >=1) east=$ESEAST west=$ESWEST window=$ESWIN control=$ESCTL mid-bar=$ESBAR before-strip=$ESLIP off-strip=$ESOFF h6-out=$ESH6OUT h6-window=$ESH6WIN h6-hidden=$ESH6HID h6-mid-bar=$ESH6BAR h6-tab=$ESH6TAB (start 45.000; WEST, WINDOW and CONTROL must differ from it by one same amount, and EAST must EQUAL it because the map-side strip was removed -- a non-zero east means that strip is back and the pointer drags the map on its way onto the sidebar; mid-bar, before-strip and off-strip must equal it; on the Enhanced HUD h6-window and h6-hidden must differ by one same amount and h6-out, h6-mid-bar and h6-tab must equal it)"
 fi
 
 
@@ -4221,82 +4307,89 @@ fi
 # drawer's only way back is that plate. Move or delete the plates and the sbhit lines
 # stop naming them, so the probes cannot quietly decay into plain map pixels and pass.
 cat > gate_edgescroll_top.txt <<'EOS'
-sbhit 100 2
-sbhit 800 2
-sbhit 400 2
-sbhit 1100 2
-sbhit 2 20
+sbhit 80 2
+sbhit 1016 2
+sbhit 240 2
+sbhit 1188 2
+sbhit 2 14
+sbhit 600 2
 cam 45 45
-edgeat 100 2 20
+edgeat 80 2 20
 cam 45 45
-edgeat 800 2 20
+edgeat 1016 2 20
 cam 45 45
-edgeat 400 2 20
+edgeat 240 2 20
 cam 45 45
-edgeat 1100 2 20
+edgeat 1188 2 20
 cam 45 45
-edgeat 1100 400 20
+edgeat 1188 400 20
 cam 45 45
-edgeat 2 20 20
+edgeat 2 14 20
 cam 45 45
 edgeat 2 480 20
+cam 45 45
+edgeat 600 2 20
 quit
 EOS
-# 1280x960 is the pixel-exact size for this HUD: the whole-number zoom is 2, the bar is
-# 320 wide, the plates are OPTIONS [0,320), DATABASE [320,640), CREDITS [640,960) and
-# SIDEBAR [960,1280), and the tab band starts at row 0 so it covers the whole 12 row top
-# strip. Probe 6 sits at row 20, inside the band but BELOW the strip, so it measures the
-# LEFT edge rather than the top one and the two halves of the fault are separated.
+# 1280x960 IS THE ENHANCED HUD AT ZOOM 1. That HUD replaced the 640x480 art HUD under
+# OPENCNC3D_HUD=new, and it draws at a whole-number zoom of the window height over its
+# 693-row housing, so here every plate is one 17-row tab band along the top of the window:
+# OPTIONS [0,160), DATABASE [160,320), CREDITS [936,1096) and SIDEBAR [1096,1280). The
+# band starts at row 0 so it covers the whole 12-row top strip. Probe 6 sits at row 14,
+# inside the band but BELOW the strip, so it measures the LEFT edge rather than the top
+# one and the two halves of the fault are separated.
 #
-# THE x=400 PROBE USED TO BE THE BARE MAP AND IS NOW THE DATABASE PLATE. When the codex
-# took the empty slot right of OPTIONS it filled the last gap in this strip, so on the
-# Enhanced HUD at this size there is no longer a single top-edge pixel that is not a
-# plate. That is why the DOS run is not a convenience here but the only bare-map control
-# left: it has no plates at all, and every moving arm is measured against it.
+# THE TOP EDGE HAS BARE MAP AGAIN, between DATABASE and CREDITS, and probe 8 at x=600 is
+# it: no plate under it, the same run, the same camera. The DOS run stays the cross-HUD
+# control: it has no plates at all, and every moving arm is measured against both.
 #
-# The plate arrived without being added to the exemption list this gate exists to police,
-# and this arm caught it: x=400 reported a plate and refused to scroll while every other
-# arm moved. That is the gate working, and the numbers it printed are why the geometry
-# above is now written out in full.
+# When the codex first took the slot right of OPTIONS, the plate arrived without being
+# added to the exemption list this gate exists to police, and the DATABASE arm caught it:
+# it reported a plate and refused to scroll while every other arm moved. That is why the
+# geometry above is written out in full and the plate under each probe is asserted.
 te_z() { echo "$1" | grep "^CAM|edgeat|" | sed -n "$2p" | sed 's/.*|z=\([0-9.-]*\)|.*/\1/'; }
 te_x() { echo "$1" | grep "^CAM|edgeat|" | sed -n "$2p" | sed 's/.*|x=\([0-9.-]*\)|.*/\1/'; }
-TEH=$(CNC3D_HUD=new ./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --nosound --gfx \
+TEH=$(OPENCNC3D_HUD=new ./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --nosound --gfx \
       --w 1280 --h 960 --script gate_edgescroll_top.txt 2>&1 | tee -a "$OUT")
 TED=$(./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --nosound \
       --w 1280 --h 960 --script gate_edgescroll_top.txt 2>&1 | tee -a "$OUT")
 # The geometry the probes rest on, asserted rather than assumed.
-TEPL=$(echo "$TEH" | grep -c '^SBHIT|100,2|options|')
-TEPR=$(echo "$TEH" | grep -c '^SBHIT|800,2|credits|')
-TEPM=$(echo "$TEH" | grep -c '^SBHIT|400,2|database|')
-TEPS=$(echo "$TEH" | grep -c '^SBHIT|1100,2|sidebar|')
-TEPW=$(echo "$TEH" | grep -c '^SBHIT|2,20|options|')
-TEGO=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=100,2|tacright=960|guard=pass')
-TEGC=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=800,2|tacright=960|guard=pass')
-TEGD=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=400,2|tacright=960|guard=pass')
-TEGS=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=1100,2|tacright=960|guard=blocked')
-TEGW=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=2,20|tacright=960|guard=pass')
+TEPL=$(echo "$TEH" | grep -c '^SBHIT|80,2|options|')
+TEPR=$(echo "$TEH" | grep -c '^SBHIT|1016,2|credits|')
+TEPM=$(echo "$TEH" | grep -c '^SBHIT|240,2|database|')
+TEPS=$(echo "$TEH" | grep -c '^SBHIT|1188,2|sidebar|')
+TEPW=$(echo "$TEH" | grep -c '^SBHIT|2,14|options|')
+TEPN=$(echo "$TEH" | grep -c '^SBHIT|600,2|none|')
+TEGO=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=80,2|tacright=1096|guard=pass')
+TEGC=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=1016,2|tacright=1096|guard=pass')
+TEGD=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=240,2|tacright=1096|guard=pass')
+TEGS=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=1188,2|tacright=1096|guard=blocked')
+TEGW=$(echo "$TEH" | grep -c '^EDGEAT|frames=20|mouse=2,14|tacright=1096|guard=pass')
 TOPO=$(te_z "$TEH" 1); TOPC=$(te_z "$TEH" 2); TOPM=$(te_z "$TEH" 3)
 TOPS=$(te_z "$TEH" 4); TOPB=$(te_z "$TEH" 5)
 WSTB=$(te_x "$TEH" 6); WSTC=$(te_x "$TEH" 7)
+TOPN=$(te_z "$TEH" 8)
 TOPD=$(te_z "$TED" 3); WSTD=$(te_x "$TED" 7)
-# Nine numeric claims against the same start of 45.000. The two zero arms carry as much
+# Ten numeric claims against the same start of 45.000. The two zero arms carry as much
 # as the moving ones: an exemption that let EVERYTHING scroll would satisfy every moving
 # arm and hand the bar's own columns to the camera.
 TEV=$(awk -v o="$TOPO" -v c="$TOPC" -v m="$TOPM" -v d="$TOPD" -v s="$TOPS" -v b="$TOPB" \
-          -v wb="$WSTB" -v wc="$WSTC" -v wd="$WSTD" '
+          -v n="$TOPN" -v wb="$WSTB" -v wc="$WSTC" -v wd="$WSTD" '
 function ab(v) { return v < 0 ? -v : v }
 BEGIN{ st = 45.0; eps = 0.002;
   print ((st - m) > 1.0 && ab(o - m) < eps && ab(c - m) < eps && ab(d - m) < eps \
+      && ab(n - m) < eps \
       && (st - wc) > 1.0 && ab(wb - wc) < eps && ab(wd - wc) < eps \
       && ab(s - st) < eps && ab(b - st) < eps) ? 1 : 0 }')
 if [ "${TEPL:-0}" -ge 1 ] && [ "${TEPR:-0}" -ge 1 ] && [ "${TEPM:-0}" -ge 1 ] \
-   && [ "${TEPS:-0}" -ge 1 ] && [ "${TEPW:-0}" -ge 1 ] && [ "${TEGO:-0}" -ge 1 ] \
+   && [ "${TEPS:-0}" -ge 1 ] && [ "${TEPW:-0}" -ge 1 ] && [ "${TEPN:-0}" -ge 1 ] \
+   && [ "${TEGO:-0}" -ge 1 ] \
    && [ "${TEGC:-0}" -ge 1 ] && [ "${TEGD:-0}" -ge 1 ] && [ "${TEGS:-0}" -ge 1 ] \
    && [ "${TEGW:-0}" -ge 1 ] \
    && [ "${TEV:-0}" = "1" ]; then
-  ok "G141 top edge scroll under the 640x480 plates. The top strip pans north from under OPTIONS at x=100 ($TOPO) and from under CREDITS at x=800 ($TOPC), and from under DATABASE at x=400 ($TOPM), all three the same distance as the DOS bar, which has no plates at all and is now the only bare-map control this strip has ($TOPD). The left strip pans west from row 20, inside the OPTIONS band ($WSTB), the same distance as row 480 below it ($WSTC) and as the DOS control ($WSTD). THE DRAWER HANDLE KEEPS ITS VETO: the top strip refuses under it ($TOPS), because that plate is the only way to bring a hidden drawer back, and the middle of the bar off any strip refuses too ($TOPB)"
+  ok "G141 top edge scroll under the Enhanced HUD's plates. The top strip pans north from under OPTIONS at x=80 ($TOPO), from under CREDITS at x=1016 ($TOPC) and from under DATABASE at x=240 ($TOPM), all three the same distance as the bare map between the plates at x=600 ($TOPN) and as the DOS bar, which has no plates at all ($TOPD). The left strip pans west from row 14, inside the OPTIONS band ($WSTB), the same distance as row 480 below it ($WSTC) and as the DOS control ($WSTD). THE DRAWER HANDLE KEEPS ITS VETO: the top strip refuses under it ($TOPS), because that plate is the only way to bring a hidden drawer back, and the middle of the bar off any strip refuses too ($TOPB)"
 else
-  bad "G141 top edge scroll: plates-named=$TEPL$TEPR$TEPM$TEPS$TEPW(want 11111; a 0 means a probe is no longer on the plate it is named for, so the rest measures nothing) guards=$TEGO$TEGC$TEGD$TEGS$TEGW(want 11111) top-options=$TOPO top-credits=$TOPC top-database=$TOPM top-dos=$TOPD top-sidebar=$TOPS mid-bar=$TOPB west-in-band=$WSTB west-below=$WSTC west-dos=$WSTD (start 45.000; the three plate arms -- OPTIONS, CREDITS and DATABASE -- and the DOS control must agree to 0.002 and must have moved north by more than 1, the two west arms and their DOS control likewise; top-sidebar and mid-bar must EQUAL the start, and a moving top-sidebar means the exemption swallowed the drawer handle)"
+  bad "G141 top edge scroll: plates-named=$TEPL$TEPR$TEPM$TEPS$TEPW$TEPN(want 111111; a 0 means a probe is no longer on the plate it is named for, or the bare-map probe landed on one, so the rest measures nothing) guards=$TEGO$TEGC$TEGD$TEGS$TEGW(want 11111) top-options=$TOPO top-credits=$TOPC top-database=$TOPM top-bare=$TOPN top-dos=$TOPD top-sidebar=$TOPS mid-bar=$TOPB west-in-band=$WSTB west-below=$WSTC west-dos=$WSTD (start 45.000; the three plate arms -- OPTIONS, CREDITS and DATABASE -- the bare-map arm and the DOS control must agree to 0.002 and must have moved north by more than 1, the two west arms and their DOS control likewise; top-sidebar and mid-bar must EQUAL the start, and a moving top-sidebar means the exemption swallowed the drawer handle)"
 fi
 
 
@@ -5250,7 +5343,7 @@ rm -rf shots/lobby && mkdir -p shots/lobby
 # TEE's exit status, which is always 0, so the "run itself failed" branch below could
 # never fire and a crash scored as a frame shortage. And with no maps installed the
 # lobby refuses to open and the app parks at the menu forever, which wedges the suite.
-./cnc3d --lobbyshot shots/lobby --dylib ./TiberianDawn.dylib --dir ./missions/ \
+./opencnc3d --lobbyshot shots/lobby --dylib ./TiberianDawn.dylib --dir ./missions/ \
         --content ./content/ --cameos cameos.pack --dospack dossidebar.pack \
         --dosinf dosinfantry.pack > shots/lobby86.log 2>&1 &
 LBP=$!; LBW=0
@@ -5335,7 +5428,7 @@ fi
 # checks it against what the app said it sent. A control that moves on screen and changes
 # nothing is the exact failure this screen exists to avoid. Watchdogged and map-counted
 # for the same two reasons as G86.
-./cnc3d --lobbyplay 30 --dylib ./TiberianDawn.dylib --dir ./missions/ \
+./opencnc3d --lobbyplay 30 --dylib ./TiberianDawn.dylib --dir ./missions/ \
         --content ./content/ --cameos cameos.pack --dospack dossidebar.pack \
         --dosinf dosinfantry.pack > shots/lobby87.log 2>&1 &
 LPP=$!; LPW=0
@@ -5378,7 +5471,7 @@ fi
 #
 # The renderer keeps no group list: the number keys call
 # CNC_Handle_ControlGroup_Request, which is Handle_Team, and the selection is read back
-# from CNC3D_Dump_Selection. So this gate is really asking whether that round trip holds.
+# from OpenCNC3D_Dump_Selection. So this gate is really asking whether that round trip holds.
 #
 # Four legs, and the last two are the ones worth having. Leg 2 asserts that assigning a
 # unit to a second group EMPTIES the first, which is the engine's rule
@@ -5857,10 +5950,11 @@ TTLOG=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
             --script gate_tooltip.txt 2>&1)
 TTRC=$?
 echo "$TTLOG" >> "$OUT"
-# The SAME script against the 640 HUD, because the two HUDs have different geometry, row
-# counts and scroll state, and gates.sh already runs both elsewhere. A tooltip that works
-# on one and not the other is the likely failure, not a total absence.
-TTLOG6=$(CNC3D_HUD=new ./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
+# The SAME script against the Enhanced HUD (OPENCNC3D_HUD=new, which replaced the 640x480
+# art HUD), because the two HUDs have different geometry, row counts and scroll state, and
+# gates.sh already runs both elsewhere. A tooltip that works on one and not the other is
+# the likely failure, not a total absence.
+TTLOG6=$(OPENCNC3D_HUD=new ./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
             --script gate_tooltip.txt 2>&1)
 TTRC6=$?
 echo "$TTLOG6" >> "$OUT"
@@ -5896,15 +5990,19 @@ for ln in sys.stdin:
 # a missing acronym counts as a failure too, so the table cannot quietly lose one
 print(bad + len(OK - seen))
 ')
-# 5. the 640 HUD gets it too, at ITS geometry
+# 5. the Enhanced HUD gets it too, at ITS geometry: the cameo with both strings, its own
+#    Sell button with no price, and nothing off the panel
 TT6=$(echo "$TTLOG6" | grep -c '^SBTIP|hover=1|.*|name=Med\. Tank|cost=800$')
+TT6CHROME=$(echo "$TTLOG6" | grep -c '^SBTIP|hover=[0-9]*|col=-1|slot=-1|name=Sell Structure|cost=-1$')
+TT6NONE=$(echo "$TTLOG6" | grep -c '^SBTIP|hover=0|col=-1|slot=-1|name=-|cost=-1$')
 if [ "$TTRC" != "0" ] || [ "$TTRC6" != "0" ]; then
   bad "G94 sidebar tooltip: a run failed (exit $TTRC / $TTRC6)"
 elif [ "${TTNAME:-0}" -ge 1 ] && [ "${TTCHROME:-0}" -ge 1 ] && [ "${TTNONE:-0}" -ge 1 ] \
-     && [ "${TTCOUNT:-0}" -ge 1 ] && [ "${TTIDENT:-1}" -eq 0 ] && [ "${TT6:-0}" -ge 1 ]; then
-  ok "G94 sidebar tooltip: a cameo reads 'Med. Tank' and '\$800' from the game's own CONQUER.ENG and its own export, a chrome button reads 'Sell Structure' with no price line, off the panel reads nothing, all 118 baked names resolved with none falling back to its ident except the three the game itself calls A10, C17 and APC, and the 640 HUD gets the same at its own geometry"
+     && [ "${TTCOUNT:-0}" -ge 1 ] && [ "${TTIDENT:-1}" -eq 0 ] && [ "${TT6:-0}" -ge 1 ] \
+     && [ "${TT6CHROME:-0}" -ge 1 ] && [ "${TT6NONE:-0}" -ge 1 ]; then
+  ok "G94 sidebar tooltip: a cameo reads 'Med. Tank' and '\$800' from the game's own CONQUER.ENG and its own export, a chrome button reads 'Sell Structure' with no price line, off the panel reads nothing, all 118 baked names resolved with none falling back to its ident except the three the game itself calls A10, C17 and APC, and the Enhanced HUD gets the same three at its own geometry"
 else
-  bad "G94 sidebar tooltip: cameo=$TTNAME(want >=1) chrome=$TTCHROME(want >=1) offpanel=$TTNONE(want >=1; zero means the hover is never cleared) table=$TTCOUNT(want 1) idents-not-joined=$TTIDENT(want 0; counts rows whose title is its own ident EXCLUDING the three the game really does call A10/C17/APC, plus any of those three that went missing) hud640=$TT6(want >=1; zero means it works on the DOS bar only)"
+  bad "G94 sidebar tooltip: cameo=$TTNAME(want >=1) chrome=$TTCHROME(want >=1) offpanel=$TTNONE(want >=1; zero means the hover is never cleared) table=$TTCOUNT(want 1) idents-not-joined=$TTIDENT(want 0; counts rows whose title is its own ident EXCLUDING the three the game really does call A10/C17/APC, plus any of those three that went missing) enhanced-cameo=$TT6 enhanced-chrome=$TT6CHROME enhanced-offpanel=$TT6NONE(want >=1 each; zero means it works on the DOS bar only)"
 fi
 
 # ==================================================================================
@@ -6242,7 +6340,7 @@ NODERR=shots/flow105.err
 # and map-pick lines. FLOWTEST|complete is printed only once mission two has booted and
 # returned, so it is required, and a timeout or a non-zero exit is the first branch.
 rm -f flow_globe.png flow_map.png "$NODFLOW" "$NODERR"
-./cnc3d --flowtest 20 --flowside nod --dylib ./TiberianDawn.dylib --dir ./missions/ \
+./opencnc3d --flowtest 20 --flowside nod --dylib ./TiberianDawn.dylib --dir ./missions/ \
       --content ./content/ --cameos cameos.pack --dospack dossidebar.pack \
       --dosinf dosinfantry.pack > "$NODFLOW" 2>"$NODERR" &
 NP=$!; NW=0
@@ -6334,7 +6432,7 @@ if [ "$BARC" != "0" ]; then
 elif [ -z "$BA_P0" ] || [ -z "$BA_P1" ]; then
   bad "G107 build anywhere: placement mode was never entered (need two PLACEMAP|origin lines, got $(echo "$BALOG" | grep -c '^PLACEMAP|origin')) -- SCG01EC is the scenario because it is the only one that hands the player a Construction Yard and a build list, so check that first"
 elif [ "$BA_HAVE" != "1" ]; then
-  bad "G107 build anywhere: the switch never reached the brain (no CHEAT|buildanywhere|1 line) -- this TiberianDawn build may have no CNC3D_Set_Build_Anywhere export"
+  bad "G107 build anywhere: the switch never reached the brain (no CHEAT|buildanywhere|1 line) -- this TiberianDawn build may have no OpenCNC3D_Set_Build_Anywhere export"
 elif [ "${BA_C1:-99999}" -gt "${BA_C0:-0}" ]; then
   bad "G107 build anywhere: the switch OPENED UP buildable ground (clear $BA_C0 -> $BA_C1). The cheat is only allowed to lift base adjacency; ground that will not take a foundation must still refuse one, which is the whole of what the requirement asked for."
 elif [ "${BA_P1:-0}" -ge $(( ${BA_P0:-0} * 2 )) ] && [ "${BA_L1:-0}" -gt "${BA_L0:-0}" ]; then
@@ -6466,7 +6564,7 @@ fi
 # different rectangles at different zooms: the DOS bar plots at a whole-number cell zoom
 # inside a 72x69 hole, the 640x480 HUD at a fractional zoom inside 136x120. A coordinate
 # transform that is right on one of them can be wrong on the other, and both are real --
-# cnc_eyes draws the DOS bar unless CNC3D_HUD says otherwise, and the app ships the other.
+# cnc_eyes draws the DOS bar unless OPENCNC3D_HUD says otherwise, and the app ships the other.
 #
 # THE CAMERA READING IS THE ASSERTION, not the order line on its own. The report is that
 # a radar click only ever jumps the camera, so the proof that the click became an order
@@ -6476,10 +6574,10 @@ fi
 MMB="--scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --forceradar --w 1280 --h 960"
 MMLOG=$(./cnc_eyes $MMB --script "$GATEDIR/gate_mmorder.txt" 2>&1)
 MMRC=$?
-export CNC3D_HUD=new
+export OPENCNC3D_HUD=new
 MMLOG6=$(./cnc_eyes $MMB --script "$GATEDIR/gate_mmorder.txt" 2>&1)
 MMRC6=$?
-unset CNC3D_HUD
+unset OPENCNC3D_HUD
 echo "$MMLOG"  | grep -E '^(MMCLICK|MINIMAP|CAM\|cam|EXPECTSEL|EXPECTCELL|PLAYER)' >> "$OUT"
 echo "$MMLOG6" | grep -E '^(MMCLICK|MINIMAP|CAM\|cam|EXPECTSEL|EXPECTCELL|PLAYER)' >> "$OUT"
 # One reader, one verdict per HUD. The six CAM|cam lines are, in order:
@@ -7083,7 +7181,7 @@ fi
 #
 # THE POINT OF THE GATE. AMOVE| is OUR line, so a verb accidentally wired to a plain move
 # would still print the word. Every assertion that matters below is the ENGINE's own
-# answer, read back out of CNC3D_Dump_Selection: MissionClass::Missions[MISSION_GUARD_AREA]
+# answer, read back out of OpenCNC3D_Dump_Selection: MissionClass::Missions[MISSION_GUARD_AREA]
 # is the string "Area Guard" (mission.cpp:499-503) and no printf on this side produces it.
 #
 # WHY GUARD AREA IS THE RIGHT ORDER, measured rather than assumed. A guard-area order
@@ -7348,13 +7446,19 @@ fi
 # proves the FX_PARAMS row exists at all: without it the line prints "unknown dial" and
 # counts as a script failure.
 #
-# THE FIRST RUN is the dialog and the page. THE SWAP HAS MOVED to Options > Gameplay, so the
-# Advanced page now HOLDS eleven elements and SHOWS eleven: the whole list fits its own well
-# and there is no travel left to measure (G139 owns that). What this run still checks is that whatever IS on screen clears the
-# OK button and does not overlap, which was arithmetic in a comment before ADVRECT existed. ADVRECT is that check, read by the
-# same overlap walk G108 runs over the cheat page. optvis is called on the Advanced page
-# exactly ONCE on purpose: a second visit would emit every rectangle twice and the walk
-# would report each row overlapping its own duplicate.
+# THE FIRST RUN is the dialog and the page. THE SWAP HAS MOVED to Options > Gameplay, and
+# since the graphics modes the Advanced page is a Global block above three mode tabs, so
+# under --gfx it opens on the Enhanced tab and shows TWENTY-TWO rectangles: the six Global
+# rows (Fullscreen, Windowed, Borderless, Resolution, Vertical sync, FPS counter), the
+# three tabs, the ten of Enhanced's eighteen rows that fit the well, Reset to Defaults, OK
+# and the scroll bar. The well scrolls and G139 owns its travel. What this run still checks
+# is that whatever IS on screen clears the OK button and does not overlap, which was
+# arithmetic in a comment before ADVRECT existed. ADVRECT is that check, read by the same
+# overlap walk G108 runs over the cheat page. The count is hardcoded on purpose, as G108
+# holds its own: a control added to the page has to be added here too, which is the moment
+# to re-check the geometry. optvis is called on the Advanced page exactly ONCE on purpose:
+# a second visit would emit every rectangle twice and the walk would report each row
+# overlapping its own duplicate.
 rm -f /tmp/g121_page.txt /tmp/g121_verbs.txt
 cat > /tmp/g121_page.txt <<'G121AEOF'
 tick 30
@@ -7431,10 +7535,10 @@ SWCAM=$(echo "$SWVLOG" | grep '^CAM|cam|')
 SWC1=$(echo "$SWCAM" | sed -n '1p'); SWC2=$(echo "$SWCAM" | sed -n '2p')
 if [ "$SWPRC" != "0" ] || [ "$SWVRC" != "0" ]; then
   bad "G121 swapped mouse buttons: a run failed (page exit $SWPRC, verbs exit $SWVRC)"
-elif [ "${SWROWS:-0}" != "13" ]; then
-  bad "G121 swapped mouse buttons: the Advanced page reported $SWROWS rectangles, want 13 (eleven checkbox rows in the well, OK, and the scroll bar -- the page now HOLDS eleven elements and SHOWS all of them). Fewer means the element never went in; more means optvis dumped that page twice and the overlap walk below is comparing rows with their own duplicates"
+elif [ "${SWROWS:-0}" != "22" ]; then
+  bad "G121 swapped mouse buttons: the Advanced page reported $SWROWS rectangles, want 22 (six Global rows, three mode tabs, the ten well rows the Enhanced tab shows, Reset to Defaults, OK and the scroll bar). Fewer means a control lost its rectangle and the overlap walk never saw it; more means optvis dumped that page twice and the walk below is comparing rows with their own duplicates"
 elif [ "${SWOVER:-99}" != "0" ]; then
-  bad "G121 swapped mouse buttons: $SWOVER pairs of controls overlap on the Advanced page -- the twelfth row needs DOPT_A_STEP worked again against DOPT_GC_OK_Y, and until it is, OK is partly unclickable"
+  bad "G121 swapped mouse buttons: $SWOVER pairs of controls overlap on the Advanced page -- the well needs DOPT_A_STEP and DOPT_A_VIEW_H worked again against DOPT_AD_OK_Y, and until it is, OK or Reset is partly unclickable"
 elif ! echo "$SW1" | grep -q '^OPTSWAP|swap=0|fx_swap=0|enhanced=1$'; then
   bad "G121 swapped mouse buttons: the box does not start CLEAR under ENHANCED [$SW1] -- off by default is the whole promise"
 elif ! echo "$SW2" | grep -q '^OPTSWAP|swap=1|fx_swap=1|enhanced=1$'; then
@@ -7487,15 +7591,20 @@ fi
 #
 # BOTH HUDS, in two runs, because a plate that halves on one and not the other is the
 # likely failure rather than a total absence. The size is pinned with --w/--h so the
-# expected numbers below mean something.
+# expected numbers below mean something. The second HUD is the Enhanced one, which
+# replaced the 640x480 art HUD under OPENCNC3D_HUD=new and lists one category at a time:
+# MTNK is on screen there only once VEHICLES is showing, at 1156,348 (column 0, row 1 of
+# that list at 1280x720), which is where the second cursor goes. sbcategory selects the
+# list and nothing else; the DOS bar has no categories and ignores it.
 cat > /tmp/g122.txt <<'EOF'
 tick 30
 build MTNK
 queue MTNK 2
+sbcategory vehicles
 cursor 1200 370
 shot /tmp/g122_a.png
 sbplates
-cursor 1230 230
+cursor 1156 348
 shot /tmp/g122_b.png
 sbplates
 quit
@@ -7505,7 +7614,7 @@ PLLOG=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --w 1280 
             --script /tmp/g122.txt 2>&1)
 PLRC=$?
 echo "$PLLOG" >> "$OUT"
-PLLOG6=$(CNC3D_HUD=new ./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
+PLLOG6=$(OPENCNC3D_HUD=new ./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
             --w 1280 --h 720 --script /tmp/g122.txt 2>&1)
 PLRC6=$?
 echo "$PLLOG6" >> "$OUT"
@@ -7547,9 +7656,9 @@ elif [ "${PLBAD:-1}" -eq 0 ] && [ "${PLBAD6:-1}" -eq 0 ] \
      && [ "${PLSEEN:-0}" -ge 1 ] && [ "${PLSEEN6:-0}" -ge 1 ] \
      && [ "${PLADD:-0}" -ge 1 ] && [ "${PLADD6:-0}" -ge 1 ] \
      && [ "${PLQ:-0}" -ge 1 ] && [ "${PLQ6:-0}" -ge 1 ]; then
-  ok "G122 plate size: at 1280x720 the 9x9 queue badge draws at 9x9 on the 640 HUD and 18x18 on the DOS bar, half of the 18x18 and 27x27 it was; $PLSEEN6 and $PLSEEN plates measured across the two HUDs, every one at a WHOLE magnification step (x$PLHALF6 and x$PLHALF) and none more than one step over half"
+  ok "G122 plate size: at 1280x720 the 9x9 queue badge draws at 9x9 on the Enhanced HUD and 18x18 on the DOS bar, half of the 18x18 and 27x27 it was; $PLSEEN6 and $PLSEEN plates measured across the two HUDs, every one at a WHOLE magnification step (x$PLHALF6 and x$PLHALF) and none more than one step over half"
 else
-  bad "G122 plate size: violations dos-bar=$PLBAD hud640=$PLBAD6 (want 0 each; counts a fractional step, a step that is not half the interface zoom, a draw site still on the full zoom, and a px that is not dos*step) plates-measured=$PLSEEN/$PLSEEN6 (want >=1 each; zero means no plate drew at all and every other leg is vacuous) queue-badge-dos-bar=$PLQ(want >=1, dos=9x9 zoom=2 px=18x18) queue-badge-640=$PLQ6(want >=1, dos=9x9 zoom=1 px=9x9; zero here with a nonzero tooltip means the queued cameo was scrolled out of the strip, not that the badge is the wrong size) queue-accepted=$PLADD/$PLADD6(want >=1 each; 0 means the queue verb REFUSED the subject -- it is not a unit -- so no badge was ever asked for and the two counts above are absence, not size) half-step=$PLHALF(dos)/$PLHALF6(640), which differ BY DESIGN and are already pinned by the two badge legs: a 720-row window gives the dos bar zoom 3, which has no exact half, so its step is taken up to 2, while a DOS pixel on the 640 HUD is two HUD pixels and halves exactly to 1"
+  bad "G122 plate size: violations dos-bar=$PLBAD hud640=$PLBAD6 (want 0 each; counts a fractional step, a step that is not half the interface zoom, a draw site still on the full zoom, and a px that is not dos*step) plates-measured=$PLSEEN/$PLSEEN6 (want >=1 each; zero means no plate drew at all and every other leg is vacuous) queue-badge-dos-bar=$PLQ(want >=1, dos=9x9 zoom=2 px=18x18) queue-badge-enhanced=$PLQ6(want >=1, dos=9x9 zoom=1 px=9x9; zero here with a nonzero tooltip means the queued cameo was not in the list on screen, scrolled out or another category showing, not that the badge is the wrong size) queue-accepted=$PLADD/$PLADD6(want >=1 each; 0 means the queue verb REFUSED the subject -- it is not a unit -- so no badge was ever asked for and the two counts above are absence, not size) half-step=$PLHALF(dos)/$PLHALF6(640), which differ BY DESIGN and are already pinned by the two badge legs: a 720-row window gives the dos bar zoom 3, which has no exact half, so its step is taken up to 2, while a DOS pixel on the 640 HUD is two HUD pixels and halves exactly to 1"
 fi
 
 # =====================================================================================
@@ -7737,7 +7846,7 @@ ep_run() {
   fi
   # perl's alarm because macOS has no timeout(1). The driver ends its own run on every
   # refusal it can name, so this only catches one it cannot: a window that never draws.
-  CNC3D_HUD="$ge_hud" perl -e 'alarm 240; exec @ARGV' ./cnc_eyes --scen SCG01EB \
+  OPENCNC3D_HUD="$ge_hud" perl -e 'alarm 240; exec @ARGV' ./cnc_eyes --scen SCG01EB \
       --pack SCG01EA.pack $BASE --nosound "$@" --edgeplay >"/tmp/g124_$ge_n.log" 2>&1
   echo "G124 run $ge_n exit=$?" >>"$OUT"
   cat "/tmp/g124_$ge_n.log" >>"$OUT"
@@ -7771,7 +7880,7 @@ EPV=$(awk -v a="${EPH6:-9}" -v b="${EPDOS:-9}" -v c="${EPHI:-9}" \
 BEGIN{ print (a == 0 && b == 0 && c == 0 && g > 1.0 && gd > 1.0 && gh > 1.0 \
               && s > 11.5 && s < 12.5 && sh > 11.5 && sh < 12.5 && x > 1.5) ? 1 : 0 }')
 if [ "$INTERACTIVE" != "1" ]; then
-  skip "G124 edge gesture through the live loop: needs a raised, focused window and warps the real pointer, so it does not run while somebody is using the machine. Run it with CNC3D_GATES_INTERACTIVE=1. THE EDGE GESTURE THROUGH THE LIVE LOOP IS NOT COVERED BY THIS RUN; G79 still covers the shared core it calls"
+  skip "G124 edge gesture through the live loop: needs a raised, focused window and warps the real pointer, so it does not run while somebody is using the machine. Run it with OPENCNC3D_GATES_INTERACTIVE=1. THE EDGE GESTURE THROUGH THE LIVE LOOP IS NOT COVERED BY THIS RUN; G79 still covers the shared core it calls"
 elif [ "${EPV:-0}" = "1" ]; then
   ok "G124 edge gesture through the live loop: all ten arms pass on the 640x480 HUD at 1600x960, on the DOS bar at 1280x720, and on a 2x drawable ($EPSCALE) where the strip still measures $EPSTRIPH window points. A pointer thrown PAST the window's right edge, which is what the report was about and what pans 0.000 without the fix, pans east $EPGEST cells on the 640 HUD, $EPGESTD on the DOS bar and $EPGESTH at 2x; the window's own last point lands on column $EPREACH, inside the east strip; the sidebar handle plate hovered inside the window still refuses ($EPPLATE) while the same height pushed past the window scrolls ($EPPUSHPL); the middle of the bar refuses ($EPMID) and so does one point further in than the strip reaches ($EPLIP); at 2x a point eleven points inside the window edge scrolls ($EPIN), which is the arm the old drawable-pixel strip failed. $EPRETRY probe(s) were re-run after the desk interfered"
 else
@@ -8333,7 +8442,7 @@ else
   elif [ "$MCUP" != "up" ]; then
     bad "G231 the browser, pressed: the list service did not answer on port $MCPORT within 15 s ($(tail -1 /tmp/g231_service.log 2>/dev/null))"
   else
-    ./cnc3d $BASE --mplist "http://127.0.0.1:$MCPORT/" --mpclick > /tmp/g231.log 2>&1
+    ./opencnc3d $BASE --mplist "http://127.0.0.1:$MCPORT/" --mpclick > /tmp/g231.log 2>&1
     MCRC=$?
     cat /tmp/g231.log >> "$OUT"
     MCN=$(sed -n 's/^MPCLICK|done|checks=\([0-9]*\)|.*/\1/p' /tmp/g231.log | head -1)
@@ -8405,7 +8514,7 @@ G234SKIP=""
 G234AN=0; G234BN=0
 
 # ---- A ----
-./cnc3d $BASE --mpsort > /tmp/g234_sort.log 2>&1
+./opencnc3d $BASE --mpsort > /tmp/g234_sort.log 2>&1
 G234ARC=$?
 cat /tmp/g234_sort.log >> "$OUT"
 G234AN=$(sed -n 's/^MPSORT|done|checks=\([0-9]*\)|.*/\1/p' /tmp/g234_sort.log | head -1)
@@ -8416,7 +8525,7 @@ fi
 
 # ---- C ----
 rm -f shots/g234_mp_*.png
-./cnc3d $BASE --mpshot shots/g234_mp > /tmp/g234_shot.log 2>&1
+./opencnc3d $BASE --mpshot shots/g234_mp > /tmp/g234_shot.log 2>&1
 G234CRC=$?
 cat /tmp/g234_shot.log >> "$OUT"
 G234SHOTS=$(sed -n 's/^MPSHOT|shots=\([0-9]*\)|.*/\1/p' /tmp/g234_shot.log | head -1)
@@ -8652,7 +8761,7 @@ G234EOF
     else
       G234P=/tmp/g234_prefs.cfg
       rm -f "$G234P"
-      ./cnc3d $BASE --mplist "http://127.0.0.1:$G234PORT/" --mpsortclick --mpprefs "$G234P" \
+      ./opencnc3d $BASE --mplist "http://127.0.0.1:$G234PORT/" --mpsortclick --mpprefs "$G234P" \
           > /tmp/g234_click.log 2>&1
       G234BRC=$?
       cat /tmp/g234_click.log >> "$OUT"
@@ -8662,7 +8771,7 @@ G234EOF
         G234WHY="$G234WHY --mpsortclick checks=$G234BN(want >=33) fails=$G234BBAD(want 0) exit=$G234BRC(want 0): $(grep -a '^MPSORTCLICK|FAIL|' /tmp/g234_click.log | head -3 | tr '\n' ' ')."
       fi
       # THE RELAUNCH: a new process reads what the last one wrote.
-      G234READ=$(./cnc3d $BASE --mpprefsread "$G234P" 2>&1 | tee -a "$OUT" | grep -a '^MPPREFS|' | head -1)
+      G234READ=$(./opencnc3d $BASE --mpprefsread "$G234P" 2>&1 | tee -a "$OUT" | grep -a '^MPPREFS|' | head -1)
       if [ "$G234READ" != "MPPREFS|file=1|sort=players|order=up|hide_locked=0|hide_greyed=1|handle=ACE" ]; then
         G234WHY="$G234WHY a relaunch read back [$G234READ], want PLAYERS fewest first, HIDE GREYED ticked and the name ACE."
       fi
@@ -8671,7 +8780,7 @@ G234EOF
       # have rewritten the file.
       printf 'sort banana\norder sideways\nhide_locked 7\nhide_greyed yes\nhandle A\001B\n\377\376\375 not a line\n' > /tmp/g234_bad.cfg
       G234BADSUM=$(cksum < /tmp/g234_bad.cfg)
-      G234READ=$(./cnc3d $BASE --mpprefsread /tmp/g234_bad.cfg 2>&1 | tee -a "$OUT" | grep -a '^MPPREFS|' | head -1)
+      G234READ=$(./opencnc3d $BASE --mpprefsread /tmp/g234_bad.cfg 2>&1 | tee -a "$OUT" | grep -a '^MPPREFS|' | head -1)
       if [ "$G234READ" != "MPPREFS|file=1|sort=game|order=up|hide_locked=0|hide_greyed=0|handle=" ]; then
         G234WHY="$G234WHY a damaged settings file read back [$G234READ], want the defaults."
       fi
@@ -8679,7 +8788,7 @@ G234EOF
         G234WHY="$G234WHY reading the damaged settings file changed it."
       fi
       rm -f /tmp/g234_none.cfg
-      G234READ=$(./cnc3d $BASE --mpprefsread /tmp/g234_none.cfg 2>&1 | tee -a "$OUT" | grep -a '^MPPREFS|' | head -1)
+      G234READ=$(./opencnc3d $BASE --mpprefsread /tmp/g234_none.cfg 2>&1 | tee -a "$OUT" | grep -a '^MPPREFS|' | head -1)
       if [ "$G234READ" != "MPPREFS|file=0|sort=game|order=up|hide_locked=0|hide_greyed=0|handle=" ]; then
         G234WHY="$G234WHY a missing settings file read back [$G234READ], want the defaults."
       fi
@@ -8784,11 +8893,11 @@ G234RELAY
     if [ "$G234PUP" != "1" ]; then
       G234WHY="$G234WHY the ping half's list service or relay stand-in never came up ($(tail -1 /tmp/g234_pingsvc.log 2>/dev/null) $(tail -1 /tmp/g234_relay.log 2>/dev/null))."
     else
-      ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+      ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
           --mphost 40 --mpwait 90 --mppublic --mplist "http://127.0.0.1:$G234PPORT/" \
           --mpname "A DIRECT HOST" --w 1024 --h 640 > /tmp/g234_direct.log 2>&1 &
       G234DPID=$!
-      ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+      ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
           --mphost 40 --mpwait 90 --mprelay "127.0.0.1:$G234RPORT" \
           --mplist "http://127.0.0.1:$G234PPORT/" \
           --mpname "B RELAYED ROOM" --w 1024 --h 640 > /tmp/g234_relayed.log 2>&1 &
@@ -8833,7 +8942,7 @@ G234EOF
       elif ! printf '%s\n' "$G234SEEDP" | grep -q '^SEEDED|11$'; then
         G234WHY="$G234WHY the ping half's seed did not list eleven rows: $(printf '%s' "$G234SEEDP" | tr '\n' ' ')."
       else
-        ./cnc3d $BASE --mplist "http://127.0.0.1:$G234PPORT/" --mprelay "127.0.0.1:$G234RPORT" \
+        ./opencnc3d $BASE --mplist "http://127.0.0.1:$G234PPORT/" --mprelay "127.0.0.1:$G234RPORT" \
             --mpping --mppingdirect /tmp/g234_direct.log --mppingrelayed /tmp/g234_relayed.log \
             --mppingshot shots/g234_mp > /tmp/g234_ping.log 2>&1
         G234PRC=$?
@@ -8918,7 +9027,7 @@ fi
 # claims, and the whole multiplayer design rests on the second one.
 #
 # So this loads the brain twice as two separate images and compares the full object dump
-# after every tick. It runs with CNC3D_Lockstep ON, deliberately, because the determinism
+# after every tick. It runs with OpenCNC3D_Lockstep ON, deliberately, because the determinism
 # fixes are gated on that flag and a run with it off exercises the campaign path rather
 # than the one a match takes.
 #
@@ -8959,7 +9068,7 @@ TBN=$(printf '%s\n' "$TBOUT" | sed -n 's/.*lockstep mode, ran \([0-9]*\) ticks.*
 TBN2=$(printf '%s\n' "$TBOUT" | sed -n 's/.*lockstep mode, ran \([0-9]*\) ticks.*/\1/p' | sed -n 2p)
 TBEND=$(printf '%s\n' "$TBOUT" | grep -c 'the scenario ended itself')
 if [ "$TBRC" = "0" ] && [ "$TBN" = "2000" ] && [ "$TBN2" = "300" ] && [ "$TBEND" = "0" ]; then
-  ok "G194 two brains in lockstep: two INDEPENDENT instances of the engine (isolation proven by setting the lockstep flag on one and reading it back false on the other, not assumed), both with CNC3D_Lockstep ON, agreeing on the full object dump after every one of $TBN ticks of SCB01EA at order-wire layout $TBHASH; and in a two-human SCM01EA match of $TBN2 ticks an order made on one instance was drained off it, posted to both, executed on both and left them byte identical, with the control that the SAME order given to one instance alone DID make them differ so the comparison can see it take effect. G4 proves one binary repeats; this proves two copies AGREE and that an order crosses between them, which is the property lockstep is built on. The same match also proves the four gestures that used to bypass the order queue are orders now: repair, sell, wall sell and placement each changed NOTHING on the instance that clicked until the order crossed, then changed both worlds alike (the sell with no visible effect headless, because Sell_Back needs build-up art the stubs do not carry), and two placement clicks in one window placed exactly one building"
+  ok "G194 two brains in lockstep: two INDEPENDENT instances of the engine (isolation proven by setting the lockstep flag on one and reading it back false on the other, not assumed), both with OpenCNC3D_Lockstep ON, agreeing on the full object dump after every one of $TBN ticks of SCB01EA at order-wire layout $TBHASH; and in a two-human SCM01EA match of $TBN2 ticks an order made on one instance was drained off it, posted to both, executed on both and left them byte identical, with the control that the SAME order given to one instance alone DID make them differ so the comparison can see it take effect. G4 proves one binary repeats; this proves two copies AGREE and that an order crosses between them, which is the property lockstep is built on. The same match also proves the four gestures that used to bypass the order queue are orders now: repair, sell, wall sell and placement each changed NOTHING on the instance that clicked until the order crossed, then changed both worlds alike (the sell with no visible effect headless, because Sell_Back needs build-up art the stubs do not carry), and two placement clicks in one window placed exactly one building. The building power switch is an order too: thrown while the yard was still being built it crossed and was refused on both, and once the yard stood it crossed once to switch off and once to switch back on, landing on both worlds each time"
 else
   bad "G194 two brains in lockstep: exit=$TBRC(want 0; 99 means cnc_twobrain or the brain was not in the run folder; game/build.sh makes the binary) ticks=$TBN(want 2000) match-ticks=$TBN2(want 300) ended-early=$TBEND(want 0; a scenario that ends itself compares only the dumps before it ended). $(printf '%s' "$TBOUT" | grep -E '^FAILED|first difference|DIVERGED|ended itself' | head -2 | tr '\n' ' ')"
 fi
@@ -9047,7 +9156,7 @@ fi
 # and both peers really do start at zero. This gate exists because that is an accident of
 # there being no lobby yet, and Phase 5 removes it.
 #
-# HOW THE LEG WORKS. CNC3D_TB_WARM makes instance A run a throwaway scenario first and B not,
+# HOW THE LEG WORKS. OPENCNC3D_TB_WARM makes instance A run a throwaway scenario first and B not,
 # so the two differ in exactly one way: what their process has already done. Then both start
 # the real scenario and must agree on every tick, as they must in every other leg.
 #
@@ -9055,7 +9164,7 @@ fi
 # against Multi1 divergence above and exits non-zero; with it in, 120 ticks byte identical.
 # ---------------------------------------------------------------------------
 if [ -x ./cnc_twobrain ] && [ -f ./TiberianDawn.dylib ]; then
-  WSOUT=$(CNC3D_TB_WARM=SCB01EA CNC3D_TB_WARM_TICKS=200 \
+  WSOUT=$(OPENCNC3D_TB_WARM=SCB01EA OPENCNC3D_TB_WARM_TICKS=200 \
       ./cnc_twobrain ./TiberianDawn.dylib content/ missions/ SCM01EA 120 2>&1)
   WSRC=$?
   # The warm-up must actually have happened, or this leg is G194 again under a new number.
@@ -10277,11 +10386,21 @@ mmclick 50 50
 cam
 quit
 SCRIPT
+# THE KILL COLUMN NEEDS A FIGHT, AND THE FIGHT'S HOUR IS THE COMPUTER'S DICE. The duel's
+# computer makes its first attack when its Attack timer runs out, and the rules set that
+# timer to AttackDelay (5) times a random pick of half a minute to two minutes
+# (house.cpp, rules.cpp): anywhere from 2250 to 9000 ticks, before it has picked its force
+# and marched it across. Any change that draws from the scenario's random stream in a new
+# order moves that hour, and 8000 ticks, which this run used to wait, sat inside the
+# spread rather than past it: the same duel was measured making its first kill at tick
+# 12200 and defeating the idle player by tick 13000. 16000 is 7000 ticks past the timer's
+# worst case and 3000 past that measured defeat, so the leg asks for the column to move,
+# not for the computer to roll early.
 cat > /tmp/g135_kills.txt <<'SCRIPT'
 tick 5
 sbmap
 sbroster
-tick 8000
+tick 16000
 sbroster
 quit
 SCRIPT
@@ -10325,7 +10444,7 @@ grun /tmp/g135_e.log --scen SCG01EA --pack SCG01EA.pack $BASE --forceradar \
      --script /tmp/g135_camp.txt
 # NOT through grun either: this is the 640x480 art HUD, and grun cannot carry the
 # environment variable that selects it. The status is checked as G135FRC below.
-CNC3D_HUD=new ./cnc_eyes $G135S --ai 3 --w 1280 --h 960 --script /tmp/g135_h6.txt \
+OPENCNC3D_HUD=new ./cnc_eyes $G135S --ai 3 --w 1280 --h 960 --script /tmp/g135_h6.txt \
     >/tmp/g135_f.log 2>&1; G135FRC=$?
 cat /tmp/g135_f.log >> "$OUT"
 gshots shots/g135_radar.png shots/g135_list.png shots/g135_none.png shots/g135_radar2.png \
@@ -10514,16 +10633,27 @@ fi
 #      since it was written, and NOTHING IN THIS SUITE HAS EVER RUN IT. So the only
 #      thing in the project that can measure this dialog's rectangles has never
 #      measured them here, and "the layout gate is green" has cost nothing to say. It
-#      runs below. It reads the Advanced page twice, at the top and at the bottom of
-#      travel, so a scroll offset cannot put a row through the OK button unseen.
+#      runs below. Since the graphics modes the page has a tab per mode, so it reads the
+#      Advanced page once per tab at the top of travel (ADVANCED-CLASSIC, -N64,
+#      -ENHANCED), and again at the bottom for every tab whose list is longer than the
+#      well (Enhanced's eighteen rows against a well of ten: ADVANCED-ENHANCED-BOTTOM),
+#      so a scroll offset cannot put a row through the OK button unseen.
 #
 #   2. The scroll itself, through the SHIPPED path. optscroll calls dopt_scroll, which
 #      is the function both dialog loops hand SDL_MOUSEWHEEL to, so this exercises the
 #      wheel and not a setter beside it. What is asserted is behaviour and not a
 #      literal row count, because the whole point of the bar is that the number of
 #      elements is free to grow: the window must show the same number of rows wherever
-#      it sits, must reach rows it could not reach before, must stop showing the first
+#      it sits, must reach rows it could not reach before, must stop showing its first
 #      row once it has moved off it, and must come back to exactly where it started.
+#
+#      THE WELL IS FOUND FROM THE BAR'S OWN RECTANGLE. The page is mostly chrome that
+#      does not move when the well scrolls: the six Global rows above the tabs, the three
+#      tabs, Reset to Defaults, OK and the bar itself. A well row is a row that lies
+#      inside the bar's vertical span and left of it, which holds whatever the rows are
+#      called and in whatever order a tab lists them. The window has slid by exactly the
+#      offset dopt_scroll reports: that many rows leave the top and that many rows the
+#      unscrolled well could not show come in.
 #
 #      THE LEGS STAY BEHAVIOURAL, AND SO DOES THE VERDICT TEXT. A leg or a message that says
 #      "every element visible at every offset, all three dumps identical" describes one row
@@ -10544,8 +10674,10 @@ G139EOF
 OLOUT=$(./gate_optlayout dossidebar.pack 2>&1); OLRC=$?
 echo "$OLOUT" >> "$OUT"
 OLFAIL=$(printf '%s' "$OLOUT" | sed -n 's/^OPTLAYOUT|checked=[0-9]*|failures=\([0-9]*\)$/\1/p')
-OLTOP=$(printf '%s' "$OLOUT" | grep -c '^OPTLAYOUT|page=ADVANCED|checked=')
-OLBOT=$(printf '%s' "$OLOUT" | grep -c '^OPTLAYOUT|page=ADVANCED-BOTTOM|checked=')
+# ONE TOP PASS PER TAB, EACH EXACTLY ONCE, and one bottom pass for the tab that scrolls.
+OLTOP=$(printf '%s\n' "$OLOUT" | grep -E '^OPTLAYOUT\|page=ADVANCED-(CLASSIC|N64|ENHANCED)\|checked=' | sort | uniq | wc -l | tr -d ' ')
+OLTOPN=$(printf '%s\n' "$OLOUT" | grep -cE '^OPTLAYOUT\|page=ADVANCED-(CLASSIC|N64|ENHANCED)\|checked=')
+OLBOT=$(printf '%s\n' "$OLOUT" | grep -c '^OPTLAYOUT|page=ADVANCED-ENHANCED-BOTTOM|checked=')
 SCLOG=$(# --gfx IS LOAD-BEARING and not decoration: without it `optclick Advanced...` silently
 # leaves the page on VISUALS and reports no failure at all, so the gate would measure the
 # wrong page and pass. --nosound because nothing automated makes a noise. gate_optlayout
@@ -10554,23 +10686,39 @@ SCLOG=$(# --gfx IS LOAD-BEARING and not decoration: without it `optclick Advance
           --script /tmp/g139_scroll.txt --gfx 2>&1)
 SCRC=$?
 echo "$SCLOG" | grep -E '^(OPTIONS\|script\|scroll|ADVROW\|)' >> "$OUT"
-# The three dumps, split on the scroll line that introduces each one.
+# The three dumps, split on the scroll line that introduces each one, and the offset each
+# scroll line reports.
 adv_dump() { printf '%s\n' "$SCLOG" | awk -v want="$1" '/^OPTIONS\|script\|scroll\|/ {k++} k==want && /^ADVROW\|/ {print}'; }
+adv_top() { printf '%s\n' "$SCLOG" | grep '^OPTIONS|script|scroll|' | sed -n "$1s/.*|advtop=\([0-9]*\).*/\1/p"; }
+# The well rows of one dump, as "index y", found inside the bar's vertical span.
+adv_well() { printf '%s\n' "$1" | awk -F'|' '
+  /^ADVROW\|/ { split($4,p,","); split($5,d,"x"); n++; I[n]=$2; L[n]=$3; X[n]=p[1]; Y[n]=p[2]; W[n]=d[1]; H[n]=d[2];
+                if ($3=="Scroll") { bx=p[1]; by=p[2]; bh=d[2]; have=1 } }
+  END { if (!have) exit;
+        for (i=1;i<=n;i++) if (L[i]!="Scroll" && X[i]+W[i] <= bx && Y[i] >= by && Y[i]+H[i] <= by+bh) print I[i], Y[i] }'; }
 D1=$(adv_dump 1); D2=$(adv_dump 2); D3=$(adv_dump 3)
 D1N=$(printf '%s\n' "$D1" | grep -c '^ADVROW|')
 D2N=$(printf '%s\n' "$D2" | grep -c '^ADVROW|')
-D1HAS0=$(printf '%s\n' "$D1" | grep -c '^ADVROW|0|')
-D2HAS0=$(printf '%s\n' "$D2" | grep -c '^ADVROW|0|')
-# THE MAX LEG COUNTS ELEMENT ROWS ONLY. OK and the scroll bar are ADVROW lines too, and
-# both are page chrome that does not move when the well scrolls, so leaving them in makes
-# the highest row identical at the top and the bottom of travel and the "did it move" leg
-# fails on a CORRECT implementation. D2OVER below deliberately keeps ALL the rows, because
-# the overlap walk has to see the chrome as well.
-D1MAX=$(printf '%s\n' "$D1" | awk -F'|' '/^ADVROW\|/ && $3!="OK" && $3!="Scroll" {print $2}' | sort -n | tail -1)
-D2MAX=$(printf '%s\n' "$D2" | awk -F'|' '/^ADVROW\|/ && $3!="OK" && $3!="Scroll" {print $2}' | sort -n | tail -1)
-# For the verdict text: how many ELEMENT rows the well shows, and where the wheeled one starts.
-D1E=$(printf '%s\n' "$D1" | awk -F'|' '/^ADVROW\|/ && $3!="OK" && $3!="Scroll" {n++} END {print n+0}')
-D2MIN=$(printf '%s\n' "$D2" | awk -F'|' '/^ADVROW\|/ && $3!="OK" && $3!="Scroll" {print $2}' | sort -n | head -1)
+W1=$(adv_well "$D1"); W2=$(adv_well "$D2")
+D1W=$(printf '%s\n' "$W1" | grep -c .)
+D2W=$(printf '%s\n' "$W2" | grep -c .)
+T1=$(adv_top 1); T2=$(adv_top 2); T3=$(adv_top 3)
+# The row at the top of the unscrolled well, and whether it is still anywhere on the page
+# at the bottom of travel.
+D1FIRST=$(printf '%s\n' "$W1" | sort -k2,2n | head -1 | cut -d' ' -f1)
+D2HASFIRST=$(printf '%s\n' "$D2" | grep -c "^ADVROW|${D1FIRST:-x}|")
+# How far the window slid: rows of the unscrolled well gone at the bottom of travel, and
+# rows at the bottom of travel the unscrolled well did not show.
+# g139_only A B: how many well rows of A are not in B.
+g139_only() { { printf '%s\n' "$1" | sed 's/^/A /'; printf '%s\n' "$2" | sed 's/^/B /'; } | awk '
+  $1=="A" && NF==3 { a[$2]=1 } $1=="B" && NF==3 { b[$2]=1 }
+  END { c=0; for (k in a) if (!(k in b)) c++; print c }'; }
+D1GONE=$(g139_only "$W1" "$W2")
+D2NEW=$(g139_only "$W2" "$W1")
+D2MIN=$(printf '%s\n' "$W2" | sort -k2,2n | head -1 | cut -d' ' -f1)
+D2LAST=$(printf '%s\n' "$W2" | sort -k2,2n | tail -1 | cut -d' ' -f1)
+D1LAST=$(printf '%s\n' "$W1" | sort -k2,2n | tail -1 | cut -d' ' -f1)
+G139SLIDE=$(( ${T2:-0} < ${D1W:-0} ? ${T2:-0} : ${D1W:-0} ))
 # No two controls may share a pixel at the BOTTOM of travel either. G108's walk, verbatim.
 D2OVER=$(printf '%s\n' "$D2" | awk -F'|' '/^ADVROW\|/ {
     split($4,p,","); split($5,d,"x");
@@ -10582,22 +10730,22 @@ D2OVER=$(printf '%s\n' "$D2" | awk -F'|' '/^ADVROW\|/ {
     print c }')
 if [ "$OLRC" != "0" ] || [ "${OLFAIL:-99}" != "0" ]; then
   bad "G139 the Advanced page scrolls: gate_optlayout exited $OLRC with ${OLFAIL:-?} failures. First: $(printf '%s' "$OLOUT" | grep '  FAIL' | head -1)"
-elif [ "${OLTOP:-0}" != "1" ] || [ "${OLBOT:-0}" != "1" ]; then
-  bad "G139 the Advanced page scrolls: gate_optlayout read the page top=$OLTOP bottom=$OLBOT times (want 1 each). Without the second pass the scrolled layout is never measured at all"
+elif [ "${OLTOP:-0}" != "3" ] || [ "${OLTOPN:-0}" != "3" ] || [ "${OLBOT:-0}" != "1" ]; then
+  bad "G139 the Advanced page scrolls: gate_optlayout read the tabs at the top $OLTOPN times over $OLTOP distinct tabs (want 3 and 3: Classic, N64, Enhanced) and Enhanced at the bottom of travel $OLBOT times (want 1). Without the second pass the scrolled layout is never measured at all"
 elif [ "$SCRC" != "0" ]; then
   bad "G139 the Advanced page scrolls: the scroll run failed (exit $SCRC)"
-elif [ "${D1N:-0}" -lt 2 ] || [ "$D1N" != "$D2N" ]; then
-  bad "G139 the Advanced page scrolls: the well showed $D1N rows unscrolled and $D2N at the bottom of travel. The window has to be the same size wherever it sits; a different count means rows are being clipped rather than scrolled"
-elif [ "${D1HAS0:-0}" != "1" ] || [ "${D2HAS0:-1}" != "0" ]; then
-  bad "G139 the Advanced page scrolls: unscrolled the well must start at element 0 and at the bottom of travel it must have moved off it. first-row-present unscrolled=$D1HAS0 scrolled=$D2HAS0 (want 1 and 0), rows=$D1N/$D2N"
-elif [ "${D2MAX:-0}" -le "${D1MAX:-0}" ]; then
-  bad "G139 the Advanced page scrolls: the bottom of travel reached element row $D2MAX, no further than the top's $D1MAX. The wheel is not reaching rows the unscrolled well cannot show, so the bar moves nothing"
+elif [ "${D1N:-0}" -lt 2 ] || [ "$D1N" != "$D2N" ] || [ "${D1W:-0}" -lt 2 ] || [ "$D1W" != "$D2W" ]; then
+  bad "G139 the Advanced page scrolls: the page showed $D1N rectangles ($D1W in the well) unscrolled and $D2N ($D2W in the well) at the bottom of travel. The window has to be the same size wherever it sits; a different count means rows are being clipped rather than scrolled"
+elif [ "${T1:-x}" != "0" ] || [ "${T2:-0}" -lt 1 ] || [ -z "$D1FIRST" ] || [ "${D2HASFIRST:-1}" != "0" ]; then
+  bad "G139 the Advanced page scrolls: unscrolled the well must sit at offset 0 and at the bottom of travel it must have moved off its first row. offsets $T1 then $T2 (want 0 then >=1), first row $D1FIRST still on the page scrolled=$D2HASFIRST (want 0), well rows $D1W/$D2W"
+elif [ "${D2NEW:-0}" != "$G139SLIDE" ] || [ "${D1GONE:-0}" != "$G139SLIDE" ]; then
+  bad "G139 the Advanced page scrolls: the wheel reported offset $T2 but $D1GONE rows left the well and $D2NEW rows it could not show came in (want $G139SLIDE each). The bar is not moving the well by the offset it reports"
 elif [ "${D2OVER:-99}" != "0" ]; then
   bad "G139 the Advanced page scrolls: $D2OVER pairs of controls overlap at the bottom of travel -- the scroll offset is putting a row through the OK button or through the bar"
-elif [ "$D1" != "$D3" ]; then
-  bad "G139 the Advanced page scrolls: scrolling to the end and back did not restore the page. The offset is not clamping symmetrically, so the well can be left somewhere it cannot be driven back from"
+elif [ "$D1" != "$D3" ] || [ "${T3:-x}" != "0" ]; then
+  bad "G139 the Advanced page scrolls: scrolling to the end and back did not restore the page (offset back at $T3, want 0). The offset is not clamping symmetrically, so the well can be left somewhere it cannot be driven back from"
 else
-  ok "G139 the Advanced page scrolls: gate_optlayout reads every rectangle on both the unscrolled and the wheeled page with no failures, and the wheel moves the well of $D1E element rows from rows 0..$D1MAX to $D2MIN..$D2MAX: row 0 leaves view, the window keeps its $D1N lines (elements, OK and the bar) wherever it sits, no two controls overlap at the bottom of travel, and scrolling back restores the page exactly"
+  ok "G139 the Advanced page scrolls: gate_optlayout reads every rectangle on all three tabs and on the wheeled Enhanced tab with no failures, and the wheel moves the well of $D1W rows (rows $D1FIRST..$D1LAST) to offset $T2 (rows $D2MIN..$D2LAST): $D1GONE rows leave the top and $D2NEW come in, the page keeps its $D1N rectangles wherever it sits, no two controls overlap at the bottom of travel, and scrolling back restores the page exactly"
 fi
 
 # G140. THE PRIMARY FACTORY'S LABEL. See gate_primary.txt for why three legs are needed.
@@ -10865,6 +11013,11 @@ fi
 # DOPT_PAGE_CONFIRM rather than inserted beside VISUALS, because four gates in this file
 # match page numbers as literals (ADVANCED 3, SOUND 4, CHEATS 5, CONFIRM 6 and OPTIONS 0)
 # and inserting would renumber three of them silently.
+#
+# THE ADVANCED LEG counts that page's rectangles under --gfx, which opens it on the
+# Enhanced tab: six Global rows, three mode tabs, the ten of Enhanced's eighteen rows that
+# fit the well, Reset to Defaults, OK and the scroll bar, twenty-two in all, and none of
+# them Swap mouse buttons. G121 holds the same count.
 # =====================================================================================
 rm -f /tmp/g143_gp.txt /tmp/g143_adv.txt
 cat > /tmp/g143_gp.txt <<'G143AEOF'
@@ -10946,14 +11099,14 @@ elif [ "${GPSWAP:-0}" != "1" ] || [ "${GPPUSH:-0}" != "1" ] || [ "${GPCASH:-0}" 
   bad "G143 the Gameplay page: clicking a box did not move the dial behind it. after-swap-click=[$GP2] after-push-click=[$GP3] after-tick-click=[$GP4]"
 elif [ "${GPBACK:-0}" -lt 1 ]; then
   bad "G143 the Gameplay page: OK did not step back to the pause menu (no click line reporting page=0)"
-elif [ "${GPADVN:-0}" != "13" ]; then
-  bad "G143 the Gameplay page: the Advanced page reported $GPADVN rectangles, want 13 (eleven element rows, OK and the scroll bar). With the swap moved off it holds eleven elements and shows all eleven"
+elif [ "${GPADVN:-0}" != "22" ]; then
+  bad "G143 the Gameplay page: the Advanced page reported $GPADVN rectangles, want 22 (six Global rows, three mode tabs, the ten well rows the Enhanced tab shows, Reset to Defaults, OK and the scroll bar). Fewer means a control lost its rectangle; more means the page was dumped twice"
 elif [ "${GPADVSWAP:-1}" != "0" ]; then
   bad "G143 the Gameplay page: the Advanced page still carries a row labelled Swap mouse buttons. Either the element was not deleted, or dosopt.h's enum and dopt_vis_elem[] disagree and a row below it is now mislabelled"
 elif [ "${GPFAIL:-1}" != "0" ]; then
   bad "G143 the Gameplay page: the run reported $GPFAIL script failures"
 else
-  ok "G143 the Gameplay page: Options > Gameplay opens page 7 with four rectangles that fit inside its own box $GPBOX and share no pixel, its heading is measured at $GPHR and lands inside the plate, the switches start OFF, ON and ON and all three boxes move the dial behind them, OK steps back to the pause menu, and the Advanced page is back to thirteen rectangles with no Swap mouse buttons among them"
+  ok "G143 the Gameplay page: Options > Gameplay opens page 7 with four rectangles that fit inside its own box $GPBOX and share no pixel, its heading is measured at $GPHR and lands inside the plate, the switches start OFF, ON and ON and all three boxes move the dial behind them, OK steps back to the pause menu, and the Advanced page shows its twenty-two rectangles with no Swap mouse buttons among them"
 fi
 
 # =====================================================================================
@@ -10961,7 +11114,7 @@ fi
 #
 # Two claims. FIRST, CLASSIC governs the PICTURE and not the hand: choosing Classic must
 # leave a customised binding alone in memory AND on disc. Measured before this round: with
-# swap_buttons 1 on disc, walking Visuals then Classic rewrote cnc3d-fx.cfg with
+# swap_buttons 1 on disc, walking Visuals then Classic rewrote opencnc3d-fx.cfg with
 # swap_buttons 0, so the setting could not survive being looked at.
 # SECOND, the pause dialog now WRITES. fx_save had exactly three callers and none of them
 # was the in-mission dialog, so anything set while paused was lost on quit.
@@ -10971,7 +11124,7 @@ fi
 # =====================================================================================
 VISDIR=/tmp/g144_vis
 rm -rf "$VISDIR"; mkdir -p "$VISDIR"
-VISCFG="$VISDIR/cnc3d-fx.cfg"
+VISCFG="$VISDIR/opencnc3d-fx.cfg"
 # RUN 1 GETS ITS OWN FILE. It ends on an ODD number of clicks on purpose (so the write
 # count is 1 and not 0), which means it leaves swap_buttons 1 behind. Runs 2..5 measure
 # absolute values on a file that starts from the compiled defaults, so sharing one file
@@ -11364,7 +11517,7 @@ fi
 # survives every future change to the plate's own palette.
 # =====================================================================================
 rm -f shots/g147_open.png shots/g147_plate.png shots/g147_classic.png
-CXLOG=$(CNC3D_HUD=new ./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --gfx \
+CXLOG=$(OPENCNC3D_HUD=new ./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $BASE --gfx \
         --script gate_codex.txt 2>&1)
 CXRC=$?
 printf '%s\n' "$CXLOG" | grep -E '^(CODEX\||SHOT\||SCRIPT\|end)' >> "$OUT"
@@ -11541,7 +11694,7 @@ if [ "$CXRC" != "0" ] || [ "$CLRC" != "0" ]; then
 elif [ "${CXSHOT:-0}" != "2" ]; then
   bad "G147 the DATABASE tab: $CXSHOT of the two screenshots were written (want 2), so the plate leg would read a stale file"
 elif [ "${CXOPEN:-0}" -lt 1 ] || [ "${CXAVAIL:-0}" -lt 1 ]; then
-  bad "G147 the DATABASE tab: it did not open in Enhanced. open lines=$CXOPEN, open-and-available states=$CXAVAIL (want at least 1 of each). Enhanced needs --gfx AND CNC3D_HUD=new; the gate passes both"
+  bad "G147 the DATABASE tab: it did not open in Enhanced. open lines=$CXOPEN, open-and-available states=$CXAVAIL (want at least 1 of each). Enhanced needs --gfx AND OPENCNC3D_HUD=new; the gate passes both"
 elif [ "${CXHIT_OPT:-0}" != "1" ] || [ "${CXHIT_DB:-0}" != "1" ]; then
   bad "G147 the DATABASE tab: the tab strip's hit test does not answer DATABASE beside OPTIONS. options-at-80,16=$CXHIT_OPT database-at-240,16=$CXHIT_DB (want 1 each). The OPTIONS reading is the control: if BOTH are 0 the whole strip has moved and this gate is measuring the wrong rectangle"
 elif [ "$CXSTYLE_OK" != "ok" ]; then
@@ -11940,7 +12093,7 @@ fi
 # is placed on temperate maps too.
 #
 # THE THEATER IS NOT A STRING COMPARISON. missions/SCA01EA.INI says Theater=DESERT and
-# CNC3DTheater=SAND, so that mission's pack carries the look name SAND; a gate keyed on
+# OpenCNC3DTheater=SAND, so that mission's pack carries the look name SAND; a gate keyed on
 # "DESERT" would miss a genuine desert map and the last one did, reporting it as a skip
 # under a pass line. The checker resolves the ENGINE theater from the scenario's own INI
 # Theater= key and CROSS-CHECKS the pack's look name against it, and it counts the
@@ -11998,7 +12151,7 @@ fi
 #     TEMPERATE  T04=6   T08=6  T09=6  T18=11     the conifers
 #
 # THE DESERT SUBJECT IS SCA01EA ON PURPOSE. Its INI says Theater=DESERT and
-# CNC3DTheater=SAND, so its pack's own theater field reads SAND: it is precisely the
+# OpenCNC3DTheater=SAND, so its pack's own theater field reads SAND: it is precisely the
 # mission a look-name comparison drops. If the engine draws cacti there, the theater
 # identity survived the one case that has already broken a gate on this project.
 #
@@ -13070,7 +13223,7 @@ fi
 #
 #   IT DID NOT SURVIVE A SAVE. A stroke unlocked the rung tool, SAVE wrote the map, and
 #   opening that map again locked it: saving your work took back the tool you had just
-#   earned. It is now a CNC3D-owned [Basic] key, written the way CNC3DKind is -- older
+#   earned. It is now an OpenCNC3D-owned [Basic] key, written the way OpenCNC3DKind is -- older
 #   copies dropped, a new one written only while it is true.
 #
 #   AND IT LEAKED THE OTHER WAY. Nothing cleared it when a different map was loaded, so
@@ -13121,30 +13274,30 @@ G156S3=$(grep -a '^SBRSTATE|' /tmp/g156b.log | sed -n 1p)
 G156U0=$(g156f "$G156S0" unlock); G156U1=$(g156f "$G156S1" unlock)
 G156U2=$(g156f "$G156S2" unlock); G156U3=$(g156f "$G156S3" unlock)
 G156OFF=$(g156f "$G156S0" offladder)
-G156KEY=$(grep -ac '^CNC3DSmooth=1' missions/user_maps/USERG156.INI 2>/dev/null)
+G156KEY=$(grep -ac '^OpenCNC3DSmooth=1' missions/user_maps/USERG156.INI 2>/dev/null)
 # Read first, then removed: see the note at G153.
 rm -f missions/user_maps/USERG156.INI missions/user_maps/USERG156.BIN \
       missions/user_maps/USERG156.HGT
-G156SRC=$(grep -ac 'CNC3DSmooth' missions/SCG01EA.INI 2>/dev/null)
+G156SRC=$(grep -ac 'OpenCNC3DSmooth' missions/SCG01EA.INI 2>/dev/null)
 G156NEW=$(grep -ac '^NEWMAP|rebooted' /tmp/g156.log)
 if [ "$GRC" != "0" ]; then
   bad "G156 the unlock is in the map, not in the session: a run failed (exit $GRC)"
 elif [ -z "$G156U0" ] || [ -z "$G156U1" ] || [ -z "$G156U2" ] || [ -z "$G156U3" ]; then
   bad "G156 the unlock is in the map, not in the session: the two runs did not report the four states this gate reads (got $(grep -ac '^SBRSTATE|' /tmp/g156.log) and $(grep -ac '^SBRSTATE|' /tmp/g156b.log))"
 elif [ "${G156SRC:-1}" != "0" ]; then
-  bad "G156 the unlock is in the map, not in the session: the shipped SCG01EA.INI already carries a CNC3DSmooth line ($G156SRC of them), so this gate's control map is not the unwritten-on map it is meant to be"
+  bad "G156 the unlock is in the map, not in the session: the shipped SCG01EA.INI already carries an OpenCNC3DSmooth line ($G156SRC of them), so this gate's control map is not the unwritten-on map it is meant to be"
 elif [ "${G156U0:-1}" != "0" ]; then
   bad "G156 the unlock is in the map, not in the session: SCG01EA opens with unlock=$G156U0. A shipped map has never been smoothed and must open locked, or CONVERT has nothing left to be -- this one opens $G156OFF of its counted corners OFF the ladder, which is exactly the state that must NOT be read as an unlock"
 elif [ "${G156U1:-0}" != "1" ]; then
   bad "G156 the unlock is in the map, not in the session: a smooth stroke left unlock=$G156U1, so there was never anything to persist"
 elif [ "${G156KEY:-0}" != "1" ]; then
-  bad "G156 the unlock is in the map, not in the session: the saved USERG156.INI carries $G156KEY CNC3DSmooth=1 lines (want exactly 1). The unlock has to be written into the document, or saving your work takes back the tool you just earned"
+  bad "G156 the unlock is in the map, not in the session: the saved USERG156.INI carries $G156KEY OpenCNC3DSmooth=1 lines (want exactly 1). The unlock has to be written into the document, or saving your work takes back the tool you just earned"
 elif [ "${G156U2:-1}" != "0" ]; then
   bad "G156 the unlock is in the map, not in the session: after NEW MAP the unlock is still $G156U2. It belongs to the map that WAS open; a blank map has never been smoothed"
 elif [ "${G156U3:-0}" != "1" ]; then
   bad "G156 the unlock is in the map, not in the session: USERG156 was saved carrying the key and comes back with unlock=$G156U3. The whole point of writing it down is that reopening the map finds it"
 else
-  ok "G156 the unlock is in the map, not in the session: SCG01EA opens locked ($G156OFF of its counted corners off the ladder, and that is NOT read as an unlock), a stroke unlocks it, the save writes one CNC3DSmooth=1 into the document, a NEW MAP in the same process comes up locked again ($(if [ "${G156NEW:-0}" -ge 1 ]; then echo "through the reboot path"; else echo "through the fast path that never reloads"; fi)), and reopening the saved map finds the unlock waiting"
+  ok "G156 the unlock is in the map, not in the session: SCG01EA opens locked ($G156OFF of its counted corners off the ladder, and that is NOT read as an unlock), a stroke unlocks it, the save writes one OpenCNC3DSmooth=1 into the document, a NEW MAP in the same process comes up locked again ($(if [ "${G156NEW:-0}" -ge 1 ]; then echo "through the reboot path"; else echo "through the fast path that never reloads"; fi)), and reopening the saved map finds the unlock waiting"
 fi
 
 
@@ -13152,103 +13305,107 @@ fi
 # ---------------------------------------------------------------------------------
 # G190 THE AUTO HEIGHTMAP, ON MAPS THE GAME ACTUALLY SHIPS.
 #
-# The rung brush works the other way round -- paint ground, get cliffs. This is the map
-# that already HAS cliff art and no relief under it: every map converted from a DOS
-# editor, and every map whose slopes were stamped out of the cliff drawer. The fit
-# recovers each SLOPE PLACEMENT from the .BIN, reads its high side off the compass,
-# solves one level per placement, reduces those to one TIER per 2x2 block and writes the
-# ground through elev_coarse and elev_heights -- the same path a brush stroke takes.
+# The button runs the generator that made the heightmaps of every map the cartridge
+# left flat (game/autoheight_mod.h, a port of tools/autoheight/generate.py): plateaus
+# closed across the gaps in their cliff lines, contradictory art out-voted, water
+# settled on its lowest bank and carved, ramps spread, bases levelled, open ground
+# rolled. It goes off the five rungs on purpose and keeps the elevation panel usable by
+# the smooth brush's own unlock.
 #
-# IT RUNS ON REAL MAPS OR IT IS NOT TESTED. The first gate written for this feature built
-# both of its maps with newmap and terrpaint, and edit_blank_map sets g_elevConverted for
-# ever -- so the one failure mode that mattered, the fit taking a usable map off the
-# ladder and locking the elevation panel behind the conversion gate, COULD NOT OCCUR on
-# the map under test. Every map here is one the game ships, opened from missions/, and
-# two of the four arrive off the ladder with the panel already locked.
+# IT RUNS ON REAL MAPS OR IT IS NOT TESTED: every map here is one the game ships, opened
+# from missions/, and two of them arrive off the ladder with the panel locked.
 #
-# WHAT EACH LEG MEANS, because these are not arbitrary numbers:
-#   places>0    the fit found the cliff art. Zero is the feature not running at all,
-#               which is what every one of the fifteen shipped maps answered while the
-#               fit demanded the map be CONVERTED first -- a conversion that repaints
-#               every level block as plain ground and so erases the art the fit reads.
-#   stray=0     THE SAFETY PROPERTY. Of the playable corners still off the ladder after
-#               the fit, none is a corner the fit was free to write. Every byte it wrote
-#               came out of ELEV_RUNG; the only ones left are the sea's, which it does
-#               not touch. A non-zero stray is the fit writing off the ladder.
-#   off A>=B    and the count itself never rises.
-#   ready=1     the elevation panel is usable AFTER the press. After a fit that moves
-#               corners that is the unlock the fit sets, not the off-the-ladder count
-#               reaching zero: SCB01EA keeps the sea's corners off the ladder. The proof
-#               that the fit put the ground ON the ladder is stray=0 on a map that was
-#               off it before the press.
-#   locked      SCB01EA and SCG10EA must ARRIVE locked: ready=0 on the first sbrstate,
-#               and A>0 in off=A/B. Every other leg here also passes on a map that needed
-#               no unlocking, so without this a loader or pack change that brought both
-#               up ready would leave the unlock unproven and the gate green.
-#   held>0      corners belonging to water, of which every one of these four maps has
-#               some, and wetkept=1 says not one of them moved -- a digest of exactly
-#               those corners, taken either side of the write. The first version of this
-#               read one hand-picked lake cell instead, and pulling the water guard out
-#               left it green while fifty-two corners of sea rose.
+# WHAT EACH LEG MEANS:
+#   places>0    the fit found the cliff art on a map that has some.
+#   agrees      what the editor wrote, saved as its .HGT, is the generator's own answer:
+#               against tools/autoheight/generate.py with the swells off (the run sets
+#               OPENCNC3D_AUTOHGT_NOSWELLS, because the swells' rolling field comes from a
+#               different random generator in each), a mean difference of at most one
+#               byte a corner and 97% of corners within two. A broken port, a stale
+#               autoheight_tables.h or a fit fed the wrong rectangle, buildings or starts
+#               all land here.
+#   water       open water no more sloped than in the generator's own answer: the fit
+#               writes the sea now, so this is what stands where "the sea never moves"
+#               used to.
+#   ready=1     the elevation panel is usable AFTER the press, and unlock=1 says it is
+#               the fit's own unlock that made it so.
+#   locked      SCB01EA and SCG10EA must ARRIVE locked (ready=0, off the ladder before),
+#               or the unlock leg proves nothing.
 #   drawn=marked  the overlay drew exactly the cells the one stored report counted.
+#   swells      the last run keeps the swells on and saves: the .HGT is 4225 bytes, and
+#               on SCG36EA's big open desert it stands well above the swell-less answer.
 # THE SHOT IS NOT DECORATION: the overlay is a DRAW-time diagnostic, so without a frame
 # it never runs and that leg silently measures nothing.
 G190E="--edit --editmode 2 $BASE --nosound --w 1400 --h 900"
+G190CMP="$GATEDIR/../tools/autoheight/compare_hgt.py"
 cat > /tmp/g190.txt <<'SCRIPT'
 sbrstate
 autohgt
 autohgt
 shot shots/g190.png
 sbrstate
+editsave
 quit
 SCRIPT
 G190BAD=""
 G190SUM=""
 gbegin shots/g190.png
+export OPENCNC3D_AUTOHGT_NOSWELLS=1
 for g190m in SCB31EA SCB01EA SCG10EA SCB60EA; do
-  rm -f shots/g190.png
+  rm -f shots/g190.png "missions/user_maps/$g190m.HGT"
   grun "/tmp/g190_$g190m.log" $G190E --scen "$g190m" --pack "$g190m.pack" --script /tmp/g190.txt
   g190l=$(grep '^AUTOHGT|valid=1' "/tmp/g190_$g190m.log" | head -1)
   g190o=$(grep '^AHOVERLAY|' "/tmp/g190_$g190m.log" | tail -1 | sed -n 's/.*|drawn=\([0-9]*\).*/\1/p')
   g190g() { printf '%s' "$g190l" | sed -n "s/.*|$1=\([^|]*\).*/\1/p"; }
-  g190pl=$(g190g places);  g190st=$(g190g stray);   g190rd=$(g190g ready)
-  g190hd=$(g190g held);    g190mk=$(g190g marked);  g190of=$(g190g off)
-  g190wk=$(g190g wetkept)
-  g190a=${g190of%%/*}; g190b=${g190of##*/}
+  g190pl=$(g190g places);  g190rd=$(g190g ready);   g190un=$(g190g unlock)
+  g190mk=$(g190g marked);  g190of=$(g190g off)
+  g190a=${g190of%%/*}
   g190r0=$(grep '^SBRSTATE|' "/tmp/g190_$g190m.log" | head -1 | sed -n 's/.*|ready=\([0-9]*\).*/\1/p')
   g190cv=$(grep -c 'CONVERT THIS MAP first' "/tmp/g190_$g190m.log")
+  g190c=""
+  [ -f "missions/user_maps/$g190m.HGT" ] && g190c=$(python3 "$G190CMP" "$g190m" "missions/user_maps/$g190m.HGT" 2>>"$OUT" | grep '^AHCOMPARE|')
+  g190k() { printf '%s' "$g190c" | sed -n "s/.*|$1=\([^|]*\).*/\1/p"; }
+  g190mean=$(g190k mean); g190w2=$(g190k within2); g190wt=$(g190k water)
+  rm -f "missions/user_maps/$g190m.BIN" "missions/user_maps/$g190m.INI" "missions/user_maps/$g190m.HGT"
   [ -s shots/g190.png ] || G190BAD="$G190BAD $g190m:no-frame"
   [ "${g190pl:-0}" -gt 0 ] 2>/dev/null || G190BAD="$G190BAD $g190m:places=${g190pl:-none}"
-  [ "${g190st:-1}" = "0" ]             || G190BAD="$G190BAD $g190m:stray=${g190st:-none}"
   [ "${g190rd:-0}" = "1" ]             || G190BAD="$G190BAD $g190m:ready=${g190rd:-none}"
-  [ "${g190hd:-0}" -gt 0 ] 2>/dev/null || G190BAD="$G190BAD $g190m:held=${g190hd:-none}"
-  [ "${g190wk:-0}" = "1" ]             || G190BAD="$G190BAD $g190m:wetkept=${g190wk:-none}"
-  [ "${g190b:-1}" -le "${g190a:-0}" ] 2>/dev/null || G190BAD="$G190BAD $g190m:off=$g190of-ROSE"
+  [ "${g190un:-0}" = "1" ]             || G190BAD="$G190BAD $g190m:unlock=${g190un:-none}"
   [ "${g190o:-x}" = "${g190mk:-y}" ]   || G190BAD="$G190BAD $g190m:overlay=${g190o:-none}/marked=${g190mk:-none}"
   [ "${g190cv:-1}" = "0" ]             || G190BAD="$G190BAD $g190m:asked-for-CONVERT"
+  if [ -z "$g190c" ]; then
+    G190BAD="$G190BAD $g190m:no-saved-heights-to-compare"
+  else
+    python3 -c "import sys; sys.exit(0 if float('$g190mean') <= 1.0 and float('$g190w2') >= 97.0 else 1)" \
+      || G190BAD="$G190BAD $g190m:disagrees(mean=$g190mean,within2=$g190w2)"
+    [ "${g190wt%%/*}" -le "${g190wt##*/}" ] 2>/dev/null || G190BAD="$G190BAD $g190m:water-slopes($g190wt)"
+  fi
   case "$g190m" in
     SCB01EA|SCG10EA)
       { [ "${g190r0:-x}" = "0" ] && [ "${g190a:-0}" -gt 0 ]; } 2>/dev/null \
         || G190BAD="$G190BAD $g190m:arrived-unlocked(ready0=${g190r0:-none},offbefore=${g190a:-none})-precondition" ;;
   esac
-  G190SUM="$G190SUM $g190m(ready $g190r0->$g190rd, $g190pl places, off $g190of, $g190hd held and unmoved, $g190mk marked=$g190o drawn)"
+  G190SUM="$G190SUM $g190m(ready $g190r0->$g190rd, $g190pl places, mean $g190mean within2 $g190w2%, water $g190wt, $g190mk marked=$g190o drawn)"
 done
-# AND THE .HGT THE SAVE WRITES, on the last of them, with the files removed again: this
-# gate must not leave user maps behind. No gbegin here on purpose -- gbegin clears GRC,
-# and clearing it after four runs have already reported would throw away their exit
-# status. This run takes no picture, so it needs none.
+unset OPENCNC3D_AUTOHGT_NOSWELLS
+# AND WITH THE SWELLS ON, SAVED: the .HGT the save writes, and the rolling ground in it.
+# No gbegin here on purpose -- gbegin clears GRC, and clearing it after four runs have
+# already reported would throw away their exit status. This run takes no picture.
 cat > /tmp/g190s.txt <<'SCRIPT'
+autohgt
 autohgt
 editsave
 quit
 SCRIPT
-grun /tmp/g190_save.log $G190E --scen SCB60EA --pack SCB60EA.pack --script /tmp/g190s.txt
-G190HGT=$(grep -c 'edit: wrote .*SCB60EA\.HGT (4225 bytes)' /tmp/g190_save.log)
-rm -f missions/user_maps/SCB60EA.BIN missions/user_maps/SCB60EA.INI missions/user_maps/SCB60EA.HGT
-if [ "$GRC" = "0" ] && [ -z "$G190BAD" ] && [ "${G190HGT:-0}" -ge 1 ]; then
-  ok "G190 auto heightmap on shipped maps:$G190SUM -- every one of the four fits with no CONVERT asked for, leaves no corner off the ladder that is not the sea's (stray=0), never raises the off-the-ladder count, and hands the elevation panel back usable, SCB01EA and SCG10EA having arrived locked; SAVE writes a 4225-byte .HGT"
+grun /tmp/g190_save.log $G190E --scen SCG36EA --pack SCG36EA.pack --script /tmp/g190s.txt
+G190HGT=$(grep -c 'edit: wrote .*SCG36EA\.HGT (4225 bytes)' /tmp/g190_save.log)
+G190LIFT=""
+[ -f missions/user_maps/SCG36EA.HGT ] && G190LIFT=$(python3 "$G190CMP" SCG36EA missions/user_maps/SCG36EA.HGT 2>>"$OUT" | sed -n 's/.*|lift=\([0-9-]*\).*/\1/p')
+rm -f missions/user_maps/SCG36EA.BIN missions/user_maps/SCG36EA.INI missions/user_maps/SCG36EA.HGT
+if [ "$GRC" = "0" ] && [ -z "$G190BAD" ] && [ "${G190HGT:-0}" -ge 1 ] && [ "${G190LIFT:-0}" -ge 32 ] 2>/dev/null; then
+  ok "G190 auto heightmap on shipped maps:$G190SUM -- every one fits with no CONVERT asked for, writes the generator's own ground (swells off, within a byte a corner), keeps open water as flat as the generator does, and hands the elevation panel back usable, SCB01EA and SCG10EA having arrived locked; with the swells on SCG36EA rolls $G190LIFT bytes above the swell-less ground and SAVE writes a 4225-byte .HGT"
 else
-  bad "G190 auto heightmap on shipped maps: exit=$GRC hgt4225=$G190HGT(want >=1; 0 means g_elevTouched was never set and the heightmap is silently not saved) failures:${G190BAD:- none} | readings:$G190SUM"
+  bad "G190 auto heightmap on shipped maps: exit=$GRC hgt4225=$G190HGT(want >=1; 0 means g_elevTouched was never set and the heightmap is silently not saved) swells=${G190LIFT:-none}(want >=32 on SCG36EA) failures:${G190BAD:- none} | readings:$G190SUM"
 fi
 
 
@@ -13265,11 +13422,9 @@ fi
 #      row exists to avoid. The corner digest is identical either side of it.
 #   2  the second press fits: the ground moves, the panel becomes usable, and the unlock
 #      that made it usable is INSIDE the undo entry rather than beside it.
-#   3  the water does not move. wetkept is a digest of exactly the corners the sea uses,
-#      taken either side of the write, so it answers for ALL of them; the named water
-#      cell read before and after is the same claim in a form a person can read. The
-#      first build of this feature flooded water like open ground and lifted a lake by
-#      two rungs.
+#   3  the water comes back. The fit writes the sea with the land now (settled on its
+#      lowest bank and carved flat, which G190 checks), so the named water cell is read
+#      before the fit and after the undo, and the two must be the same string.
 #   4  ONE undo puts all of it back: the corner digest returns to the byte it started on,
 #      the unlock goes with it, the off-the-ladder count returns to what it was, and the
 #      report -- which describes corners that are no longer there -- is cleared.
@@ -13315,8 +13470,7 @@ G191O0=$(g191f "$G191S0" offladder); G191O2=$(g191f "$G191S2" offladder)
 G191O3=$(g191f "$G191S3" offladder)
 G191U2=$(g191f "$G191S2" unlock);  G191U3=$(g191f "$G191S3" unlock)
 G191A1=$(g191f "$G191P1" armed);   G191V1=$(g191f "$G191P1" valid)
-G191M2=$(g191f "$G191P2" moved);   G191H2=$(g191f "$G191P2" held)
-G191K2=$(g191f "$G191P2" wetkept)
+G191M2=$(g191f "$G191P2" moved)
 G191V3=$(g191f "$G191P3" valid);   G191K3=$(g191f "$G191P3" marked)
 # AND THE OTHER HALF OF THE SAME RULE. An undo is not the only thing that moves the
 # ground under a report: so does the next brush stroke. The tail of the script fits
@@ -13350,10 +13504,10 @@ G191WARN=$(grep -c 'THIS REPLACES THE RELIEF' /tmp/g191.log)
 if [ "$GRC" = "0" ] && \
    [ "$G191A1" = "1" ] && [ "$G191V1" = "0" ] && [ "$G191C0" = "$G191C1" ] && \
    [ "${G191WARN:-0}" -ge 1 ] && \
-   [ "${G191M2:-0}" -gt 0 ] && [ "${G191H2:-0}" -gt 0 ] && [ "$G191K2" = "1" ] && \
+   [ "${G191M2:-0}" -gt 0 ] && \
    [ "$G191R0" = "0" ] && [ "$G191R2" = "1" ] && [ "$G191U2" = "1" ] && \
    [ "$G191C0" != "$G191C2" ] && \
-   [ -n "$G191W0" ] && [ "$G191W0" = "$G191W1" ] && [ "$G191W1" = "$G191W2" ] && \
+   [ -n "$G191W0" ] && [ "$G191W0" = "$G191W2" ] && \
    [ "$G191UND" = "0" ] && \
    [ "$G191C3" = "$G191C0" ] && [ "$G191U3" = "0" ] && [ "$G191R3" = "$G191R0" ] && \
    [ "$G191O3" = "$G191O0" ] && [ "$G191V3" = "0" ] && [ "$G191K3" = "0" ] && \
@@ -13361,9 +13515,9 @@ if [ "$GRC" = "0" ] && \
    [ "${G191K5:-0}" -gt 0 ] && [ "$G191C4" = "$G191C2" ] && \
    [ -n "$G191C4" ] && [ "$G191C4" != "$G191C5" ] && \
    [ "$G191V6" = "0" ] && [ "$G191K6" = "0" ]; then
-  ok "G191 auto heightmap guard rails on SCB01EA: the first press only ARMS and moves no byte (corners still $G191C0); the second fits -- $G191M2 corners moved, $G191H2 left to the water, the panel goes from locked to usable (ready $G191R0 -> $G191R2, off the ladder $G191O0 -> $G191O2) and the unlock that did it is inside the undo entry; the named water cell reads the same string before, after and after the undo ($G191W0); and ONE undo puts the ground back byte for byte ($G191C3), takes the unlock with it ($G191U3), returns the readout to $G191O3 and clears the report it no longer describes; and a fit that left $G191K5 marks, followed by ONE rung stroke, has its report cleared too (corners $G191C4 -> $G191C5), so no mark ever outlives the ground it was drawn about"
+  ok "G191 auto heightmap guard rails on SCB01EA: the first press only ARMS and moves no byte (corners still $G191C0); the second fits -- $G191M2 corners moved, the water carved with the land, the panel goes from locked to usable (ready $G191R0 -> $G191R2, off the ladder $G191O0 -> $G191O2) and the unlock that did it is inside the undo entry; the named water cell reads the same string before the fit and after the undo ($G191W0); and ONE undo puts the ground back byte for byte ($G191C3), takes the unlock with it ($G191U3), returns the readout to $G191O3 and clears the report it no longer describes; and a fit that left $G191K5 marks, followed by ONE rung stroke, has its report cleared too (corners $G191C4 -> $G191C5), so no mark ever outlives the ground it was drawn about"
 else
-  bad "G191 auto heightmap guard rails: exit=$GRC | press1 armed=$G191A1(want 1) valid=$G191V1(want 0) corners $G191C0->$G191C1(must be equal; unequal means it wrote without asking) warned=$G191WARN(want >=1) | press2 moved=$G191M2(want >0) held=$G191H2(want >0; 0 on a map with a coastline means the water test is not running) wetkept=$G191K2(want 1; 0 means the write went over the sea's own corners) ready $G191R0->$G191R2(want 0->1) unlock=$G191U2(want 1) off $G191O0->$G191O2 corners-changed=$([ "$G191C0" != "$G191C2" ] && echo yes || echo NO) | water '$G191W0' / '$G191W1' / '$G191W2'(all three must be the same string) | undo left=$G191UND(want 0; more means the fit pushed more than one entry) corners=$G191C3(want $G191C0) unlock=$G191U3(want 0) ready=$G191R3(want $G191R0) off=$G191O3(want $G191O0) report valid=$G191V3 marked=$G191K3(want 0 and 0) | before the stroke: refit press armed=$G191A4(want 1) then valid=$G191V5 armed=$G191A5 marked=$G191K5(want 1, 0 and >0; anything else means no report existed for the stroke to clear) corners=$G191C4(want $G191C2, the first fit's ground) | after a later stroke: corners $G191C4 -> $G191C5(must DIFFER; equal means the stroke moved no byte and this leg measured nothing) report valid=$G191V6 marked=$G191K6(want 0 and 0; a standing report here is marks describing corners the stroke has since moved)"
+  bad "G191 auto heightmap guard rails: exit=$GRC | press1 armed=$G191A1(want 1) valid=$G191V1(want 0) corners $G191C0->$G191C1(must be equal; unequal means it wrote without asking) warned=$G191WARN(want >=1) | press2 moved=$G191M2(want >0) ready $G191R0->$G191R2(want 0->1) unlock=$G191U2(want 1) off $G191O0->$G191O2 corners-changed=$([ "$G191C0" != "$G191C2" ] && echo yes || echo NO) | water '$G191W0' before / '$G191W1' fitted / '$G191W2' undone (the first and last must be the same string) | undo left=$G191UND(want 0; more means the fit pushed more than one entry) corners=$G191C3(want $G191C0) unlock=$G191U3(want 0) ready=$G191R3(want $G191R0) off=$G191O3(want $G191O0) report valid=$G191V3 marked=$G191K3(want 0 and 0) | before the stroke: refit press armed=$G191A4(want 1) then valid=$G191V5 armed=$G191A5 marked=$G191K5(want 1, 0 and >0; anything else means no report existed for the stroke to clear) corners=$G191C4(want $G191C2, the first fit's ground) | after a later stroke: corners $G191C4 -> $G191C5(must DIFFER; equal means the stroke moved no byte and this leg measured nothing) report valid=$G191V6 marked=$G191K6(want 0 and 0; a standing report here is marks describing corners the stroke has since moved)"
 fi
 
 
@@ -13409,12 +13563,28 @@ G192CLR=$(grep -a '^ELEVGATE|' /tmp/g192_ui.log | awk -F'|' '
   { for (i=1;i<=NF;i++) { split($i,kv,"="); v[kv[1]]=kv[2] }
     if (v["capclear"]+0 <= 0 || v["autoclear"]+0 < 0) n++ } END { print n+0 }')
 G192ACT=$(grep -c 'UITEST|FAIL|action ' /tmp/g192_ui.log)
+# THE FRAME IS RENDERED ON A NEW MAP, NOT ON SCB31EA AS IT WAS. The caption lives on the
+# tier page, and the tier page is only drawn on a map that is on the ladder; any other
+# map opens on the CONVERT card, where there is no cliff drawer, no caption and so no
+# ELEVCAP line at all. SCB31EA was on the ladder when this leg was written. It is a
+# Covert Operations map, and when those missions took generated heightmaps with rolling
+# swells it arrived 1680 of 3844 corners off the ladder: both readings went blank and the
+# leg measured nothing, for reasons the verdict could not name. A shipped map's ground is
+# art and will keep changing; a new map is on the ladder by construction. newmap 1 0 0 is
+# a medium TEMPERATE map, the theater the SCB31EA pack already carries, so it takes the
+# fast path, never reboots, and leaves the same cliff drawer to caption. sbrstate then
+# reads the panel's own ready= answer, so a frame drawn on the CONVERT card is reported
+# as that, by name, rather than as two blank readings.
 G192E="--edit --editmode 2 $BASE --nosound --scen SCB31EA --pack SCB31EA.pack"
 cat > /tmp/g192s.txt <<'SCRIPT'
+newmap 1 0 0
+sbrstate
 shot shots/g192_short.png
 quit
 SCRIPT
 cat > /tmp/g192t.txt <<'SCRIPT'
+newmap 1 0 0
+sbrstate
 shot shots/g192_tall.png
 quit
 SCRIPT
@@ -13425,16 +13595,19 @@ G192CS=$(grep '^ELEVCAP|' /tmp/g192_short.log | tail -1)
 G192CT=$(grep '^ELEVCAP|' /tmp/g192_tall.log  | tail -1)
 G192DS=$(printf '%s' "$G192CS" | sed -n 's/.*|drawn=\([0-9]*\).*/\1/p')
 G192DT=$(printf '%s' "$G192CT" | sed -n 's/.*|drawn=\([0-9]*\).*/\1/p')
+G192RS=$(grep '^SBRSTATE|' /tmp/g192_short.log | tail -1 | sed -n 's/.*|ready=\([0-9]*\).*/\1/p')
+G192RT=$(grep '^SBRSTATE|' /tmp/g192_tall.log  | tail -1 | sed -n 's/.*|ready=\([0-9]*\).*/\1/p')
 if [ "$GRC" = "0" ] && \
    [ "$G192UT" = "1" ] && [ "$G192ACT" = "0" ] && \
    [ "$G192IMP" = "12" ] && \
    [ "$G192ROWS" = "16" ] && [ "$G192GRW" = "16" ] && [ "$G192GCV" = "16" ] && \
    [ "${G192CLR:-1}" = "0" ] && \
    [ "$G192AUT" = "$G192AFT" ] && [ "$G192GAU" = "$G192GFT" ] && \
+   [ "$G192RS" = "1" ] && [ "$G192RT" = "1" ] && \
    [ -n "$G192DS" ] && [ "$G192DS" = "0" ] && [ "$G192DT" = "1" ]; then
-  ok "G192 elevation layout with the auto row: --uitest is clean over 9 passes x 16 size/backing pairs, IMPORT HEIGHTMAP still answers at $G192IMP of 16 (the row did not move), the auto row answers at exactly the $G192AFT tier-page and $G192GFT gate-card pairs where its rectangle fits and at none of the others, CONVERT THIS MAP is walked at all $G192GCV pairs on a card the harness had never opened, the caption under it clears that button and the row clears the caption at all $G192GRW pairs, the action row survives on it ($G192ACT dead-control failures), and the CLIFF PIECES caption is NOT painted in a rendered 1280x480 frame where it would land in the status card ($G192CS) while it is painted in a tall one ($G192CT)"
+  ok "G192 elevation layout with the auto row: --uitest is clean over 9 passes x 16 size/backing pairs, IMPORT HEIGHTMAP still answers at $G192IMP of 16 (the row did not move), the auto row answers at exactly the $G192AFT tier-page and $G192GFT gate-card pairs where its rectangle fits and at none of the others, CONVERT THIS MAP is walked at all $G192GCV pairs on a card the harness had never opened, the caption under it clears that button and the row clears the caption at all $G192GRW pairs, the action row survives on it ($G192ACT dead-control failures), and the CLIFF PIECES caption is NOT painted in a rendered 1280x480 frame of a new map on the ladder, where it would land in the status card ($G192CS), while it is painted in a tall one ($G192CT)"
 else
-  bad "G192 elevation layout with the auto row: exit=$GRC uitest-clean=$G192UT(want 1) dead-action-failures=$G192ACT(want 0; 48 of them -- three controls at sixteen size/backing pairs -- is the gate card's branch returning EUI_DEAD over UNDO, REDO, REVERT, and SAVE and PLAY with them) import-hittable=$G192IMP(want 12; 11 means the auto row was put ABOVE the import row and cost it a window size) elevrows=$G192ROWS elevgate=$G192GRW convert-probed=$G192GCV(want 16 each) gatecard-overlaps=$G192CLR(want 0; a row here is the gate card's caption drawn inside the CONVERT button or the fit's row drawn on top of the caption -- neither is a control, so nothing but this leg can see it) -- first: $(grep -a '^ELEVGATE|' /tmp/g192_ui.log | awk -F'|' '{ for (i=1;i<=NF;i++) { split($i,kv,"="); v[kv[1]]=kv[2] } if (v["capclear"]+0 <= 0 || v["autoclear"]+0 < 0) { print; exit } }') auto-hittable=$G192AUT(want $G192AFT) gate-auto=$G192GAU(want $G192GFT) caption-drawn short=$G192DS(want 0) tall=$G192DT(want 1) | $G192CS | $G192CT"
+  bad "G192 elevation layout with the auto row: exit=$GRC uitest-clean=$G192UT(want 1) dead-action-failures=$G192ACT(want 0; 48 of them -- three controls at sixteen size/backing pairs -- is the gate card's branch returning EUI_DEAD over UNDO, REDO, REVERT, and SAVE and PLAY with them) import-hittable=$G192IMP(want 12; 11 means the auto row was put ABOVE the import row and cost it a window size) elevrows=$G192ROWS elevgate=$G192GRW convert-probed=$G192GCV(want 16 each) gatecard-overlaps=$G192CLR(want 0; a row here is the gate card's caption drawn inside the CONVERT button or the fit's row drawn on top of the caption -- neither is a control, so nothing but this leg can see it) -- first: $(grep -a '^ELEVGATE|' /tmp/g192_ui.log | awk -F'|' '{ for (i=1;i<=NF;i++) { split($i,kv,"="); v[kv[1]]=kv[2] } if (v["capclear"]+0 <= 0 || v["autoclear"]+0 < 0) { print; exit } }') auto-hittable=$G192AUT(want $G192AFT) gate-auto=$G192GAU(want $G192GFT) tier-page short=${G192RS:-none} tall=${G192RT:-none}(want 1 each; 0 is the new map opening on the CONVERT card, where no caption is drawn and the next two readings go blank) caption-drawn short=$G192DS(want 0) tall=$G192DT(want 1) | $G192CS | $G192CT"
 fi
 
 
@@ -13491,118 +13664,21 @@ else
 fi
 
 # =====================================================================================
-# G202 A REMASTERED INFANTRYMAN STANDS ON THE GROUND WHATEVER HE IS DOING.
-#
-# THE REPORT (BUG-20260904-52C9E6): the remastered sprites are misaligned on their
-# ATTACKING poses and appear to jump upward -- minigunner prone attack, flamethrower
-# standing attack, bazooka standing attack, bazooka prone attack, commando prone attack.
-#
-# THE CAUSE was arithmetic, not art. Every Remastered frame is a tight crop of a logical
-# canvas constant per type; remaster_inf.h builds one strip per ACTION cropped to that
-# action's own union of crops, and dosinf_draw_sprite stood the strip's BOTTOM ROW on the
-# terrain. So a different logical row landed on the ground for every action -- and an
-# attack pose's crop reaches far below the man's feet, because the muzzle flash, the flame
-# jet and the rocket exhaust are drawn INTO the frame. The five poses in the report are
-# the five with the largest overhang: 39 logical rows for E1's prone fire, 41 for E3's,
-# 47 for E4's standing flame, 49 for RMBO's prone fire, against a man about 75 rows tall.
-#
-# THE FIX is one anchor per type, read off its STAND action, with every strip carrying its
-# own offset from it (DosStrip::ox / ::drop) for the draw to apply.
-#
-# TWO LEGS, because there are two ways to get this wrong and one binary cannot see both.
-#
-#   A. THE DERIVATION, in gate_rminf, against the player's own install and with no window:
-#      does each strip carry the offset the art actually has, is STAND exactly zero on both
-#      axes, and did the placement move the card rather than resize it. Mutation-tested:
-#      zeroing ri_build_strip's drop fails 18 of its checks.
-#
-#   B. THE APPLICATION, in the game: a strip can carry the right number and the draw can
-#      ignore it. The RMINF|place line is the card's base against the ground UNDER THE MAN
-#      and the fold at his ground line: up + flat must be fh with flat == max(drop, 0)
-#      and lift == max(-drop, 0), and dy must be exactly 0 for a cell with rows below the
-#      line (they lie on the ground, the base sits on it) and the raise's vertical part,
-#      0 < dy <= -drop/tpu, for a cell that stops short of it. A line with no fold fields
-#      at all is a draw that never read the offsets. STAND is the control: it is the
-#      anchor, so it must read 0 on every axis.
-#
-# LEG B GOES THROUGH THE REAL OPTIONS PATH -- pause, Visuals, Enhanced, Advanced, pick
-# Remastered Sprites, OK -- and not through a --gfx dial, because the dial writes g_fx and
-# only the dialog's apply calls fx_infset_set. A gate on the dial would prove nothing a
-# player can reach. It is checked: fx_infset=2 and drawing=Remastered before anything else
-# is read.
-#
-# NO INSTALL, NO GATE, AND IT SAYS SO. The art is the player's and is not in this tree.
-# gate_rminf exits 77 when there is none, and the gate SKIPS rather than passing quietly.
-#
-# AND THAT SKIP STOPS A RELEASE, WHICH IS WORTH KNOWING BEFORE IT HAPPENS. tools/release.sh
-# refuses any suite whose summary line says "skipped", on the reasoning that the release run
-# sets CNC3D_GATES_INTERACTIVE=1 and a skip therefore means a gate REFUSED to run rather
-# than that it was not asked. This gate's skip is a third thing again: the input data is a
-# product the player buys and the tree does not ship, so a machine without one cannot run
-# it however the switches are set. Cutting a build on a machine with no Remastered
-# Collection will abort here. That is a POLICY question and not a thing to work around by
-# dressing the skip up as a pass -- the day this gate reports green on a machine
-# that never measured anything is the day it stops being worth having.
-# =====================================================================================
-if [ ! -x ./gate_rminf ]; then
-  bad "G202 a remastered infantryman stands on the ground: ./gate_rminf is not in the run folder. game/build.sh makes it and stages it"
-else
-  GRIOUT=$(./gate_rminf 2>&1); GRIRC=$?
-  if [ "$GRIRC" = "77" ]; then
-    skip "G202 a remastered infantryman stands on the ground: no Remastered Collection on this machine, so there is no art to measure. THE REMASTERED SPRITE PLACEMENT IS NOT COVERED BY THIS RUN. $(printf '%s' "$GRIOUT" | head -1)"
-  elif [ "$GRIRC" != "0" ]; then
-    bad "G202 a remastered infantryman stands on the ground: the derivation is wrong. $(printf '%s' "$GRIOUT" | grep '^FAIL' | head -3 | tr '\n' ' ')"
-  else
-    # LEG B. Enter the firefight the mission starts with: every man here is on Hunt, so
-    # walking, prone and firing all happen without the script staging them.
-    gbegin /tmp/g202.log
-    { echo options; echo "optclick Visuals"; echo "optclick Enhanced"
-      echo "optclick Advanced..."; echo "optinf open"; echo "optinf pick 2"
-      echo "optinf close"; echo "optclick OK"
-      i=0; while [ $i -lt 30 ]; do echo "tick 60"; echo animdump; i=$((i+1)); done
-      echo quit; } > /tmp/g202.script
-    grun /tmp/g202.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound \
-         --w 1024 --h 768 --dumpanim --script /tmp/g202.script
-    G202DRAW=$(grep -ac 'fx_infset=2|drawing=Remastered' /tmp/g202.log)
-    G202N=$(grep -a '^RMINF|place|' /tmp/g202.log | sort -u | wc -l | tr -d ' ')
-    G202MOVED=$(grep -a '^RMINF|place|' /tmp/g202.log | sort -u | grep -c 'drop=[1-9]')
-    # THE CARD FOLDS AT THE GROUND LINE: up + flat == fh, flat == max(drop,0), lift ==
-    # max(-drop,0); dy is exactly 0 wherever there are rows below the line and the raise's
-    # vertical part, 0 < dy <= -drop/tpu, where the cell stops short of it. A line without
-    # the fold fields is a draw that sinks the card, the shipped bug. awk does the
-    # arithmetic rather than the shell.
-    G202BAD=$(grep -a '^RMINF|place|' /tmp/g202.log | sort -u | awk -F'|' '
-      { d=0; t=0; y=0; fh=-1; up=-1; fl=-1; li=-1
-        for (i=1;i<=NF;i++) {
-          if ($i ~ /^drop=/) { sub(/^drop=/,"",$i); d=$i+0 }
-          if ($i ~ /^tpu=/)  { sub(/^tpu=/,"",$i);  t=$i+0 }
-          if ($i ~ /^dy=/)   { sub(/^dy=/,"",$i);   y=$i+0 }
-          if ($i ~ /^fh=/)   { sub(/^fh=/,"",$i);   fh=$i+0 }
-          if ($i ~ /^up=/)   { sub(/^up=/,"",$i);   up=$i+0 }
-          if ($i ~ /^flat=/) { sub(/^flat=/,"",$i); fl=$i+0 }
-          if ($i ~ /^lift=/) { sub(/^lift=/,"",$i); li=$i+0 } }
-        if (t <= 0 || fh < 0 || up < 0 || fl < 0 || li < 0) { n++; next }
-        wf = d > 0 ? d : 0; wl = d < 0 ? -d : 0
-        if (up + fl != fh || fl != wf || li != wl) { n++; next }
-        if (d >= 0) { if (y > 0.00005 || y < -0.00005) n++; next }
-        if (y <= 0 || y > -d/t + 0.0005) n++ }
-      END { print n+0 }')
-    G202STAND=$(grep -a '^RMINF|place|.*|STAND|' /tmp/g202.log | sort -u | grep -c 'drop=0|ox=0|.*|dy=0.0000|dx=0.0000')
-    if [ "$GRC" != "0" ]; then
-      bad "G202 a remastered infantryman stands on the ground: the run failed (exit $GRC), so nothing below means anything"
-    elif [ "${G202DRAW:-0}" -lt 1 ]; then
-      bad "G202 a remastered infantryman stands on the ground: the options dialog never reached drawing=Remastered, so the men on screen were the DOS sprites and this leg measured the wrong art"
-    elif [ "${G202MOVED:-0}" -lt 3 ]; then
-      bad "G202 a remastered infantryman stands on the ground: only $G202MOVED of $G202N poses carry a non-zero drop. With nothing to move, the placement below is untested -- the mission did not reach walking, prone or firing"
-    elif [ "${G202STAND:-0}" -lt 1 ]; then
-      bad "G202 a remastered infantryman stands on the ground: STAND is the anchor and must place at exactly drop=0 ox=0 dy=0 dx=0; no such line was printed. $(grep -a '^RMINF|place|.*|STAND|' /tmp/g202.log | sort -u | head -1)"
-    elif [ "${G202BAD:-99}" != "0" ]; then
-      bad "G202 a remastered infantryman stands on the ground: $G202BAD of $G202N poses do not fold their card at the ground line (up + flat == fh, flat == max(drop,0), lift == max(-drop,0), base on the ground wherever there are rows below the line). A line with no fold fields, or with dy = -drop/tpu, is the card sunk into the terrain, which is the bug. $(grep -a '^RMINF|place|' /tmp/g202.log | sort -u | head -2 | tr '\n' ' ')"
-    else
-      ok "G202 a remastered infantryman stands on the ground: $(printf '%s' "$GRIOUT" | tail -1) off the player's own install -- every strip carries the offset its art has, STAND is exactly zero on both axes because it IS the anchor, and the cell was moved rather than resized. In the game, through the pause dialog's own Visuals/Advanced path to Remastered Sprites, $G202N poses drew and all of them put the man's ground line on the ground: $G202MOVED of them sit on a cell whose bottom row is up to $(grep -a '^RMINF|place|' /tmp/g202.log | sed -n 's/.*|drop=\([0-9]*\)|.*/\1/p' | sort -n | tail -1) texels below his feet and every one lays exactly those rows flat on the ground in front of him. $(grep -a '^RMINF|place|' /tmp/g202.log | sort -u | sed -n 's/^RMINF|place|\([A-Z0-9]*\)|\([A-Z0-9]*\)|drop=\([0-9-]*\).*/\1 \2 drop=\3/p' | tr '\n' ', ')"
-    fi
-  fi
-fi
+# G202 A REMASTERED INFANTRYMAN STANDS ON THE GROUND WHATEVER HE IS DOING: RETIRED WITH
+# THE REMASTERED COLLECTION ART CHOICE. It proved, against the player's own Remastered
+# Collection install, that every Remastered infantry strip carried the offset of its art
+# from the man's STAND anchor (the attack poses' crops reach far below his feet, because
+# the muzzle flash, flame jet and rocket exhaust are drawn into the frame), that STAND
+# placed at exactly zero, and, through the Advanced page's Remastered Sprites entry, that
+# the game folded every card at the man's ground line instead of sinking it.
+# NOTHING RUNS HERE. The Remastered Collection art is no longer offered: the Advanced page
+# lists neither Remastered entry, and a saved file that holds one loads as its mode's
+# default, so no player can reach the art this gate measured. Its standalone derivation
+# binary went with it.
+# The number stays so the history reads straight; the runtime readers (remaster.h,
+# remaster_inf.h, remaster_tex.h) are left in the tree, unreachable from the menus.
+# NOTHING REPLACED IT: every soldier draws from the shipped DOS or cartridge art, or as
+# Enhanced's 3D models.
 
 # =====================================================================================
 # G203 THE CHEMICAL WARRIOR SPRAYS, IN GREEN, IN THE DIRECTION HE IS FIRING.
@@ -13808,10 +13884,10 @@ fi
 # =====================================================================================
 gbegin /tmp/g204.log
 rm -rf shots/g204; mkdir -p shots/g204
-# ./cnc3d BY NAME, not through grun: grun runs cnc_eyes, the renderer, which has no menu
+# ./opencnc3d BY NAME, not through grun: grun runs cnc_eyes, the renderer, which has no menu
 # and answers --mpplay with its usage text and exit 2. The first draft of this gate did
 # exactly that and reported "the run failed" -- true, and about the wrong program.
-./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
      --shotdir shots/g204 --mpplay 1500 --w 1280 --h 800 > /tmp/g204.log 2>&1
 GRC=$?
 cat /tmp/g204.log >> "$OUT"
@@ -13907,11 +13983,11 @@ elif [ ! -s gate_mp_lobby.txt ]; then
 else
   # The 40 is the tick bound a lobby match plays with no script. With --script the script
   # plays the match instead and ends it with its own quit.
-  ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+  ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
        --mphost 40 --script gate_mp_lobby.txt --w 1024 --h 640 > /tmp/g205_h.log 2>&1 &
   G205HP=$!
   sleep 2
-  ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+  ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
        --mpjoin 40 --script gate_mp_lobby.txt --w 1024 --h 640 > /tmp/g205_j.log 2>&1 &
   G205JP=$!
   # Neither may hang the suite: the room gives up in 30 s, and a side that falls silent
@@ -13988,11 +14064,11 @@ else
   # side's own log must show the live loop ending (GAMELOOP|end, and no script begun),
   # lockstep turns taken, and at least one frame after frame 0 hashed by both sides with
   # one hash.
-  ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+  ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
        --mphost 40 --w 1024 --h 640 > /tmp/g205n_h.log 2>&1 &
   G205NHP=$!
   sleep 2
-  ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+  ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
        --mpjoin 40 --w 1024 --h 640 > /tmp/g205n_j.log 2>&1 &
   G205NJP=$!
   g205nw=0
@@ -14262,12 +14338,12 @@ printf 'enabled 1\n' > gfx_g235.cfg
   echo "cardclick tab 0"; echo "unitcard"; echo "cardclick mini 1"; echo "unitcard"
   echo "cardclick tab 1"; echo "unitcard"; echo quit; } > /tmp/g235.script
 grep -v '^shot ' /tmp/g235.script > /tmp/g235off.script
-export CNC3D_HUD=new
+export OPENCNC3D_HUD=new
 grun /tmp/g235.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
      --gfx gfx_g235.cfg --script /tmp/g235.script
 grun /tmp/g235off.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
      --script /tmp/g235off.script
-unset CNC3D_HUD
+unset OPENCNC3D_HUD
 gshots shots/g235_nocard.png shots/g235_on.png
 G235NOCARD=$(grep -a '^UNITCARD|shown=' /tmp/g235.log | head -1)
 G235STATE=$(grep -a '^UNITCARD|shown=1|count=5|' /tmp/g235.log | head -1)
@@ -14309,15 +14385,18 @@ else
 fi
 
 # =====================================================================================
-# G206 THE DISPLAY ROWS ON THE ADVANCED PAGE: True fullscreen / Windowed /
-# Windowed borderless as a radio triple, Resolution greyed under borderless, UI scaling
-# with -2x as the shipped default, and Reset to defaults. Each is two claims, the
-# dialog's value and the dial it wrote, read off OPTDISP the way G42 reads OPTVIS. The
-# window itself is NOT switched in this run (an automated run keeps its hidden window and
-# says DISPLAY|deferred); what is proved is that the rows write the dials, the greying
-# follows the mode, the divisor reaches the sidebar, and Reset comes back to the
-# compiled defaults. The row past the fold is reached by the driver scrolling to it,
-# which is also G42's whole fix.
+# G206 THE DISPLAY ROWS ON THE ADVANCED PAGE: Fullscreen / Windowed /
+# Borderless as a radio triple, Resolution greyed under borderless, UI scaling with 1x
+# (the largest whole-number zoom that fits) as the shipped default, and Reset to
+# defaults. Each is two claims, the dialog's value and the dial it wrote, read off
+# OPTDISP the way G42 reads OPTVIS. The window itself is NOT switched in this run (an
+# automated run keeps its hidden window and says DISPLAY|deferred); what is proved is
+# that the rows write the dials, the greying follows the mode, the sidebar's divisor
+# agrees with the scale, and Reset comes back to the compiled defaults. With 1x shipped
+# the divisor read here is 1, which is also what a sidebar that was never told anything
+# draws at, so this run no longer proves a scale REACHES the sidebar: G250's ui_scale 1
+# leg does, by the unit card moving. The row past the fold is reached by the driver
+# scrolling to it, which is also G42's whole fix.
 # =====================================================================================
 cat > /tmp/g206.txt <<'G206EOF'
 tick 30
@@ -14326,11 +14405,11 @@ optclick Visuals
 optclick Enhanced
 optclick Advanced...
 optvis
-optclick True fullscreen
+optclick Fullscreen
 optvis
 optclick Windowed
 optvis
-optclick Windowed borderless
+optclick Borderless
 optvis
 optclick UI scaling
 opttex close
@@ -14345,27 +14424,29 @@ G206L=$(./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 
 G206D=$(echo "$G206L" | grep '^OPTDISP|')
 g206() { echo "$G206D" | sed -n "$1p"; }
 G206OK=1
-# 1: fresh, the shipped defaults: borderless, resolution greyed, UI -2x, divisor 2
-echo "$(g206 1)" | grep -q 'mode=1|.*uiscale=1|resdisabled=1|.*fx_mode=1|.*fx_ui=1|sb_div=2' || G206OK=0
-# 2: True fullscreen: mode 2 on both sides, resolution live
+# 1: fresh, the shipped defaults: borderless, resolution greyed, UI 1x, divisor 1 (the
+# largest zoom: the half-size -2x stopped being the default when the tabbed HUD came in)
+echo "$(g206 1)" | grep -q 'mode=1|.*uiscale=0|resdisabled=1|.*fx_mode=1|.*fx_ui=0|sb_div=1' || G206OK=0
+# 2: Fullscreen: mode 2 on both sides, resolution live
 echo "$(g206 2)" | grep -q 'mode=2|.*resdisabled=0|.*fx_mode=2'   || G206OK=0
 # 3: Windowed: mode 0, resolution live
 echo "$(g206 3)" | grep -q 'mode=0|.*resdisabled=0|.*fx_mode=0'   || G206OK=0
-# 4: Windowed borderless: mode 1, resolution greyed again
+# 4: Borderless: mode 1, resolution greyed again
 echo "$(g206 4)" | grep -q 'mode=1|.*resdisabled=1|.*fx_mode=1'   || G206OK=0
 # 5: CRT is past the fold; the driver scrolled to it and the click landed (crt=1)
 G206SCROLL=$(echo "$G206L" | grep -c '^OPTIONS|script|scrolled|.*for=CRT')
 echo "$G206L" | grep '^OPTVIS|' | sed -n '5p' | grep -q 'crt=1|.*fx_crt=1' || G206OK=0
-# 6: Reset: crt back off, borderless, -2x
+# 6: Reset: crt back off, borderless, 1x
 echo "$G206L" | grep '^OPTVIS|' | sed -n '6p' | grep -q 'crt=0|.*fx_crt=0' || G206OK=0
-echo "$(g206 6)" | grep -q 'mode=1|.*uiscale=1|.*fx_mode=1|.*fx_ui=1|sb_div=2' || G206OK=0
+echo "$(g206 6)" | grep -q 'mode=1|.*uiscale=0|.*fx_mode=1|.*fx_ui=0|sb_div=1' || G206OK=0
 # 7: the display rows' value boxes start after their own labels (they ran
-# under them), read off the ADVDROP lines: label ink 73..132 / 73..130, box at 135 / 133
-echo "$G206L" | grep '^ADVDROP|' | grep -q '|Resolution|lab=73\.\.132|box=135,' || G206OK=0
-echo "$G206L" | grep '^ADVDROP|' | grep -q '|UI scaling|lab=73\.\.130|box=133,' || G206OK=0
+# under them), read off the ADVDROP lines: label ink 39..98 / 39..96, box at 101 / 99 on
+# the 300 wide Advanced box the graphics modes brought
+echo "$G206L" | grep '^ADVDROP|' | grep -q '|Resolution|lab=39\.\.98|box=101,' || G206OK=0
+echo "$G206L" | grep '^ADVDROP|' | grep -q '|UI scaling|lab=39\.\.96|box=99,' || G206OK=0
 G206N=$(echo "$G206D" | wc -l | tr -d ' ')
 if [ "$G206OK" = "1" ] && [ "$G206N" = "6" ] && [ "${G206SCROLL:-0}" -ge 1 ]; then
-  ok "G206 the display rows: the page opens on the shipped defaults (borderless, resolution greyed, UI -2x, divisor 2 in the sidebar), True fullscreen and Windowed each write their mode and free the resolution row, borderless greys it again, a row past the fold is reached by scrolling, and Reset puts CRT off and the display back to the defaults"
+  ok "G206 the display rows: the page opens on the shipped defaults (borderless, resolution greyed, UI 1x, divisor 1 in the sidebar), Fullscreen and Windowed each write their mode and free the resolution row, borderless greys it again, a row past the fold is reached by scrolling, and Reset puts CRT off and the display back to the defaults"
 else
   bad "G206 the display rows: ok=$G206OK lines=$G206N(want 6) scrolled-for-crt=$G206SCROLL(want >=1). OPTDISP: $(echo "$G206D" | tr '\n' ' ' | cut -c1-600)"
 fi
@@ -14411,8 +14492,8 @@ echo "$G207L" | grep '^OPTPERSP|page=' | sed -n '1p' \
 echo "$(g207 2)" | grep -q 'value=1|disabled=0|fx_persp=1|yaw=16.0' || G207OK=0
 # 3: Reset: Classic again, the yaw back to zero
 echo "$(g207 3)" | grep -q 'value=0|.*fx_persp=0|yaw=0.0' || G207OK=0
-# the row's own value box starts after its label (ink 73..138, box at 141): no clipping
-echo "$G207L" | grep '^ADVDROP|' | grep -q '|Perspective|lab=73\.\.138|box=141,' || G207OK=0
+# the row's own value box starts after its label (ink 39..104, box at 107): no clipping
+echo "$G207L" | grep '^ADVDROP|' | grep -q '|Perspective|lab=39\.\.104|box=107,' || G207OK=0
 G207N=$(echo "$G207P" | wc -l | tr -d ' ')
 # THE PICTURE. One run, three shots, no dialog: the verb is the row's own door.
 cat > /tmp/g207b.txt <<'G207EOF'
@@ -14747,8 +14828,8 @@ fi
 # one used to apply the departure one tick after a peer that heard it sooner, and on
 # loopback that happened in about one G210 run in thirteen. A gate that fails one run in
 # thirteen passes a broken build most of the time. These legs force the orderings on every
-# run, with three test switches that only the host reads (CNC3D_NETTEST_HOLD_BYE,
-# CNC3D_NETTEST_CUT_RELAY and CNC3D_NETTEST_LATE_BYE, net/netmatch.c). Nothing in play sets
+# run, with three test switches that only the host reads (OPENCNC3D_NETTEST_HOLD_BYE,
+# OPENCNC3D_NETTEST_CUT_RELAY and OPENCNC3D_NETTEST_LATE_BYE, net/netmatch.c). Nothing in play sets
 # any of them.
 #
 #   G210b THE GOODBYE HELD. The host holds every goodbye it sends to seat 1 for 500 ms
@@ -14906,21 +14987,21 @@ if [ ! -x ./cnc_eyes ] || [ ! -s "$SKMAP.pack" ] || [ ! -s "missions/$SKMAP.INI"
   bad "G210c the leaver's last turns cut: the run folder has no cnc_eyes, no $SKMAP or no gate_net_leave_late.txt"
   bad "G210d the host hears the goodbye late: the run folder has no cnc_eyes, no $SKMAP or no gate_net_leave_late.txt"
 else
-  g210x_leg g210b on  CNC3D_NETTEST_HOLD_BYE=1:500 gate_net_leave_go.txt hold
+  g210x_leg g210b on  OPENCNC3D_NETTEST_HOLD_BYE=1:500 gate_net_leave_go.txt hold
   G210BON=$G210XWHY; G210BONT=$G210XGONE; G210BONF=$G210XFR
-  g210x_leg g210b off CNC3D_NETTEST_HOLD_BYE=1:500 gate_net_leave_go.txt hold
+  g210x_leg g210b off OPENCNC3D_NETTEST_HOLD_BYE=1:500 gate_net_leave_go.txt hold
   G210BOFF=$G210XWHY; G210BOFFT=$G210XGONE; G210BOFFF=$G210XFR
   g210x_verdict "G210b the goodbye held" "$G210BON" "$G210BOFF" \
     "G210b the goodbye held: with every goodbye to the survivor held back 500 ms, so it ran all of the leaver's turns before it knew the departure turn, host and survivor both applied the departure on turn $G210BONT with takeover on and $G210BOFFT with it off, and the two worlds had one hash on each of the $G210BONF and $G210BOFFF frames both hashed after it"
-  g210x_leg g210c on  CNC3D_NETTEST_CUT_RELAY=2:1:198 gate_net_leave_late.txt cut
+  g210x_leg g210c on  OPENCNC3D_NETTEST_CUT_RELAY=2:1:198 gate_net_leave_late.txt cut
   G210CON=$G210XWHY; G210CONT=$G210XGONE; G210CONF=$G210XFR
-  g210x_leg g210c off CNC3D_NETTEST_CUT_RELAY=2:1:198 gate_net_leave_late.txt cut
+  g210x_leg g210c off OPENCNC3D_NETTEST_CUT_RELAY=2:1:198 gate_net_leave_late.txt cut
   G210COFF=$G210XWHY; G210COFFT=$G210XGONE; G210COFFF=$G210XFR
   g210x_verdict "G210c the leaver's last turns cut" "$G210CON" "$G210COFF" \
     "G210c the leaver's last turns cut: the survivor never received the leaver's turns from 198 on, which carry its MCV deploy, and got them from the host after the leaver had gone instead of letting the turn through; host and survivor both applied the departure on turn $G210CONT with takeover on and $G210COFFT with it off, one hash on each of the $G210CONF and $G210COFFF frames both hashed after it"
-  g210x_leg g210d on  CNC3D_NETTEST_LATE_BYE=2:1:180:500 gate_net_leave_go.txt late
+  g210x_leg g210d on  OPENCNC3D_NETTEST_LATE_BYE=2:1:180:500 gate_net_leave_go.txt late
   G210DON=$G210XWHY; G210DONT=$G210XGONE; G210DONF=$G210XFR
-  g210x_leg g210d off CNC3D_NETTEST_LATE_BYE=2:1:180:500 gate_net_leave_go.txt late
+  g210x_leg g210d off OPENCNC3D_NETTEST_LATE_BYE=2:1:180:500 gate_net_leave_go.txt late
   G210DOFF=$G210XWHY; G210DOFFT=$G210XGONE; G210DOFFF=$G210XFR
   g210x_verdict "G210d the host hears the goodbye late" "$G210DON" "$G210DOFF" \
     "G210d the host hears the goodbye late: with the leaver's turns reaching the survivor 500 ms late and the host reading the goodbye only after it had run all of them, so the host learned the departure turn standing on it and the survivor learned it turns short of it, host and survivor both applied the departure on turn $G210DONT with takeover on and $G210DOFFT with it off, one hash on each of the $G210DONF and $G210DOFFF frames both hashed after it"
@@ -14991,11 +15072,11 @@ G211JRC=0
 if [ ! -s SCM01EA.pack ] || [ ! -s missions/SCM01EA.INI ]; then
   bad "G211 a joiner's own row reaches the room: SCM01EA is not in the run folder, so there is no shipped skirmish map to open a room on"
 else
-  ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+  ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
        --lobbyhost 12 --w 1024 --h 640 > /tmp/g211_h.log 2>&1 &
   G211HP=$!
   sleep 3
-  ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+  ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
        --lobbyjoin 10 --w 1024 --h 640 > /tmp/g211_j.log 2>&1
   G211JRC=$?
   # The host shuts its own room on its own clock, twelve seconds after it opened. 40 s is
@@ -15231,9 +15312,9 @@ fi
 # ---------------------------------------------------------------------------
 G214RC=""; G214ROWS=""; G214R=""; G214LOG=""; G214M=""
 G214GDI=0; G214NOD=0; G214NODLOGO=0
-if [ -x ./cnc3d ] && [ -s campaign.pack ]; then
+if [ -x ./opencnc3d ] && [ -s campaign.pack ]; then
   rm -f flow_matchscore.png flow_matchscore_mid.png
-  G214LOG=$(./cnc3d --matchshot --w 1280 --h 800 --dylib ./TiberianDawn.dylib \
+  G214LOG=$(./opencnc3d --matchshot --w 1280 --h 800 --dylib ./TiberianDawn.dylib \
             --dir ./missions/ 2>&1)
   printf '%s\n' "$G214LOG" >> "$OUT"
   G214RC=$(printf '%s' "$G214LOG" | sed -n 's/^MATCHSHOT|rc=\([-0-9]*\)|.*/\1/p' | head -1)
@@ -15251,7 +15332,7 @@ if [ -x ./cnc3d ] && [ -s campaign.pack ]; then
   # played Nod gets the Nod medallion turning in the corner and the Nod score theme; the
   # same one number drives both, so proving the emblem proves the music with it.
   G214GDI=$(printf '%s' "$G214LOG" | grep -c 'CAMPAIGN|matchscore|.*|side=GDI|')
-  G214NODLOG=$(./cnc3d --matchshot --flowside nod --w 800 --h 500 \
+  G214NODLOG=$(./opencnc3d --matchshot --flowside nod --w 800 --h 500 \
                --dylib ./TiberianDawn.dylib --dir ./missions/ 2>&1)
   printf '%s\n' "$G214NODLOG" >> "$OUT"
   G214NOD=$(printf '%s' "$G214NODLOG" | grep -c 'CAMPAIGN|matchscore|.*|side=Nod|')
@@ -15640,8 +15721,8 @@ fi
 # a mistake into the default port sends a player to knock on a door they did not name and
 # then tells them nobody answered.
 G219FAIL=""; G219N=0; G219BAD=1
-if [ -x ./cnc3d ]; then
-  ./cnc3d $BASE --mpaddr > /tmp/g219.log 2>&1
+if [ -x ./opencnc3d ]; then
+  ./opencnc3d $BASE --mpaddr > /tmp/g219.log 2>&1
   G219RC=$?
   cat /tmp/g219.log >> "$OUT"
   G219N=$(sed -n 's/^MPADDR|done|checks=\([0-9]*\)|.*/\1/p' /tmp/g219.log | head -1)
@@ -15781,7 +15862,13 @@ fi
 # at 32,32 there is no sea in frame at all, so the same two phases must be the SAME
 # picture: anything that moves there is the sim reaching past its own target.
 # =====================================================================================
+# THE GROUND DETAIL, PINNED OFF. The grass clumps sway on the frame clock, so inland they
+# move between the two phases of one tick: ambient animation, not the world's state, and
+# not what this gate asks about.
 cat > /tmp/g222.txt <<'G222EOF'
+gfx fol_on 0
+gfx rock_on 0
+gfx mottle_on 0
 tick 60
 smoothmove 1
 tick 1
@@ -15866,6 +15953,12 @@ fi
 # DIFFERENT camera and cannot prove that; what it does prove is that the tree setting
 # changes a leafy tree, so a pack that failed to load cannot pass as a cactus left alone.
 # Not covered: a cactus that stands in the frame and draws in neither shot.
+#
+# RUN WITH --noebld, so the rebuilt-tree pack is what draws the trees here. Under Enhanced the
+# approved tree remasters (ebld_terr.h) stand in for the photogrammetry tree type by type and
+# theater by theater (the desert's T04, T08 and T09 among them), and with them on this map's
+# T08 would no longer be the pack's tree at all, so its rig could not be measured: measured,
+# mapped=0 and rig=0 with the remasters on. The remasters' own drawing is G307's.
 # =====================================================================================
 cat > /tmp/g223.txt <<'G223EOF'
 cam 18 45
@@ -15895,7 +15988,7 @@ gbegin shots/g223_cac_on.png shots/g223_cac_off.png shots/g223_tree_on.png \
        shots/g223_tree_off.png shots/g223_rig_off.png shots/g223_rig_on.png \
        shots/g223_rig_off2.png shots/g223.log
 grun shots/g223.log --noshroud --scen SCB22EB --pack SCB22EB.pack $BASE --w 1280 --h 800 \
-     --script /tmp/g223.txt --enhanced
+     --script /tmp/g223.txt --enhanced --noebld
 gshots shots/g223_cac_on.png shots/g223_cac_off.png shots/g223_tree_on.png \
        shots/g223_tree_off.png shots/g223_rig_off.png shots/g223_rig_on.png \
        shots/g223_rig_off2.png
@@ -15936,237 +16029,23 @@ else
   bad "G223 the leafy trees play their rig and the cacti are still cacti: cactus=${G223CAC}(want 0, else an unmapped name is drawing a hash-picked species) mapped=${G223TREE}(want >=5000, else the first number is vacuous) rig=${G223RIG}(want >=3000, else the skin never reached the shader) reproduce=${G223SAME}(want 0) GRC=$GRC"
 fi
 
-# ---------------------------------------------------------------------------
-# G224 THE GRASS STANDS, THE CLEARANCE CLEARS, AND NEITHER REACHES THE UI.
-#
-# Under ENHANCED the ground grows real blades: game/grass_bake.h reads WHERE from the
-# CARTRIDGE atlas per texel and puts every blade in the map into one static vertex buffer
-# built at load and never rewritten; game/grass_field.h keeps what the battle has done to
-# the ground; game/grass_draw.h draws it, alpha blended, DEPTH WRITES OFF.
-#
-# WHAT THIS GATE ASSERTS, AND WHAT IT DELIBERATELY DOES NOT.
-#
-# The design's stated reason for the clearance is that a blade overlapping an object
-# silhouette lands on a pixel whose ground-normal alpha is 0, where the ground's one-sun
-# lambert is skipped and the occlusion weight doubles, ringing every building and every
-# hull with a dark halo one blade tall. AN EARLIER FORM OF THIS GATE ASSERTED THAT HALO
-# AS A TWENTYFOLD DIFFERENTIAL AND IT IS NOT THERE. Measured on this map and camera at
-# 1280x800, holding the blade at the top of its range (0.30 cells) and moving ONLY the
-# clearance: pixels more than 60 luma darker than the grass-off frame are 679 with the
-# clearance off and 619 with it on. That is a ratio of 1.10, not 20. Nearly all of that
-# darkening is the blade's own root shading over ground, not a halo. At the shipped blade
-# height of 0.20 the frame sits 275 px darker than bare ground, which is what arm 3 has a
-# ceiling on.
-#
-# So the halo is real in principle and negligible at this scale, and a gate that demanded
-# a large one would have to be given a threshold no build can reach. What IS asserted is
-# the thing that can actually break, and the thing that DID break: the clearance must
-# CHANGE THE PICTURE. A cover channel that is never stamped changes nothing, and that is
-# not hypothetical. The per-tick observer was written guarded on a flag that is only ever
-# true inside the world pass, so it recorded nothing on every tick of every mission, the
-# queue was empty on every drawn frame, and tread marks, building cover, regrowth and the
-# shroud channel all silently did not exist while the grass drew perfectly. This arm is
-# what notices that. Measured: the clearance moves 596 px at the shipped blade height and
-# 3122 at 0.30.
-#
-# SIX CLAIMS:
-#   (1) it draws, and it stops at the sidebar;
-#   (2) the clearance changes the picture, which is the cover channel proving it is alive;
-#   (3) the shipped configuration's darkening against bare ground stays small, which is
-#       the halo claim stated as what it actually is;
-#   (4) a --texset flip repaints the grass and NEVER rebuilds the mask. At zero tolerance
-#       the 1995 DOS sheet's CLEAR1 palette already matches 73.4% of its own ROAD texels,
-#       so a mask rebuilt from it carpets every road in grass. One mask line, one vbo
-#       line, two or more colour lines;
-#   (5) two runs of ONE script give one digest, which is the determinism the rest of the
-#       suite rests on;
-#   (6) switching the grass on mid-run and giving it ONE engine tick reproduces, byte for
-#       byte, the frame of a run that had it on all along.
-#
-# (5) AND (6) USED TO BE ONE COMPARISON AND IT WAS NOT EITHER OF THEM. The determinism arm
-# ran the main script once and a SECOND, DIFFERENT script once, then asked for one digest
-# off the two. The scripts differ in the thing this gate is most about: the main one holds
-# the grass OFF across the ticks and switches it on in the tick it photographs, so the
-# per-tick observer recorded nothing and the cover channel is empty in that frame; the
-# other had the grass on for all forty ticks, so the blades are cleared from under the
-# hulls. Both frames are correct. They are not the same frame, and the difference is 2798
-# px at 1280x800 on this map and camera, in two patches, every one of them a blade standing
-# through one of the three vehicles in shot.
-#
-# The old arm therefore reported a determinism failure that did not exist, and it could
-# not do the job either way: measured against a build with a wall-clock term deliberately
-# added to the grass wind, it reported exactly what it reported against the good build.
-# Red on both is not a test. The arm is now the claim it always said it was, two runs of
-# ONE script, which is IDENTICAL on the good build and DIFFERENT on that broken one; and
-# the thing the old pairing was accidentally asking, which is worth asking, is asked
-# properly by (6), with the extra tick the field's own contract requires.
-#
-# THE FIELD IS CORRECT FROM THE TICK AFTER, NEVER IN THE TICK ITSELF. A switched-off field
-# is a cleared one (game/grass_field.h says so at the observer's guard), so the frame drawn
-# in the same tick the feature is switched on has no cover in it at all. One tick later it
-# is indistinguishable from a run that never had it off. That is what (6) measures, and it
-# is why (5) may not be built out of two scripts that switch the feature on at different
-# points in the run.
-#
-# THE MAP IS TEMPERATE AND HAS A BASE ON IT, and both halves matter. Grass is refused on
-# DESERT outright, that theatre's CLEAR1 bank measuring 0.0182 BELOW neutral in green
-# fraction against a gate of 0.08, and desert is 31 of the 60 shipped missions, so a
-# desert map here would measure nothing at all. And the clearance has nothing to clear
-# without structures and hulls in frame.
-#
-# THE CLEARANCE DIAL IS SET BEFORE THE TICKS, NEVER AFTER. The cover channel is written
-# by the per-tick observer and replayed on a drawn frame, so a script that moves the dial
-# and shoots immediately photographs the previous value and reports no difference.
 # =====================================================================================
-cat > /tmp/g224.txt <<'G224EOF'
-gfx grass 0
-cam 15 12
-tick 40
-shot shots/g224_off.png
-gfx grass 1
-shot shots/g224_on.png
-quit
-G224EOF
-# THE SECOND RUN IS THE SAME SCRIPT, line for line, and only the file names differ. That
-# is what makes the digest comparison a statement about the binary rather than about two
-# scripts. The settle shot on the end is claim (6)'s half of the pair: one engine tick
-# after the switch, which is when the field is defined.
-cat > /tmp/g224b.txt <<'G224EOF'
-gfx grass 0
-cam 15 12
-tick 40
-shot shots/g224_off2.png
-gfx grass 1
-shot shots/g224_on2.png
-tick 1
-shot shots/g224_settle.png
-quit
-G224EOF
-# and claim (6)'s other half: the grass on from the first tick, one tick further on, so
-# the two frames stand at the same engine frame with the same forty-one ticks behind them.
-cat > /tmp/g224c.txt <<'G224EOF'
-gfx grass 1
-cam 15 12
-tick 41
-shot shots/g224_along.png
-quit
-G224EOF
-# The two clearance legs, at the TOP of the height range so the effect is well above the
-# noise, and each with the dial set before the ticks that stamp the field.
-cat > /tmp/g224sk0.txt <<'G224EOF'
-gfx grass 1
-gfx grass_height 0.30
-gfx crush_skirt 0
-cam 15 12
-tick 40
-shot shots/g224_noskirt.png
-quit
-G224EOF
-cat > /tmp/g224sk1.txt <<'G224EOF'
-gfx grass 1
-gfx grass_height 0.30
-gfx crush_skirt 1
-cam 15 12
-tick 40
-shot shots/g224_skirt.png
-quit
-G224EOF
-# THE TEXSET LEG IS ITS OWN RUN, because it has to see the bake's first line and then a
-# flip, and the mask line is printed once per BAKE rather than once per frame.
-# THE TEXSET LEG PUTS THE GRASS BACK BY HAND after each flip to the cartridge sheet,
-# because choosing that sheet switches the feature off: it is tuned against the 1995 bank
-# and says so. Turning it on again over the cartridge art is a deliberate override and the
-# code allows it, which is exactly what this leg needs in order to make the bake read a
-# SECOND atlas and prove the mask did not move with it.
-cat > /tmp/g224t.txt <<'G224EOF'
-cam 15 12
-tick 10
-gfx grass 1
-shot shots/g224_tex0.png
-gfx texset 0
-gfx grass 1
-shot shots/g224_tex1.png
-gfx texset 1
-shot shots/g224_tex2.png
-quit
-G224EOF
-gbegin shots/g224_off.png shots/g224_on.png shots/g224_noskirt.png shots/g224_skirt.png \
-       shots/g224_off2.png shots/g224_on2.png shots/g224_settle.png shots/g224_along.png \
-       shots/g224_tex0.png shots/g224_tex1.png shots/g224_tex2.png \
-       shots/g224.log shots/g224b.log shots/g224c.log shots/g224t.log \
-       shots/g224sk0.log shots/g224sk1.log
-grun shots/g224.log    --noshroud --scen SCG07EA --pack SCG07EA.pack $BASE --w 1280 --h 800 \
-     --script /tmp/g224.txt --enhanced
-grun shots/g224b.log   --noshroud --scen SCG07EA --pack SCG07EA.pack $BASE --w 1280 --h 800 \
-     --script /tmp/g224b.txt --enhanced
-grun shots/g224c.log   --noshroud --scen SCG07EA --pack SCG07EA.pack $BASE --w 1280 --h 800 \
-     --script /tmp/g224c.txt --enhanced
-grun shots/g224sk0.log --noshroud --scen SCG07EA --pack SCG07EA.pack $BASE --w 1280 --h 800 \
-     --script /tmp/g224sk0.txt --enhanced
-grun shots/g224sk1.log --noshroud --scen SCG07EA --pack SCG07EA.pack $BASE --w 1280 --h 800 \
-     --script /tmp/g224sk1.txt --enhanced
-grun shots/g224t.log   --noshroud --scen SCG07EA --pack SCG07EA.pack $BASE --w 1280 --h 800 \
-     --script /tmp/g224t.txt --enhanced
-gshots shots/g224_off.png shots/g224_on.png shots/g224_noskirt.png shots/g224_skirt.png \
-       shots/g224_off2.png shots/g224_on2.png shots/g224_settle.png shots/g224_along.png
-
-# The bake's own report. skirt= is the band the LOAD measured, in cells; the draw's live
-# band is height*(1+vary)*1.35/tan(pitch) and must fit inside it. A number below that
-# means somebody widened a dial range without moving the bake's ceiling, and the draw
-# then clamps and says so on stderr.
-G224MASK=$(grep -c '^GRASS|mask|'   shots/g224t.log)
-G224COL=$(grep -c  '^GRASS|colour|' shots/g224t.log)
-G224VBO=$(grep -c  '^GRASS|vbo|'    shots/g224t.log)
-G224BLADES=$(sed -n 's/^GRASS|vbo|.*|blades=\([0-9]*\)|.*/\1/p' shots/g224.log | head -1)
-G224SKIRT=$(sed -n 's/^GRASS|mask|.*|skirt=\([0-9.]*\) cells.*/\1/p' shots/g224.log | head -1)
-G224DREW=$(grep -c '^GRASS|draw|' shots/g224.log)
-G224R="0 0 0 0 0"
-if [ "$GRC" = "0" ]; then
-  G224R=$(python3 - <<'G224PY'
-import numpy as np
-from PIL import Image
-def luma(p):
-    a = np.asarray(Image.open(p).convert('RGB')).astype(int)
-    return (a[:,:,0]*299 + a[:,:,1]*587 + a[:,:,2]*114) // 1000, a
-loff, aoff = luma('shots/g224_off.png')
-lon,  aon  = luma('shots/g224_on.png')
-lns,  ans  = luma('shots/g224_noskirt.png')
-lsk,  ask  = luma('shots/g224_skirt.png')
-changed  = int((np.abs(aon - aoff).sum(axis=2) > 24).sum())
-sidebar  = int((np.abs(aon - aoff)[:, -150:].sum(axis=2) > 24).sum())
-# (2) the clearance must MOVE the picture. Zero is a cover channel that never got stamped.
-clear_px = int((np.abs(ask - ans).sum(axis=2) > 8).sum())
-# (3) and the shipped configuration must stay a long way from ringing the frame in black.
-dark0 = int(((loff - lns) > 60).sum())
-dark1 = int(((loff - lon) > 60).sum())
-print(changed, sidebar, clear_px, dark0, dark1)
-G224PY
-)
-fi
-set -- $G224R
-G224CHG="$1"; G224SB="$2"; G224CLR="$3"; G224D0="$4"; G224D1="$5"
-# (5) THE SAME SCRIPT, TWICE, AND BOTH OF ITS PICTURES. The off frames are compared too
-# and they cost nothing, but they cannot carry this arm on their own: a fault in the grass
-# pass leaves a grass-off frame byte identical, which is exactly what a build with a
-# wall-clock term in the grass wind does.
-G224SAME=0
-if [ -s shots/g224_on.png ] && [ -s shots/g224_on2.png ] \
-   && [ -s shots/g224_off.png ] && [ -s shots/g224_off2.png ] \
-   && cmp -s shots/g224_on.png shots/g224_on2.png \
-   && cmp -s shots/g224_off.png shots/g224_off2.png; then G224SAME=1; fi
-# (6) AND THE FIELD IS RIGHT ONE TICK AFTER THE SWITCH, not in the tick of it.
-G224SETTLE=0
-if [ -s shots/g224_settle.png ] && [ -s shots/g224_along.png ] \
-   && cmp -s shots/g224_settle.png shots/g224_along.png; then G224SETTLE=1; fi
-
-if [ "$GRC" = "0" ] && [ "${G224CHG:-0}" -ge 8000 ] && [ "${G224SB:-1}" -eq 0 ] \
-   && [ "${G224CLR:-0}" -ge 200 ] && [ "${G224D1:-999999}" -le 500 ] \
-   && [ "${G224MASK:-0}" -eq 1 ] && [ "${G224VBO:-0}" -eq 1 ] && [ "${G224COL:-0}" -ge 2 ] \
-   && [ "${G224SAME}" = "1" ] && [ "${G224SETTLE}" = "1" ] && [ "${G224DREW:-0}" -ge 1 ]; then
-  ok "G224 the grass stands and the clearance clears: ${G224BLADES:-?} blades from one static buffer change $G224CHG px and $G224SB of the sidebar; moving the clearance at a 0.30 blade moves $G224CLR px, which is the cover channel proving it is stamped at all; the shipped frame sits $G224D1 px darker than bare ground against $G224D0 with the clearance off; a texset flip gives $G224MASK mask, $G224VBO vbo and $G224COL colour builds; two runs of one script give one digest for both its frames; a tick after the switch the field matches a run that never had it off; baked skirt ${G224SKIRT:-?} cells"
-else
-  bad "G224 the grass stands and the clearance clears: changed=${G224CHG}(want >=8000; measured 38016 at the shipped 0.20 blade) sidebar=${G224SB}(want 0, else the pass is reaching the UI) clearance-moves=${G224CLR}(want >=200; measured 3122 at a 0.30 blade. ZERO IS THE STATE THIS ARM EXISTS FOR: it means the cover channel was never stamped, which is what a per-tick observer guarded on a draw-time flag does, and the grass will still look perfect) shipped-darkening=${G224D1}(want <=500; measured 275 at the shipped 0.20 blade, against ${G224D0} with the clearance off. This is NOT a twentyfold halo test and must not be turned back into one: the halo the clearance exists to prevent measures 679 against 619 at a 0.30 blade, a ratio of 1.10) mask-builds=${G224MASK}(want exactly 1; 2 means a texset flip rebuilt the mask off the DOS sheet and every road is now grass) vbo-builds=${G224VBO}(want 1) colour-builds=${G224COL}(want >=2) drew=${G224DREW}(want >=1) same=${G224SAME}(want 1: ONE script run twice, both frames. It may never be built from two scripts that switch the grass on at different points, which is what it was and what made it report a failure that was not there) settle=${G224SETTLE}(want 1: switched on late plus one tick must equal on all along) skirt=${G224SKIRT:-none} GRC=$GRC"
-fi
+# G224 THE REAL 3D GRASS (grass_bake.h, grass_field.h, grass_draw.h): RETIRED WITH THE
+# EXPERIMENTAL LOOK. It proved that under ENHANCED the ground grew real blades from one
+# static vertex buffer and stopped at the sidebar; that the clearance round buildings and
+# hulls changed the picture, which is the cover channel proving it was stamped at all;
+# that the shipped blade darkened the frame only slightly against bare ground; that a
+# terrain-art flip repainted the grass without rebuilding its mask; that two runs of one
+# script gave one picture; and that the grass switched on mid-run matched, one tick
+# later, a run that had it on all along.
+# NOTHING RUNS HERE. The pass draws only under the experimental look, whose switch is now
+# forced off (fx_state.h: a preset that still carries it is read as off), so the grass
+# dial moves nothing a run can photograph and every arm could only measure a picture the
+# feature is absent from.
+# The number stays so the history reads straight; the code is left in the tree.
+# NOTHING REPLACED IT. The grass clumps (fol_grass_amt, G267) are a separate feature and
+# stay: they are meshes standing on plain grass cells, with no blades, no clearance and
+# no cover channel.
 
 # =====================================================================================
 # G225 THE RAIN FALLS ON THE WORLD AND NOWHERE ELSE. Under ENHANCED game/rain_mod.h draws
@@ -16288,14 +16167,33 @@ fi
 # too, by shooting the reference a second time after all fourteen and requiring the two
 # files to be the same.
 #
-# THE FLOORS are a quarter of what each term actually measures here, so a term that has
-# gone quiet trips it long before a driver difference could. Measured, world window,
-# pixels differing by more than 24: screen-space puddle reflection 34804, puddle mirror
-# 58476, puddles 221268, glint 249460, sheen 135713, impact rings 112930, derived relief
-# 61383, wet darkening 46927, haze 182832, overcast 365888, ground fog 341106, streaks
-# 9780, rings on the water 12837, the sea's own grey 219502, splash crowns 12079,
-# the wet master 249115,
-# drops in the wave field 52348.
+# THE FLOORS are a quarter of what each term first measured here, so a term that has
+# gone quiet trips it long before a driver difference could. First measured, world
+# window, pixels differing by more than 24: screen-space puddle reflection 34804, puddle
+# mirror 58476, puddles 221268, glint 249460, sheen 135713, impact rings 112930, derived
+# relief 61383, wet darkening 46927, haze 182832, overcast 365888, ground fog 341106,
+# streaks 9780, rings on the water 12837, the sea's own grey 219502, splash crowns 12079,
+# the wet master 249115, drops in the wave field 52348.
+#
+# THE GLINT IN THE PRESET IS 0.5 OVER A LOBE OF 16, NOT 2.0 OVER 4. The light pass now
+# runs in high range, and at 2.0 over the broad lobe of 4 the glint alone took the whole
+# land to white: every term painted on the ground (streaks, crowns, the puddle reflection
+# and the darkening) then changed nothing, because brighter than white is still white,
+# and the gate read three of them as dead when they were drawn. With the high range
+# switched off the same preset measured 15 of 16 alive, which is what showed it was the
+# preset and not the terms. At 0.5 over 16 under 1 per cent of the world window clips,
+# and every term measures, against the same floors: puddle reflection 56781, mirror
+# 212031, puddles 226927, glint 112006, sheen 229099, rings 144409, relief 80995,
+# darkening 18978, haze 332552, overcast 445129, fog 342088, streaks 10684, rings on the
+# water 16539, the sea 201299, crowns 19357, the wet master 237258, drops 80985. The
+# thinnest margins are the darkening and the glint, each about twice its floor.
+#
+# THE SHORE MASK IS WHAT THIS GATE CAUGHT ONCE. The light pass reads the sea's shore
+# field to keep the wet look off the water, and the sky bake was later bound to the same
+# texture unit after it, so on a map with a sea every pixel read as water and seven of
+# the sixteen terms (the reflection, the mirror, the glint, the sheen, the relief, the
+# darkening and the wet master) moved nothing at all. That is the failure the arms exist
+# for, and they named it.
 #
 # THE DROPS NEED THEIR OWN PAIR OF RUNS. The wave field steps on a drawn frame that
 # follows a tick, so the arm interleaves tick and shot six times and reads the last; the
@@ -16315,8 +16213,8 @@ gfx rain_amount 1.0
 gfx rain_streaks 1.0
 gfx rain_wet 1.0
 gfx rain_dark 1.0
-gfx rain_spec 2.0
-gfx rain_gloss 4.0
+gfx rain_spec 0.5
+gfx rain_gloss 16.0
 gfx rain_ripple 1.5
 gfx rain_ripple_density 0.5
 gfx rain_ripple_shade 1.5
@@ -16348,7 +16246,7 @@ shot shots/g226_t02_puddle.png
 gfx rain_puddle 0.8
 gfx rain_spec 0
 shot shots/g226_t03_spec.png
-gfx rain_spec 2.0
+gfx rain_spec 0.5
 gfx rain_sheen 0
 shot shots/g226_t04_sheen.png
 gfx rain_sheen 1.5
@@ -16793,6 +16691,9 @@ fi
 #       FACT OF THE RUN rather than as a promise this gate can fail on: the whole run is
 #       Enhanced and the compiled default is off, so the apply that follows the press
 #       leaves it standing off its default whatever the reset did with it.
+#   display_mode, res_w, res_h  THE GLOBAL ROWS. Since the graphics modes, the display
+#       sits above the mode tabs and belongs to the machine, and Reset resets the mode the
+#       tabs point at, so the window the storm chose must survive the press.
 # Every other dial, debug included, is a picture and must come back. debug draws a
 # comparison pack's meshes in place of the mission's, so it changes what is on the screen.
 #
@@ -16815,14 +16716,19 @@ fi
 # sidebar, the UI scale, the decal edge and the camera.
 #
 # WHY THE DISPLAY MODE IS CHANGED THROUGH THE ROW AND NOT THROUGH A DIAL. The display rows
-# are live: clicking one switches the window there and then. A reset that wrote the shipped
-# mode straight into the dial left the apply nothing to compare against, so the page, the
-# dial and the preset written on the way out all said borderless while the window stayed
-# wherever the player had put it -- the one row on a page of live rows that did not do what
-# it said. So the storm clicks Windowed, which really moves it, and the press afterwards
-# must ask for the window back. In an automated run the requirement is a printed deferral rather
-# than a switch, for the reason the apply gives: a hidden window is never given the
-# display's size, so the gates read the line instead of the window.
+# are live: clicking one switches the window there and then. The storm clicks Windowed,
+# which really moves it, and the press afterwards must NOT ask for the window back: the
+# display is a Global row, above the mode tabs, and Reset promises one mode's settings.
+# In an automated run a switch is a printed deferral rather than a switch, for the reason
+# the apply gives (a hidden window is never given the display's size), so the gate counts
+# those lines: exactly one, the Windowed click, and none from the press.
+#
+# WHY THE DISPLAY'S SIZES ARE INJECTED. The press re-seeds the page from the dials, and a
+# size the display does not offer seeds as entry 0, the desktop (vis_seed_res). So on a
+# display whose list has no 800x600 the press would move the storm's 800x600 to the usable
+# room and print a second DISPLAY line, and this gate would be measuring which sizes the
+# machine's display happens to list rather than the reset. `optres inject` hands the page
+# a 1080p panel that lists 800x600, the way G251 does for its own legs.
 #
 # WHY THE SUPERSAMPLE BOX IS TICKED AGAIN IN A RUN OF ITS OWN. The box is a float wearing a
 # checkbox: the scale it switches off is remembered so that switching it on returns to what
@@ -16856,13 +16762,17 @@ G232EOF
 # the dialog can express. Four of them are set through a ROW instead, because what they
 # move is not only the dial: the input pair and the credit tick go through their own page,
 # so the page and the dial agree and the survival leg below is reading a real setting
-# rather than a dial the dialog never saw; and the display mode goes through the Windowed row, which really
-# switches the window, so the press afterwards has a window to put back and not just a
-# number. The render scale is set BEFORE the dialog opens, because the memory behind its
-# tick box is only written when the dialog seeds itself.
+# rather than a dial the dialog never saw; and the display mode goes through the Windowed
+# row, which really switches the window, so the press afterwards has a window it must leave
+# alone and not just a number. The render scale is set BEFORE the dialog opens, because the
+# memory behind its tick box is only written when the dialog seeds itself, and so is the UI
+# scale, because only a seeded page carries it to the sidebar (the Enhanced click applies
+# it): the readback just before the press shows the sidebar at -2x, so the press is seen
+# to take it back to the shipped 1x rather than finding it there.
 cat > /tmp/g232_reset.txt <<'G232EOF'
 tick 30
 gfx ss_scale 3
+gfx ui_scale 1
 options
 optclick Gameplay
 optclick Swap mouse buttons
@@ -16873,6 +16783,7 @@ optclick Visuals
 optclick Enhanced
 optclick Advanced...
 optclick Windowed
+optres inject 1920 1080 1920 1040 1920x1080,1600x900,1280x720,1024x768,800x600
 gfx grass 1
 gfx texset 0
 gfx grass 1
@@ -16916,7 +16827,6 @@ gfx cursor_scale 1.5
 gfx inf_scale 1.5
 gfx decal_soft 0.0
 gfx new_hud 0
-gfx ui_scale 0
 gfx smooth_anim 0
 gfx bilinear 0
 gfx gamma_on 1
@@ -16928,6 +16838,7 @@ gfx res_w 800
 gfx res_h 600
 gfx debug 1
 gfxsave /tmp/g232_before.cfg
+optvis
 optclick Reset to defaults
 optvis
 optgp
@@ -16992,18 +16903,24 @@ echo "$G232V" | grep -q 'enhanced=1|advdisabled=0|bilinear=1|gamma=0|ss=0|shadow
 echo "$G232V" | grep -q 'fx_enabled=1|fx_bilinear=1|fx_gamma=0|fx_ss=1.00|fx_shadow=1|fx_ao=1|fx_light=1|fx_bloom=1|fx_grade=1|fx_crt=0' || G232OK=0
 # THE SIDEBAR IS THE FUNCTION-APPLIED HALF: the tick, the dial, and the bar being drawn
 echo "$G232V" | grep -q 'hud=1|fx_hud=1|sb_hud=1' || G232OK=0
-# the display rows back to borderless at the desktop's size, and sb_div is the proof that
-# the UI scale reached the sidebar rather than only the dial
-echo "$G232D" | grep -q 'fx_mode=1|fx_res=0x0|fx_ui=1|sb_div=2' || G232OK=0
+# the display rows left where the storm put them (Windowed, 800x600: they are Global), the
+# UI scale back to the shipped 1x, and sb_div is the proof that it reached the sidebar
+# rather than only the dial: the readback taken just before the press must show the
+# sidebar at the storm's -2x (divisor 2), so a press that moved only the dial leaves it
+# there
+G232DPRE=$(grep '^OPTDISP|' shots/g232_reset.log | head -1)
+G232DN=$(grep -c '^OPTDISP|' shots/g232_reset.log)
+[ "$G232DN" = "2" ] || G232OK=0
+echo "$G232DPRE" | grep -q 'fx_mode=0|fx_res=800x600|fx_ui=1|sb_div=2' || G232OK=0
+echo "$G232D" | grep -q 'fx_mode=0|fx_res=800x600|fx_ui=0|sb_div=1' || G232OK=0
 # the camera turned back with the row, not a frame later
 echo "$G232P" | grep -q 'value=0|disabled=0|fx_persp=0|yaw=0.0' || G232OK=0
 # AND THE INPUT SURVIVED, both switches, the page and the dial agreeing
 echo "$G232G" | grep -q 'swap=1|fx_swap=1|push=0|fx_push=0|cash=0|fx_cash=0' || G232OK=0
-# THE WINDOW IS ASKED FOR BACK, and not only its dial. The storm moved the mode through the
-# live Windowed row, so the press must ask for borderless again. In an automated run the
-# ask is printed rather than performed, for the reason the apply gives (a hidden window is
-# never given the display's size), so the line IS the measurement: two of them, the row on
-# the way in and the press on the way out, and the last one must be the press.
+# THE WINDOW IS LEFT ALONE. The storm moved the mode through the live Windowed row; the
+# press resets a graphics mode, and the display is Global. In an automated run a switch is
+# printed rather than performed, so the line IS the measurement: exactly one, the row on
+# the way in, reading mode=0.
 G232DISP=$(grep -c 'DISPLAY|' shots/g232_reset.log)
 G232DISPLAST=$(grep 'DISPLAY|' shots/g232_reset.log | tail -1)
 # THE SUPERSAMPLE MEMORY, from the run of its own: the press clears the scale AND what the
@@ -17022,33 +16939,33 @@ if [ "$GRC" != "0" ]; then
   bad "G232 Reset to defaults: a run failed (GRC=$GRC). Nothing below was measured"
 elif [ "${G232BEFORE:-0}" -lt 40 ]; then
   bad "G232 Reset to defaults: the storm only moved $G232BEFORE dials off their defaults (want >=40). The gate cannot go red on a reset that does nothing, so this is the gate failing and not the button"
-elif [ "$G232KEEP" != "cash_tick enabled right_drag_scroll swap_buttons " ]; then
-  bad "G232 Reset to defaults: $G232AFTER dials still stand off their defaults after the press and they are [$G232KEEP], want exactly [cash_tick enabled right_drag_scroll swap_buttons ]. More than those means the reset does not cover the whole picture; FEWER means it has reached something that is not a picture at all -- the two input switches are the player's mouse and the credit tick is a sound, and the Visuals screen writes the preset on the way out, so clearing them rewrites the player's choice on disc"
-elif [ "${G232DISP:-0}" != "2" ] || ! echo "$G232DISPLAST" | grep -q 'DISPLAY|deferred|mode=1|'; then
-  bad "G232 Reset to defaults: the press did not ask for the window back ($G232DISP DISPLAY| lines, last [$G232DISPLAST], want 2 with the last reading mode=1). The storm switched the window to Windowed through the row that does it live, so a press that restores only the dial leaves the page, the dial and the preset on disc all saying borderless with the window still windowed"
+elif [ "$G232KEEP" != "cash_tick display_mode enabled res_h res_w right_drag_scroll swap_buttons " ]; then
+  bad "G232 Reset to defaults: $G232AFTER dials still stand off their defaults after the press and they are [$G232KEEP], want exactly [cash_tick display_mode enabled res_h res_w right_drag_scroll swap_buttons ]. More than those means the reset does not cover the whole picture; FEWER means it has reached something that is not a picture at all -- the two input switches are the player's mouse and the credit tick is a sound, and the Visuals screen writes the preset on the way out, so clearing them rewrites the player's choice on disc"
+elif [ "${G232DISP:-0}" != "1" ] || ! echo "$G232DISPLAST" | grep -q 'DISPLAY|deferred|mode=0|'; then
+  bad "G232 Reset to defaults: the window was touched by the press ($G232DISP DISPLAY| lines, last [$G232DISPLAST], want exactly 1, the Windowed click, reading mode=0). The display is a Global row above the graphics mode tabs; Reset resets the mode the tabs point at and must leave the window where the player put it"
 elif [ "$G232OK" != "1" ]; then
-  bad "G232 Reset to defaults: the page and the dials disagree after the press. [$G232V] [$G232D] [$G232P] [$G232G]. The things applied through a FUNCTION are what fail here first: sb_hud is the sidebar actually being drawn, sb_div the UI scale that reached it, and yaw the camera"
+  bad "G232 Reset to defaults: the page and the dials disagree after the press. [$G232V] [$G232D] [$G232P] [$G232G], before the press [$G232DPRE] ($G232DN OPTDISP readbacks, want 2). The things applied through a FUNCTION are what fail here first: sb_hud is the sidebar actually being drawn, sb_div the UI scale that reached it, and yaw the camera"
 elif [ "$G232SSOK" != "1" ]; then
   bad "G232 Reset to defaults: the supersample memory survived the press. After the reset [$G232SSOFF] and after ticking the box again [$G232SSON] ($G232SSN readbacks, want 2): want ss=0 fx_ss=1.00 then ss=1 fx_ss=2.00. The scale the box remembers is a static outside the state struct, so the whole-struct copy cannot reach it and one click hands the player back the picture the press just cleared"
 elif [ "$G232SAME" != "1" ]; then
   bad "G232 Reset to defaults: the frame after the press stands $G232PX px away from a fresh Enhanced frame of the same scenario, camera and tick. The dials read right and the picture does not, so something the dials reach only through a function was not applied"
 else
-  ok "G232 Reset to defaults puts the whole Enhanced picture back: $G232BEFORE dials moved off their defaults, and after one press the only four still standing off them are the two input switches, the credit tick and the master switch; the page and the dials agree row for row, the sidebar, the UI scale and the camera followed, the window was asked back to borderless and not only its dial, ticking the render scale again gives the shipped 2x rather than the 3x the press cleared, and the frame is byte identical to a fresh Enhanced frame"
+  ok "G232 Reset to defaults puts the whole Enhanced picture back: $G232BEFORE dials moved off their defaults, and after one press the only ones still standing off them are the two input switches, the credit tick, the master switch and the Global display rows; the page and the dials agree row for row, the sidebar, the UI scale and the camera followed, the window was left where the player put it, ticking the render scale again gives the shipped 2x rather than the 3x the press cleared, and the frame is byte identical to a fresh Enhanced frame"
 fi
 
 # =====================================================================================
 # G233 WHAT A NEW PLAYER IS HANDED, in a folder with no settings files in it at all.
 #
 # The five Game Controls values and the whole Enhanced picture are SHIPPED DEFAULTS: they
-# are what somebody gets on the first launch, before any cnc3d-controls.cfg or
-# cnc3d-fx.cfg exists to be read. Nothing in this suite measured that. Every other gate
+# are what somebody gets on the first launch, before any opencnc3d-controls.cfg or
+# opencnc3d-fx.cfg exists to be read. Nothing in this suite measured that. Every other gate
 # runs in the build folder, which HAS both files, and the renderer is automated, so it
 # skips the restore and never reads them either. A default could therefore be changed to
 # anything at all and the suite would stay green, which is precisely how the one number
 # this gate was written for went unnoticed.
 #
 # IT RUNS IN A FOLDER OF ITS OWN, not in the run folder with the two files moved aside.
-# The run folder's cnc3d-fx.cfg is a real tuning session and its cnc3d-controls.cfg is
+# The run folder's opencnc3d-fx.cfg is a real tuning session and its opencnc3d-controls.cfg is
 # somebody's remembered sliders; a gate that renames them is one interrupted run away
 # from destroying both. So the gate builds a sandbox of symlinks back into the run folder
 # and simply does not link the settings files. Everything the game opens is relative, so
@@ -17127,14 +17044,24 @@ G233SB=/tmp/g233_clean
 rm -rf "$G233SB"; mkdir -p "$G233SB"
 # THE TREE, DIRECTORY BY DIRECTORY AND LEAF BY LEAF. find prints paths relative to the run
 # folder; every directory is made for real and every file is linked, so nothing the run
-# writes can reach back into the run folder through a linked directory. The two settings
+# writes can reach back into the run folder through a linked directory. The settings
 # files are the only things skipped, and only at the top level, which is where the game
 # looks for them.
+#
+# EVERY SETTINGS FILE, WHATEVER IT IS CALLED, and not only the two the game writes. When
+# the shell finds no opencnc3d-fx.cfg or opencnc3d-controls.cfg it adopts a settings file
+# of the same kind standing beside it under another name (settings_carry_over, copied and
+# never moved), so a run folder that holds one would hand this "fresh" run a tuned preset
+# after all and the shell leg below would report a restored file. Any top-level *-fx.cfg,
+# *-controls.cfg or *-multiplayer.cfg is therefore left out of the sandbox as well.
 ( cd "$RUNDIR" && find . -mindepth 1 -type d -print ) | while IFS= read -r g233d; do
   mkdir -p "$G233SB/${g233d#./}"
 done
 ( cd "$RUNDIR" && find . -mindepth 1 \( -type f -o -type l \) -print ) | while IFS= read -r g233f; do
-  case "${g233f#./}" in cnc3d-controls.cfg|cnc3d-fx.cfg) continue ;; esac
+  case "${g233f#./}" in
+    */*) ;;
+    *-controls.cfg|*-fx.cfg|*-multiplayer.cfg) continue ;;
+  esac
   ln -s "$RUNDIR/${g233f#./}" "$G233SB/${g233f#./}" 2>/dev/null
 done
 G233LINKS=$(find "$G233SB" -type l | wc -l | tr -d ' ')
@@ -17149,9 +17076,8 @@ G233DIRS=$(find "$G233SB" -mindepth 1 -type d | wc -l | tr -d ' ')
 G233DIRLINKS=$( ( cd "$RUNDIR" && find . -mindepth 1 -type d -print ) | while IFS= read -r g233d; do
   [ -L "$G233SB/${g233d#./}" ] && echo x
 done | wc -l | tr -d ' ')
-G233STRAY=0
-[ -e "$G233SB/cnc3d-controls.cfg" ] && G233STRAY=$((G233STRAY+1))
-[ -e "$G233SB/cnc3d-fx.cfg" ] && G233STRAY=$((G233STRAY+1))
+G233STRAY=$(find "$G233SB" -maxdepth 1 \( -name '*-controls.cfg' -o -name '*-fx.cfg' \
+             -o -name '*-multiplayer.cfg' \) | wc -l | tr -d ' ')
 cat > "$G233SB/g233.txt" <<'G233EOF'
 gfxsave /tmp/g233_fresh.cfg
 optctl
@@ -17166,12 +17092,12 @@ G233ERC=$?
 cat /tmp/g233_eyes.log >> "$OUT"
 # The real thing, with a window, because the shell only reads the two files when nothing
 # is driving it. Bounded and killed; it is at the main menu long before the timer.
-# EXEC, AND THE PID IS THE GAME'S OWN. Backgrounding `cd X && ./cnc3d` puts the & on the
+# EXEC, AND THE PID IS THE GAME'S OWN. Backgrounding `cd X && ./opencnc3d` puts the & on the
 # whole AND-list, so the shell forks a WRAPPER and $! names that wrapper; killing it leaves
 # the game orphaned and running, one leaked process per suite run, while the gate prints
 # PASS. exec replaces the subshell with the game itself, so the pid is the thing that has
 # to die. Asserted below rather than trusted.
-( cd "$G233SB" && exec ./cnc3d --nosound $BASE --menupack dosmenu.pack \
+( cd "$G233SB" && exec ./opencnc3d --nosound $BASE --menupack dosmenu.pack \
     > /tmp/g233_shell.log 2>&1 ) & G233P=$!
 sleep 14
 # WHAT THE PID IS gets asked BEFORE the kill, while there is still a process to ask. After
@@ -17186,13 +17112,13 @@ G233KIDS=$(pgrep -P $G233P 2>/dev/null)
 kill $G233P 2>/dev/null
 wait $G233P 2>/dev/null
 case "$G233COMM" in
-  *cnc3d) G233NOTGAME=0 ;;
+  *opencnc3d) G233NOTGAME=0 ;;
   *) G233NOTGAME=1; [ -n "$G233KIDS" ] && kill $G233KIDS 2>/dev/null ;;
 esac
 cat /tmp/g233_shell.log >> "$OUT"
 G233WROTE=0
-[ -e "$G233SB/cnc3d-controls.cfg" ] && G233WROTE=$((G233WROTE+1))
-[ -e "$G233SB/cnc3d-fx.cfg" ] && G233WROTE=$((G233WROTE+1))
+[ -e "$G233SB/opencnc3d-controls.cfg" ] && G233WROTE=$((G233WROTE+1))
+[ -e "$G233SB/opencnc3d-fx.cfg" ] && G233WROTE=$((G233WROTE+1))
 
 G233PRE=$(grep '^OPTCTL|seeded=0|' /tmp/g233_eyes.log | head -1)
 G233POST=$(grep '^OPTCTL|seeded=1|' /tmp/g233_eyes.log | head -1)
@@ -17223,24 +17149,24 @@ G233PIC=1
 [ "$(g233dial enabled)" = "0" ] || G233PIC=0
 [ "$(g233dial bilinear)" = "1" ] || G233PIC=0
 [ "$(g233dial new_hud)" = "1" ] || G233PIC=0
-[ "$(g233dial texset)" = "1.00000" ] || G233PIC=0
+[ "$(g233dial texset)" = "3.00000" ] || G233PIC=0   # the Enhanced textures, Enhanced's default
 [ "$(g233dial ss_scale)" = "1.00000" ] || G233PIC=0
 [ "$(g233dial sun_az)" = "67.50000" ] || G233PIC=0
 [ "$(g233dial sun_el)" = "28.71428" ] || G233PIC=0
-[ "$(g233dial inf_scale)" = "0.75000" ] || G233PIC=0
+[ "$(g233dial inf_scale)" = "0.76786" ] || G233PIC=0   # the tuned panel's Enhanced infantry size
 [ "$(g233dial decal_soft)" = "0.60000" ] || G233PIC=0
 [ "$(g233dial grass)" = "0" ] || G233PIC=0
 [ "$(g233dial rain_fx)" = "0" ] || G233PIC=0
 G233PICSAW="smooth_anim=$(g233dial smooth_anim) enabled=$(g233dial enabled) bilinear=$(g233dial bilinear) new_hud=$(g233dial new_hud) texset=$(g233dial texset) ss_scale=$(g233dial ss_scale) sun_az=$(g233dial sun_az) sun_el=$(g233dial sun_el) inf_scale=$(g233dial inf_scale) decal_soft=$(g233dial decal_soft) grass=$(g233dial grass) rain_fx=$(g233dial rain_fx)"
-G233CTLLINE=$(grep -c '^controls: no cnc3d-controls.cfg yet' /tmp/g233_shell.log)
-G233FXLINE=$(grep -c '^FX|no preset at cnc3d-fx.cfg' /tmp/g233_shell.log)
+G233CTLLINE=$(grep -c '^controls: no opencnc3d-controls.cfg yet' /tmp/g233_shell.log)
+G233FXLINE=$(grep -c '^FX|no preset at opencnc3d-fx.cfg' /tmp/g233_shell.log)
 # EVERY NUMBER IS READ BY NOW, so the sandbox goes. It is thousands of links into a folder
 # the next build replaces, and left lying around it is a trap rather than evidence; the
 # three logs above are the evidence and they are kept.
 rm -rf "$G233SB"
 
 if [ "$G233NOTGAME" != "0" ]; then
-  bad "G233 shipped defaults: the pid this gate started and killed was not the game: ps named it [$G233COMM], want cnc3d. A wrapper there means killing it leaves the game orphaned and running, one leaked process per suite run holding a deleted sandbox open, with every number below read while it ran (its children [$(echo $G233KIDS)] were stopped); an empty name means the game had died before the kill"
+  bad "G233 shipped defaults: the pid this gate started and killed was not the game: ps named it [$G233COMM], want opencnc3d. A wrapper there means killing it leaves the game orphaned and running, one leaked process per suite run holding a deleted sandbox open, with every number below read while it ran (its children [$(echo $G233KIDS)] were stopped); an empty name means the game had died before the kill"
 elif [ "$G233LINKS" -lt 100 ] || [ "$G233STRAY" != "0" ] || \
    [ "$G233DIRS" != "$G233SRCDIRS" ] || [ "$G233DIRLINKS" != "0" ]; then
   bad "G233 shipped defaults: the sandbox is not one. $G233LINKS files linked (want >=100), $G233STRAY settings file(s) present (want 0), $G233DIRS directories made against $G233SRCDIRS in the run folder, and $G233DIRLINKS of them left as links (want 0, because a linked directory is the run folder and anything written below it lands there). Nothing below was measured in a fresh folder"
@@ -17334,7 +17260,7 @@ G237BEND=$(echo "$G237B" | grep -c '^SCRIPT|end .* 0 failures$')
 G237PNG=0; [ -s shots/rs/restate.png ] && G237PNG=1
 # leg d, the shell
 rm -rf shots/hrs; mkdir -p shots/hrs
-G237D=$(./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+G237D=$(./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
         --harness 400 --rounds 1 --shotdir shots/hrs --harnessscen SCG22EA \
         --autoesc 2 --autorestate --autoabort 1 --autorestateshot shots/hrs/after_video.png 2>&1)
 echo "$G237D" >> "$OUT"
@@ -17429,7 +17355,7 @@ G238SAME=0; cmp -s /tmp/g238_a.txt /tmp/g238_c.txt && G238SAME=1
 G238PNGS=0; for f in save_open save_typed load_open delete_ask; do [ -s shots/sl/$f.png ] && G238PNGS=$((G238PNGS+1)); done
 # leg b: a save from inside the campaign. Watchdogged like G14's flow.
 rm -rf shots/sl/camp; mkdir -p shots/sl/camp
-./cnc3d --flowtest 60 --dylib ./TiberianDawn.dylib --dir ./missions/ \
+./opencnc3d --flowtest 60 --dylib ./TiberianDawn.dylib --dir ./missions/ \
       --content ./content/ --cameos cameos.pack --dospack dossidebar.pack \
       --dosinf dosinfantry.pack --savedir shots/sl/camp --autoesc 1 --autosave \
       > shots/sl/flow.log 2>>"$OUT" &
@@ -17444,7 +17370,7 @@ G238FDONE=$(grep -c '^FLOWTEST|complete|2 missions' shots/sl/flow.log)
 G238CAMP=$(python3 - <<'PY'
 import struct
 try:
-    d=open('shots/sl/camp/CNC3DSAV.IDX','rb').read()
+    d=open('shots/sl/camp/OPENCNC.IDX','rb').read()
     out=[]
     for i in range(16):
         r=d[i*128:(i+1)*128]
@@ -17457,7 +17383,7 @@ PY
 )
 # leg c: the main menu's Load Mission on that folder
 rm -rf shots/sl/menu; mkdir -p shots/sl/menu
-G238C=$(./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+G238C=$(./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
         --harness 40 --rounds 1 --shotdir shots/sl/menu --harnessload --savedir shots/sl/camp 2>&1)
 echo "$G238C" >> "$OUT"
 G238CROWS=$(echo "$G238C" | grep -c '^LOADMENU|open|rows=2$')
@@ -17467,7 +17393,7 @@ G238CLOAD=$(echo "$G238C" | grep -c '^LOAD|slot=1|frame=18|scen=SCG02EA|objects=
 G238CEND=$(echo "$G238C" | grep -c '^HARNESS|end|1 round(s), 0 failure(s)')
 # leg d: a pause-dialog load of another mission's slot, from the Test Map
 rm -rf shots/sl/game; mkdir -p shots/sl/game
-G238D=$(./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+G238D=$(./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
         --harness 40 --rounds 1 --shotdir shots/sl/game --savedir shots/sl/camp \
         --autoesc 2 --autoload 2>&1)
 echo "$G238D" >> "$OUT"
@@ -17675,11 +17601,12 @@ fi
 # The rule now is the walls': a hidden cell's clumps are not drawn at all. Enhanced only,
 # because the Classic flat decal has nothing standing above the lid.
 #
-# THREE RUNS, one shot each, and none is enough alone.
+# THREE RUNS, one shot each, and none is enough alone; and each has a twin with --notib3d
+# (see the green below).
 #   (1) --noshroud, so the ring is the only shroud in play. The four ring boxes must hold
 #       NO green while the harvestable column beside them (2,55),(2,56) and the interior
 #       (3,55) keep theirs.
-#   (2) The same with --norim. The ring's green must be BACK (>= 500 a box), which proves
+#   (2) The same with --norim. The ring's green must be BACK (>= 100 a box), which proves
 #       the cells are still fed and the gate is the rim and not a lost TIB| line; and the
 #       solid clump count run (1) printed must be BELOW this run's, because a build that
 #       dims instead of culls prints the same number both ways.
@@ -17692,12 +17619,40 @@ fi
 #
 # Boxes are 80x56 px about each CURSORCELL centre at zoom max, where a cell is about 86
 # px wide and 50..68 px tall, so a box lies inside its own cell. Green is g>25, g>r+15,
-# g>b+15. The count line is the first "solid clumps drawn" line of each log: the script
+# g>b+15, AND at least 10 greener than the same pixel of the run's twin without the
+# solid clumps: the clumps' own green, not the ground's. Counted by green alone, the
+# boxes took in the grass between the crystals, and the gate went red when the ground was
+# repainted calmer with every clump drawn exactly as before (ring box 272 to 189, the
+# same 4428 / 4450 / 294 clumps). Counted this way the two grounds read alike: ring box
+# at least 152 / 148 with the rim off, column 830 / 763, interior 1447 / 1352, column
+# under fog 788 / 751, and 0 in every ring box with the rim on and under fog. The
+# thresholds sat about a third under the lower of each pair. Since the remastered
+# Tiberium became the Enhanced default (a thin cell draws bare soil mounds, the crystals
+# smaller) a box counts every pixel more than 30 off the twin in any channel instead, the
+# mounds and the crystals alike; on the remastered pack: ring box at least 311 with the rim
+# off, column 663, interior 1493, column under fog 1064, ring boxes 0 with the rim on and
+# under fog, and the thresholds again a third under. A twin whose camera does not
+# match its run reads -1 everywhere. The count line is the first "solid clumps drawn"
+# line of each log: the script
 # runner draws nothing before its first shot, so that line IS the shot frame. Measured
 # before the fix: ring boxes 23/1/0/0 (run 1) and 16/1/0/0 (run 3), run 2 706/896/1308/
 # 1010, and 1088 clumps drawn in every run. After: 0/0/0/0 in runs 1 and 3, the same
 # run-2 boxes, and 1066 / 1088 / 294 clumps. The scratch map goes first, not last: a
 # leftover from an interrupted run would be played instead of made.
+#
+# THE CRYSTALS ARE THE ART'S OWN in every run (hue 105.1, saturation 1, and the glow,
+# ground, field light and fog the thresholds above were measured with), set at the top of
+# each script: the shipped defaults turn the crystals yellower and dim their ground, and
+# the green test would then be measuring the default look instead of the cull.
+#
+# AND SO IS THE FRAME'S GRADE: the exposure, contrast, saturation, temperature, tint,
+# lift, gain and bloom the thresholds were measured under, with the moving mist off. The
+# shipped grade was later retuned (lift -0.07 against 0.004, saturation 0.91 against
+# 1.04, gain 1.50 against 1.60, a cooler temperature and four times the bloom), which
+# flattens a clump against its bare twin: every box fell by about a third (ring box with
+# the rim off 204, column 424, interior 1270, column under fog 806) with every clump
+# drawn and every hidden one still culled. Under the pinned grade the boxes read the
+# measured numbers above to the pixel.
 # =====================================================================================
 rm -f missions/user_maps/USEREDGE.INI missions/user_maps/USEREDGE.BIN missions/user_maps/USEREDGE.HGT
 awk 'BEGIN{d=0} {print} /^\[UNITS\]/ && !d {printf "021=GoodGuy,JEEP,256,3523,0,Guard,None\r\n"; d=1}' \
@@ -17705,6 +17660,26 @@ awk 'BEGIN{d=0} {print} /^\[UNITS\]/ && !d {printf "021=GoodGuy,JEEP,256,3523,0,
 cp missions/SCG15EC.BIN missions/user_maps/USEREDGE.BIN
 cat > /tmp/g242_rim.txt <<'G242EOF'
 tick 2
+gfx tib_hue 105.1
+gfx tib_sat 1
+gfx tib3d_glow 0.38839
+gfx tib3d_ground 0.45536
+gfx light_tiberium 0
+gfx tibfog_density 0.35
+gfx tibfog_height 0.70
+gfx tibfog_spread 2.0
+gfx tibfog_glow 1.0
+gfx tibfog_ambient 0.15
+gfx tibfog_drift 0.40
+gfx fog_fx 0
+gfx exposure -0.25
+gfx contrast 1.15625
+gfx saturation 1.03571
+gfx temperature 0.125
+gfx tint 0
+gfx lift 0.00357
+gfx gain 1.59821
+gfx bloom_intensity 0.28571
 cam 4 55
 zoom max
 tick 1
@@ -17720,8 +17695,30 @@ quit
 G242EOF
 sed 's#shots/g242_x.png#shots/g242_rim_on.png#'  /tmp/g242_rim.txt > /tmp/g242_on.txt
 sed 's#shots/g242_x.png#shots/g242_rim_off.png#' /tmp/g242_rim.txt > /tmp/g242_off.txt
+sed 's#shots/g242_x.png#shots/g242_rim_on_bare.png#'  /tmp/g242_rim.txt > /tmp/g242_on_bare.txt
+sed 's#shots/g242_x.png#shots/g242_rim_off_bare.png#' /tmp/g242_rim.txt > /tmp/g242_off_bare.txt
 cat > /tmp/g242_fog.txt <<'G242EOF'
 tick 5
+gfx tib_hue 105.1
+gfx tib_sat 1
+gfx tib3d_glow 0.38839
+gfx tib3d_ground 0.45536
+gfx light_tiberium 0
+gfx tibfog_density 0.35
+gfx tibfog_height 0.70
+gfx tibfog_spread 2.0
+gfx tibfog_glow 1.0
+gfx tibfog_ambient 0.15
+gfx tibfog_drift 0.40
+gfx fog_fx 0
+gfx exposure -0.25
+gfx contrast 1.15625
+gfx saturation 1.03571
+gfx temperature 0.125
+gfx tint 0
+gfx lift 0.00357
+gfx gain 1.59821
+gfx bloom_intensity 0.28571
 expectshroud 2000 1
 shroudat 1 53
 shroudat 2 55
@@ -17737,15 +17734,27 @@ cursorcell 2 56
 shot shots/g242_fog_on.png
 quit
 G242EOF
+sed 's#shots/g242_fog_on.png#shots/g242_fog_bare.png#' /tmp/g242_fog.txt > /tmp/g242_fog_bare.txt
 gbegin shots/g242_rim_on.png shots/g242_rim_off.png shots/g242_fog_on.png \
-       shots/g242_on.log shots/g242_off.log shots/g242_fog.log
+       shots/g242_rim_on_bare.png shots/g242_rim_off_bare.png shots/g242_fog_bare.png \
+       shots/g242_on.log shots/g242_off.log shots/g242_fog.log \
+       shots/g242_on_bare.log shots/g242_off_bare.log shots/g242_fog_bare.log
 grun shots/g242_on.log  --noshroud --enhanced --nosound --scen SCG15EC --pack SCG15EC.pack $BASE \
      --w 1280 --h 720 --script /tmp/g242_on.txt
 grun shots/g242_off.log --noshroud --norim --enhanced --nosound --scen SCG15EC --pack SCG15EC.pack $BASE \
      --w 1280 --h 720 --script /tmp/g242_off.txt
 grun shots/g242_fog.log --enhanced --nosound --scen USEREDGE --pack SCG15EC.pack $BASE \
      --dir missions/user_maps/ --w 1280 --h 720 --script /tmp/g242_fog.txt
-gshots shots/g242_rim_on.png shots/g242_rim_off.png shots/g242_fog_on.png
+# each run's twin without the solid clumps (--notib3d draws the flat tiberium instead),
+# so a box counts only the green the clumps themselves put there
+grun shots/g242_on_bare.log  --noshroud --enhanced --nosound --scen SCG15EC --pack SCG15EC.pack $BASE \
+     --w 1280 --h 720 --notib3d --script /tmp/g242_on_bare.txt
+grun shots/g242_off_bare.log --noshroud --norim --enhanced --nosound --scen SCG15EC --pack SCG15EC.pack $BASE \
+     --w 1280 --h 720 --notib3d --script /tmp/g242_off_bare.txt
+grun shots/g242_fog_bare.log --enhanced --nosound --scen USEREDGE --pack SCG15EC.pack $BASE \
+     --dir missions/user_maps/ --w 1280 --h 720 --notib3d --script /tmp/g242_fog_bare.txt
+gshots shots/g242_rim_on.png shots/g242_rim_off.png shots/g242_fog_on.png \
+       shots/g242_rim_on_bare.png shots/g242_rim_off_bare.png shots/g242_fog_bare.png
 G242C1=$(sed -n 's/^tiberium: \([0-9]*\) solid clumps drawn.*/\1/p' shots/g242_on.log  | head -1)
 G242C0=$(sed -n 's/^tiberium: \([0-9]*\) solid clumps drawn.*/\1/p' shots/g242_off.log | head -1)
 G242CF=$(sed -n 's/^tiberium: \([0-9]*\) solid clumps drawn.*/\1/p' shots/g242_fog.log | head -1)
@@ -17758,22 +17767,46 @@ if [ "$GRC" = "0" ]; then
 import re
 import numpy as np
 from PIL import Image
-def boxes(log, png):
+def cells(log):
     at = {}
     for line in open(log, errors='replace'):
         m = re.match(r'CURSORCELL\|cell=(\d+),(\d+)\|at=([\d.]+),([\d.]+)\|', line)
         if m: at[(int(m.group(1)), int(m.group(2)))] = (float(m.group(3)), float(m.group(4)))
+    return at
+def boxes(log, png, bare_log, bare_png):
+    at = cells(log)
+    # the twin has to be the same view, or the comparison means nothing
+    tw = cells(bare_log)
+    if set(tw) != set(at) or any(abs(at[c][0] - tw[c][0]) > 0.5 or abs(at[c][1] - tw[c][1]) > 0.5 for c in at):
+        return {c: -1 for c in at}
     a = np.asarray(Image.open(png).convert('RGB')).astype(int)
+    z = np.asarray(Image.open(bare_png).convert('RGB')).astype(int)
+    # THE CLUMPS' OWN PIXELS: wherever the shot differs from its twin without clumps by
+    # more than 30 in any channel. It was the clumps' GREEN (green in the shot and 10
+    # greener than the twin), which stopped meaning "a clump is drawn here" when the
+    # remastered Tiberium became the default: it draws each cell as the 1995 art does, so
+    # a thin cell is bare soil mounds with no crystal in them, and its crystals are a third
+    # of the old ones' size. Measured on the remastered pack with green: one ring cell 0
+    # with the rim off, the column 197, the interior 704, though every cell drew. The
+    # difference counts mounds and crystals alike; grass is the same in both shots, and a
+    # hidden cell is black in both, so a ring box with the rim on still reads 0 unless a
+    # clump is drawn over the shroud, which is what this gate exists to catch.
+    clump = np.abs(a - z).max(-1) > 30
     out = {}
     for c, (x, y) in at.items():
-        b = a[int(y) - 28:int(y) + 28, int(x) - 40:int(x) + 40]
-        r, g, bl = b[..., 0], b[..., 1], b[..., 2]
-        out[c] = int(((g > 25) & (g > r + 15) & (g > bl + 15)).sum())
+        # A RING BOX STAYS INSIDE ITS RING CELL. Cells are about 50 px apart at this zoom,
+        # and an 80 px box centred on a ring cell reached 15 px into the harvestable column
+        # beside it, where a crystal's dim fringe (green 28 on a threshold of 25) counted
+        # as ring light the moment the shimmer phase moved. The column and interior boxes
+        # keep their width: they measure that green IS there, and reaching over a border
+        # cannot make them wrong the same way.
+        hw = 20 if c[0] == 1 else 40
+        out[c] = int(clump[int(y) - 28:int(y) + 28, int(x) - hw:int(x) + hw].sum())
     return out
 ring = [(1, 53), (1, 54), (1, 56), (1, 57)]
-on  = boxes('shots/g242_on.log',  'shots/g242_rim_on.png')
-off = boxes('shots/g242_off.log', 'shots/g242_rim_off.png')
-fog = boxes('shots/g242_fog.log', 'shots/g242_fog_on.png')
+on  = boxes('shots/g242_on.log',  'shots/g242_rim_on.png',  'shots/g242_on_bare.log',  'shots/g242_rim_on_bare.png')
+off = boxes('shots/g242_off.log', 'shots/g242_rim_off.png', 'shots/g242_off_bare.log', 'shots/g242_rim_off_bare.png')
+fog = boxes('shots/g242_fog.log', 'shots/g242_fog_on.png',  'shots/g242_fog_bare.log', 'shots/g242_fog_bare.png')
 # ring green with the rim on; the least ring box with it off; the least harvestable
 # column box and the interior box with it on; ring green and least column box under fog
 print(sum(on.get(c, 9999) for c in ring), min(off.get(c, 0) for c in ring),
@@ -17785,186 +17818,34 @@ fi
 set -- $G242R
 G242ON="$1"; G242OFF="$2"; G242COL="$3"; G242IN="$4"; G242FON="$5"; G242FCOL="$6"
 rm -f missions/user_maps/USEREDGE.INI missions/user_maps/USEREDGE.BIN
-if [ "$GRC" = "0" ] && [ "${G242ON:-1}" = "0" ] && [ "${G242OFF:-0}" -ge 500 ] \
-   && [ "${G242COL:-0}" -ge 900 ] && [ "${G242IN:-0}" -ge 2000 ] \
+# THRESHOLDS, a third under the lower of each as measured on the remastered pack (ring box
+# with the rim off 311 at its least, column 663, interior 1493, column under fog 1064;
+# ring boxes 0 with the rim on and under fog)
+if [ "$GRC" = "0" ] && [ "${G242ON:-1}" = "0" ] && [ "${G242OFF:-0}" -ge 200 ] \
+   && [ "${G242COL:-0}" -ge 440 ] && [ "${G242IN:-0}" -ge 1000 ] \
    && [ "${G242C1:-9999}" -lt "${G242C0:-0}" ] \
    && [ "$G242FOG" = "1" ] && [ "$G242RING" = "HIDDEN" ] && [ "$G242BESIDE" = "CLEAR" ] \
-   && [ "${G242FON:-1}" = "0" ] && [ "${G242FCOL:-0}" -ge 900 ] \
+   && [ "${G242FON:-1}" = "0" ] && [ "${G242FCOL:-0}" -ge 700 ] \
    && [ $(( ${G242CF:-9999} * 2 )) -le "${G242C0:-0}" ]; then
-  ok "G242 a hidden cell's tiberium clumps are not drawn: the edge ring holds $G242ON green px with the rim on and at least $G242OFF a box with it off, the column beside it keeps $G242COL and the interior $G242IN; $G242C1 clumps drawn against $G242C0 with the rim off; under the shroud proper the ring is $G242RING beside a $G242BESIDE cell and holds $G242FON green px with the column at $G242FCOL, $G242CF clumps drawn"
+  ok "G242 a hidden cell's tiberium clumps are not drawn: the edge ring holds $G242ON clump px with the rim on and at least $G242OFF a box with it off, the column beside it keeps $G242COL and the interior $G242IN; $G242C1 clumps drawn against $G242C0 with the rim off; under the shroud proper the ring is $G242RING beside a $G242BESIDE cell and holds $G242FON clump px with the column at $G242FCOL, $G242CF clumps drawn"
 else
-  bad "G242 a hidden cell's tiberium clumps are not drawn: ring on=$G242ON(want 0) ring off min=$G242OFF(want >=500) column=$G242COL(want >=900) interior=$G242IN(want >=2000) clumps rim on=$G242C1 off=$G242C0 (want on<off); fog: expectshroud=$G242FOG(want 1) ring=[$G242RING](want HIDDEN) beside=[$G242BESIDE](want CLEAR) ring on=$G242FON(want 0) column=$G242FCOL(want >=900) clumps=$G242CF(want <= half of $G242C0) GRC=$GRC"
+  bad "G242 a hidden cell's tiberium clumps are not drawn: ring on=$G242ON(want 0) ring off min=$G242OFF(want >=200; the ring box is half a cell wide now; -1 everywhere: a twin's camera did not match) column=$G242COL(want >=440) interior=$G242IN(want >=1000) clumps rim on=$G242C1 off=$G242C0 (want on<off); fog: expectshroud=$G242FOG(want 1) ring=[$G242RING](want HIDDEN) beside=[$G242BESIDE](want CLEAR) ring on=$G242FON(want 0) column=$G242FCOL(want >=700) clumps=$G242CF(want <= half of $G242C0) GRC=$GRC"
 fi
 
 # =====================================================================================
-# G243 A REMASTERED INFANTRYMAN IS WHOLE WHEN HE FIRES: THE ROWS OF HIS CELL BELOW HIS
-# FEET LIE ON THE GROUND IN FRONT OF HIM INSTEAD OF SINKING UNDER IT.
-#
-# THE REPORTS (BUG-20260905-74C49E, -7E9F32, -17BAEE, -EE24BD): a Remastered flamethrower's
-# legs vanish when he fires standing, he vanishes entirely when he fires prone, and part of
-# a prone minigunner, commando or bazooka man goes with him.
-#
-# THE CAUSE was the placement that G202 measures. A Remastered attack strip carries rows
-# BELOW the man's ground line (the flame jet, the muzzle flash, the rocket exhaust are drawn
-# into the frame), and the draw lowered the whole card by that many rows so his feet met the
-# terrain. Those rows were then under the terrain surface, and because the card leans back
-# at the camera pitch the ground plane cut it drop/cos(pitch) rows up, not drop: 66 to 78 of
-# E4 FIRE's 166 rows, which is boots to knees, and all 56 body rows of E4 FPRONE at far zoom.
-# The depth test did the hiding; nothing about the strip was wrong.
-#
-# THE FIX folds the card at the ground line: the rows above it stand on the terrain, the rows
-# below it lie flat on the ground toward the camera, stretched by 1/sin(pitch) so they land
-# on screen at the same pixels per row as the rows above the crease. A cell with no rows
-# below the line, which is every strip the 1995 pack bakes, draws the single card it always
-# has; the DOS shots of this gate are byte-identical to the shipped binary's.
-#
-# THE FIXTURE is TSTFOLD, a purpose-built map on the SCG01EA pack's level grass: the player
-# is Nod and invulnerable, so a GDI flamethrower flaming a power plant fires standing for as
-# long as the run lasts, and three men against three gun turrets that cannot be hurt are
-# shot at until they lie down and fire prone. Everything is on Hunt; the script orders
-# nothing. Every sampled shot is taken with `look` on the man, which puts his ground point
-# at the screen centre, and is paired with a shot of the same tick with the infantry not
-# drawn (infdraw 0), so the man's silhouette is the set of pixels that differ and no colour
-# rule has to know a flamethrower from his flame. The sun casters and the cartridge blobs
-# are off so the difference is the card alone.
-#
-# FOUR LEGS.
-#   A. THE POSE, from the engine: stagepos at every sampled tick must say bstate=4
-#      (DO_FIRE_WEAPON) for the standing flamethrower and 8 (DO_FIRE_PRONE) for the prone
-#      men, or the pictures below are of the wrong thing and the gate says so.
-#   B. THE PLACEMENT READOUT: every RMINF|place line must fold at the ground line, up + flat
-#      == fh with flat == max(drop, 0) and lift == max(-drop, 0), and a strip with rows
-#      below the line must sit its base ON the ground, dy == 0. The shipped binary prints
-#      dy = -drop/tpu and no fold fields, and fails here first.
-#   C. THE SILHOUETTE reaches the ground line: over the sampled ticks of E4 FIRE, E4 FPRONE
-#      and E1 FPRONE the lowest row of the Remastered man's silhouette must be no more than
-#      4 px above the screen centre (his ground point), and its largest silhouette must be
-#      at least half the DOS man's at the same ticks. Measured on the shipped binary: E4
-#      FIRE lowest -13 px with 132 of the DOS 344 px, E4 FPRONE -18 px with 16 of 175, E1
-#      FPRONE -13 px with 59 of 154. Fixed: 3 px / 237, 15 px / 154, 3 px / 143.
-#   D. THE PITCH SWEEP, the assertion that the mechanism is gone: the prone flamethrower at
-#      one engine frame at near zoom, far zoom, and the Isometric row at 75 and 30 degrees
-#      of tilt must be present (at least 40 px) and reach his ground line in all four.
-#      Shipped: 16, 0, 0 and 71 px, absent at far zoom and at 75 degrees.
-#
-# NO INSTALL, NO GATE, AND IT SAYS SO, the same way G202 does: the art is the player's own.
-# =====================================================================================
-GFOLD_SCRIPT() {   # $1 infset  $2 tag
-  echo "gfx infset $1"; echo "cheatset invuln 1"; echo "zoom max"
-  gf_t=0
-  gf_upto() { if [ "$1" -gt "$gf_t" ]; then echo "tick $(($1 - gf_t))"; gf_t=$1; fi; }
-  gf_snap() { gf_upto "$1"; echo "look $2 $3"; echo "stagepos $2 $3"
-              echo "shot shots/gfold_$4_${5}_t$1_on.png"; echo "infdraw 0"
-              echo "shot shots/gfold_$4_${5}_t$1_off.png"; echo "infdraw 1"; }
-  for T in 110 112 114 116 118; do gf_snap $T E4 0 "$2" e4fire; gf_snap $T E4 1 "$2" e4prone; done
-  for T in 128 130 132; do gf_snap $T E1 0 "$2" e1prone; done
-  gf_upto 216
-  gf_sweep() { echo "look E4 1"; echo "stagepos E4 1"
-               echo "shot shots/gfold_$1_sweep_$2_on.png"; echo "infdraw 0"
-               echo "shot shots/gfold_$1_sweep_$2_off.png"; echo "infdraw 1"; }
-  echo "zoom max"; gf_sweep "$2" near
-  echo "zoom min"; gf_sweep "$2" far
-  echo "gfx perspective 1"; echo "gfx iso_pitch 75"; echo "zoom max"; gf_sweep "$2" p75
-  echo "gfx iso_pitch 30"; gf_sweep "$2" p30
-  echo "gfx perspective 0"; echo "gfx iso_pitch 0"; echo quit
-}
-GFOLD_SCRIPT 2 rm  > /tmp/gfold_rm.script
-GFOLD_SCRIPT 1 dos > /tmp/gfold_dos.script
-gbegin shots/gfold_rm_e4fire_t110_on.png shots/gfold_rm_e4prone_t118_off.png \
-       shots/gfold_rm_e1prone_t132_on.png shots/gfold_rm_sweep_p30_off.png \
-       shots/gfold_dos_e4fire_t110_on.png shots/gfold_dos_sweep_p30_off.png
-rm -f shots/gfold_*.png
-grun /tmp/gfold_rm.log  --scen TSTFOLD --pack SCG01EA.pack $BASE --nosound --enhanced \
-     --nospriteshadow --nosprshadow --noshroud --w 1280 --h 720 --dumpanim --script /tmp/gfold_rm.script
-grun /tmp/gfold_dos.log --scen TSTFOLD --pack SCG01EA.pack $BASE --nosound --enhanced \
-     --nospriteshadow --nosprshadow --noshroud --w 1280 --h 720 --dumpanim --script /tmp/gfold_dos.script
-gshots shots/gfold_rm_e4fire_t110_on.png shots/gfold_rm_e4prone_t118_off.png \
-       shots/gfold_rm_e1prone_t132_on.png shots/gfold_rm_sweep_p30_off.png \
-       shots/gfold_dos_e4fire_t110_on.png shots/gfold_dos_sweep_p30_off.png
-GFNOINST=$(grep -ac 'remaster: no Remastered Collection found' /tmp/gfold_rm.log)
-GFDRAW=$(grep -ac '^FX|infset|Remastered infantry art' /tmp/gfold_rm.log)
-GFUNK=$(grep -ac "SCRIPT|unknown command 'infdraw'" /tmp/gfold_rm.log)
-# LEG A: the poses, in order. 5 standing E4 (4), 5 prone E4 (8), 3 prone E1 (8), 4 sweep E4 (8).
-GFPOSE=$(grep -a '^STAGEPOS|' /tmp/gfold_rm.log | sed -n 's/^STAGEPOS|\([A-Z0-9]*\)|[0-9]*|bstate=\([0-9]*\)|.*/\1:\2/p' | tr '\n' ' ')
-GFPOSEWANT="E4:4 E4:8 E4:4 E4:8 E4:4 E4:8 E4:4 E4:8 E4:4 E4:8 E1:8 E1:8 E1:8 E4:8 E4:8 E4:8 E4:8 "
-GFPOSEDOS=$(grep -a '^STAGEPOS|' /tmp/gfold_dos.log | sed -n 's/^STAGEPOS|\([A-Z0-9]*\)|[0-9]*|bstate=\([0-9]*\)|.*/\1:\2/p' | tr '\n' ' ')
-# LEG B: the readout. Every RMINF|place line folds at the ground line.
-GFPLACEN=$(grep -a '^RMINF|place|' /tmp/gfold_rm.log | sort -u | wc -l | tr -d ' ')
-GFFOLDED=$(grep -a '^RMINF|place|' /tmp/gfold_rm.log | sort -u | grep -c '|flat=[1-9]')
-GFPLACEBAD=$(grep -a '^RMINF|place|' /tmp/gfold_rm.log | sort -u | awk -F'|' '
-  { d=0; y=0; fh=-1; up=-1; fl=-1; li=-1
-    for (i=1;i<=NF;i++) {
-      if ($i ~ /^drop=/) { sub(/^drop=/,"",$i); d=$i+0 }
-      if ($i ~ /^dy=/)   { sub(/^dy=/,"",$i);   y=$i+0 }
-      if ($i ~ /^fh=/)   { sub(/^fh=/,"",$i);   fh=$i+0 }
-      if ($i ~ /^up=/)   { sub(/^up=/,"",$i);   up=$i+0 }
-      if ($i ~ /^flat=/) { sub(/^flat=/,"",$i); fl=$i+0 }
-      if ($i ~ /^lift=/) { sub(/^lift=/,"",$i); li=$i+0 } }
-    if (fh < 0 || up < 0 || fl < 0 || li < 0) { n++; next }      # no fold fields at all
-    wf = d > 0 ? d : 0; wl = d < 0 ? -d : 0
-    if (up + fl != fh || fl != wf || li != wl) { n++; next }
-    if (d >= 0 && (y > 0.00005 || y < -0.00005)) { n++; next }
-    if (d < 0 && y <= 0) { n++; next } }
-  END { print n+0 }')
-# LEGS C and D: the silhouettes. One number per pose: the Remastered man's largest
-# silhouette over its ticks, the DOS man's, and the lowest silhouette row relative to
-# the centre (positive = below his ground point).
-GFPIX=$(python3 - <<'PY'
-from PIL import Image
-import numpy as np, glob, re, collections
-box = (640 - 60, 360 - 90, 640 + 60, 360 + 60)
-def load(p): return np.asarray(Image.open(p).convert('RGB').crop(box)).astype(int)
-best = collections.defaultdict(lambda: [0, -999, 0])   # (tag,pose) -> [max body, max lowest, shots]
-for on in sorted(glob.glob('shots/gfold_*_on.png')):
-    m = re.match(r'shots/gfold_(rm|dos)_([a-z0-9]+)_([a-z0-9]+)_on\.png$', on)
-    if not m: continue
-    tag, pose, tick = m.groups()
-    try:
-        a, b = load(on), load(on[:-7] + '_off.png')
-    except Exception:
-        continue
-    d = np.abs(a - b).max(axis=2) > 12
-    n = int(d.sum())
-    ys = np.where(d.any(axis=1))[0]
-    lo = int(ys.max()) - 90 if len(ys) else -999
-    key = (tag, pose if pose != 'sweep' else 'sweep_' + tick)
-    e = best[key]
-    e[0] = max(e[0], n); e[1] = max(e[1], lo); e[2] += 1
-for k in sorted(best):
-    print("%s_%s body=%d lowest=%d shots=%d" % (k[0], k[1], best[k][0], best[k][1], best[k][2]))
-PY
-)
-gfv() { printf '%s\n' "$GFPIX" | awk -v k="$1" -v f="$2" '$1 == k { split($(f + 1), a, "="); print a[2] }'; }
-GFOK=1; GFWHY=""
-for pose in e4fire e4prone e1prone; do
-  rb=$(gfv "rm_$pose" 1); rl=$(gfv "rm_$pose" 2); db=$(gfv "dos_$pose" 1)
-  [ -n "$rb" ] && [ -n "$db" ] || { GFOK=0; GFWHY="$GFWHY $pose:unmeasured"; continue; }
-  if [ "$rl" -lt -4 ]; then GFOK=0; GFWHY="$GFWHY $pose:lowest=${rl}px"; fi
-  if [ $((rb * 2)) -lt "$db" ]; then GFOK=0; GFWHY="$GFWHY $pose:body=$rb/dos=$db"; fi
-done
-for cam in near far p75 p30; do
-  rb=$(gfv "rm_sweep_$cam" 1); rl=$(gfv "rm_sweep_$cam" 2)
-  [ -n "$rb" ] || { GFOK=0; GFWHY="$GFWHY sweep_$cam:unmeasured"; continue; }
-  if [ "$rb" -lt 40 ] || [ "$rl" -lt -4 ]; then GFOK=0; GFWHY="$GFWHY sweep_$cam:body=$rb,lowest=${rl}px"; fi
-done
-GFSUM=$(printf '%s' "$GFPIX" | grep '^rm_' | sed 's/^rm_//; s/ shots=[0-9]*//' | tr '\n' ' ')
-if [ "$GRC" != "0" ]; then
-  bad "G243 a remastered infantryman is whole when he fires: the run failed or wrote no shot (GRC=$GRC; $GFUNK lines refused the infdraw verb, which a binary without the control leg does), so nothing below means anything"
-elif [ "${GFNOINST:-0}" -ge 1 ] || [ "${GFDRAW:-0}" -lt 1 ]; then
-  skip "G243 a remastered infantryman is whole when he fires: no Remastered Collection on this machine, so there is no art to measure. THE FOLD IS NOT COVERED BY THIS RUN."
-elif [ "${GFUNK:-0}" -ge 1 ]; then
-  bad "G243 a remastered infantryman is whole when he fires: this binary has no infdraw verb, so no silhouette can be measured"
-elif [ "$GFPOSE" != "$GFPOSEWANT" ] || [ "$GFPOSEDOS" != "$GFPOSEWANT" ]; then
-  bad "G243 a remastered infantryman is whole when he fires: the men were not in the poses the fixture is built to reach, so the pictures are of the wrong thing. Remastered run [$GFPOSE] DOS run [$GFPOSEDOS] wanted [$GFPOSEWANT]"
-elif [ "${GFFOLDED:-0}" -lt 3 ]; then
-  bad "G243 a remastered infantryman is whole when he fires: only $GFFOLDED of $GFPLACEN placements carry rows below the ground line, so the fold was never exercised. $(grep -a '^RMINF|place|' /tmp/gfold_rm.log | sort -u | head -2 | tr '\n' ' ')"
-elif [ "${GFPLACEBAD:-99}" != "0" ]; then
-  bad "G243 a remastered infantryman is whole when he fires: $GFPLACEBAD of $GFPLACEN placements do not fold at the ground line (up + flat == fh, flat == max(drop,0), lift == max(-drop,0), base on the ground). $(grep -a '^RMINF|place|' /tmp/gfold_rm.log | sort -u | grep 'drop=[1-9]' | head -2 | tr '\n' ' ')"
-elif [ "$GFOK" != "1" ]; then
-  bad "G243 a remastered infantryman is whole when he fires: the silhouette does not reach his ground line or is under half the DOS man's:$GFWHY. All: $GFSUM"
-else
-  ok "G243 a remastered infantryman is whole when he fires: $GFPLACEN Remastered placements all fold at the ground line ($GFFOLDED with rows below it, E4 FIRE 47, E4 FPRONE 68, E1 FPRONE 39), and against the same ticks drawn without infantry the man's silhouette reaches his ground point and is over half the DOS man's in every reported pose, at near and far zoom and at 75 and 30 degrees of tilt: $GFSUM"
-fi
+# G243 A REMASTERED INFANTRYMAN IS WHOLE WHEN HE FIRES: RETIRED WITH THE REMASTERED
+# COLLECTION ART CHOICE. It proved on the TSTFOLD fixture, against the player's own
+# install, that a Remastered attack strip's rows below the man's ground line lay flat on
+# the ground in front of him instead of sinking under it: the engine's poses were the
+# firing ones, every placement folded at the ground line, the man's silhouette reached
+# his ground point and was over half the DOS man's in each pose, and that held at near
+# and far zoom and at 75 and 30 degrees of Isometric tilt.
+# NOTHING RUNS HERE, for the reason G202 gives: the Remastered Collection art is no
+# longer offered, so no player can reach the strips this gate measured.
+# The number stays so the history reads straight; the fold in the sprite draw and the
+# TSTFOLD fixture are left in the tree. A strip with no rows below the line, which is
+# every strip the 1995 pack bakes, draws the single card it always has.
+# NOTHING REPLACED IT.
 
 # =====================================================================================
 # G244 THE REPAIR WRENCH FLOATS OVER THE ROOF, AND THE ENHANCED PICTURE LIGHTS IT AS ITSELF.
@@ -18002,6 +17883,26 @@ fi
 # The threshold is 0.15. The Enhanced pair must also change at least nine tenths of the
 # silhouette (the wrench is drawn in Enhanced at all), and two Enhanced repairing runs
 # must be byte-identical, or "the picture changed" means nothing.
+#
+# THE TONE AND COVERAGE PAIR RUNS WITH --noecur. Under Enhanced the wrench is the
+# remastered CUR05 (ecur.bin, the cursor remaster), drawn at the remaster's own size
+# (ecur_scale 0.75) and to its own outline, so it covers only about six tenths of the
+# cartridge slab's silhouette (measured 0.608) and its bands are not the same pixels as
+# the Classic ones: the tone comparison above needs the SAME model in both pictures.
+# --noecur keeps that model while leaving the whole Enhanced chain and the draw call
+# itself unchanged (c3d_draw_one, the same depth mode for either model), so this pair
+# still measures the depth write. Measured: 0.961 covered, spread 0.056 with the depth
+# written; a renderer built to draw the wrench WITHOUT its depth gave 0.895 covered (the
+# pixels lit as the dark roof fall under the change threshold) and spread 0.146. So on
+# this barracks today it is the nine-tenths coverage that catches a depth-free wrench;
+# the tone spread, which separated 0.32..0.54 from 0.08 when it was written, now sits
+# just under its own 0.15 for the broken draw, and is kept as the second leg it was.
+# THE SHIPPED PICTURE IS ITS OWN LEG: the default Enhanced repairing frame (the
+# remastered wrench) must change at least six tenths as many pixels as the Classic
+# silhouette (measured 759 against 688; the remaster adds a glow), centred within 8 px
+# of it (measured 4.1 px), and differ from the --noecur frame over at least half of the
+# two wrenches' pixels (measured 0.83), which is the remastered model being drawn and
+# not the cartridge's. The determinism pair is the default one.
 cat > gate_wrenchlift.txt <<'EOS'
 cheatset super 1
 tick 20
@@ -18037,20 +17938,26 @@ sed 's/g244_SHOT/g244_enh_rep/' gate_wrenchlit.txt > gate_wrenchlit_enh_rep.txt
 sed 's/g244_SHOT/g244_enh_rep2/' gate_wrenchlit.txt > gate_wrenchlit_enh_rep2.txt
 sed -e 's/^repairmode 1$/repairmode 0/' -e 's/g244_SHOT/g244_cla_ctrl/' gate_wrenchlit.txt > gate_wrenchlit_cla_ctrl.txt
 sed -e 's/^repairmode 1$/repairmode 0/' -e 's/g244_SHOT/g244_enh_ctrl/' gate_wrenchlit.txt > gate_wrenchlit_enh_ctrl.txt
+sed 's/g244_SHOT/g244_noe_rep/' gate_wrenchlit.txt > gate_wrenchlit_noe_rep.txt
+sed -e 's/^repairmode 1$/repairmode 0/' -e 's/g244_SHOT/g244_noe_ctrl/' gate_wrenchlit.txt > gate_wrenchlit_noe_ctrl.txt
 WLB="$BASE --noshroud --nosound --w 1280 --h 720"
 gbegin shots/g244_proc.png shots/g244_cla_rep.png shots/g244_cla_ctrl.png shots/g244_enh_rep.png \
-       shots/g244_enh_rep2.png shots/g244_enh_ctrl.png shots/g244_proc.log shots/g244_lit.log
+       shots/g244_enh_rep2.png shots/g244_enh_ctrl.png shots/g244_noe_rep.png shots/g244_noe_ctrl.png \
+       shots/g244_proc.log shots/g244_lit.log
 grun shots/g244_proc.log --scen SCG90EA --pack SCG01EA.pack $WLB --script gate_wrenchlift.txt
 grun shots/g244_lit.log  --scen SCG02EA --pack SCG02EA.pack $WLB --script gate_wrenchlit_cla_rep.txt
 grun -                  --scen SCG02EA --pack SCG02EA.pack $WLB --script gate_wrenchlit_cla_ctrl.txt
 grun -                  --scen SCG02EA --pack SCG02EA.pack $WLB --enhanced --script gate_wrenchlit_enh_rep.txt
 grun -                  --scen SCG02EA --pack SCG02EA.pack $WLB --enhanced --script gate_wrenchlit_enh_rep2.txt
 grun -                  --scen SCG02EA --pack SCG02EA.pack $WLB --enhanced --script gate_wrenchlit_enh_ctrl.txt
+grun -                  --scen SCG02EA --pack SCG02EA.pack $WLB --enhanced --noecur --script gate_wrenchlit_noe_rep.txt
+grun -                  --scen SCG02EA --pack SCG02EA.pack $WLB --enhanced --noecur --script gate_wrenchlit_noe_ctrl.txt
 gshots shots/g244_proc.png shots/g244_cla_rep.png shots/g244_cla_ctrl.png shots/g244_enh_rep.png \
-       shots/g244_enh_rep2.png shots/g244_enh_ctrl.png
+       shots/g244_enh_rep2.png shots/g244_enh_ctrl.png shots/g244_noe_rep.png shots/g244_noe_ctrl.png
 # Ten fields, every one a value that FAILS its own leg, so a run that could not be
-# measured cannot report a pass: top base ay foot anchorbad | sil covered spread same lit
-WL="0 0 0 9 1 0 0 9 0 0"
+# measured cannot report a pass: top base ay foot anchorbad | sil covered spread same lit,
+# then the remastered wrench's three: its pixel share, its offset, its share off --noecur
+WL="0 0 0 9 1 0 0 9 0 unmeasured 0 99 0"
 if [ "$GRC" = "0" ]; then
 WL=$(python3 - <<'PY'
 import re
@@ -18081,16 +17988,28 @@ if blocks:
 # ---- leg B: the wrench's own pixels, Classic against Enhanced ----
 def load(p):
     return np.asarray(Image.open('shots/' + p).convert('RGB')).astype(int)
-cr, cc, er, ec, er2 = [load(p) for p in ('g244_cla_rep.png', 'g244_cla_ctrl.png',
-                                          'g244_enh_rep.png', 'g244_enh_ctrl.png',
-                                          'g244_enh_rep2.png')]
-same = 1 if np.array_equal(er, er2) else 0
+cr, cc, dr, dc, dr2, er, ec = [load(p) for p in ('g244_cla_rep.png', 'g244_cla_ctrl.png',
+                                                  'g244_enh_rep.png', 'g244_enh_ctrl.png',
+                                                  'g244_enh_rep2.png', 'g244_noe_rep.png',
+                                                  'g244_noe_ctrl.png')]
+same = 1 if np.array_equal(dr, dr2) else 0
 win = np.zeros(cr.shape[:2], bool)
 win[320:420, 660:780] = True                    # the barracks, cam 55 51 at 1280x720
-sil = (np.abs(cr - cc).sum(axis=2) > 24) & win  # the slab: depth-free, so exactly its pixels
-esil = (np.abs(er - ec).sum(axis=2) > 24) & win
+chg = lambda a, b: (np.abs(a - b).sum(axis=2) > 24) & win
+sil = chg(cr, cc)    # the slab: depth-free, so exactly its pixels
+esil = chg(er, ec)   # the same cartridge model through the Enhanced chain (--noecur)
 nsil = int(sil.sum())
 covered = int((esil & sil).sum()) / float(nsil) if nsil else 0.0
+# the shipped picture: the remastered wrench, against its own control
+rsil = chg(dr, dc)
+rshare = int(rsil.sum()) / float(nsil) if nsil else 0.0
+roff = 99.0
+if nsil and rsil.sum():
+    sy, sx = np.nonzero(sil)
+    ry, rx = np.nonzero(rsil)
+    roff = float(np.hypot(rx.mean() - sx.mean(), ry.mean() - sy.mean()))
+both = rsil | esil
+roffcart = int((chg(dr, er) & both).sum()) / float(both.sum()) if both.sum() else 0.0
 lum = lambda im: 0.299 * im[..., 0] + 0.587 * im[..., 1] + 0.114 * im[..., 2]
 lc, le = lum(cr), lum(er)
 spread = 9.0
@@ -18106,15 +18025,17 @@ if nsil >= 100:
             ratios.append(le[m].mean() / lc[m].mean())
     if len(ratios) == 3:
         spread = max(ratios) - min(ratios)
-print('%.4f %.4f %.4f %.4f %d %d %.3f %.3f %d %s' % (
+print('%.4f %.4f %.4f %.4f %d %d %.3f %.3f %d %s %.3f %.1f %.3f' % (
     top, base, ay, foot, anchorbad, nsil, covered, spread, same,
-    ','.join('%.3f' % r for r in ratios) or 'unmeasured'))
+    ','.join('%.3f' % r for r in ratios) or 'unmeasured', rshare, roff, roffcart))
 PY
 )
 fi
 set -- $WL
 WL_TOP=$1; WL_BASE=$2; WL_AY=$3; WL_FOOT=$4; WL_ANCHORBAD=$5
 WL_SIL=$6; WL_COVERED=$7; WL_SPREAD=$8; WL_SAME=$9; shift 9; WL_RATIOS=${1:-unmeasured}
+WL_RSHARE=${2:-0}; WL_ROFF=${3:-99}; WL_RCART=${4:-0}
+WL_REMOK=$(python3 -c "print(1 if $WL_RSHARE >= 0.6 and $WL_ROFF <= 8.0 and $WL_RCART >= 0.5 else 0)")
 WL_ROOF=$(python3 -c "print('%.4f' % ($WL_TOP + $WL_BASE + 0.10 - 0.001))")
 WL_TOPOK=$(python3 -c "print(1 if 1.0 <= $WL_TOP <= 1.2 else 0)")
 WL_BASEOK=$(python3 -c "print(1 if 0.09 <= $WL_BASE <= 0.11 else 0)")
@@ -18139,11 +18060,13 @@ elif [ "${WL_SIL:-0}" -lt 500 ]; then
 elif [ "$WL_SAME" != "1" ]; then
   bad "G244 the repair wrench is lit as itself: two Enhanced runs of the same repairing tick differ. Nondeterministic pixels make the luminance leg below meaningless"
 elif [ "$WL_COVOK" != "1" ]; then
-  bad "G244 the repair wrench is lit as itself: the Enhanced repairing frame changed only $WL_COVERED of the wrench's silhouette against its own control, wanted 0.9. The wrench is not drawn under the Enhanced chain"
+  bad "G244 the repair wrench is lit as itself: the Enhanced repairing frame (--noecur, the cartridge model) changed only $WL_COVERED of the wrench's silhouette against its own control, wanted 0.9. The wrench is not drawn under the Enhanced chain"
+elif [ "$WL_REMOK" != "1" ]; then
+  bad "G244 the remastered wrench: the default Enhanced repairing frame changed $WL_RSHARE of the Classic silhouette's pixel count (want >= 0.6), centred $WL_ROFF px from it (want <= 8), and differs from the --noecur frame over $WL_RCART of the two wrenches (want >= 0.5). The remastered wrench is not what Enhanced draws over a repairing building, or not where the slab is"
 elif [ "$WL_SPREADOK" != "1" ]; then
-  bad "G244 the repair wrench is lit as itself: across the three bands of the wrench the Enhanced/Classic luminance ratios are $WL_RATIOS, a spread of $WL_SPREAD (want < 0.15). The Enhanced chain is shading the wrench with the roof behind it, which is the wrench drawn without its own depth"
+  bad "G244 the repair wrench is lit as itself: across the three bands of the wrench the Enhanced (--noecur)/Classic luminance ratios are $WL_RATIOS, a spread of $WL_SPREAD (want < 0.15). The Enhanced chain is shading the wrench with the roof behind it, which is the wrench drawn without its own depth"
 else
-  ok "G244 the repair wrench floats over the roof and is lit as itself: Refinery roof read as $WL_TOP, slab base $WL_BASE, wrench lifted to $WL_AY (roof rule $WL_ROOF, footprint rule $WL_FOOT), anchor on the quad; barracks wrench $WL_SIL px, Enhanced/Classic band ratios $WL_RATIOS spread $WL_SPREAD, $WL_COVERED of the silhouette changed in Enhanced, two Enhanced runs identical"
+  ok "G244 the repair wrench floats over the roof and is lit as itself: Refinery roof read as $WL_TOP, slab base $WL_BASE, wrench lifted to $WL_AY (roof rule $WL_ROOF, footprint rule $WL_FOOT), anchor on the quad; barracks wrench $WL_SIL px, Enhanced (--noecur)/Classic band ratios $WL_RATIOS spread $WL_SPREAD, $WL_COVERED of the silhouette changed in Enhanced; the remastered wrench $WL_RSHARE of its pixels, $WL_ROFF px off centre, $WL_RCART off the cartridge's; two Enhanced runs identical"
 fi
 
 # G245 THE TANK SHELL LIES ALONG ITS FLIGHT UNDER ENHANCED AND STANDS ON END IN CLASSIC.
@@ -18174,6 +18097,11 @@ fi
 sed 's#shots/shell_x.png#shots/g_shell_wc.png#' "$GATEDIR/gate_shell_w.txt" > /tmp/gshell_wc.txt
 sed 's#shots/shell_x.png#shots/g_shell_we.png#' "$GATEDIR/gate_shell_w.txt" > /tmp/gshell_we.txt
 sed 's#shots/shell_x.png#shots/g_shell_ne.png#' "$GATEDIR/gate_shell_n.txt" > /tmp/gshell_ne.txt
+# THE GROUND DETAIL, PINNED OFF: a grass clump or a rock on the flight line clips the
+# shell's box ("nothing between it and the camera" is this gate's premise).
+for g245f in /tmp/gshell_wc.txt /tmp/gshell_we.txt /tmp/gshell_ne.txt; do
+  { printf 'gfx fol_on 0\ngfx rock_on 0\ngfx mottle_on 0\n'; cat "$g245f"; } > "$g245f.pin" && mv "$g245f.pin" "$g245f"
+done
 gbegin shots/g_shell_wc.png shots/g_shell_we.png shots/g_shell_ne.png \
        shots/g_shell_wc.log shots/g_shell_we.log shots/g_shell_ne.log
 grun shots/g_shell_wc.log --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --w 1280 --h 720 --script /tmp/gshell_wc.txt
@@ -18252,6 +18180,11 @@ fi
 #       column out). Their spread is wider than tall when the hull lies east-west and
 #       taller than wide when it points north. Measured: Classic w=64 h=35, Enhanced
 #       w=32 h=54. The shipped build measures w=64 h=35 in BOTH looks.
+#
+# The Enhanced run passes --noevhc: this gate is about the cartridge's one-node model.
+# The remastered launcher has its launcher as a turret piece, so its hull stays at
+# PrimaryFacing (east-west here) while the launcher alone turns north, as any remastered
+# turret does (G296).
 GML=$(mktemp -d "${TMPDIR:-/tmp}/gate_mlrs.XXXXXX")
 cp missions/*.INI missions/*.BIN "$GML"/
 sed -i.bak 's/^003=GoodGuy,MTNK,256,3257,0,Guard,None/003=GoodGuy,MSAM,256,3257,0,Guard,None/' "$GML/SCG90EA.INI"
@@ -18284,7 +18217,7 @@ gbegin shots/g246_classic.png shots/g246_enh.png shots/g246_classic.log shots/g2
 grun shots/g246_classic.log --scen SCG90EA --pack SCG01EA.pack $BASE --dir "$GML/" --noshroud \
      --w 1280 --h 720 --script /tmp/g246_classic.txt
 grun shots/g246_enh.log --scen SCG90EA --pack SCG01EA.pack $BASE --dir "$GML/" --noshroud \
-     --w 1280 --h 720 --enhanced --script /tmp/g246_enh.txt
+     --w 1280 --h 720 --enhanced --noevhc --script /tmp/g246_enh.txt
 gshots shots/g246_classic.png shots/g246_enh.png
 rm -rf "$GML"
 # (a) the engine, read out of each log and required to agree between the looks
@@ -18602,7 +18535,7 @@ fi
 #      against a scratch content folder (empty; a zero-length TEMPERAT.MIX; 400 bytes of
 #      junk whose header reads as a negative entry count, which faulted in the archive
 #      reader once the palette copy no longer did). Each must exit 0 with no FATAL line,
-#      print the engine's own CNC3D|theater| line, and stand a world up (COUNT|E1|have>0).
+#      print the engine's own OPENCNC3D|theater| line, and stand a world up (COUNT|E1|have>0).
 #      PROVEN TO FAIL: the build before this exits 139 on all three with
 #      "FATAL: signal 11 while: CNC_Start_Custom_Instance" and never reaches the count.
 #   b  THE REFUSAL READOUT. A library that cannot be loaded (what an antivirus quarantine
@@ -18633,7 +18566,7 @@ grun shots/bf/a_junk.log  --scen SCG90EA --pack SCG01EA.pack $G253BASE --content
      --noshroud --w 640 --h 400 --script gate_bootfail.txt
 G253ARC=$GRC
 G253AFATAL=$(cat shots/bf/a_empty.log shots/bf/a_zero.log shots/bf/a_junk.log | grep -c '^FATAL: signal')
-G253ALINE=$(cat shots/bf/a_empty.log shots/bf/a_zero.log shots/bf/a_junk.log | grep -c '^CNC3D|theater|TEMPERAT.PAL is in no loaded archive: TEMPERAT.MIX is missing, empty or damaged')
+G253ALINE=$(cat shots/bf/a_empty.log shots/bf/a_zero.log shots/bf/a_junk.log | grep -c '^OPENCNC3D|theater|TEMPERAT.PAL is in no loaded archive: TEMPERAT.MIX is missing, empty or damaged')
 G253AE1=$(cat shots/bf/a_empty.log shots/bf/a_zero.log shots/bf/a_junk.log | sed -n 's/^COUNT|E1|have=\([0-9]*\).*/\1/p' | paste -sd' ' -)
 G253AE1OK=1
 for g253n in $G253AE1 x; do
@@ -18642,7 +18575,7 @@ for g253n in $G253AE1 x; do
 done
 [ "$(echo "$G253AE1" | wc -w | tr -d ' ')" = "3" ] || G253AE1OK=0
 # leg b: the shell, a library that cannot be loaded
-G253B=$(./cnc3d --dylib ./nonexistent.dylib --harness 60 --rounds 1 2>&1)
+G253B=$(./opencnc3d --dylib ./nonexistent.dylib --harness 60 --rounds 1 2>&1)
 echo "$G253B" >> "$OUT"
 G253BFAIL=$(echo "$G253B" | grep -c '^BOOTFAIL|SCG90EA|.*nonexistent\.dylib')
 G253BEND=$(echo "$G253B" | grep -c '^HARNESS|end|1 round(s), 1 failure(s)')
@@ -18650,7 +18583,7 @@ G253BM1=$(echo "$G253B" | sed -n 's/^HARNESS|menu1|ink=[0-9.]*|digest=\([0-9a-f]
 G253BM2=$(echo "$G253B" | sed -n 's/^HARNESS|menu2|ink=[0-9.]*|digest=\([0-9a-f]*\).*/\1/p' | head -1)
 # leg c: the box, photographed
 rm -f shots/bf/bootfail.png
-G253C=$(./cnc3d --scen SCG90EA --pack SCG01EA.pack $G253BASE --content content/ --menupack dosmenu.pack \
+G253C=$(./opencnc3d --scen SCG90EA --pack SCG01EA.pack $G253BASE --content content/ --menupack dosmenu.pack \
         --dylib ./nonexistent.dylib --bootfailshot shots/bf/bootfail.png 2>&1)
 echo "$G253C" >> "$OUT"
 G253COPEN=$(echo "$G253C" | grep -c '^NOTICE|open|caption=Unable to start mission|')
@@ -18705,14 +18638,17 @@ fi
 # was never latched would let every probe pass for the wrong reason.
 #
 # THREE GEOMETRIES, because the card's size follows the sidebar zoom and the fault would
-# survive at any one of them:
-#   A  1280x960, zoom 2, card 480x332 at y=628. Probes 2,958 (the corner: both strips),
-#      200,958 (the bottom strip over the tab row), 2,700 (the left strip over the card's
-#      bezel). Controls 600,958 and 2,300, bare map on the same strips.
+# survive at any one of them. The Enhanced HUD takes a whole-number zoom of the window
+# height over its 693-row housing, so zoom 2 needs at least 1386 rows: legs A and C run at
+# 2560x1440, the size G82 and G134 already ask for, and at 1280x960 there is no zoom-2
+# card left to measure (it is leg B's zoom-1 card, 166 rows higher).
+#   A  2560x1440, zoom 2, card 480x332 at y=1108. Probes 2,1438 (the corner: both
+#      strips), 200,1438 (the bottom strip over the tab row), 2,1180 (the left strip over
+#      the card's bezel). Controls 1200,1438 and 2,300, bare map on the same strips.
 #   B  1280x720, zoom 1, card 240x166 at y=554. Probes 2,718 / 100,718 / 2,600, control
 #      300,718 and 2,300.
-#   C  1280x960 with gfx ui_scale 1, card 240x166 at y=794. Probes 2,958 / 100,958 /
-#      2,800, controls 600,958 and 2,300.
+#   C  2560x1440 with gfx ui_scale 1, zoom 1, card 240x166 at y=1274. Probes 2,1438 /
+#      100,1438 / 2,1340, controls 1200,1438 and 2,300.
 # Each moving arm is measured against its control arm on the same strip and, for leg A,
 # against a Classic run of the identical script (no card exists there, UNITCARD says
 # unavailable) to 0.002, the way G141 measures against the DOS bar. The corner arm must
@@ -18725,7 +18661,8 @@ fi
 # cursor over the card while it pans stays the plain arrow, as it does over the east
 # strip on the sidebar.
 #
-# PROVEN TO FAIL on the build before the fix: leg A printed
+# PROVEN TO FAIL on the build before the fix, when leg A still ran at 1280x960 on the
+# 640x480 art HUD, whose zoom 2 put the 480x332 card at y=628 there: leg A printed
 #   EDGEAT|frames=20|mouse=2,958|tacright=960|guard=blocked|busy=0
 #   CAM|edgeat|x=45.000|z=45.000
 # for all three card probes, and the same at 1280x720 (2,718 / 100,718 / 2,600) and at
@@ -18738,25 +18675,25 @@ printf 'enabled 1\n' > gfx_g250.cfg
 # The Classic control runs the SAME script as leg A, shot line included, so it goes
 # first: the picture left behind is then the Enhanced one with the card in it, not the
 # plain HUD without.
-grun /tmp/g250cl.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
+grun /tmp/g250cl.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 2560 --h 1440 \
      --script gate_edgecard.txt
-export CNC3D_HUD=new
-grun /tmp/g250a.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
+export OPENCNC3D_HUD=new
+grun /tmp/g250a.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 2560 --h 1440 \
      --gfx gfx_g250.cfg --script gate_edgecard.txt
 grun /tmp/g250b.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 720 \
      --gfx gfx_g250.cfg --script gate_edgecard_720.txt
-grun /tmp/g250c.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
+grun /tmp/g250c.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 2560 --h 1440 \
      --gfx gfx_g250.cfg --script gate_edgecard_ui1.txt
-unset CNC3D_HUD
+unset OPENCNC3D_HUD
 gshots shots/g250_card.png
 # The nth EDGEAT guard word and the nth CAM|edgeat x and z of a log.
 g250g() { grep -a '^EDGEAT|' "$1" | sed -n "$2p" | sed 's/.*|mouse=\([0-9,]*\)|.*|guard=\([a-z]*\)|.*/\1 \2/'; }
 g250x() { grep -a '^CAM|edgeat|' "$1" | sed -n "$2p" | sed 's/.*|x=\([0-9.-]*\)|.*/\1/'; }
 g250z() { grep -a '^CAM|edgeat|' "$1" | sed -n "$2p" | sed 's/.*|z=\([0-9.-]*\)|.*/\1/'; }
 # Geometry, asserted: the card where the probes expect it, and a selection on it.
-G250RA=$(grep -ac '^UNITCARD|rect|x=0|y=628|w=480|h=332|scale=2.00$' /tmp/g250a.log)
+G250RA=$(grep -ac '^UNITCARD|rect|x=0|y=1108|w=480|h=332|scale=2.00$' /tmp/g250a.log)
 G250RB=$(grep -ac '^UNITCARD|rect|x=0|y=554|w=240|h=166|scale=1.00$' /tmp/g250b.log)
-G250RC=$(grep -ac '^UNITCARD|rect|x=0|y=794|w=240|h=166|scale=1.00$' /tmp/g250c.log)
+G250RC=$(grep -ac '^UNITCARD|rect|x=0|y=1274|w=240|h=166|scale=1.00$' /tmp/g250c.log)
 G250UI=$(grep -ac '^GFX|ui_scale=1$' /tmp/g250c.log)
 G250NA=$(grep -a '^UNITCARD|shown=1|count=' /tmp/g250a.log | head -1 | sed 's/.*|count=\([0-9]*\)|.*/\1/')
 G250NB=$(grep -a '^UNITCARD|shown=1|count=' /tmp/g250b.log | head -1 | sed 's/.*|count=\([0-9]*\)|.*/\1/')
@@ -18767,9 +18704,9 @@ G250GA="$(g250g /tmp/g250a.log 1)/$(g250g /tmp/g250a.log 2)/$(g250g /tmp/g250a.l
 G250GB="$(g250g /tmp/g250b.log 1)/$(g250g /tmp/g250b.log 2)/$(g250g /tmp/g250b.log 3)/$(g250g /tmp/g250b.log 4)/$(g250g /tmp/g250b.log 5)"
 G250GC="$(g250g /tmp/g250c.log 1)/$(g250g /tmp/g250c.log 2)/$(g250g /tmp/g250c.log 3)/$(g250g /tmp/g250c.log 4)/$(g250g /tmp/g250c.log 5)"
 G250GL="$(g250g /tmp/g250cl.log 1)/$(g250g /tmp/g250cl.log 2)/$(g250g /tmp/g250cl.log 3)/$(g250g /tmp/g250cl.log 4)/$(g250g /tmp/g250cl.log 5)"
-G250WA="2,958 pass/200,958 pass/2,700 pass/600,958 pass/2,300 pass"
+G250WA="2,1438 pass/200,1438 pass/2,1180 pass/1200,1438 pass/2,300 pass"
 G250WB="2,718 pass/100,718 pass/2,600 pass/300,718 pass/2,300 pass"
-G250WC="2,958 pass/100,958 pass/2,800 pass/600,958 pass/2,300 pass"
+G250WC="2,1438 pass/100,1438 pass/2,1340 pass/1200,1438 pass/2,300 pass"
 # The camera after each arm: corner, bottom, left, bottom control, left control.
 g250leg() {
   awk -v cx="$(g250x "$1" 1)" -v cz="$(g250z "$1" 1)" \
@@ -18802,12 +18739,12 @@ G250KB=$(grep -ac "^GROUP|recall|key=1|slot=0|selection=${G250NB:-x}\$" /tmp/g25
 G250HA=$(grep -a '^UNITCARD|shown=1|count=' /tmp/g250a.log | sed -n 2p | sed 's/.*|count=\([0-9]*\)|.*/\1/')
 G250HB=$(grep -a '^UNITCARD|shown=1|count=' /tmp/g250b.log | sed -n 2p | sed 's/.*|count=\([0-9]*\)|.*/\1/')
 # The cursor over the card and over the east strip: the plain arrow at both.
-G250CU=$(grep -a '^CURSOR|at=2.0,958.0|' /tmp/g250a.log | sed 's/.*|shape=\([a-z_]*\)|.*/\1/')
-G250CE=$(grep -a '^CURSOR|at=1275.0,500.0|' /tmp/g250a.log | sed 's/.*|shape=\([a-z_]*\)|.*/\1/')
+G250CU=$(grep -a '^CURSOR|at=2.0,1438.0|' /tmp/g250a.log | sed 's/.*|shape=\([a-z_]*\)|.*/\1/')
+G250CE=$(grep -a '^CURSOR|at=2555.0,700.0|' /tmp/g250a.log | sed 's/.*|shape=\([a-z_]*\)|.*/\1/')
 if [ "$GRC" != "0" ]; then
   bad "G250 edges over the unit card: a run failed or wrote no shot (GRC=$GRC)"
 elif [ "${G250RA:-0}" -lt 1 ] || [ "${G250RB:-0}" -lt 1 ] || [ "${G250RC:-0}" -lt 1 ] || [ "${G250UI:-0}" -lt 1 ]; then
-  bad "G250 edges over the unit card: the card is not where the probes expect it (rect lines 960=$G250RA 720=$G250RB ui1=$G250RC ui_scale=$G250UI, want 1 each): $(grep -a '^UNITCARD|rect' /tmp/g250a.log /tmp/g250b.log /tmp/g250c.log | head -3 | tr '\n' ' ')"
+  bad "G250 edges over the unit card: the card is not where the probes expect it (rect lines 1440=$G250RA 720=$G250RB ui1=$G250RC ui_scale=$G250UI, want 1 each; a 1440 leg reading y=794 or smaller means the window manager did not grant the 1440 rows asked for): $(grep -a '^UNITCARD|rect' /tmp/g250a.log /tmp/g250b.log /tmp/g250c.log | head -3 | tr '\n' ' ')"
 elif [ "${G250NA:-0}" -lt 1 ] || [ "${G250NB:-0}" -lt 1 ] || [ "${G250NC:-0}" -lt 1 ]; then
   bad "G250 edges over the unit card: the band left nothing on the card (counts $G250NA/$G250NB/$G250NC, want >0), so the probes were not over a card"
 elif [ "${G250CL:-0}" -lt 1 ]; then
@@ -18815,17 +18752,17 @@ elif [ "${G250CL:-0}" -lt 1 ]; then
 elif [ "$G250GL" != "$G250WA" ]; then
   bad "G250 edges over the unit card: the Classic control refused a strip it has nothing on: [$G250GL] want [$G250WA]"
 elif [ "$G250GA" != "$G250WA" ] || [ "$G250GB" != "$G250WB" ] || [ "$G250GC" != "$G250WC" ]; then
-  bad "G250 edges over the unit card: a strip over the card is vetoed. 1280x960 [$G250GA] want [$G250WA]; 1280x720 [$G250GB] want [$G250WB]; ui_scale 1 [$G250GC] want [$G250WC]"
+  bad "G250 edges over the unit card: a strip over the card is vetoed. 2560x1440 [$G250GA] want [$G250WA]; 1280x720 [$G250GB] want [$G250WB]; ui_scale 1 [$G250GC] want [$G250WC]"
 elif [ "$G250VA" != "1" ] || [ "$G250VB" != "1" ] || [ "$G250VC" != "1" ]; then
-  bad "G250 edges over the unit card: the guard passed but the camera did not move as its control did (legs ok=$G250VA$G250VB$G250VC want 111). 960: corner $(g250x /tmp/g250a.log 1),$(g250z /tmp/g250a.log 1) bottom z=$(g250z /tmp/g250a.log 2) ctl z=$(g250z /tmp/g250a.log 4) left x=$(g250x /tmp/g250a.log 3) ctl x=$(g250x /tmp/g250a.log 5); 720: corner $(g250x /tmp/g250b.log 1),$(g250z /tmp/g250b.log 1) bottom z=$(g250z /tmp/g250b.log 2) ctl z=$(g250z /tmp/g250b.log 4) left x=$(g250x /tmp/g250b.log 3) ctl x=$(g250x /tmp/g250b.log 5); ui1: corner $(g250x /tmp/g250c.log 1),$(g250z /tmp/g250c.log 1) bottom z=$(g250z /tmp/g250c.log 2) ctl z=$(g250z /tmp/g250c.log 4) left x=$(g250x /tmp/g250c.log 3) ctl x=$(g250x /tmp/g250c.log 5) (start 45,45; corner wants x<44 and z>46, each arm equals its control to 0.002)"
+  bad "G250 edges over the unit card: the guard passed but the camera did not move as its control did (legs ok=$G250VA$G250VB$G250VC want 111). 1440: corner $(g250x /tmp/g250a.log 1),$(g250z /tmp/g250a.log 1) bottom z=$(g250z /tmp/g250a.log 2) ctl z=$(g250z /tmp/g250a.log 4) left x=$(g250x /tmp/g250a.log 3) ctl x=$(g250x /tmp/g250a.log 5); 720: corner $(g250x /tmp/g250b.log 1),$(g250z /tmp/g250b.log 1) bottom z=$(g250z /tmp/g250b.log 2) ctl z=$(g250z /tmp/g250b.log 4) left x=$(g250x /tmp/g250b.log 3) ctl x=$(g250x /tmp/g250b.log 5); ui1: corner $(g250x /tmp/g250c.log 1),$(g250z /tmp/g250c.log 1) bottom z=$(g250z /tmp/g250c.log 2) ctl z=$(g250z /tmp/g250c.log 4) left x=$(g250x /tmp/g250c.log 3) ctl x=$(g250x /tmp/g250c.log 5) (start 45,45; corner wants x<44 and z>46, each arm equals its control to 0.002)"
 elif [ "$G250VL" != "1" ]; then
-  bad "G250 edges over the unit card: the three card arms at 1280x960 do not match the Classic run of the same script to 0.002: card $(g250x /tmp/g250a.log 1),$(g250z /tmp/g250a.log 1) / $(g250x /tmp/g250a.log 2),$(g250z /tmp/g250a.log 2) / $(g250x /tmp/g250a.log 3),$(g250z /tmp/g250a.log 3) vs classic $(g250x /tmp/g250cl.log 1),$(g250z /tmp/g250cl.log 1) / $(g250x /tmp/g250cl.log 2),$(g250z /tmp/g250cl.log 2) / $(g250x /tmp/g250cl.log 3),$(g250z /tmp/g250cl.log 3)"
+  bad "G250 edges over the unit card: the three card arms at 2560x1440 do not match the Classic run of the same script to 0.002: card $(g250x /tmp/g250a.log 1),$(g250z /tmp/g250a.log 1) / $(g250x /tmp/g250a.log 2),$(g250z /tmp/g250a.log 2) / $(g250x /tmp/g250a.log 3),$(g250z /tmp/g250a.log 3) vs classic $(g250x /tmp/g250cl.log 1),$(g250z /tmp/g250cl.log 1) / $(g250x /tmp/g250cl.log 2),$(g250z /tmp/g250cl.log 2) / $(g250x /tmp/g250cl.log 3),$(g250z /tmp/g250cl.log 3)"
 elif [ "${G250KA:-0}" -lt 1 ] || [ "${G250KB:-0}" -lt 1 ] || [ "$G250HA" != "$G250NA" ] || [ "$G250HB" != "$G250NB" ]; then
-  bad "G250 edges over the unit card: the press on tab 1 inside both strips is no longer the card's (recall lines 960=$G250KA 720=$G250KB want 1 each; count after the press $G250HA/$G250HB want $G250NA/$G250NB)"
+  bad "G250 edges over the unit card: the press on tab 1 inside both strips is no longer the card's (recall lines 1440=$G250KA 720=$G250KB want 1 each; count after the press $G250HA/$G250HB want $G250NA/$G250NB)"
 elif [ "$G250CU" != "normal" ] || [ "$G250CE" != "normal" ]; then
   bad "G250 edges over the unit card: the cursor over the card while it pans is [$G250CU] and over the east strip [$G250CE] (want normal, the plain arrow, at both)"
 else
-  ok "G250 edges over the unit card: with $G250NA units selected and the card at y=628 (480x332), the corner at 2,958 pans to $(g250x /tmp/g250a.log 1),$(g250z /tmp/g250a.log 1), the bottom strip over the tab row to z=$(g250z /tmp/g250a.log 2) and the left strip over the bezel to x=$(g250x /tmp/g250a.log 3), each the same as its bare-map control and as the Classic run with no card; the same at 1280x720 (corner $(g250x /tmp/g250b.log 1),$(g250z /tmp/g250b.log 1)) and at ui_scale 1 (corner $(g250x /tmp/g250c.log 1),$(g250z /tmp/g250c.log 1)); a press on tab 1 inside both strips still recalls group 1 with $G250NA selected, and the cursor over the card is the plain arrow"
+  ok "G250 edges over the unit card: with $G250NA units selected and the zoom-2 card at y=1108 (480x332) on a 2560x1440 screen, the corner at 2,1438 pans to $(g250x /tmp/g250a.log 1),$(g250z /tmp/g250a.log 1), the bottom strip over the tab row to z=$(g250z /tmp/g250a.log 2) and the left strip over the bezel to x=$(g250x /tmp/g250a.log 3), each the same as its bare-map control and as the Classic run with no card; the same at 1280x720 (corner $(g250x /tmp/g250b.log 1),$(g250z /tmp/g250b.log 1)) and at ui_scale 1 (corner $(g250x /tmp/g250c.log 1),$(g250z /tmp/g250c.log 1)); a press on tab 1 inside both strips still recalls group 1 with $G250NA selected, and the cursor over the card is the plain arrow"
 fi
 
 # G252 THE CREDITS TICK. The credits readout is CreditClass::Current, walked toward the
@@ -18940,7 +18877,7 @@ fi
 #   Desktop, every size is kept (nres 18, nothing dropped for being oversized), and under
 #   Windowed the nine that cannot fit the usable room are greyed with a reason and refuse
 #   the click; the count is nine and not eight because the room is 1920x1040 (a task bar)
-#   and 1680x1050 is 10 rows too tall for it. Under True fullscreen the same entries are
+#   and 1680x1050 is 10 rows too tall for it. Under Fullscreen the same entries are
 #   pickable, and picking 3840x2160 writes the dial.
 #   THE DESKTOP ENTRY. Picking it under Windowed resolves to the usable room (a real
 #   window), not the 0x0 that used to leave the window untouched.
@@ -18956,7 +18893,7 @@ fi
 # the desktop, every unfit entry is exactly the set marked DISABLED under Windowed, and
 # the list holds every distinct size the driver offered plus the desktop when unlisted.
 # A pixel leg diffs two shots of the open list at the same scroll position, Windowed
-# against True fullscreen: the Desktop row is byte-identical and each of the six greyed
+# against Fullscreen: the Desktop row is byte-identical and each of the six greyed
 # rows below it differs, which is the DISABLED ink and nothing else (G206's neighbours
 # use gate_pixdiff.py the same way).
 #
@@ -18997,7 +18934,7 @@ optres open
 optres bar lower
 optres scroll -12
 shot shots/g251_windowed.png
-optclick True fullscreen
+optclick Fullscreen
 optres open
 optres scroll -12
 shot shots/g251_fullscreen.png
@@ -19129,11 +19066,11 @@ rm -rf "$G251SB"; mkdir -p "$G251SB/shots"
   mkdir -p "$G251SB/${g251d#./}"
 done
 ( cd "$RUNDIR" && find . -mindepth 1 \( -type f -o -type l \) -print ) | while IFS= read -r g251f; do
-  case "${g251f#./}" in cnc3d-controls.cfg|cnc3d-fx.cfg|shots/*) continue ;; esac
+  case "${g251f#./}" in opencnc3d-controls.cfg|opencnc3d-fx.cfg|shots/*) continue ;; esac
   ln -s "$RUNDIR/${g251f#./}" "$G251SB/${g251f#./}" 2>/dev/null
 done
-printf 'display_mode 0\nres_w 6015\nres_h 3383\n' > "$G251SB/cnc3d-fx.cfg"
-( cd "$G251SB" && ./cnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+printf 'display_mode 0\nres_w 6015\nres_h 3383\n' > "$G251SB/opencnc3d-fx.cfg"
+( cd "$G251SB" && ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
     --nosound --harness 1 --rounds 1 --shotdir shots > /tmp/g251_shell.log 2>&1 )
 G251SRC=$?
 cat /tmp/g251_shell.log >> "$OUT"
@@ -19152,11 +19089,5168 @@ else
   bad "G251 the Resolution list fits the display:$G251WHY"
 fi
 
+# G254 SELLING AND REPAIRING IN A MATCH ARE ORDERS, NOT ACTS. The first online playtest
+# ended three matches with the desync alarm, and the players named three triggers:
+# assigning a control group, repairing and selling. The first was real (a local field in
+# the world hash, fixed with the group keypress G195 and G199 now make). This gate is the
+# other two, over loopback: the host builds and places a Power Plant and SELLS it; both
+# peers damage the joiner's Construction Yard at the same engine tick (hurtobj, which is
+# a desync by construction unless the tick agrees, so the frame each peer applied it on
+# is asserted equal FIRST and a misaligned run says "alignment" rather than "desync");
+# the joiner then REPAIRS it. Asserted: no NETDESYNC line, both peers exit clean, at
+# least 40 hash reports agree, the plant reads mission=Selling on both peers' dumps after
+# the sale, and the yard reads repairing=1 with a strength above the 50 it was left at on
+# BOTH peers, which is the repair order having crossed the wire and executed on a
+# machine that never clicked.
+#
+# THE HOST'S SCRIPT STARTS THREE FRAMES LATER THAN THE JOINER'S (measured: the same
+# `tick 5` reached frame 718 on the host and 715 on the joiner), so the host's first
+# tick is 2 where the joiner's is 5. If that offset ever moves, the alignment assertion
+# names it.
+# ---------------------------------------------------------------------------
+G254HRC=99; G254JRC=99; G254DESYNC=1; G254AGREE=0; G254HF=""; G254JF=""; G254SOLD=0; G254REP=0
+if [ -x ./cnc_eyes ] && [ -s "$SKMAP.pack" ] && [ -s "missions/$SKMAP.INI" ]; then
+  rm -f net_rs_host.log net_rs_join.log
+  # --enhanced on both: the placement jolt is an Enhanced feature, and the joiner's
+  # shakedump twelve ticks after the host's placement is the assertion that it stayed on
+  # the host's screen.
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --enhanced --skirmish --side gdi --ai 0 \
+      --host 17437 --script gate_net_rs_host.txt > net_rs_host.log 2>&1 &
+  NHP=$!
+  sleep 2
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --enhanced --skirmish --side nod --ai 0 \
+      --join 127.0.0.1 17437 --script gate_net_rs_join.txt > net_rs_join.log 2>&1 &
+  NJP=$!
+  wait $NHP; G254HRC=$?
+  wait $NJP; G254JRC=$?
+  cat net_rs_host.log net_rs_join.log >> "$OUT"
+  G254DESYNC=$(cat net_rs_host.log net_rs_join.log | grep -c '^NETDESYNC|')
+  grep '^NETSYNC|' net_rs_host.log | sort -u > /tmp/g254_h.txt
+  grep '^NETSYNC|' net_rs_join.log | sort -u > /tmp/g254_j.txt
+  G254AGREE=$(comm -12 /tmp/g254_h.txt /tmp/g254_j.txt | grep -c .)
+  # The frame each peer applied the damage on: the OBJDUMP-END receipt printed just
+  # before its HURTOBJ line.
+  G254HF=$(grep -B1 '^HURTOBJ|' net_rs_host.log | sed -n 's/^OBJDUMP-END.*frame=\([0-9]*\).*/\1/p' | head -1)
+  G254JF=$(grep -B1 '^HURTOBJ|' net_rs_join.log | sed -n 's/^OBJDUMP-END.*frame=\([0-9]*\).*/\1/p' | head -1)
+  # The plant was sold on BOTH peers: after the sale it reads mission=Selling and later
+  # leaves the world. Counted as "a Selling line exists in each log".
+  G254SOLD=0
+  grep '^OBJ|BUILDING|NUKE|' net_rs_host.log | grep -q '|mission=Selling|' && G254SOLD=$((G254SOLD + 1))
+  grep '^OBJ|BUILDING|NUKE|' net_rs_join.log | grep -q '|mission=Selling|' && G254SOLD=$((G254SOLD + 1))
+  # The yard is repairing, above 50, on BOTH peers' final dumps.
+  # THE HOST'S PLACEMENT DID NOT SHAKE THE JOINER: the joiner's shakedump twelve ticks
+  # after the host's place auto must not show a live jolt (amp > 0 and age inside the
+  # nine-tick decay). The joiner's own deploy jolted it at frame ~29 and has long expired.
+  G254SHAKE=$(grep '^SHAKE|' net_rs_join.log | head -1 | sed -n 's/^SHAKE|amp=\([0-9.]*\)|frame=[-0-9]*|age=\([0-9]*\)|.*/\1 \2/p')
+  G254LEAK=$(printf '%s' "$G254SHAKE" | awk '{ if ($1 > 0 && $2 <= 12) print 1; else print 0 }')
+  G254REP=0
+  for f in net_rs_host.log net_rs_join.log; do
+    L=$(grep '^OBJ|BUILDING|FACT|' "$f" | grep '|str=[0-9]*|' | tail -1)
+    ST=$(printf '%s' "$L" | sed -n 's/.*|str=\([0-9]*\)|.*/\1/p')
+    printf '%s' "$L" | grep -q '|repairing=1|' && [ "${ST:-0}" -gt 50 ] && G254REP=$((G254REP + 1))
+  done
+fi
+if [ -z "$G254HF" ] || [ "$G254HF" != "$G254JF" ]; then
+  bad "G254 selling and repairing in a match: alignment. The two scripts damaged the yard on different frames (host ${G254HF:-none}, joiner ${G254JF:-none}), so any desync below is the test's and not the game's. Move the host's first tick until they agree"
+elif [ "$G254HRC" = "0" ] && [ "$G254JRC" = "0" ] && [ "$G254DESYNC" = "0" ] && [ "${G254AGREE:-0}" -ge 40 ] \
+     && [ "$G254SOLD" = "2" ] && [ "$G254REP" = "2" ] && [ "${G254LEAK:-1}" = "0" ]; then
+  ok "G254 selling and repairing in a match are orders: the host sold its Power Plant (mission=Selling on both peers), both peers damaged the joiner's yard at frame $G254HF, the joiner's repair order ran on both (repairing=1 and climbing on both dumps), $G254AGREE hash reports agree, no desync alarm, both exited clean; and the host's placement left the joiner's camera still (joiner shake amp/age $G254SHAKE)"
+else
+  bad "G254 selling and repairing in a match: host exit=$G254HRC joiner exit=$G254JRC desync-alarms=$G254DESYNC(want 0) hash-reports-agreeing=$G254AGREE(want >=40) sold-on-peers=$G254SOLD(want 2) repairing-on-peers=$G254REP(want 2) joiner-shaken-by-host-placement=${G254LEAK:-none}(want 0; amp/age $G254SHAKE). $(grep -hE '^NETDESYNC|^NET\|error' net_rs_host.log net_rs_join.log 2>/dev/null | head -2 | tr '\n' ' ')"
+fi
+
+# G255 THE BUILD QUEUE IN A MATCH. G95 proves the queue in a mission, where a start is an
+# act and the factory reads busy on the next frame. In a match a start is an ORDER, taken
+# several frames later, and the pump used to read the idle frames in between as "free"
+# and fire the whole queue into a factory that could take one (measured: five queued,
+# five pumps in five frames, two delivered). The first online playtest reported it as the
+# infantry queue dropping out. Asserted: the host queues five Minigunners after placing a
+# Power Plant and a Barracks, five SBQUEUE|took lines follow (one per start the factory
+# actually accepted, none called lost), the queue is empty at the end, and FIVE stand in
+# the host's world AND in the joiner's, which never clicked. No desync alarm, both exit
+# clean.
+# ---------------------------------------------------------------------------
+G255HRC=99; G255JRC=99; G255DESYNC=1; G255TOOK=0; G255LOST=0; G255EMPTY=0; G255H=0; G255J=0
+if [ -x ./cnc_eyes ] && [ -s "$SKMAP.pack" ] && [ -s "missions/$SKMAP.INI" ]; then
+  rm -f net_q_host.log net_q_join.log
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --ai 0 \
+      --host 17438 --script gate_net_queue_host.txt > net_q_host.log 2>&1 &
+  NHP=$!
+  sleep 2
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side nod --ai 0 \
+      --join 127.0.0.1 17438 --script gate_net_queue_join.txt > net_q_join.log 2>&1 &
+  NJP=$!
+  wait $NHP; G255HRC=$?
+  wait $NJP; G255JRC=$?
+  cat net_q_host.log net_q_join.log >> "$OUT"
+  G255DESYNC=$(cat net_q_host.log net_q_join.log | grep -c '^NETDESYNC|')
+  G255TOOK=$(grep -c '^SBQUEUE|took|E1|' net_q_host.log)
+  G255LOST=$(grep -c '^SBQUEUE|lost|' net_q_host.log)
+  G255EMPTY=$(grep -c '^SBQUEUEDUMP|entries=0$' net_q_host.log)
+  G255H=$(sed -n 's/^COUNT|E1:@me|have=\([0-9]*\).*/\1/p' net_q_host.log | tail -1)
+  # The joiner's final dump: every E1 the host's house owns. The host's house is the one
+  # its own HOUSE line marks player=1.
+  G255HOUSE=$(grep '^HOUSE|' net_q_host.log | grep '|player=1|' | tail -1 | cut -d'|' -f2)
+  # From the joiner's LAST dump only: it dumps ten times through the blush window.
+  G255J=$(sed -n '/^OBJDUMP-BEGIN/h; /^OBJDUMP-BEGIN/,$p' net_q_join.log | awk '/^OBJDUMP-BEGIN/{n=0} /^OBJ\|INFANTRY\|E1\|'"$G255HOUSE"'\|/{n++} END{print n+0}')
+  # THE TARGET BLUSH IS THE CLICKER'S TO SEE. The host's rifleman force-fires at the
+  # host's own Power Plant (cell 3,15, where place auto put it) and both peers dump the
+  # world through the seven-tick envelope. The shared blush= bit lights on both, as the
+  # 1995 engine has it; flashme= must read 1 on the host's lit lines and 0 on every one
+  # of the joiner's, which is what keeps the defender from reading the attacker's aim.
+  G255BH=$(grep "^OBJ|BUILDING|NUKE|$G255HOUSE|" net_q_host.log | grep -c '|blush=1|.*|flashme=1|')
+  G255BJ=$(grep "^OBJ|BUILDING|NUKE|$G255HOUSE|" net_q_join.log | grep -c '|blush=1|')
+  G255BJME=$(grep "^OBJ|BUILDING|NUKE|$G255HOUSE|" net_q_join.log | grep -c '|blush=1|.*|flashme=1|')
+fi
+if [ "$G255HRC" = "0" ] && [ "$G255JRC" = "0" ] && [ "$G255DESYNC" = "0" ] && [ "$G255TOOK" = "5" ] \
+   && [ "$G255LOST" = "0" ] && [ "${G255EMPTY:-0}" -ge 1 ] && [ "${G255H:-0}" = "5" ] && [ "${G255J:-0}" = "5" ] \
+   && [ "${G255BH:-0}" -ge 2 ] && [ "${G255BJ:-0}" -ge 2 ] && [ "${G255BJME:-1}" = "0" ]; then
+  ok "G255 the build queue in a match: five Minigunners queued on the host, five starts taken by the barracks one at a time (none lost), the queue emptied, and five stand in the host's world and five in the joiner's; no desync alarm, both exited clean. And the host's force-fire blushed its plant for the host ($G255BH lit dumps with flashme=1) while the joiner's $G255BJ lit dumps all read flashme=0"
+else
+  bad "G255 the build queue in a match: host exit=$G255HRC joiner exit=$G255JRC desync-alarms=$G255DESYNC(want 0) starts-taken=$G255TOOK(want 5) starts-lost=$G255LOST(want 0) emptied=$G255EMPTY(want >=1) riflemen-host=${G255H:-none}(want 5) riflemen-joiner=${G255J:-none}(want 5; fewer means the pump fired into a busy factory and the orders were refused) blush-host-lit-for-host=${G255BH:-0}(want >=2) blush-joiner-lit=${G255BJ:-0}(want >=2, the shared bit) blush-joiner-lit-for-joiner=${G255BJME:-none}(want 0)"
+fi
+
+# =====================================================================================
+# G256 THE TRACKS A VEHICLE LEAVES ON THE GROUND (treadmark_mod.h). Under ENHANCED a
+# vehicle now marks the ground it drove over: two bands, laid along the path the engine
+# actually took it on, fading on a timer and thinning away a set distance behind it.
+#
+# WHY THE MAP IS DESERT. The marks are a MULTIPLY, so they are a fraction of whatever
+# colour the ground already is, and on SCG07EA's dark grass a quarter of nearly nothing
+# is nearly nothing: the first build of this feature measured 4529 changed pixels there
+# that read as a texture seam. SCB01EA's sand is the ground this can be measured on, and
+# it is already in the run folder for twelve other gates.
+#
+# SIX CLAIMS, and the first three are the feature while the last three are the promises
+# that make it safe to leave switched on:
+#   (1) IT DRAWS. With the switch on, thousands of ground pixels differ from the same
+#       frame with it off, and the pass says how many band quads it emitted.
+#   (2) THE DISTANCE DIAL IS THE TRAIL'S LENGTH. Cut it from 12 cells to 3 and
+#       measurably less ground is marked, in the same frame, with no extra ticks.
+#   (3) THE TIMER IS THE MARK'S LIFE. Cut it from 40 seconds to 4 and the older end of
+#       the same trail is gone. Both dials are read at DRAW time, so both legs
+#       photograph one recorded path rather than three different drives.
+#   (4) IT NEVER BRIGHTENS THE GROUND AND NEVER TOUCHES THE SIDEBAR. A multiply cannot
+#       make a pixel lighter, so anything lighter is a mistake somewhere; one level of
+#       one pixel is allowed because the chain resolves and grades after this pass.
+#       WHERE THE SIDEBAR STARTS IS READ OUT OF THE DUMP, never assumed. The bar
+#       magnifies by whole numbers, so its left edge follows the UI scale dial: at this
+#       window width it stands at 1120 under the shipped default and at 960 one step
+#       coarser. A hard-coded 960 counted those 160 columns of ordinary ground as chrome
+#       and failed a build whose tracks reached nothing but sand.
+#   (5) CLASSIC RECORDS NOTHING AND DRAWS NOTHING. Not "looks the same": the per-tick
+#       observer is asked, and it must hold zero trails and zero points after the same
+#       drive. A feature that records a path under Classic and merely declines to draw
+#       it would pass a pixel test and still be a Tier 1 promise broken.
+#   (6) TWO RUNS OF ONE SCRIPT ARE ONE PICTURE. This is the fault the whole tick/draw
+#       split exists to prevent: a mark advanced per DRAWN frame instead of per engine
+#       tick makes every --shot run disagree with the last one.
+# =====================================================================================
+cat > /tmp/g256.txt <<'G256EOF'
+cam 53 17
+zoom min
+tick 6
+lclickobj BGGY 0
+order 57 20
+tick 70
+order 51 21
+tick 80
+shot shots/g256_on.png
+tmarkdump
+gfx tmark_dist 3
+shot shots/g256_dist.png
+gfx tmark_dist 12
+gfx tmark_life 4
+shot shots/g256_life.png
+gfx tmark_life 40
+gfx tmark_on 0
+shot shots/g256_off.png
+quit
+G256EOF
+# The second run is the same script line for line, and only the file name differs: that
+# is what makes the comparison a statement about the binary and not about two scripts.
+sed 's#g256_on#g256_on2#' /tmp/g256.txt > /tmp/g256b.txt
+# The Classic leg drives the same vehicle the same way with no --enhanced, and asks the
+# observer what it recorded rather than looking at the picture.
+cat > /tmp/g256c.txt <<'G256EOF'
+cam 53 17
+zoom min
+tick 6
+lclickobj BGGY 0
+order 57 20
+tick 70
+order 51 21
+tick 80
+shot shots/g256_classic.png
+tmarkdump
+quit
+G256EOF
+gbegin shots/g256_on.png shots/g256_on2.png shots/g256_dist.png shots/g256_life.png \
+       shots/g256_off.png shots/g256_classic.png \
+       shots/g256.log shots/g256b.log shots/g256c.log
+grun shots/g256.log  --noshroud --scen SCB01EA --pack SCB01EA.pack $BASE --w 1280 --h 800 \
+     --script /tmp/g256.txt --enhanced
+grun shots/g256b.log --noshroud --scen SCB01EA --pack SCB01EA.pack $BASE --w 1280 --h 800 \
+     --script /tmp/g256b.txt --enhanced
+grun shots/g256c.log --noshroud --scen SCB01EA --pack SCB01EA.pack $BASE --w 1280 --h 800 \
+     --script /tmp/g256c.txt
+gshots shots/g256_on.png shots/g256_on2.png shots/g256_dist.png shots/g256_life.png \
+       shots/g256_off.png
+G256Q=$(sed -n 's/^TMARK|on=1|trails=[0-9]*|points=[0-9]*|quads=\([0-9]*\)|.*/\1/p' shots/g256.log | head -1)
+G256CT=$(sed -n 's/^TMARK|on=0|trails=\([0-9]*\)|.*/\1/p' shots/g256c.log | head -1)
+G256CP=$(sed -n 's/^TMARK|on=0|trails=[0-9]*|points=\([0-9]*\)|.*/\1/p' shots/g256c.log | head -1)
+G256CQ=$(sed -n 's/^TMARK|on=0|trails=[0-9]*|points=[0-9]*|quads=\([0-9]*\)|.*/\1/p' shots/g256c.log | head -1)
+G256FAILS=$(sed -n 's/^SCRIPT|end .*: [0-9]* lines, \([0-9]*\) failures/\1/p' shots/g256.log | head -1)
+# The column the map stops at, as the renderer reports it. See claim (4).
+G256TR=$(sed -n 's/^TMARK|.*|tacright=\([0-9]*\).*/\1/p' shots/g256.log | head -1)
+G256PIX=$(TACR="${G256TR:-0}" python3 - <<'PY'
+import os
+from PIL import Image
+import numpy as np
+def rd(n): return np.asarray(Image.open('shots/g256_%s.png' % n).convert('RGB')).astype(int)
+off, on, dist, life = rd('off'), rd('on'), rd('dist'), rd('life')
+d = (on != off).any(axis=2)
+# The sidebar starts where the renderer says the map stops, and nothing in this pass may
+# reach it. Not a constant: see claim (4).
+bar = int(d[:, int(os.environ['TACR']):].sum())
+# A multiply darkens. Count the pixels that came out LIGHTER instead.
+up = int(((on - off) > 0).any(axis=2).sum())
+print("%d %d %d %d %d" % (int(d.sum()), bar, up,
+                          int((dist != off).any(axis=2).sum()),
+                          int((life != off).any(axis=2).sum())))
+PY
+)
+set -- $G256PIX
+G256ON="$1"; G256BAR="$2"; G256UP="$3"; G256D="$4"; G256L="$5"
+G256DET=0
+cmp -s shots/g256_on.png shots/g256_on2.png && G256DET=1
+if [ "$GRC" != "0" ]; then
+  bad "G256 the tracks a vehicle leaves: a run failed or wrote no shot (GRC=$GRC)"
+elif [ "${G256FAILS:-1}" != "0" ]; then
+  bad "G256 the tracks a vehicle leaves: the script did not drive the buggy ($G256FAILS step failures; a MISSING lclickobj means this map's vehicle has moved and the gate needs a new one)"
+elif [ -z "$G256TR" ] || [ "$G256TR" -le 0 ] || [ "$G256TR" -gt 1280 ]; then
+  bad "G256 the tracks a vehicle leaves: the dump did not say where the map stops (tacright=${G256TR:-none} of 1280), so 'nothing on the sidebar' could not be measured and was not guessed at"
+elif [ -n "$G256ON" ] && [ "$G256ON" -ge 3000 ] && [ "${G256Q:-0}" -ge 10 ] \
+     && [ "$G256BAR" = "0" ] && [ "$G256UP" -le 4 ] \
+     && [ "$G256D" -lt "$((G256ON * 4 / 5))" ] && [ "$G256D" -ge 200 ] \
+     && [ "$G256L" -lt "$G256ON" ] && [ "$G256L" -ge "$((G256ON / 5))" ] \
+     && [ "${G256CT:-9}" = "0" ] && [ "${G256CP:-9}" = "0" ] && [ "${G256CQ:-9}" = "0" ] \
+     && [ "$G256DET" = "1" ]; then
+  ok "G256 the tracks a vehicle leaves on the ground: a buggy driven two legs across SCB01EA's sand marks $G256ON pixels of ground in $G256Q band quads, not one of them on the sidebar, whose left edge the renderer puts at $G256TR of 1280, and not one of them lighter than the ground was ($G256UP, and one level of one pixel is the chain's own rounding). The trail length dial cut to 3 cells leaves $G256D of those pixels and the life cut to 4 seconds leaves $G256L, both read at draw time from ONE recorded drive. Under CLASSIC the same drive records $G256CT trails and $G256CP points and draws $G256CQ quads. Two runs of the one script are byte identical"
+else
+  bad "G256 the tracks a vehicle leaves on the ground: marked-px=$G256ON(want >=3000) band-quads=${G256Q:-none}(want >=10) on-the-sidebar=$G256BAR(want 0, measured from column $G256TR) lighter-px=$G256UP(want <=4) dist-3-px=$G256D(want <$((G256ON * 4 / 5)) and >=200) life-4s-px=$G256L(want <$G256ON and >=$((G256ON / 5))) classic-trails=${G256CT:-none}(want 0) classic-points=${G256CP:-none}(want 0) classic-quads=${G256CQ:-none}(want 0) two-runs-identical=$G256DET(want 1)"
+fi
+
+# G257 THE AUTHORED MAMMOTH TANK (model3d_mod.h): RETIRED WITH THE EXPERIMENTAL LOOK.
+# It proved that under ENHANCED the Mammoth was drawn from models3d/HTNK.c3m in place of
+# the cartridge's 138-triangle mesh: lit by a real light (black with every light at zero),
+# its sun dial live, its own normals in the post chain's normal buffer, nothing on the
+# sidebar, and Classic and --nomodel3d building none of it. m3_available draws an
+# authored vehicle only under the experimental switch.
+# NOTHING RUNS HERE. Its subject is drawn only under the experimental look, whose switch
+# is now forced off (fx_state.h: a preset that still carries it is read as off, and a
+# script that sets it fails as an unknown dial). No run can reach the feature, so every
+# arm could only fail its script or measure a picture the feature is absent from.
+# The number stays so the history reads straight; the code and art are left in the tree.
+# NOTHING REPLACED IT: Enhanced draws the cartridge's own vehicle meshes, so no vehicle
+# is lit as a model or writes a normal of its own. The sidebar's left edge at 1280 wide
+# (column 1120) that later gates quote was measured here against --nosidebar.
+
+# G258 THE FOUR LIGHTING ADDITIONS (HDR and the highlight rolloff, the sky cube map, the
+# contact shadows, and relighting the cartridge's own art). All four are ENHANCED ONLY
+# and all four carry a --noFEATURE switch, which is what this gate is built on.
+#
+# WHY THIS GATE EXISTS IN THIS SHAPE. The first build of all four appeared to change
+# NOTHING: five frames with the features switched on one at a time came out byte
+# identical. The cause was one variable referenced from the wrong scope in the light
+# program, which failed to compile; the chain reports that and then carries on without
+# it, drawing a complete and entirely reasonable picture -- the Classic one. So a broken
+# shader and a feature that does nothing are the same photograph, and no pixel assertion
+# can separate them. THE FIRST CLAIM IS THEREFORE NOT ABOUT PIXELS AT ALL.
+#
+# SIX CLAIMS:
+#   (1) THE CHAIN IS ACTUALLY RUNNING. FX|chain must report usable=1 with all six
+#       programs linked. Everything below is meaningless without it, which is exactly
+#       the trap this gate was written after falling into.
+#   (2) EACH OF THE FOUR MOVES THE PICTURE ON ITS OWN, switched on one at a time against
+#       the frame with all four off.
+#   (3) THE SKY IS REALLY LOADED. m3dump reports env=1 and the level count, because a
+#       missing sky pack falls back to the two-colour fill and looks perfectly fine.
+#   (4) THE ROLLOFF RESCUES CLIPPED HIGHLIGHTS. In ONE run with one dial moved, the
+#       number of pixels pinned at white must FALL when the curve is switched on. It is
+#       tested that way and not against the old chain because the bloom is scene
+#       referred now as well, and a brighter bloom pushes pixels up to white while the
+#       curve pulls the scene's own highlights down -- two features in opposite
+#       directions, which is not a measurement of either.
+#   (5) THE RELIGHT RE-AIMS THE LIGHT RATHER THAN RE-GRADING IT. Swinging the sun 180
+#       degrees must move the cartridge buildings measurably MORE with it on than with
+#       it off, while the frame's mean brightness stays close -- because the ratio is
+#       meant to change where the light comes from and not how much of it there is.
+#   (6) CLASSIC IS UNTOUCHED. With no --enhanced, all four switches together change
+#       nothing at all. This is the Enhanced-only promise, and it is the claim here that
+#       protects the other two hundred gates.
+# =====================================================================================
+cat > /tmp/g258.txt <<'G258EOF'
+cam 24 41
+zoom 2900
+tick 10
+shot shots/g258_X.png
+m3dump
+quit
+G258EOF
+for g258v in off sky contact relight; do
+  sed "s#g258_X#g258_$g258v#" /tmp/g258.txt > /tmp/g258_$g258v.txt
+done
+# THE ROLLOFF IS TESTED AGAINST ITSELF, not against the eight bit chain. Comparing the
+# whole HDR chain to the whole old one does not isolate it: the bloom is scene referred
+# now too, so a bright area blooms harder and pushes its neighbours UP to white even as
+# the rolloff pulls the scene's own highlights down. Measured, that came out as 5081
+# clipped pixels before and 5113 after, and read as the feature failing when it was two
+# features pulling opposite ways. One run, one bloom, one dial moved.
+cat > /tmp/g258_hdr.txt <<'G258EOF'
+cam 24 41
+zoom 2900
+tick 10
+shot shots/g258_hdr.png
+quit
+G258EOF
+# AND THE CURVE IS MEASURED WHERE THERE IS SOMETHING FOR IT TO DO, which is on the
+# remastered structures: their painted metal and hazard stripes run well past white
+# before the curve, and the cartridge's own art barely passes it at all. This leg was
+# first aimed at the authored Mammoth hulls, which were retired with the experimental
+# look; left on the grass and cartridge tanks they had stood on, the margin fell to 93
+# clipped channels against 80, a true claim and a gate that would go red on a driver's
+# rounding. Framed on the base's own buildings at camera 27,44 it measured 2,355
+# against 36 over the tactical view.
+#
+# THIS LEG KEEPS THE SKY, AND IT IS THE ONLY ONE THAT DOES. The other legs turn off
+# everything but the feature under test, which is the right shape for them and the wrong
+# shape for this one: a lit model takes much of its light from the sky's ambient (an
+# authored hull under --nosky peaked at 74 of 255 against temperate grass). Isolating
+# HDR that way removes the highlights the rolloff exists to rescue, and the curve then
+# measures as doing nothing because there is correctly nothing to do -- a red light for
+# a feature that works. Isolation here is ONE DIAL MOVED BETWEEN TWO SHOTS OF ONE RUN,
+# which is stronger than a flag comparison anyway: same scene, same bloom, same frame.
+cat > /tmp/g258_clip.txt <<'G258EOF'
+cam 27 44
+zoom max
+tick 8
+shot shots/g258_clipoff.png
+gfx tonemap 0
+shot shots/g258_clip.png
+quit
+G258EOF
+cat > /tmp/g258_swing.txt <<'G258EOF'
+cam 24 41
+zoom 2900
+tick 10
+gfx sun_az 30
+shot shots/g258_swA.png
+gfx sun_az 210
+shot shots/g258_swB.png
+quit
+G258EOF
+sed 's#g258_sw#g258_rsw#' /tmp/g258_swing.txt > /tmp/g258_rswing.txt
+cat > /tmp/g258_cl.txt <<'G258EOF'
+cam 24 41
+zoom 2900
+tick 10
+shot shots/g258_classic.png
+quit
+G258EOF
+sed 's#g258_classic#g258_classic2#' /tmp/g258_cl.txt > /tmp/g258_cl2.txt
+# $BASE CARRIES --dir missions/ AND IS PASSED FIRST, so this one wins: a user map
+# lives in missions/user_maps/ and the last --dir on the line is the one that counts.
+G258B="--noshroud --scen USER30 --pack SCG01EA.pack --dir missions/user_maps/ --w 1280 --h 800"
+# THE GROUND DETAIL, PINNED OFF. The grass clumps and the rocks are sunlit models, so
+# swinging the sun moves them as well, which is not what claim (5) measures: they took the
+# mean drift over its limit with the four additions exactly as before.
+for g258f in /tmp/g258*.txt; do
+  { printf 'gfx fol_on 0\ngfx rock_on 0\ngfx mottle_on 0\n'; cat "$g258f"; } > "$g258f.pin" && mv "$g258f.pin" "$g258f"
+done
+gbegin shots/g258_off.png shots/g258_hdr.png shots/g258_clip.png shots/g258_sky.png shots/g258_contact.png \
+       shots/g258_relight.png shots/g258_swA.png shots/g258_swB.png \
+       shots/g258_rswA.png shots/g258_rswB.png shots/g258_classic.png \
+       shots/g258_classic2.png shots/g258.log shots/g258r.log
+grun shots/g258.log  $BASE $G258B --enhanced --nohdr --nosky --nocontact --norelight --script /tmp/g258_off.txt
+grun -               $BASE $G258B --enhanced --nosky --nocontact --norelight --script /tmp/g258_hdr.txt
+grun -               $BASE $G258B --enhanced --nocontact --norelight --script /tmp/g258_sky.txt
+grun -               $BASE $G258B --enhanced --norelight --script /tmp/g258_contact.txt
+grun shots/g258r.log $BASE $G258B --enhanced --relight --script /tmp/g258_relight.txt
+grun -               $BASE $G258B --enhanced --nocontact --norelight --script /tmp/g258_clip.txt
+grun -               $BASE $G258B --enhanced --norelight --script /tmp/g258_swing.txt
+grun -               $BASE $G258B --enhanced --relight   --script /tmp/g258_rswing.txt
+grun -               $BASE $G258B --script /tmp/g258_cl.txt
+grun -               $BASE $G258B --nohdr --nosky --nocontact --relight --script /tmp/g258_cl2.txt
+gshots shots/g258_off.png shots/g258_hdr.png shots/g258_clip.png shots/g258_clipoff.png shots/g258_sky.png shots/g258_contact.png \
+       shots/g258_relight.png shots/g258_swA.png shots/g258_rswA.png shots/g258_classic.png
+G258CHAIN=$(sed -n 's/^FX|chain|usable=\([0-9]\)|.*/\1/p' shots/g258.log | head -1)
+G258PROGS=$(grep -c '^FX|chain|usable=1|light=1|bright=1|blur=1|resolve=1|crt=1|copy=1' shots/g258.log)
+G258ENV=$(sed -n 's/^M3DUMP|.*|env=\([0-9]*\)|.*/\1/p' shots/g258r.log | head -1)
+G258LOD=$(sed -n 's/^M3DUMP|.*|envlod=\([0-9]*\).*/\1/p' shots/g258r.log | head -1)
+G258PIX=$(python3 - <<'PY'
+from PIL import Image
+import numpy as np
+def rd(n): return np.asarray(Image.open('shots/g258_%s.png' % n).convert('RGB')).astype(int)
+off = rd('off')
+out = []
+for n in ('hdr', 'sky', 'contact', 'relight'):
+    out.append(int((rd(n) != off).any(axis=2).sum()))
+# HDR must RESCUE clipped highlights: pixels pinned at white have to fall.
+out.append(int((rd('clip') >= 255).sum()))
+out.append(int((rd('clipoff') >= 255).sum()))
+# The relight re-aims rather than re-grades: more response to a sun swing, same mean.
+# The box is the two buildings; the brightness test keeps the grass out of it.
+swA, swB, rA, rB = rd('swA'), rd('swB'), rd('rswA'), rd('rswB')
+m = np.zeros(off.shape[:2], bool)
+m[280:670, 130:1000] = True
+m &= (swA.max(axis=2) > 60)
+out.append(int(np.abs(swA[m] - swB[m]).mean() * 100) if m.any() else 0)
+out.append(int(np.abs(rA[m] - rB[m]).mean() * 100) if m.any() else 0)
+out.append(int(abs(rd('relight').mean() - off.mean()) * 100))
+print(' '.join(str(v) for v in out))
+PY
+)
+set -- $G258PIX
+G258H="$1"; G258S="$2"; G258C="$3"; G258R="$4"
+G258CLIP0="$5"; G258CLIP1="$6"; G258SWO="$7"; G258SWR="$8"; G258DRIFT="$9"
+G258CL=0
+cmp -s shots/g258_classic.png shots/g258_classic2.png && G258CL=1
+if [ "$GRC" != "0" ]; then
+  bad "G258 the four lighting additions: a run failed or wrote no shot (GRC=$GRC). A MISSING sky.pack in the run folder is the first thing to check"
+elif [ "${G258CHAIN:-0}" != "1" ] || [ "${G258PROGS:-0}" -lt 1 ]; then
+  bad "G258 the four lighting additions: the post chain did not come up (usable=${G258CHAIN:-none}, all-six-programs lines=${G258PROGS:-0}). Every pixel number below would be the CLASSIC picture and would read as four features doing nothing. Look in the log for a shader that failed to compile"
+elif [ "${G258H:-0}" -ge 10000 ] && [ "${G258S:-0}" -ge 2000 ] \
+     && [ "${G258C:-0}" -ge 1000 ] && [ "${G258R:-0}" -ge 20000 ] \
+     && [ "${G258ENV:-0}" = "1" ] && [ "${G258LOD:-0}" -ge 5 ] \
+     && [ "$G258CLIP1" -lt "$G258CLIP0" ] \
+     && [ "$G258SWR" -gt "$G258SWO" ] && [ "${G258DRIFT:-999}" -le 400 ] \
+     && [ "$G258CL" = "1" ]; then
+  ok "G258 the four lighting additions: the chain is up with all six programs linked, and each feature moves the picture on its own -- HDR $G258H px, the sky $G258S, contact shadows $G258C, the relight $G258R. The sky really loaded, $G258LOD roughness levels rather than the two-colour fallback. HDR rescues highlights rather than merely changing them: in one run with one dial moved, pixels pinned at white fall from $G258CLIP0 to $G258CLIP1. The relight re-aims the light instead of re-grading it: swinging the sun 180 degrees moves the cartridge buildings $G258SWR hundredths of a level against $G258SWO without it, while the frame's mean drifts $G258DRIFT hundredths. Under CLASSIC all four switches together change nothing"
+else
+  bad "G258 the four lighting additions: hdr-px=$G258H(want >=10000) sky-px=$G258S(want >=2000) contact-px=$G258C(want >=1000) relight-px=$G258R(want >=20000) env=${G258ENV:-none}(want 1) envlod=${G258LOD:-none}(want >=5) clipped-with-the-curve-off=$G258CLIP0 with-it-on=$G258CLIP1(want fewer) sun-swing-relit=$G258SWR(want more than $G258SWO) mean-drift=$G258DRIFT(want <=400) classic-untouched=$G258CL(want 1)"
+fi
+
+# G259 THE DIAL PANEL'S TABLE: no two rows drive the same setting.
+#
+# WHY THIS EXISTS. Group 12g shipped with its "light from the sky" row written out
+# TWICE, identical in key, label, field and help text. Both rows drove the one switch,
+# so the panel worked perfectly: ticking either did the right thing. It was found by a
+# reader, not by anything here, because there is nothing for a pixel gate to see -- the
+# picture is correct either way and the only symptom is a second row on a panel nobody
+# photographs.
+#
+# It is a static read of the table rather than a render, which is why it costs nothing
+# and can afford to check all of it rather than the new groups only. Two rows on one
+# field are not obviously wrong in principle, but there are none anywhere in this table
+# today, so the invariant is real and worth holding: a second row is a copy-paste that
+# got away rather than a design.
+# $GATEDIR, not the working directory: the suite has cd'd into the run folder by now,
+# and the run folder holds a build rather than the source this reads.
+G259=$(python3 - "$GATEDIR/fx_state.h" <<'G259EOF' 2>>"$OUT"
+import collections, re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+rows = re.findall(r'\{\s*(FXP_BOOL|FXP_FLOAT|FXP_STEP|FXP_INT)\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*,\s*FXO\((\w+)\)', src)
+field = collections.Counter(r[3] for r in rows)
+label = collections.Counter((r[1], r[2]) for r in rows)
+dup = sorted(k for k, v in field.items() if v > 1)
+dupl = sorted("%s/%s" % k for k, v in label.items() if v > 1)
+for d in dup:
+    print("G259| field %s has %d rows" % (d, field[d]), file=sys.stderr)
+for d in dupl:
+    print("G259| label %s appears twice" % d, file=sys.stderr)
+print("%d %d %s" % (len(rows), len(dup) + len(dupl), ",".join(dup + dupl) or "-"))
+G259EOF
+)
+G259N=$(echo "$G259" | awk '{print $1}')
+G259D=$(echo "$G259" | awk '{print $2}')
+G259W=$(echo "$G259" | awk '{print $3}')
+if [ "${G259N:-0}" -ge 200 ] && [ "${G259D:-1}" = "0" ]; then
+  ok "G259 the dial panel's table: $G259N rows, and no setting is reachable from two of them"
+else
+  if [ ! -f "$GATEDIR/fx_state.h" ]; then
+    bad "G259 the dial panel's table: $GATEDIR/fx_state.h is not there, so the table could not be read at all. The gate resolves it beside gates.sh; a run folder needs it staged in (game/make-build.sh copies it)"
+  else
+    bad "G259 the dial panel's table: rows=${G259N:-none}(want >=200) duplicates=${G259D:-none}(want 0) [$G259W]"
+  fi
+fi
+
+# =====================================================================================
+# G260 THE 3D SOLDIER (model3d_mod.h m3_pose, cnc_eyes.cpp m3inf_draw). A skinned .c3m
+# for E1 is drawn in place of the Minigunner's sprite, posed from its idle, run and shoot
+# clips. This gate was written for the experimental set's soldier (models3d/E1.c3m),
+# drawn under experimental art behind the m3inf_on row. That look is retired (its switch
+# is forced off), and the soldier that replaced it is Enhanced's remastered Minigunner
+# (einf/E1.c3m, behind the einf_on row), so the claims below are now made of that one.
+# The remastered set is proved type by type on a user map by G275; this gate is its
+# shipped mission, and the only one that asks whether the body leaves the sprite's rules.
+#
+# WHY SCG01EA. It is shipped, and its opening frame at the default camera holds four
+# Minigunners, so the gate needs no staging and depends on nothing a player can edit.
+#
+# THE CLAIMS:
+#   (1) THE FILE IS A SKINNED ONE. The load line (M3E|E1) reports bones and clips; a
+#       rigid E1 would be drawn in one pose for ever and must not pass as the feature.
+#   (2) IT DRAWS AND IT IS THE MODEL. The observer counts posed soldiers, and the same
+#       frame with the soldiers' row off differs by hundreds of pixels, none of them on
+#       the sidebar (column 1120 rightward at 1280 wide, measured against --nosidebar).
+#   (3) IT IS GATED WHERE IT SAYS. Its own row off, --nomodel3d and Classic all report
+#       no soldier drawn -- the observer's count, not a picture.
+#   (4) THE VEHICLE ROW DOES NOT REACH IT. With the authored vehicles' row off, the
+#       soldiers are still drawn: two rows that silently coupled would be a panel that
+#       lies about what a switch does.
+#   (5) TWO RUNS OF ONE SCRIPT ARE ONE PICTURE.
+#   (6) THE BODY IS NOT THE SPRITE'S. Over 240 more ticks of the opening firefight
+#       the soldiers' own headings leave the engine's 45 degree grid, and their clip
+#       weights are caught part way through a cross-fade. A model drawn on the sprite's
+#       eight headings with hard cuts between clips reads zero on both.
+# =====================================================================================
+cat > /tmp/g260.txt <<'G260EOF'
+tick 20
+shot shots/g260_on.png
+m3dump
+gfx m3_on 0
+shot shots/g260_nov.png
+m3dump
+gfx m3_on 1
+gfx einf_on 0
+shot shots/g260_off.png
+m3dump
+gfx einf_on 1
+G260EOF
+# THE BODY IS HIS OWN: 240 more ticks, the per-soldier state read every other tick. The
+# mission's men are on Hunt and hold still for the first hundred or so, so the window has
+# to reach the fighting for a cross-fade to happen at all; a fade lasts three ticks, so
+# reading every second tick cannot step over one.
+i=0; while [ $i -lt 120 ]; do printf 'tick 2\nm3dump\n' >> /tmp/g260.txt; i=$((i+1)); done
+echo quit >> /tmp/g260.txt
+sed 's#g260_on\.png#g260_on2.png#' /tmp/g260.txt > /tmp/g260b.txt
+cat > /tmp/g260c.txt <<'G260EOF'
+tick 20
+shot shots/g260_nom.png
+m3dump
+quit
+G260EOF
+sed 's#g260_nom#g260_classic#' /tmp/g260c.txt > /tmp/g260d.txt
+gbegin shots/g260_on.png shots/g260_on2.png shots/g260_nov.png shots/g260_off.png \
+       shots/g260_nom.png shots/g260_classic.png \
+       shots/g260.log shots/g260b.log shots/g260c.log shots/g260d.log
+grun shots/g260.log  --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 800 \
+     --script /tmp/g260.txt --enhanced
+grun shots/g260b.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 800 \
+     --script /tmp/g260b.txt --enhanced
+grun shots/g260c.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 800 \
+     --script /tmp/g260c.txt --enhanced --nomodel3d
+grun shots/g260d.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 800 \
+     --script /tmp/g260d.txt
+gshots shots/g260_on.png shots/g260_on2.png shots/g260_off.png
+# The three dumps of the main run, in order: on, vehicles off, soldiers off.
+g260inf() { sed -n 's/^M3DUMP|.*|inf=\([0-9]*\)|.*/\1/p' "$1" | sed -n "${2}p"; }
+G260ON=$(g260inf shots/g260.log 1)
+G260NOV=$(g260inf shots/g260.log 2)
+G260OFF=$(g260inf shots/g260.log 3)
+G260NOM=$(g260inf shots/g260c.log 1)
+G260CL=$(g260inf shots/g260d.log 1)
+G260BONES=$(sed -n 's/^M3E|E1|tris.*|bones \([0-9]*\)|clips.*/\1/p' shots/g260.log | head -1)
+G260CLIPS=$(sed -n 's/^M3E|E1|tris.*|clips \([0-9]*\)$/\1/p' shots/g260.log | head -1)
+G260F=$(sed -n 's/^SCRIPT|end .*: [0-9]* lines, \([0-9]*\) failures/\1/p' shots/g260.log | head -1)
+# OFF THE SPRITE'S GRID: headings that are not a multiple of 45 degrees, and clip weights
+# caught mid-fade. Either count at zero means the soldier is still on the sprite's rules.
+G260OFFGRID=$(sed -n 's/^M3INF|.*|yaw=\([0-9.]*\)|.*/\1/p' shots/g260.log \
+    | awk '{r = $1 - 45 * int($1 / 45); if (r > 0.5 && r < 44.5) n++} END {print n + 0}')
+G260FADE=$(sed -n 's/^M3INF|.*|idle=\([0-9.]*\)|run=\([0-9.]*\)|shoot=\([0-9.]*\)$/\1 \2 \3/p' shots/g260.log \
+    | awk '{for (k = 1; k <= 3; k++) if ($k > 0.05 && $k < 0.95) n++} END {print n + 0}')
+G260PIX=$(python3 - <<'PY'
+from PIL import Image
+import numpy as np
+def rd(n): return np.asarray(Image.open('shots/g260_%s.png' % n).convert('RGB')).astype(int)
+on, off, on2 = rd('on'), rd('off'), rd('on2')
+d = (on != off).any(axis=2)
+print(int(d[:, :1120].sum()), int(d[:, 1120:].sum()), int((on != on2).any(axis=2).sum()))
+PY
+)
+G260VIEW=$(echo "$G260PIX" | awk '{print $1}')
+G260BAR=$(echo "$G260PIX" | awk '{print $2}')
+G260DET=$(echo "$G260PIX" | awk '{print $3}')
+if [ "$GRC" = "0" ] && [ "${G260BONES:-0}" -gt 0 ] && [ "${G260CLIPS:-0}" -ge 3 ] \
+   && [ "${G260ON:-0}" -ge 3 ] && [ "${G260NOV:-0}" -ge 3 ] \
+   && [ "${G260OFF:-x}" = "0" ] \
+   && [ "${G260NOM:-x}" = "0" ] && [ "${G260CL:-x}" = "0" ] \
+   && [ "${G260VIEW:-0}" -ge 300 ] && [ "${G260BAR:-1}" = "0" ] \
+   && [ "${G260DET:-1}" = "0" ] && [ "${G260F:-1}" = "0" ] \
+   && [ "${G260OFFGRID:-0}" -gt 0 ] && [ "${G260FADE:-0}" -gt 0 ]; then
+  ok "G260 the 3D soldier: the remastered E1 is a skinned model ($G260BONES bones, $G260CLIPS clips) and $G260ON Minigunners on SCG01EA are posed from it, changing $G260VIEW pixels against the sprites and none on the sidebar. Gated where the panel says: its own row off, --nomodel3d and Classic each draw 0, and taking the authored vehicles' row out still leaves $G260NOV soldiers drawn. Off the sprite's rules: $G260OFFGRID heading samples between the engine's 45 degree steps and $G260FADE clip weights caught mid cross-fade. Two runs are one picture"
+else
+  bad "G260 the 3D soldier: rc=$GRC bones=${G260BONES:-none}(>0) clips=${G260CLIPS:-none}(>=3) drawn on=${G260ON:-none}(>=3) vehicles-off=${G260NOV:-none}(>=3) row-off=${G260OFF:-none}(0) nomodel3d=${G260NOM:-none}(0) classic=${G260CL:-none}(0) pixels=${G260VIEW:-none}(>=300) sidebar=${G260BAR:-none}(0) determinism=${G260DET:-none}(0) script-failures=${G260F:-none}(0) off-grid-headings=${G260OFFGRID:-none}(>0) mid-fade-weights=${G260FADE:-none}(>0)"
+fi
+
+# =====================================================================================
+# G261 THE POINTER MEETS THE GROUND ON A RAISED USER MAP (terrain_range_refresh). A user
+# map is the donor pack reskinned with its own .HGT, and the reskin zeroed the ground's
+# height range without recomputing it. The mouse ray searches only inside that range, so
+# on USER92's plateau (a cell above the datum) it stopped at height zero, about a cell
+# north of the real ground: the 3D cursor drew there, and a unit could only be selected
+# by aiming well above it. Measured before the fix: 0.84 cell from the Mammoth, 0.87 from
+# the Construction Yard, 0.71 to 0.83 from the Minigunners.
+#
+# WHY A USER MAP, against the usual rule. The fault exists only on a reskinned map with
+# its own heights, and no shipped mission is one. USER92 is a tracked example; if it is
+# ever edited off its plateau this gate says so rather than passing on flat ground: it
+# also demands the Construction Yard stand at least half a cell above the datum.
+#
+# TWO CLAIMS PER OBJECT, aimed at the Mammoth, the Yard and two Minigunners:
+#   (1) THE RAY FINDS THE GROUND. The terrain search's hit is within 0.05 cell of the
+#       same ray's closed-form meeting with the flat plane the object stands on
+#       (planegap). This is the fault itself and nothing else: with the range refresh
+#       taken out it reads 0.53 to 0.79 on all five, and 0.000 with it in.
+#   (2) THE POINTER LANDS ON THE OBJECT (raygap, from the object's own centre): within
+#       a quarter cell of the Mammoth and the Yard, and for a soldier within 0.65 of his
+#       drawn height. The soldier's limit is a ratio because the aim point is the middle
+#       of his billboard, and the ray through it meets the ground behind his feet by
+#       about 0.55 of his height at this camera. So it grows with the infantry size row
+#       and says nothing about the search: 0.206 at a drawn height of 0.375, 0.249 at
+#       0.45, 0.305 at 0.549, 0.422 at 0.75, planegap 0.000 at every one. A fixed 0.3
+#       cell was the old soldier's height, and the size change past it turned this gate
+#       red with the pointer landing exactly where it always had. A soldier with no
+#       drawn height fails rather than passing an empty ratio.
+# The first measurement is taken BEFORE any frame is drawn, so the load path itself has
+# to be right, not only the per-frame refresh.
+# =====================================================================================
+cat > /tmp/g261.txt <<'G261EOF'
+cam 33 31
+zoom max
+cursorobj HTNK 0
+tick 3
+shot shots/g261.png
+cursorobj HTNK 0
+cursorobj FACT 0
+cursorobj E1 0
+cursorobj E1 3
+m3dump
+quit
+G261EOF
+gbegin shots/g261.png shots/g261.log
+grun shots/g261.log --reskin --noshroud --scen USER92 --pack SCG01EA.pack $BASE \
+     --dir missions/user_maps/ --nosound --w 1280 --h 800 --script /tmp/g261.txt --enhanced
+G261GAPS=$(sed -n 's/^CURSOROBJ|\([A-Z0-9#]*\)|.*|raygap=\([0-9.]*\)|.*/\1=\2/p' shots/g261.log | tr '\n' ' ')
+G261TALL=$(sed -n 's/^CURSOROBJ|\(E1[A-Z0-9#]*\)|.*|tall=\([0-9.]*\)|.*/\2/p' shots/g261.log | head -1)
+G261PG=$(sed -n 's/^CURSOROBJ|\([A-Z0-9#]*\)|.*|planegap=\([0-9.]*\)|.*/\1=\2/p' shots/g261.log | tr '\n' ' ')
+G261BAD=$(awk -F'|' '/^CURSOROBJ\|.*\|raygap=/ {
+      rg = -1; pg = -1; t = -1
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^raygap=/)   { v = $i; sub(/^raygap=/, "", v);   rg = v + 0 }
+        if ($i ~ /^planegap=/) { v = $i; sub(/^planegap=/, "", v); pg = v + 0 }
+        if ($i ~ /^tall=/)     { v = $i; sub(/^tall=/, "", v);     t = v + 0 }
+      }
+      if ($2 ~ /^E1/) lim = (t > 0) ? 0.65 * t : -1; else lim = 0.25
+      if (rg < 0 || pg < 0 || pg > 0.05 || rg > lim) b++
+    } END {print b + 0}' shots/g261.log)
+G261N=$(grep -ac '^CURSOROBJ|.*|raygap=' shots/g261.log)
+G261HIGH=$(sed -n 's/^M3FACT|.*|ground=\([-0-9.]*\)$/\1/p' shots/g261.log | head -1)
+G261PLAT=$(grep -ac '^reskin: USER92.HGT applied' shots/g261.log)
+G261RAISED=$(echo "${G261HIGH:--9}" | awk '{print ($1 >= 0.5) ? 1 : 0}')
+if [ "$GRC" = "0" ] && [ "${G261N:-0}" = "5" ] && [ "${G261BAD:-1}" = "0" ] \
+   && [ "${G261PLAT:-0}" -ge 1 ] && [ "$G261RAISED" = "1" ]; then
+  ok "G261 the pointer meets the ground on a raised user map: USER92's own heights applied (the Yard stands ${G261HIGH} cell above the datum), and aimed at each object the ray meets the ground under it (off its ground plane by $G261PG) and the pointer lands on it ($G261GAPS cells from its centre, the first before any frame is drawn; a soldier drawn ${G261TALL} cell tall may read up to 0.65 of that). Before the fix the Mammoth read 0.84"
+else
+  bad "G261 the pointer meets the ground on a raised user map: rc=$GRC readings=${G261N:-0}(want 5) over-limit=${G261BAD:-none}(want 0) heights-applied=${G261PLAT:-0} yard-height=${G261HIGH:-none}(>=0.5) raygap [$G261GAPS] planegap(<=0.05) [$G261PG] soldier-height(raygap<=0.65x) [${G261TALL:-none}]"
+fi
+
+# =====================================================================================
+# G262 THE TEST INFANTRY E1TR (idata.cpp E1TR, cnc_eyes.cpp m3inf_tick / m3inf_draw_as).
+# The brain has a copy of the minigunner under its own name. It was written for the
+# experimental set's E1TR.c3m, the first model with the full set of infantry states.
+# That look is retired (its switch is forced off) and E1TR.c3m with it; in Enhanced the
+# test type now wears the remastered Minigunner (einf/E1.c3m), which carries the same
+# full set of states. The claims below are made of that model; the one that was about
+# E1TR.c3m's own file is gone (see (7)).
+#
+# THE CLAIMS:
+#   (1) THE BRAIN FIELDS IT. USER92 places three, and with the remastered row off, where
+#       the dump names the model type the brain gave each man, all three read E1TR while
+#       every other minigunner stays E1: the clone is its own type, not a relabel.
+#   (2) ENHANCED DRAWS IT AS THE MINIGUNNER. The remastered E1 loads skinned with at
+#       least 20 clips, the three are posed from it (M3INF2 type=E1 on the same ids), and
+#       with the remastered row off none is drawn (the sprite takes them back).
+#   (3) IT MOVES LIKE A MODEL. Ordered across the map it runs, at headings between the
+#       engine's 45 degree steps, and stands again when it arrives.
+#   (4) IT STANDS ABOUT LIKE A PERSON. Left alone it plays at least one of its fidgets.
+#   (5) THE GROUND WAR IS THE MODEL'S. Beside six Nod riflemen (a copy of USER92 made
+#       here, not the shipped map), the Minigunner model is seen lying down, prone, firing prone and dying,
+#       each from a clip of its own (clip= is never "-"), and a body outlives the engine
+#       object (M3CORPSE detached) and is gone when its time is up.
+#   (6) TWO RUNS OF THE FIGHT ARE ONE PICTURE.
+#   (7) RETIRED: LEVELS OF DETAIL. E1TR.c3m carried two coarser levels and this claim
+#       proved all three test soldiers drew from the coarsest at the default camera. The
+#       remastered soldiers carry no levels of detail, so there is nothing left to
+#       measure.
+#   (8) A SOLDIER FIRES THE WAY THE ENGINE FACES HIM. In the fight, at least 80% of the
+#       per-tick samples of a firing soldier have his drawn heading within 30 degrees of
+#       the engine's facing (the rest are the first ticks of a turn). When the target
+#       cell was decoded with the wrong row stride this was 34%: soldiers aimed away.
+#   (9) THE SIDES DRESS APART. The six Nod riflemen of the fight are drawn in Nod's cloth
+#       colour over the uniform's paint (M3DUMP infcloth counts soldiers drawn so; GDI's
+#       cloth amount is zero, so a GDI soldier is never counted): at some tick all six.
+#  (10) NO IDLE SPIN. A soldier who stands the whole run (every sample a standing Do: stand
+#       ready or guard, idle 1 and 2, on guard, the salutes and gestures) is turned now
+#       and then by the engine's idle routine, which sets his facing to a random compass
+#       point; the model keeps its heading instead. Over those soldiers the engine's
+#       facing changes at least three times and the model's heading does not move.
+#  (11) THE ENGINE PICKS THE FIDGET. Every sample of a Minigunner model (E1, E1TR, both with
+#       idle2..idle7) fidgeting while the engine has him in one of its own fidget Dos plays
+#       that Do's clip: IDLE1/2 idle2/idle3, GESTURE1/2 idle4/idle5, SALUTE1/2
+#       idle6/idle7; none plays another, and at least one gesture or salute is seen, so
+#       the check examined the part that was new. (m3inf_engine_fidget; before it, the
+#       clip was the soldier's id and the engine's gestures were drawn as standing.)
+# =====================================================================================
+cat > /tmp/g262.txt <<'G262EOF'
+cam 29 33
+tick 20
+shot shots/g262_on.png
+m3dump
+lclickobj E1 9
+tick 1
+order 25 31
+G262EOF
+i=0; while [ $i -lt 40 ]; do printf 'tick 2\nm3dump\n' >> /tmp/g262.txt; i=$((i+1)); done
+i=0; while [ $i -lt 100 ]; do printf 'tick 3\nm3dump\n' >> /tmp/g262.txt; i=$((i+1)); done
+# the remastered row off: the sprite takes the soldiers back, and the dump names the
+# model type the brain gave each man, which is where E1TR is seen as its own type
+printf 'gfx einf_on 0\nshot shots/g262_off.png\nm3dump\nquit\n' >> /tmp/g262.txt
+rm -rf /tmp/g262m && mkdir -p /tmp/g262m
+cp missions/user_maps/USER92.INI missions/user_maps/USER92.BIN missions/user_maps/USER92.HGT /tmp/g262m/ 2>/dev/null
+python3 - /tmp/g262m/USER92.INI <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, 'rb').read().decode('latin-1')
+nl = '\r\n' if '\r\n' in s else '\n'
+old = '011=GoodGuy,E1TR,256,2204,2,Guard,128,None'
+# numbered after the last [INFANTRY] entry, whatever the map has grown to since
+import re
+sec = s[s.index('[INFANTRY]'):]
+sec = sec[:sec.find(nl + '[', 1) if sec.find(nl + '[', 1) > 0 else len(sec)]
+rows = re.findall(r'^(\d{3})=.*$', sec, re.M)
+last = [ln for ln in sec.split(nl) if re.match(r'^\d{3}=', ln)][-1]
+first = max(int(r) for r in rows) + 1
+add = nl.join('%03d=BadGuy,E1,256,%d,%d,Guard,128,None' % (first + i, 32 * 64 + 27 + i // 3, i % 3 + 1)
+              for i in range(6))
+if old in s:
+    open(p, 'wb').write(s.replace(last, last + nl + add, 1).encode('latin-1'))
+PY
+cat > /tmp/g262f.txt <<'G262EOF'
+cam 28 33
+tick 1
+G262EOF
+i=0; while [ $i -lt 260 ]; do
+  printf 'tick 1\nm3dump\n' >> /tmp/g262f.txt
+  [ $i = 100 ] && printf 'shot shots/g262_fight.png\n' >> /tmp/g262f.txt
+  i=$((i+1))
+done
+echo quit >> /tmp/g262f.txt
+sed 's#g262_fight\.png#g262_fight2.png#' /tmp/g262f.txt > /tmp/g262g.txt
+gbegin shots/g262_on.png shots/g262_off.png shots/g262_fight.png shots/g262_fight2.png \
+       shots/g262.log shots/g262f.log shots/g262g.log
+grun shots/g262.log --reskin --noshroud --scen USER92 --pack SCG01EA.pack $BASE \
+     --dir missions/user_maps/ --nosound --w 1280 --h 800 --script /tmp/g262.txt --enhanced
+grun shots/g262f.log --reskin --noshroud --scen USER92 --pack SCG01EA.pack $BASE \
+     --dir /tmp/g262m/ --nosound --w 1280 --h 800 --script /tmp/g262f.txt --enhanced
+grun shots/g262g.log --reskin --noshroud --scen USER92 --pack SCG01EA.pack $BASE \
+     --dir /tmp/g262m/ --nosound --w 1280 --h 800 --script /tmp/g262g.txt --enhanced
+G262TYPES=$(sed -n 's/^M3INF2|id=\([0-9]*\)|type=E1TR|.*/\1/p' shots/g262.log | sort -u | tr '\n' ' ')
+G262NTR=$(echo $G262TYPES | wc -w | tr -d ' ')
+# THE SAME MEN, DRAWN AS THE MINIGUNNER: with the remastered row on, each E1TR id is posed
+# as type=E1 from a clip of that model. G262IDS is an alternation for grep -E.
+G262IDS=$(echo $G262TYPES | tr ' ' '|')
+G262AS=$(grep -aE "^M3INF2\|id=(${G262IDS:-none})\|type=E1\|.*\|clip=[a-z0-9]+\|" shots/g262.log \
+    | sed -n 's/^M3INF2|id=\([0-9]*\)|.*/\1/p' | sort -u | wc -l | tr -d ' ')
+G262CLIPS=$(sed -n 's/^M3E|E1|tris.*|bones \([0-9]*\)|clips \([0-9]*\)$/\2/p' shots/g262.log | head -1)
+G262BONES=$(sed -n 's/^M3E|E1|tris.*|bones \([0-9]*\)|clips.*/\1/p' shots/g262.log | head -1)
+G262ON=$(sed -n 's/^M3DUMP|.*|inf=\([0-9]*\)|.*/\1/p' shots/g262.log | head -1)
+G262OFF=$(sed -n 's/^M3DUMP|.*|inf=\([0-9]*\)|.*/\1/p' shots/g262.log | tail -1)
+# THE SOLDIER THE CLICK ACTUALLY SELECTED, not a fixed id. The three E1TR stand
+# shoulder to shoulder, and a change in infantry size moves which silhouette covers the
+# aim point: at the experimental size of 0.9 the click on the tenth E1 selects id 10, at
+# 0.75 it selected id 9. Either is an E1TR ordered across the map, which is the claim.
+G262SID=$(sed -n 's/^SELECT|at=.*|type=E1|.*|id=\([0-9]*\)|selected$/\1/p' shots/g262.log | head -1)
+G262SID=${G262SID:-9}
+G262RUN=$(grep -ac "^M3INF2|id=$G262SID|type=E1|state=run|.*|clip=run|" shots/g262.log)
+G262OFFGRID=$(sed -n "s/^M3INF|id=$G262SID|doing=3|.*|yaw=\\([0-9.]*\\)|.*/\\1/p" shots/g262.log \
+    | awk '{r = $1 - 45 * int($1 / 45); if (r > 0.5 && r < 44.5) n++} END {print n + 0}')
+G262STOOD=$(grep -a "^M3INF2|id=$G262SID|" shots/g262.log | tail -1 | grep -c 'state=\(idle\|fidget\|aim\)')
+G262FIDGET=$(grep -acE "^M3INF2\|id=(${G262IDS:-none})\|type=E1\|state=fidget\|.*\|clip=idle[2-7]\|" shots/g262.log)
+g262seen() { grep -ac "^M3INF2|id=[0-9]*|type=E1|state=$1|.*|clip=[a-z0-9]*|" shots/g262f.log; }
+G262LIE=$(g262seen liedown); G262PRONE=$(g262seen prone); G262FP=$(g262seen fireprone)
+G262DIE=$(g262seen die)
+G262NOCLIP=$(grep -ac '^M3INF2|id=[0-9]*|type=E1|.*|clip=-|' shots/g262f.log)
+G262DET=$(grep -ac '^M3CORPSE|n=[1-9]*|detached=[1-9]' shots/g262f.log)
+G262GONE=$(grep -a '^M3CORPSE' shots/g262f.log | tail -1)
+G262SAME=$(cmp -s shots/g262_fight.png shots/g262_fight2.png && echo 1 || echo 0)
+G262AIMOK=$(grep -a '^M3INF|' shots/g262f.log | awk -F'|' '{split($3,d,"="); split($4,f,"="); split($5,y,"=");
+    if (d[2] == 4 && f[2] >= 0) { e = y[2] - f[2]; while (e > 180) e -= 360; while (e < -180) e += 360;
+    if (e < 0) e = -e; n++; if (e <= 30) ok++ } } END { print (n ? int(100 * ok / n) : 0) }')
+G262SPIN=$(grep -a '^M3INF|' shots/g262.log | awk -F'|' '{split($2,i,"="); split($3,d,"="); split($4,f,"="); split($5,y,"=");
+    id=i[2]; n[id]++; if (d[2] !~ /^(0|1|9|10|11|27|28|29|30)$/) moved[id]=1;
+    if (n[id] > 1 && f[2] != lf[id]) turns[id]++; lf[id]=f[2];
+    if (!(id in lo) || y[2] < lo[id]) lo[id]=y[2]; if (!(id in hi) || y[2] > hi[id]) hi[id]=y[2] }
+    END { t=0; r=0; for (id in n) if (!(id in moved)) { t+=turns[id]; if (hi[id]-lo[id] > r) r=hi[id]-lo[id] }
+          printf "%d %.1f", t, r }')
+G262SPINT=${G262SPIN% *}; G262SPINR=${G262SPIN#* }
+G262CLOTH=$(sed -n 's/^M3DUMP|.*|infcloth=\([0-9]*\)|.*/\1/p' shots/g262f.log | sort -n | tail -1)
+G262PICK=$(cat shots/g262.log shots/g262f.log | grep -a '^M3INF2|id=[0-9]*|type=E1\(TR\)\{0,1\}|state=fidget|' \
+    | awk -F'|' '{split($7,c,"="); split($9,d,"="); want = "";
+        if (d[2] == 9) want = "idle2"; if (d[2] == 10) want = "idle3"; if (d[2] == 27) want = "idle4";
+        if (d[2] == 29) want = "idle5"; if (d[2] == 28) want = "idle6"; if (d[2] == 30) want = "idle7";
+        if (want == "") next; if (c[2] == want) { ok++; if (d[2] >= 27) g++ } else bad++ }
+        END { printf "%d %d %d", ok + 0, bad + 0, g + 0 }')
+G262PICKOK=$(echo $G262PICK | cut -d' ' -f1); G262PICKBAD=$(echo $G262PICK | cut -d' ' -f2)
+G262PICKG=$(echo $G262PICK | cut -d' ' -f3)
+if [ "$GRC" = "0" ] && [ "$G262NTR" = "3" ] && [ "${G262AS:-0}" = "3" ] && [ "${G262BONES:-0}" -gt 0 ] \
+   && [ "${G262CLIPS:-0}" -ge 20 ] && [ "${G262ON:-0}" -ge 12 ] && [ "${G262OFF:-x}" = "0" ] \
+   && [ "${G262RUN:-0}" -gt 0 ] && [ "${G262OFFGRID:-0}" -gt 0 ] && [ "${G262STOOD:-0}" = "1" ] \
+   && [ "${G262FIDGET:-0}" -gt 0 ] && [ "${G262LIE:-0}" -gt 0 ] && [ "${G262PRONE:-0}" -gt 0 ] \
+   && [ "${G262FP:-0}" -gt 0 ] && [ "${G262DIE:-0}" -gt 0 ] && [ "${G262DET:-0}" -gt 0 ] \
+   && [ "$G262SAME" = "1" ] && [ "${G262AIMOK:-0}" -ge 80 ] \
+   && [ "${G262CLOTH:-0}" -ge 6 ] && [ "${G262SPINT:-0}" -ge 3 ] \
+   && [ "$(echo "${G262SPINR:-99} <= 0.5" | bc)" = "1" ] \
+   && [ "${G262PICKG:-0}" -gt 0 ] && [ "${G262PICKBAD:-1}" = "0" ]; then
+  ok "G262 the test infantry E1TR: the brain fields $G262NTR on USER92 (ids $G262TYPES) beside the E1 minigunners, and Enhanced draws all $G262AS as the remastered Minigunner ($G262BONES bones, $G262CLIPS clips), the sprite with its row off. Ordered, it runs ($G262RUN samples, $G262OFFGRID off the 45 degree grid) and stands again; left alone it fidgets ($G262FIDGET samples). Under fire the model lies down ($G262LIE), lies ($G262PRONE), fires prone ($G262FP) and dies ($G262DIE) from its own clips, the body outlives the engine object ($G262DET samples) and is then gone ($G262GONE). Two runs of the fight are one picture. Firing, $G262AIMOK% of samples face within 30 degrees of the engine. Up to $G262CLOTH Nod riflemen drawn in Nod's cloth at once. Standing soldiers: the engine turned them $G262SPINT times, their models' headings moved ${G262SPINR} degrees. The engine's own fidgets play their own clips: $G262PICKOK samples, $G262PICKG of them gestures or salutes, none wrong"
+else
+  bad "G262 the test infantry E1TR: rc=$GRC e1tr=${G262NTR:-0}(3) drawn-as-minigunner=${G262AS:-0}(3) bones=${G262BONES:-none}(>0) clips=${G262CLIPS:-none}(>=20) drawn-on=${G262ON:-none}(>=12) drawn-off=${G262OFF:-none}(0) run=${G262RUN:-0}(>0) off-grid=${G262OFFGRID:-0}(>0) stood=${G262STOOD:-0}(1) fidget=${G262FIDGET:-0}(>0) liedown=${G262LIE:-0} prone=${G262PRONE:-0} fireprone=${G262FP:-0} die=${G262DIE:-0}(all >0) states-without-clip=${G262NOCLIP:-?} detached-body=${G262DET:-0}(>0) same-picture=$G262SAME(1) firing-heading-within-30deg=${G262AIMOK:-0}%(>=80) nod-cloth=${G262CLOTH:-none}(>=6) idle-engine-turns=${G262SPINT:-none}(>=3) idle-model-heading-range=${G262SPINR:-none}(<=0.5) engine-fidget-clips=${G262PICKOK:-0}ok/${G262PICKBAD:-?}wrong(0)/${G262PICKG:-0}gestures(>0)"
+fi
+
+# =====================================================================================
+# G263 FREE INFANTRY MOVEMENT (brain OpenCNC3D_FreeInfantry, renderer freeinf_tick): RETIRED
+# WITH THE EXPERIMENTAL LOOK. It proved that with the rule on, a walking soldier's engine
+# facing left the 45 degree grid (he walked at any angle along a straight line through
+# enterable cells), that the rule's own row and Classic kept the 1995 eight-direction
+# walk, and that two runs gave the same facings. freeinf_tick sends the rule to the brain
+# only under the experimental switch, so every soldier now walks the 1995 way.
+# NOTHING RUNS HERE. Its subject is drawn only under the experimental look, whose switch
+# is now forced off (fx_state.h: a preset that still carries it is read as off, and a
+# script that sets it fails as an unknown dial). No run can reach the feature, so every
+# arm could only fail its script or measure a picture the feature is absent from.
+# The number stays so the history reads straight; the code and art are left in the tree.
+# NOTHING REPLACED IT. The brain's rule (OpenCNC3D_FreeInfantry) is still in the patch set
+# and is simply never switched on.
+
+# =====================================================================================
+# G264 THE UNITY EXPLOSIONS (unityvfx_mod.h): RETIRED WITH THE EXPERIMENTAL LOOK. It
+# proved that each of the engine's 13 explosion types drew its chosen Vefects prefab
+# (game/vfx3d/claims.txt), that one explosion matched Unity's own post-processed frames
+# (tools/art/unity_vfx/ref/) to a mean of a level, that shell hits in SCG01EA's fight were
+# claimed and moved onto the surface they hit, that the grenade and the rocket hit drew
+# their own picks, and that --nouvfx and Classic claimed none. uvfx_on draws only under
+# the experimental switch.
+# NOTHING RUNS HERE. Its subject is drawn only under the experimental look, whose switch
+# is now forced off (fx_state.h: a preset that still carries it is read as off, and a
+# script that sets it fails as an unknown dial). No run can reach the feature, so every
+# arm could only fail its script or measure a picture the feature is absent from.
+# The number stays so the history reads straight; the code and art are left in the tree.
+# WHAT REPLACED IT is Enhanced's remastered effects (efx_enh.pack, effects_mod.h and
+# efx_enhanced.h), which G293 proves.
+
+# =====================================================================================
+# G265 THE GDI ROCKETEER (game/einf/E3.c3m, cnc_eyes.cpp m3inf_tick). Read from G262's
+# runs, so it costs no run of its own. It was written for the experimental set's E3.c3m,
+# the rifleman's body carrying a borrowed launcher, whose shoot clip was played WHOLE and
+# held for 25 ticks or more past the engine's fire. That look is retired (its switch is
+# forced off) and its model is never drawn; it still loads, so this gate went on reading
+# its load line and reporting a model nobody sees. Under Enhanced the Rocket
+# Soldier is the remastered set's own E3, and that model's shot follows the engine: its
+# shoot clip loops and is played on the engine's fire stages, so the launch lands on the
+# stage the 1995 sprite fires on. The claims below are made of that model.
+#
+# THE CLAIMS:
+#   (1) IT IS THE REMASTERED SET'S SKINNED MODEL: M3E|E3 loads with bones and at least 20
+#       clips. (The levels-of-detail claim is retired as G262's (7) is: the remastered
+#       soldiers carry none.)
+#   (2) USER92 FIELDS FOUR, all drawn from it (every E3 state has its clip, never "-").
+#   (3) IT AIMS AND FIRES ON THE ENGINE'S STAGES. In G262's firefight an E3 aims, and is
+#       seen in the shoot state, and EVERY shoot sample falls on a tick the engine has him
+#       in DO_FIRE_WEAPON (doing=4); the model's shoot clip carries the loop flag, which
+#       is what keeps m3inf_tick from holding it past the engine's fire. A shot played
+#       whole and held, as the retired model's was, shows as shoot samples at another Do.
+#   (4) THE HOLD IS VISIBLE TO THIS DUMP, so (3) is not true by construction: the once
+#       clip m3inf_tick does hold, the lie-down, is seen carried on into the engine's
+#       prone or prone fire (doing=2 or 8) in the same fight.
+# =====================================================================================
+G265CLIPS=$(sed -n 's/^M3E|E3|tris.*|bones \([0-9]*\)|clips \([0-9]*\)$/\2/p' shots/g262.log | head -1)
+G265BONES=$(sed -n 's/^M3E|E3|tris.*|bones \([0-9]*\)|clips.*/\1/p' shots/g262.log | head -1)
+G265LOOP=$(grep -a '^M3E|E3|clip shoot|' shots/g262.log | head -1 | grep -c '|loop$')
+G265IDS=$(sed -n 's/^M3INF2|id=\([0-9]*\)|type=E3|.*/\1/p' shots/g262.log | sort -u | wc -l | tr -d ' ')
+G265NOCLIP=$(grep -ac '^M3INF2|id=[0-9]*|type=E3|.*|clip=-|' shots/g262.log)
+G265AIM=$(grep -ac '^M3INF2|id=[0-9]*|type=E3|state=aim|.*|clip=aim|' shots/g262f.log)
+G265SHOT=$(grep -ac '^M3INF2|id=[0-9]*|type=E3|state=shoot|.*|clip=shoot|' shots/g262f.log)
+G265OFF=$(grep -a '^M3INF2|id=[0-9]*|type=E3|state=shoot|' shots/g262f.log | grep -vc '|doing=4$')
+G265HELD=$(grep -a '^M3INF2|id=[0-9]*|type=E3|state=liedown|' shots/g262f.log | grep -c '|doing=[28]$')
+if [ "${G265BONES:-0}" -gt 0 ] && [ "${G265CLIPS:-0}" -ge 20 ] && [ "${G265LOOP:-0}" = "1" ] \
+   && [ "${G265IDS:-0}" = "4" ] && [ "${G265NOCLIP:-1}" = "0" ] \
+   && [ "${G265AIM:-0}" -gt 0 ] && [ "${G265SHOT:-0}" -gt 0 ] && [ "${G265OFF:-1}" = "0" ] \
+   && [ "${G265HELD:-0}" -gt 0 ]; then
+  ok "G265 the GDI rocketeer: E3 is the remastered set's skinned model ($G265BONES bones, $G265CLIPS clips, its shoot clip a loop), USER92 fields $G265IDS all drawn from it, and in the firefight it aims ($G265AIM samples) and fires on the engine's own fire action ($G265SHOT shoot samples, none outside DO_FIRE_WEAPON), where the dump does show a held clip ($G265HELD lie-down samples carried into the engine's prone)"
+else
+  bad "G265 the GDI rocketeer: bones=${G265BONES:-none}(>0) clips=${G265CLIPS:-none}(>=20) shoot-clip-loops=${G265LOOP:-0}(1) e3=${G265IDS:-0}(4) states-without-clip=${G265NOCLIP:-?}(0) aim=${G265AIM:-0}(>0) shoot=${G265SHOT:-0}(>0) shoot-outside-the-engine-fire=${G265OFF:-?}(0) held-liedown-control=${G265HELD:-0}(>0)"
+fi
+
+# G266 THE GREEN POINTER (cursor3d_mod.h; tools/art/cursor_green.py): RETIRED WITH THE
+# EXPERIMENTAL LOOK. It proved that the plain pointer (cartridge cursor code 0x00) drew
+# the 94-triangle green arrow at its own size dial, lime on screen and three times the
+# area at twice the size, while its row off, the move shape and Classic drew something
+# else. The green mesh is chosen only under the experimental switch.
+# NOTHING RUNS HERE. Its subject is drawn only under the experimental look, whose switch
+# is now forced off (fx_state.h: a preset that still carries it is read as off, and a
+# script that sets it fails as an unknown dial). No run can reach the feature, so every
+# arm could only fail its script or measure a picture the feature is absent from.
+# The number stays so the history reads straight; the code and art are left in the tree.
+# NOTHING REPLACED IT: every look draws the cartridge's own pointer, which the cursor
+# gates (G22, G24, G80) already cover.
+
+# G267 THE SCATTERED BUSHES AND GRASS CLUMPS (foliage3d_mod.h; tools/art/foliage/).
+# Under Enhanced, on a temperate map, the renderer stands bushes and grass clumps from
+# foliage3d.pack on plain grass cells, and nowhere else.
+#
+# RESTORED UNDER ENHANCED. It was retired with the experimental look, whose switch the
+# plants asked for; they came back under Enhanced's own mode row, and so did this gate,
+# the switch's arm now Enhanced's (gfx enabled 0).
+#
+# THE CLAIMS:
+#   (1) IT SCATTERS. SCG01EA with the shroud off and no foliage dial but the grass
+#       density touched: the dump says on, grass clumps above nought, bushes AT nought, and
+#       the last frame drew plants. The defaults carry no bushes by design, so a bush
+#       count here is a default that has drifted, and it fails. The bush path itself is
+#       not drawn by this gate; it only exists behind a dial the defaults leave at zero.
+#   (2) EVERY PLANT IS ON PLAIN GRASS, and this is checked against the MISSION'S OWN
+#       FILES, not against the renderer's test: each plant's cell holds the clear template
+#       (0 or 255) in SCG01EA.BIN, and no [TERRAIN], [OVERLAY], [SMUDGE] or [STRUCTURES]
+#       entry in SCG01EA.INI names that cell. The renderer's own atlas slot is also < 16.
+#   (3) IT IS ON SCREEN. The frame with plants differs from the frame without in at
+#       least 2,000 pixels of the map, and in none of the sidebar's.
+#   (4) IT IS GATED WHERE IT SAYS. Its own row off, Enhanced off, the run without
+#       --enhanced and a desert map (SCB01EA) all build no plants.
+#   (5) TWO RUNS ARE ONE PICTURE.
+#   The rocks share the dump and the switch-on test, so this gate turns them off (rock_on 0)
+#   and measures the plants alone; G268 is the rocks'.
+#   The grass is set to a MEASURING density (fol_grass_amt 0.8, the default the 2,000 pixel
+#   floor was sized on), so claim 3 proves the plants reach the screen whatever density
+#   ships; every other foliage dial stays at its default.
+# =====================================================================================
+cat > /tmp/g267.txt <<'G267EOF'
+gfx rock_on 0
+gfx fol_grass_amt 0.8
+tick 30
+cam 50 44
+zoom max
+shot shots/g267_on.png
+foldump all
+gfx fol_on 0
+shot shots/g267_off.png
+foldump
+gfx fol_on 1
+gfx enabled 0
+foldump
+quit
+G267EOF
+sed 's#shots/g267_#shots/g267b_#' /tmp/g267.txt > /tmp/g267b.txt
+sed 's#shots/g267_#shots/g267c_#' /tmp/g267.txt > /tmp/g267c.txt
+sed 's#shots/g267_#shots/g267d_#' /tmp/g267.txt > /tmp/g267d.txt
+gbegin shots/g267_on.png shots/g267_off.png shots/g267b_on.png shots/g267.log shots/g267b.log \
+       shots/g267c.log shots/g267d.log
+grun shots/g267.log  --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script /tmp/g267.txt --enhanced --noshroud
+grun shots/g267b.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script /tmp/g267b.txt --enhanced --noshroud
+grun shots/g267c.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script /tmp/g267c.txt --noshroud
+grun shots/g267d.log --scen SCB01EA --pack SCB01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script /tmp/g267d.txt --enhanced --noshroud
+gshots shots/g267_on.png shots/g267_off.png shots/g267b_on.png
+G267D=$(grep -a '^FOLDUMP|' shots/g267.log | head -1)
+G267OFFS=$(grep -a '^FOLDUMP|' shots/g267.log | sed -n '2,3p' | grep -ac '|on=0|')
+G267C=$(grep -a '^FOLDUMP|' shots/g267c.log | head -1)
+G267DS=$(grep -a '^FOLDUMP|' shots/g267d.log | head -1)
+G267CHK=$(python3 - <<'PY' 2>>"$OUT"
+import re
+bin_ = open("missions/SCG01EA.BIN", "rb").read()
+taken = set()
+sec = None
+for line in open("missions/SCG01EA.INI", errors="ignore"):
+    line = line.strip()
+    m = re.match(r"^\[(.*)\]$", line)
+    if m:
+        sec = m.group(1).upper(); continue
+    if "=" not in line or line.startswith(";"):
+        continue
+    k, v = line.split("=", 1)
+    if sec in ("TERRAIN", "OVERLAY", "SMUDGE") and k.strip().isdigit():
+        taken.add(int(k))
+    elif sec == "STRUCTURES":
+        f = v.split(",")
+        if len(f) > 3 and f[3].strip().isdigit():
+            taken.add(int(f[3]))
+n = bad = 0
+why = []
+for l in open("shots/g267.log", errors="ignore"):
+    if not l.startswith("FOLINST|"):
+        continue
+    f = l.strip().split("|")
+    x, y, slot = int(f[2]), int(f[3]), int(f[7].split("=")[1])
+    cell = y * 64 + x
+    n += 1
+    t = bin_[cell * 2]
+    if t not in (0, 255) or cell in taken or slot >= 16:
+        bad += 1
+        if len(why) < 5:
+            why.append("%d,%d:tmpl=%d,taken=%d,slot=%d" % (x, y, t, cell in taken, slot))
+from PIL import Image
+a = Image.open("shots/g267_on.png").convert("RGB")
+b = Image.open("shots/g267_off.png").convert("RGB")
+c = Image.open("shots/g267b_on.png").convert("RGB")
+W, H = a.size
+mapd = side = 0
+pa, pb = a.load(), b.load()
+for yy in range(H):
+    for xx in range(W):
+        p, q = pa[xx, yy], pb[xx, yy]
+        if abs(p[0] - q[0]) + abs(p[1] - q[1]) + abs(p[2] - q[2]) > 12:
+            if xx >= 1120: side += 1
+            else: mapd += 1
+same = 1 if a.tobytes() == c.tobytes() else 0
+print(n, bad, mapd, side, same, ";".join(why) or "-")
+PY
+)
+G267N=$(echo "$G267CHK" | awk '{print $1}'); G267BAD=$(echo "$G267CHK" | awk '{print $2}')
+G267PX=$(echo "$G267CHK" | awk '{print $3}'); G267SB=$(echo "$G267CHK" | awk '{print $4}')
+G267SAME=$(echo "$G267CHK" | awk '{print $5}'); G267WHY=$(echo "$G267CHK" | awk '{print $6}')
+if [ "$GRC" = "0" ] && echo "$G267D" | grep -q '|on=1|' \
+   && echo "$G267D" | grep -q '|bushes=0|' && ! echo "$G267D" | grep -q '|clumps=0|' \
+   && ! echo "$G267D" | grep -q '|drawn=0|' \
+   && [ "${G267N:-0}" -gt 0 ] && [ "${G267BAD:-1}" = "0" ] \
+   && [ "${G267PX:-0}" -ge 2000 ] && [ "${G267SB:-1}" = "0" ] && [ "${G267SAME:-0}" = "1" ] \
+   && [ "${G267OFFS:-0}" = "2" ] \
+   && echo "$G267C" | grep -q '|bushes=0|clumps=0|' && echo "$G267DS" | grep -q '|on=0|.*|bushes=0|clumps=0|'; then
+  ok "G267 the scattered foliage: at a measuring grass density (0.8) and every other dial at its default, $G267N grass clumps and no bushes on SCG01EA, every one on a clear-template cell of the mission's own .BIN that no terrain, overlay, smudge or structure entry names; $G267PX map pixels change and no sidebar pixel does; its row off, Enhanced off, the run without --enhanced and the desert build none; two runs are one picture"
+else
+  bad "G267 the scattered foliage: rc=$GRC dump=[$G267D](on=1, bushes=0, clumps and drawn >0) plants=${G267N:-?}(>0) offgrass=${G267BAD:-?}(0) [$G267WHY] px=${G267PX:-?}(>=2000) sidebar=${G267SB:-?}(0) same=${G267SAME:-?}(1) offs=${G267OFFS:-?}(2) classic=[$G267C] desert=[$G267DS]"
+fi
+
+# G268 THE ROCKS (foliage3d_mod.h; tools/art/rocks/). Under Enhanced the renderer lays
+# stones from rock3d.pack at the foot of rock faces, and moves them as bodies when a
+# structure's pulse or a vehicle reaches them.
+#
+# RESTORED UNDER ENHANCED, as G267 was and for the same reason.
+#
+# THE CLAIMS:
+#   (1) THEY LIE WHERE THEY SHOULD. SCG01EA with the shroud off: rocks are placed, every
+#       one on a cell whose template in the mission's own .BIN is the clear one (0 or 255),
+#       with no [TERRAIN], [OVERLAY], [SMUDGE] or [STRUCTURES] entry on it, and within the
+#       spread (plus one cell, plus a cell of slack for the steep-ground test) of a cell
+#       whose .BIN template is a slope or boulder (13..50, 82..87) or of steep ground.
+#   (2) THE PULSE MOVES THEM. `rockpulse` beside rocks turns some into bodies (pulsed > 0,
+#       moving > 0), and a second later the picture differs where they were.
+#   (3) IT IS GATED WHERE IT SAYS. Its own row off, Enhanced off and the run without
+#       --enhanced place no rocks.
+#   (4) TWO RUNS ARE ONE PICTURE, physics included.
+# =====================================================================================
+cat > /tmp/g268.txt <<'G268EOF'
+gfx fol_on 0
+tick 20
+cam 50 51
+zoom max
+shot shots/g268_a.png
+foldump all
+rockpulse 49 50 2 2
+tick 15
+shot shots/g268_b.png
+foldump
+gfx rock_on 0
+shot shots/g268_off.png
+foldump
+gfx rock_on 1
+gfx enabled 0
+foldump
+quit
+G268EOF
+sed 's#shots/g268_#shots/g268r_#' /tmp/g268.txt > /tmp/g268r.txt
+sed 's#shots/g268_#shots/g268c_#' /tmp/g268.txt > /tmp/g268c.txt
+gbegin shots/g268_a.png shots/g268_b.png shots/g268r_b.png shots/g268.log shots/g268r.log shots/g268c.log
+grun shots/g268.log  --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script /tmp/g268.txt --enhanced --noshroud
+grun shots/g268r.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script /tmp/g268r.txt --enhanced --noshroud
+grun shots/g268c.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script /tmp/g268c.txt --noshroud
+gshots shots/g268_a.png shots/g268_b.png shots/g268r_b.png
+G268D1=$(grep -a '^FOLDUMP|' shots/g268.log | sed -n 1p)
+G268D2=$(grep -a '^FOLDUMP|' shots/g268.log | sed -n 2p)
+G268OFFS=$(grep -a '^FOLDUMP|' shots/g268.log | sed -n '3,4p' | grep -ac '|rocks=0|\||on=0|')
+G268C=$(grep -a '^FOLDUMP|' shots/g268c.log | head -1)
+G268CHK=$(python3 - <<'PY' 2>>"$OUT"
+import re
+b = open("missions/SCG01EA.BIN", "rb").read()
+tm = [b[i * 2] for i in range(4096)]
+taken = set(); sec = None
+for line in open("missions/SCG01EA.INI", errors="ignore"):
+    line = line.strip()
+    m = re.match(r"^\[(.*)\]$", line)
+    if m: sec = m.group(1).upper(); continue
+    if "=" not in line: continue
+    k, v = line.split("=", 1)
+    if sec in ("TERRAIN", "OVERLAY", "SMUDGE") and k.strip().isdigit(): taken.add(int(k))
+    elif sec == "STRUCTURES":
+        f = v.split(",")
+        if len(f) > 3 and f[3].strip().isdigit(): taken.add(int(f[3]))
+face = set(c for c in range(4096) if 13 <= tm[c] <= 50 or 82 <= tm[c] <= 87)
+# the renderer's own steep-ground faces, which the .BIN cannot know, are read off its dump
+for l in open("shots/g268.log", errors="ignore"):
+    if l.startswith("FOLCELL|"):
+        f = l.strip().split("|")
+        if f[5] == "face=0.00": face.add(int(f[2]) * 64 + int(f[1]))
+spread = 1.5
+n = bad = 0; why = []
+for l in open("shots/g268.log", errors="ignore"):
+    if not l.startswith("FOLINST|"): continue
+    f = l.strip().split("|")
+    if int(f[1]) < 9: continue           # the foliage pack's own nine models
+    x, y = int(f[2]), int(f[3]); c = y * 64 + x; n += 1
+    dmin = min((((c % 64) - (g % 64)) ** 2 + ((c // 64) - (g // 64)) ** 2) ** 0.5 for g in face) if face else 99
+    if tm[c] not in (0, 255) or c in taken or dmin > spread + 1.5:
+        bad += 1
+        if len(why) < 4: why.append("%d,%d:t=%d,d=%.1f" % (x, y, tm[c], dmin))
+from PIL import Image
+a = Image.open("shots/g268_b.png").convert("RGB").tobytes()
+r = Image.open("shots/g268r_b.png").convert("RGB").tobytes()
+A = Image.open("shots/g268_a.png").convert("RGB"); B = Image.open("shots/g268_b.png").convert("RGB")
+pa, pb = A.load(), B.load(); W, H = A.size; moved = 0
+for yy in range(0, H, 2):
+    for xx in range(0, 1120, 2):
+        p, q = pa[xx, yy], pb[xx, yy]
+        if abs(p[0] - q[0]) + abs(p[1] - q[1]) + abs(p[2] - q[2]) > 30: moved += 1
+print(n, bad, 1 if a == r else 0, moved, ";".join(why) or "-")
+PY
+)
+G268N=$(echo "$G268CHK" | awk '{print $1}'); G268BAD=$(echo "$G268CHK" | awk '{print $2}')
+G268SAME=$(echo "$G268CHK" | awk '{print $3}'); G268MOV=$(echo "$G268CHK" | awk '{print $4}')
+G268WHY=$(echo "$G268CHK" | awk '{print $5}')
+G268PUL=$(echo "$G268D2" | sed -n 's/.*|pulsed=\([0-9]*\).*/\1/p')
+G268DYN=$(echo "$G268D2" | sed -n 's/.*|moving=\([0-9]*\).*/\1/p')
+if [ "$GRC" = "0" ] && [ "${G268N:-0}" -gt 0 ] && [ "${G268BAD:-1}" = "0" ] \
+   && [ "${G268PUL:-0}" -gt 0 ] && [ "${G268DYN:-0}" -gt 0 ] && [ "${G268MOV:-0}" -ge 20 ] \
+   && [ "${G268SAME:-0}" = "1" ] && [ "${G268OFFS:-0}" = "2" ] \
+   && echo "$G268C" | grep -q '|rocks=0|'; then
+  ok "G268 the rocks: $G268N rocks on SCG01EA, every one on a clear cell of the mission's own .BIN with nothing on it and within reach of a rock face; the pulse moved $G268PUL ($G268DYN bodies) and changed $G268MOV sampled pixels; its row off, Enhanced off and the run without --enhanced place none; two runs are one picture"
+else
+  bad "G268 the rocks: rc=$GRC rocks=${G268N:-?}(>0) misplaced=${G268BAD:-?}(0) [$G268WHY] pulsed=${G268PUL:-?}(>0) moving=${G268DYN:-?}(>0) px=${G268MOV:-?}(>=20) same=${G268SAME:-?}(1) offs=${G268OFFS:-?}(2) classic=[$G268C]"
+fi
+
+# The same four thrown stones must also stop, including on the fixture's shallow slopes.
+gbegin shots/g268_settle.log
+grun shots/g268_settle.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound \
+     --w 1280 --h 720 --enhanced --noshroud --script "$GATEDIR/gate_rocksettle.txt"
+G268SETTLE=$(python3 "$GATEDIR/gate_rocksettle.py" shots/g268_settle.log 2>>"$OUT")
+if [ "$GRC" = "0" ] && [ "${G268SETTLE%% *}" = "1" ]; then
+  ok "G268 rock settling: ${G268SETTLE#* }"
+else
+  bad "G268 rock settling: rc=$GRC ${G268SETTLE#* }"
+fi
+
+# G269 THE RELIEF BY PARALLAX (CLIFF_POM_FS, cliff_relief_draw_pom): RETIRED WITH THE
+# EXPERIMENTAL LOOK. It proved that with terrain displacement on, SCG01EA's cliff and road
+# cells were raised per pixel by walking the view ray through the height map (at least
+# 20,000 pixels off flat at the nearest zoom), that the result sat within 0.6 of flat's
+# distance from the 24x24 lattice it stands in for, and that two runs were one picture.
+# draw_terrain builds the relief only under the experimental switch.
+# NOTHING RUNS HERE. Its subject is drawn only under the experimental look, whose switch
+# is now forced off (fx_state.h: a preset that still carries it is read as off, and a
+# script that sets it fails as an unknown dial). No run can reach the feature, so every
+# arm could only fail its script or measure a picture the feature is absent from.
+# The number stays so the history reads straight; the code and art are left in the tree.
+# NOTHING REPLACED IT: the ground in every look is flat textured cells on the height
+# field, without parallax relief.
+
+# G270 A SPECIAL OPS MISSION AFTER A USER MAP STARTS (app/opencnc3d.cpp, DM_SPECIAL). A user
+# map moves the shell's mission folder into user_maps/ and turns the re-skin on; both
+# persisted, and every Special Ops mission started after one was refused as missing
+# ("missions/user_maps/SCG22EA.INI is missing"). Round 1 plays USER30 from the User Maps
+# list, round 2 plays SCG22EA from Special Ops, in one process.
+#
+# THE CLAIMS: both rounds start (no BOOTFAIL), the second is SCG22EA, 0 harness failures.
+# Mutation-tested: without the reset the second round is refused with exactly the
+# reported message.
+# =====================================================================================
+rm -rf shots/g270 && mkdir -p shots/g270
+G270=$(./opencnc3d --harness 150 --rounds 2 --shotdir shots/g270 --harnessusermap USER30 \
+       --harnessscen SCG22EA --hidden 2>&1)
+echo "$G270" >> "$OUT"
+G270BF=$(echo "$G270" | grep -c '^BOOTFAIL|')
+G270SO=$(echo "$G270" | grep -c '^APP|specops|play|SCG22EA|')
+G270UM=$(echo "$G270" | grep -c '^HARNESS|keys|.*User Maps list (USER30)')
+G270END=$(echo "$G270" | grep -c '^HARNESS|end|2 round(s), 0 failure(s)')
+if [ "$G270BF" = "0" ] && [ "$G270SO" = "1" ] && [ "$G270UM" = "1" ] && [ "$G270END" = "1" ]; then
+  ok "G270 a Special Ops mission after a user map: USER30 then SCG22EA in one process, both started, 0 failures"
+else
+  bad "G270 a Special Ops mission after a user map: bootfail=$G270BF(0) specops=$G270SO(1) usermap=$G270UM(1) end=$G270END(1)"
+fi
+
+# =====================================================================================
+# G271 THE UNITY MUZZLE FLASHES AND PROJECTILE TRAILS (unityvfx_mod.h). Under experimental
+# art a shot the engine reports (EFX|FIRE, from TechnoClass::Fire_At) plays a Realistic
+# Gun VFX muzzle flash at the barrel it left -- a socket measured off the 3D model
+# (vfx3d/sockets.txt) and carried by the rifle bone or the turret -- and a projectile of a
+# listed type (vfx3d/trails.txt) lays a Unity trail along its own flight.
+# RETIRED WITH THE EXPERIMENTAL LOOK: the above is what it proved while that look could
+# be switched on.
+# NOTHING RUNS HERE. Its subject is drawn only under the experimental look, whose switch
+# is now forced off (fx_state.h: a preset that still carries it is read as off, and a
+# script that sets it fails as an unknown dial). No run can reach the feature, so every
+# arm could only fail its script or measure a picture the feature is absent from.
+# The number stays so the history reads straight; the code and art are left in the tree.
+# WHAT REPLACED IT is Enhanced's remastered effects (efx_enh.pack, effects_mod.h and
+# efx_enhanced.h), whose muzzle flashes G293 proves.
+
+# =====================================================================================
+# G272 FREE INFANTRY STOP AT THEIR REACH (brain infantry.cpp, the per-tick range check on a
+# free leg and InfantryClass::opencnc3d_end_leg_here). Ordered onto an enemy building under
+# free infantry movement, soldiers walked well inside their reach before firing: the range
+# check ran only where a leg entered a cell, and a stop that stepped back or turned round
+# took the weapon out of reach again, so a rocket soldier paced back and forth and never
+# fired. USER92 with the Nod soldiers taken off and a Hand of Nod at 29,27, in sight of the
+# Mammoth; a Minigunner, then a rocket soldier, each ordered onto it alone.
+# RETIRED WITH THE EXPERIMENTAL LOOK: the above is what it proved while that look could
+# be switched on (free infantry movement is sent to the brain only under that switch).
+# NOTHING RUNS HERE. Its subject is drawn only under the experimental look, whose switch
+# is now forced off (fx_state.h: a preset that still carries it is read as off, and a
+# script that sets it fails as an unknown dial). No run can reach the feature, so every
+# arm could only fail its script or measure a picture the feature is absent from.
+# The number stays so the history reads straight; the code and art are left in the tree.
+# NOTHING REPLACED IT. The brain's rule (OpenCNC3D_FreeInfantry) and this fix to it are still
+# in the patch set; the rule is simply never switched on, as G263 says.
+
+# G273 THE ENHANCED POWER PLANT (ebld_mod.h; game/ebld/NUKE.ebld, baked by
+# tools/art/remaster/bake_ebld.py). Under ENHANCED the Power Plant is drawn from its
+# remastered model and comes apart hit by hit: a chip off the struck side for every 5% of
+# strength lost, its loose pieces broken off at half strength, and about two hundred
+# shards blasted, sunk and faded over a scorch mark when it dies. Classic keeps the
+# cartridge model, its damage overlay and the old shatter.
+#
+# FOUR RUNS OF ONE SCRIPT (gate_ebld.txt: five rounds of force fire from the Medium Tank,
+# then hurtobj): Enhanced twice, Enhanced with --noebld, and Classic. Every claim is read
+# off the system's own dump lines, matched against the exact formats ebldump prints and
+# anchored at both ends, so a field added or renamed fails here instead of being read as
+# nothing:
+#   (1) IT IS LOADED AND ON. The header reports loaded>=1 attached>=1 on=1 enhanced=1,
+#       and the NUKE model carries its 13 chips (the hand-painted cut's; 28 before it).
+#   (2) EVERY HIT IS SEEN AND KNOCKS A CHIP OFF. One EBLD|hit line per 5% step, each with
+#       a zone and a named chip; after the fifth round the dump's steps equal
+#       floor((max - str) / 5% of max), the number of hit lines and the chips thrown.
+#       After the first round the building is HELD and the damaged texture is strongest
+#       in the zone the first hit struck.
+#   (3) FROM THE SIDE IT IS HIT FROM. Every hit placed by a bullet, an attacker or an
+#       explosion lies within one zone of the tank's own bearing from the building, read
+#       off the OBJ lines rather than assumed, and at least one was placed by a bullet or
+#       an attacker rather than by a fallback.
+#   (4) HALF STRENGTH BREAKS IT. Exactly one EBLD|damaged, with the 8 loose pieces the
+#       hand-painted cut defines (breach_a, breach_b, pipe_bend, plate_0a, plate_0b,
+#       plate_5, small_pipe, vent); the dump says DAMAGED, every zone at full, and one
+#       body per chip thrown plus one per loose piece. (The cut before the hand-painted
+#       method had 28 chips and 10 loose pieces; the gate follows the approved art.)
+#   (5) DEATH WRECKS IT ON THE TICK THE ENGINE KILLS IT. Exactly one EBLD|wreck with at
+#       least 150 shards, within two ticks of the frame Classic shatters the same kill
+#       (hurtobj lands between ticks: the shatter's refresh sees the death at once, the
+#       tick-edge step on the next tick); one EBLD|sink 3.5 s after it, where 3.5 s is
+#       52.5 ticks; one EBLD|gone 34 s (510 ticks) after it, when the scorch has faded,
+#       and no entry for it in the final dump. That last one is the leak assertion: an
+#       entry that never leaves is a wreck that is simulated and drawn for ever.
+#   (6) THE OLD SHATTER DOES NOT FIRE FOR IT UNDER ENHANCED, AND --noebld BRINGS IT BACK.
+#       No SHATTER|NUKE line for the killed id in either Enhanced run, and with --noebld
+#       the same kill prints G91's SHATTER|NUKE|...|pieces=9|tris=132 line. Without that
+#       leg a shatter that had stopped firing everywhere under Enhanced would pass.
+#   (7) IT DRAWS. The intact frame against the --noebld one: at least 1500 pixels of the
+#       view change (the remastered model against the fixed one) and none of the sidebar,
+#       which is column 1120 rightward at 1280 wide.
+#   (8) CLASSIC DOES NOT RUN IT. `on` is the system's own rule, the switch AND Enhanced,
+#       so the Classic header must report on=0 enhanced=0; no event line appears, no
+#       building leaves INTACT in its dumps, and the kill shatters as G91 says. That is
+#       the Win98 promise in docs/tier1-gap.md: nothing of this runs outside Enhanced.
+#   (9) TWO ENHANCED RUNS ARE ONE RUN: the five shots byte-identical and the dump lines
+#       identical, chips, bodies and emitters included.
+# =====================================================================================
+sed 's#shots/g273_#shots/g273b_#' "$GATEDIR/gate_ebld.txt" > /tmp/g273b.txt
+sed 's#shots/g273_#shots/g273n_#' "$GATEDIR/gate_ebld.txt" > /tmp/g273n.txt
+sed 's#shots/g273_#shots/g273c_#' "$GATEDIR/gate_ebld.txt" > /tmp/g273c.txt
+G273ALL=""
+for G273R in g273 g273b g273n g273c; do
+  for G273S in intact held damaged blast sink; do
+    G273ALL="$G273ALL shots/${G273R}_$G273S.png"
+  done
+done
+gbegin $G273ALL shots/g273.log shots/g273b.log shots/g273n.log shots/g273c.log
+G273ARGS="--scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720"
+grun shots/g273.log  $G273ARGS --enhanced --script "$GATEDIR/gate_ebld.txt"
+grun shots/g273b.log $G273ARGS --enhanced --script /tmp/g273b.txt
+grun shots/g273n.log $G273ARGS --enhanced --noebld --script /tmp/g273n.txt
+grun shots/g273c.log $G273ARGS --script /tmp/g273c.txt
+gshots shots/g273_intact.png shots/g273_held.png shots/g273_damaged.png \
+       shots/g273_blast.png shots/g273_sink.png \
+       shots/g273b_intact.png shots/g273b_held.png shots/g273b_damaged.png \
+       shots/g273b_blast.png shots/g273b_sink.png shots/g273n_intact.png
+G273CHK=$(python3 - <<'PY' 2>>"$OUT"
+import math, re
+def rd(n):
+    try:
+        with open("shots/%s.log" % n, errors="ignore") as f:
+            return f.read().splitlines()
+    except OSError:
+        return []
+A, B, N, C = rd("g273"), rd("g273b"), rd("g273n"), rd("g273c")
+why = []
+def need(cond, msg):
+    if not cond: why.append(msg)
+    return cond
+def section(L, name):
+    out, on = [], False
+    for l in L:
+        if l.startswith("ECHO|"):
+            on = (l == "ECHO|g273 " + name)
+            continue
+        if on: out.append(l)
+    return out
+def first(L, rx):
+    for l in L:
+        m = re.match(rx, l)
+        if m: return m
+    return None
+# THE CONTRACT'S LINE FORMATS, anchored at both ends: a field added, dropped or renamed
+# is a failure here rather than an assertion that silently reads nothing.
+HDR = r"^EBLD\|loaded=(\d+)\|attached=(\d+)\|on=([01])\|enhanced=([01])$"
+# pieces= is the cut model's piece count and the wreck's, in that order: 42,204 for NUKE
+# Theater-qualified terrain names share this dump with the structures.
+MESH = (r"^EBLDMESH\|([A-Z0-9]+(?:_(?:TEM|DES|WIN))?)\|intact=(-?\d+)\|cut=(-?\d+)\|wreck=(-?\d+)"
+        r"\|pieces=(\d+,\d+)\|chips=(\d+)\|tex=(\d+)$")
+OBJ = (r"^EBLDOBJ\|([A-Z0-9]+)\|key=(\d+)\|id=(\d+)\|stage=(INTACT|HELD|DAMAGED|WRECKED)"
+       r"\|str=(-?\d+)\|max=(\d+)\|steps=(\d+)\|chips=(\d+)\|zones=([-0-9.,]+)"
+       r"\|bodies=(\d+)\|resting=(\d+)$")
+EVT = {
+    "hit": r"^EBLD\|hit\|key=(\d+)\|zone=([0-7])\|how=(bullet|attacker|anim|last|default)"
+           r"\|chip=([^|]+)\|frame=(\d+)$",
+    "damaged": r"^EBLD\|damaged\|key=(\d+)\|frame=(\d+)\|pieces=(\d+)$",
+    "wreck": r"^EBLD\|wreck\|key=(\d+)\|frame=(\d+)\|pieces=(\d+)$",
+    "sink": r"^EBLD\|sink\|key=(\d+)\|frame=(\d+)$",
+    "gone": r"^EBLD\|gone\|key=(\d+)\|frame=(\d+)$",
+}
+# Only the contract's own lines are held to it; any other diagnostic the module prints is
+# left alone, so a new log line cannot turn this gate red by itself.
+OURS = ("EBLDOBJ|", "EBLDMESH|", "EBLD|loaded=") + tuple("EBLD|%s|" % k for k in EVT)
+def ours(l): return l.startswith(OURS)
+def conforms(l):
+    if not ours(l): return True
+    return any(re.match(r, l) for r in (HDR, MESH, OBJ) + tuple(EVT.values()))
+def events(L, kind, key=None):
+    out = []
+    for l in L:
+        m = re.match(EVT[kind], l)
+        if m and (key is None or int(m.group(1)) == key): out.append(m)
+    return out
+def hurt_id(L):
+    m = first(L, r"^HURTOBJ\|NUKE#0\|id=(\d+)\|")
+    return int(m.group(1)) if m else -1
+def shatter(L, oid):
+    return first(L, r"^SHATTER\|NUKE\|id=%d\|pieces=9\|tris=132\|frame=(\d+)$" % oid)
+def zones(m):
+    try: return [float(z) for z in m.group(9).split(",")]
+    except ValueError: return []
+def zdist(a, b): return min((a - b) % 8, (b - a) % 8)
+
+for nm, L in (("Enhanced", A), ("--noebld", N), ("Classic", C)):
+    odd = [l for l in L if not conforms(l)]
+    need(not odd, "%s: a dump line off the contract's format [%s]" % (nm, odd[0] if odd else ""))
+
+# (1) LOADED AND ON
+h = first(section(A, "intact"), HDR)
+need(h is not None and int(h.group(1)) >= 1 and int(h.group(2)) >= 1
+     and h.group(3) == "1" and h.group(4) == "1",
+     "Enhanced header wants loaded>=1 attached>=1 on=1 enhanced=1, got [%s]"
+     % (h.group(0) if h else "no EBLD| header"))
+mm = [m for m in (re.match(MESH, l) for l in section(A, "intact")) if m and m.group(1) == "NUKE"]
+need(len(mm) == 1 and int(mm[0].group(6)) == 13,
+     "EBLDMESH|NUKE wants one line with chips=13, got %s"
+     % ([m.group(0) for m in mm] or "none"))
+
+# the subject's key, from its own dump line
+ida = hurt_id(A)
+key = -1
+for l in A:
+    m = re.match(OBJ, l)
+    if m and m.group(1) == "NUKE" and int(m.group(3)) == ida:
+        key = int(m.group(2)); break
+need(ida >= 0, "the Enhanced run printed no HURTOBJ line, so nothing was killed")
+need(key >= 0, "no EBLDOBJ|NUKE line for the Power Plant that was hit (id=%d)" % ida)
+def objat(name):
+    for l in section(A, name):
+        m = re.match(OBJ, l)
+        if m and int(m.group(2)) == key: return m
+    return None
+
+# (2) EVERY HIT SEEN, EVERY HIT A CHIP
+hits = events(A, "hit", key)
+need(len(hits) >= 5, "only %d EBLD|hit lines for it (five rounds of fire lose it 13 steps)" % len(hits))
+# (a hit after the thirteenth has no chip left to throw)
+nochip = [m.group(0) for m in hits[:13] if m.group(4) == "none"]
+need(not nochip, "%d hits threw no chip although 13 are cut: [%s]"
+     % (len(nochip), nochip[0] if nochip else ""))
+oh = objat("held")
+if need(oh is not None, "no EBLDOBJ line for it after the first round"):
+    zh = zones(oh)
+    need(oh.group(4) == "HELD", "after the first round stage=%s, want HELD" % oh.group(4))
+    if need(len(zh) == 8 and max(zh) > 0,
+            "after the first round no zone carries the damaged texture: zones=%s" % oh.group(9)):
+        if hits:
+            need(zh.index(max(zh)) == int(hits[0].group(2)),
+                 "the damaged texture is strongest in zone %d but the first hit struck zone %s"
+                 % (zh.index(max(zh)), hits[0].group(2)))
+od = objat("damaged")
+dmg = events(A, "damaged", key)
+dpieces = int(dmg[0].group(3)) if len(dmg) == 1 else -1
+steps = chips = -1
+if need(od is not None, "no EBLDOBJ line for it after the fifth round"):
+    st, mx = int(od.group(5)), int(od.group(6))
+    steps, chips, bodies = int(od.group(7)), int(od.group(8)), int(od.group(10))
+    exp = (mx - st) * 20 // mx if mx > 0 else -1
+    edge = mx > 0 and ((mx - st) * 20) % mx == 0
+    need(od.group(4) == "DAMAGED", "after five rounds stage=%s (str %d/%d), want DAMAGED"
+         % (od.group(4), st, mx))
+    need(steps == exp or (edge and steps == exp - 1),
+         "steps=%d at str %d/%d, want floor((max-str)/(5%% of max)) = %d" % (steps, st, mx, exp))
+    need(len(hits) == steps, "%d EBLD|hit lines but steps=%d: a step went unseen or twice"
+         % (len(hits), steps))
+    need(chips == min(steps, 13), "chips=%d thrown for %d steps" % (chips, steps))
+    zd = zones(od)
+    need(len(zd) == 8 and min(zd) >= 0.99,
+         "damaged, every zone should be at full: zones=%s" % od.group(9))
+    need(dpieces < 0 or bodies == chips + dpieces,
+         "bodies=%d, want one per chip thrown (%d) plus one per loose piece (%d)"
+         % (bodies, chips, dpieces))
+
+# (3) FROM THE STRUCK SIDE
+sd = section(A, "damaged")
+mt = first(sd, r"^OBJ\|MTNK#0\|UNIT\|[^|]*\|cell=(\d+),(\d+)\|")
+nk = first(sd, r"^OBJ\|NUKE#0\|BUILDING\|[^|]*\|cell=(\d+),(\d+)\|")
+tz = -1
+if need(mt is not None and nk is not None, "no OBJ lines for the tank and the Power Plant"):
+    dx = (int(mt.group(1)) + 0.5) - (int(nk.group(1)) + 1.0)
+    dz = (int(mt.group(2)) + 0.5) - (int(nk.group(2)) + 1.0)
+    tz = int(round(math.degrees(math.atan2(-dz, dx)) / 45.0)) % 8
+    aimed = [m for m in hits if m.group(3) in ("bullet", "attacker", "anim")]
+    off = [m for m in aimed if zdist(int(m.group(2)), tz) > 1]
+    need(any(m.group(3) in ("bullet", "attacker") for m in hits),
+         "no hit was placed by a bullet or an attacker: how=%s"
+         % ",".join(sorted(set(m.group(3) for m in hits))))
+    need(not off, "%d of %d placed hits are more than one zone from the tank's side (zone %d): zones %s"
+         % (len(off), len(aimed), tz, ",".join(m.group(2) for m in off)))
+
+# (4) HALF STRENGTH BREAKS IT
+need(len(dmg) == 1, "%d EBLD|damaged lines for it, want exactly 1" % len(dmg))
+need(dpieces == 8, "EBLD|damaged pieces=%d, want the cut model's 8 loose pieces" % dpieces)
+
+# (5) DEATH, ON THE ENGINE'S TICK, AND THE TIMELINE AFTER IT
+wr, sk, gn = events(A, "wreck", key), events(A, "sink", key), events(A, "gone", key)
+cid = hurt_id(C)
+cs = shatter(C, cid)
+wf = int(wr[0].group(2)) if len(wr) == 1 else -1
+need(len(wr) == 1 and int(wr[0].group(3)) >= 150,
+     "want exactly one EBLD|wreck with >=150 shards, got %s" % ([m.group(0) for m in wr] or "none"))
+need(cs is not None, "the Classic run printed no SHATTER|NUKE|id=%d|pieces=9|tris=132 line" % cid)
+if wf >= 0 and cs is not None:
+    need(abs(wf - int(cs.group(1))) <= 2, "the wreck began on frame %d, Classic shatters the same kill on %s"
+         % (wf, cs.group(1)))
+need(len(sk) == 1 and wf >= 0 and 50 <= int(sk[0].group(2)) - wf <= 56,
+     "want one EBLD|sink 3.5 s after the wreck (frame %d), got %s" % (wf, [m.group(0) for m in sk] or "none"))
+need(len(gn) == 1 and wf >= 0 and 505 <= int(gn[0].group(2)) - wf <= 516,
+     "want one EBLD|gone 34 s after the wreck (frame %d), got %s" % (wf, [m.group(0) for m in gn] or "none"))
+os_ = objat("sink")
+need(os_ is not None and os_.group(4) == "WRECKED",
+     "during the sink the dump should say WRECKED, got [%s]" % (os_.group(0) if os_ else "no line"))
+need(objat("end") is None, "the entry is still in the dump after the scorch faded (a leak)")
+
+# (6) NO OLD SHATTER UNDER ENHANCED, AND --noebld BRINGS IT BACK
+for nm, L in (("Enhanced", A), ("the second Enhanced", B)):
+    oid = hurt_id(L)
+    n = sum(1 for l in L if l.startswith("SHATTER|NUKE|id=%d|" % oid))
+    need(oid >= 0 and n == 0, "%s run: %d SHATTER|NUKE lines for the killed id %d, want 0" % (nm, n, oid))
+hn = first(section(N, "intact"), HDR)
+need(hn is not None and hn.group(3) == "0" and hn.group(4) == "1",
+     "--noebld header wants on=0 enhanced=1, got [%s]" % (hn.group(0) if hn else "none"))
+nev = sum(len(events(N, k)) for k in EVT)
+need(nev == 0, "--noebld: %d EBLD event lines, want 0" % nev)
+nid = hurt_id(N)
+need(shatter(N, nid) is not None,
+     "--noebld: no SHATTER|NUKE|id=%d|pieces=9|tris=132 line, so the A/B proves nothing" % nid)
+
+# (8) CLASSIC DOES NOT RUN IT
+hc = first(section(C, "intact"), HDR)
+need(hc is not None and hc.group(3) == "0" and hc.group(4) == "0",
+     "Classic header wants on=0 enhanced=0, got [%s]" % (hc.group(0) if hc else "none"))
+cev = sum(len(events(C, k)) for k in EVT)
+need(cev == 0, "Classic: %d EBLD event lines, want 0" % cev)
+cst = [m.group(0) for m in (re.match(OBJ, l) for l in C) if m and m.group(4) != "INTACT"]
+need(not cst, "Classic: a building left INTACT [%s]" % (cst[0] if cst else ""))
+
+# (9) TWO RUNS ARE ONE RUN
+la = [l for l in A if ours(l)]
+lb = [l for l in B if ours(l)]
+need(la == lb and la, "the two Enhanced runs printed different EBLD lines")
+same = 0
+for s in ("intact", "held", "damaged", "blast", "sink"):
+    try:
+        same += open("shots/g273_%s.png" % s, "rb").read() == open("shots/g273b_%s.png" % s, "rb").read()
+    except OSError:
+        pass
+need(same == 5, "only %d of the 5 shot pairs of the two Enhanced runs are identical" % same)
+
+# (7) IT DRAWS, AND NOT ON THE SIDEBAR
+view = bar = -1
+try:
+    from PIL import Image
+    import numpy as np
+    a = np.asarray(Image.open("shots/g273_intact.png").convert("RGB")).astype(int)
+    n = np.asarray(Image.open("shots/g273n_intact.png").convert("RGB")).astype(int)
+    d = (a != n).any(axis=2)
+    view, bar = int(d[:, :1120].sum()), int(d[:, 1120:].sum())
+except Exception as e:
+    why.append("the intact frames could not be compared (%s)" % e)
+need(view >= 1500, "the intact frame changed %d pixels against --noebld, want >=1500" % view)
+need(bar == 0, "the intact frame changed %d sidebar pixels against --noebld, want 0" % bar)
+
+if why:
+    more = " (and %d more)" % (len(why) - 6) if len(why) > 6 else ""
+    print("0 " + "; ".join(why[:6]) + more)
+else:
+    print("1 %d hits from the tank's side (zone %d), %d chips thrown; broken at half strength "
+          "into %d loose pieces; wrecked into %s shards on frame %d (Classic shatters "
+          "the same kill on %s); sank %d ticks later and was erased %d ticks after the "
+          "blast; no old shatter under Enhanced, and --noebld brings it back; the intact "
+          "frame differs from --noebld by %d pixels and not on the sidebar; Classic "
+          "reports on=0 and shatters into 9 pieces / 132 triangles; two Enhanced runs are "
+          "one run"
+          % (len(hits), tz, chips, dpieces, wr[0].group(3), wf, cs.group(1),
+             int(sk[0].group(2)) - wf, int(gn[0].group(2)) - wf, view))
+PY
+)
+G273V=$(echo "$G273CHK" | head -1 | cut -d' ' -f1)
+G273MSG=$(echo "$G273CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G273 the Enhanced Power Plant: a run failed or wrote no shot (GRC=$GRC). An unknown ebldump or --noebld means the engine half is not in this binary; a missing ebld/NUKE.ebld in the run folder is the next thing to check"
+elif [ "$G273V" = "1" ]; then
+  ok "G273 the Enhanced Power Plant: $G273MSG"
+else
+  bad "G273 the Enhanced Power Plant: ${G273MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G274 EVERY REMASTERED STRUCTURE AND WALL (ebld_mod.h; game/ebld/*.ebld, baked by
+# tools/art/remaster/bake_ebld.py). Under ENHANCED every approved remastered structure is
+# drawn from its own file (format version 5, the hand-painted method): the Power Plant
+# with its full wear-down and wreck (G273), the other twenty-one likewise (their damaged
+# stages are G295's), with their fans and dishes turning, their turrets aiming and their
+# flipbooks playing, and the sandbag, chain-link and concrete walls from their sixteen
+# connection pieces (their stages are G303's). Classic keeps the cartridge's art.
+#
+# FOUR RUNS OF ONE SCRIPT (gate_ebldall.txt, SCG90EA's two bases): Enhanced twice, Enhanced
+# with --noebld, and Classic. Read off the system's own dump lines:
+#   (1) ALL OF IT LOADS AND ATTACHES. The header says loaded=attached=25 plus the map's own
+#       remastered terrain objects (its trees, read at first sight, each named), on=1, and there
+#       is exactly one EBLDMESH and one EBLDART line for each of the 25 types, every one
+#       format version 5. Every structure and every wall carries the intact model, its
+#       cut and its destroyed set (sets=3); the three walls carry the wall flag, the Gun
+#       Turret and the SAM Site one turret each and the Silo its fill.
+#   (2) THE INTACT MODELS DRAW, by the observer: the draw counts EBLDART reports are
+#       counted where the model is submitted, so the Construction Yard and
+#       the sandbag wall must have been drawn in the colour picture, and under --noebld and
+#       Classic nothing of this system is drawn at all.
+#   (3) THE FANS TURN AT THEIR RATE. Between two dumps three ticks apart the Construction
+#       Yard's two fans have turned by -52 and -47 rpm's worth (62.4 and 56.4 degrees), read
+#       off EBLDPOSE, which is also what the frame was drawn with.
+#   (4) THE TURRETS AIM WITH THE BUILDING'S FACING: each Gun Turret's drawn turret angle is
+#       its engine facing turned from north, and the SAM Site's head, modelled facing south,
+#       is turned from south.
+#   (5) A REMASTERED BUILDING DIES WITHOUT THE OLD SHATTER: the killed Construction Yard
+#       gets one EBLD|wreck of its destroyed set's shards and no SHATTER|FACT line under
+#       Enhanced, and --noebld brings the shatter back.
+#   (6) TWO ENHANCED RUNS ARE ONE RUN: the four shots byte-identical, the dump lines equal.
+# =====================================================================================
+sed 's#shots/g274_#shots/g274b_#' "$GATEDIR/gate_ebldall.txt" > /tmp/g274b.txt
+sed 's#shots/g274_#shots/g274n_#' "$GATEDIR/gate_ebldall.txt" > /tmp/g274n.txt
+sed 's#shots/g274_#shots/g274c_#' "$GATEDIR/gate_ebldall.txt" > /tmp/g274c.txt
+G274ALL=""
+for G274R in g274 g274b g274n g274c; do
+  for G274S in a b c d; do
+    G274ALL="$G274ALL shots/${G274R}_$G274S.png"
+  done
+done
+gbegin $G274ALL shots/g274.log shots/g274b.log shots/g274n.log shots/g274c.log
+G274ARGS="--scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720"
+grun shots/g274.log  $G274ARGS --enhanced --script "$GATEDIR/gate_ebldall.txt"
+grun shots/g274b.log $G274ARGS --enhanced --script /tmp/g274b.txt
+grun shots/g274n.log $G274ARGS --enhanced --noebld --script /tmp/g274n.txt
+grun shots/g274c.log $G274ARGS --script /tmp/g274c.txt
+gshots shots/g274_a.png shots/g274_b.png shots/g274_c.png shots/g274_d.png \
+       shots/g274b_a.png shots/g274b_b.png shots/g274b_c.png shots/g274b_d.png
+G274CHK=$(python3 - <<'PY' 2>>"$OUT"
+import re
+def rd(n):
+    try:
+        with open("shots/%s.log" % n, errors="ignore") as f:
+            return f.read().splitlines()
+    except OSError:
+        return []
+A, B, N, C = rd("g274"), rd("g274b"), rd("g274n"), rd("g274c")
+why = []
+def need(cond, msg):
+    if not cond: why.append(msg)
+    return cond
+def section(L, name):
+    out, on = [], False
+    for l in L:
+        if l.startswith("ECHO|"):
+            on = (l == "ECHO|g274 " + name)
+            continue
+        if on: out.append(l)
+    return out
+HDR = r"^EBLD\|loaded=(\d+)\|attached=(\d+)\|on=([01])\|enhanced=([01])$"
+MESH = r"^EBLDMESH\|([A-Z0-9]+)\|"
+ART = (r"^EBLDART\|([A-Z0-9]+)\|v=(\d+)\|sets=(\d)\|wall=([01])\|spin=(\d+)\|turret=(\d+)"
+       r"\|fill=(\d+)\|flipbooks=(\d+)\|emit=(\d+)\|drawn=(\d+)\|")
+POSE = r"^EBLDPOSE\|([A-Z0-9]+)\|key=(\d+)\|id=(\d+)\|piece=(\d+)\|kind=(spin|turret|fill)\|(deg|level)=(-?[0-9.]+)$"
+TYPES = ("AFLD ATWR BIO BRIK CYCL EYE FACT FIX GTWR GUN HAND HOSP HPAD HQ MISS NUK2 NUKE "
+         "OBLI PROC PYLE SAM SBAG SILO TMPL WEAP").split()
+def arts(L):
+    out = {}
+    for l in L:
+        m = re.match(ART, l)
+        if m: out.setdefault(m.group(1), []).append(m)
+    return out
+def poses(L):
+    out = {}
+    for l in L:
+        m = re.match(POSE, l)
+        if m: out[(m.group(1), int(m.group(3)), int(m.group(4)))] = float(m.group(7))
+    return out
+
+# (1) ALL OF IT LOADS
+f = section(A, "first")
+h = [re.match(HDR, l) for l in f]
+h = [m for m in h if m]
+# THE MAP'S OWN TERRAIN OBJECTS COUNT IN THE HEADER TOO: a remastered tree or rock is read
+# the first time the mission shows its type, so SCG90EA's spruces, firs and saplings (six
+# files: T01 T02 T05 T06 T07 T17, each _TEM) are loaded beside the 25 structures. They are
+# named one by one here and allowed only as terrain objects; every structure still has to
+# be loaded and attached, and nothing else may be.
+extra = sorted(l.split("|")[1] for l in f if l.startswith("EBLDART|")
+               and l.split("|")[1] not in TYPES)
+odd = [x for x in extra if not re.match(r"^(T\d\d|ROCK\d|SPLIT\d)(_TEM|_DES|_WIN)?$", x)]
+need(not odd, "models loaded that are neither a structure nor a terrain object: %s" % odd)
+want = str(25 + len(extra))
+need(len(h) == 1 and h[0].group(1) == want and h[0].group(2) == want and h[0].group(3) == "1",
+     "Enhanced header wants loaded=%s attached=%s on=1 (the 25 structures and the map's "
+     "terrain objects %s), got [%s]" % (want, want, extra, h[0].group(0) if h else "none"))
+meshes = sorted(re.match(MESH, l).group(1) for l in f if re.match(MESH, l))
+need(meshes == sorted(TYPES), "EBLDMESH lines for %s, want one per type %s" % (meshes, TYPES))
+fa = arts(f)
+need(sorted(fa) == sorted(TYPES) and all(len(v) == 1 for v in fa.values()),
+     "EBLDART lines for %s, want one per type" % sorted(fa))
+def art(t, g):
+    return fa[t][0].group(g) if t in fa else None
+# (version 5 or 6: the baker writes version 6 on every rebake, and the reader reads both;
+# a structure rebaked from its lab export since, the Construction Yard with its approved
+# crane among them, reads v=6 sets=3 in its EBLDART line)
+bad_sets = [t for t in TYPES if art(t, 3) != "3" or art(t, 2) not in ("5", "6")]
+need(not bad_sets, "sets= or v= wrong for %s (every one version 5 or 6 with three sets)" % bad_sets)
+walls = sorted(t for t in TYPES if art(t, 4) == "1")
+need(walls == ["BRIK", "CYCL", "SBAG"], "wall flag on %s, want BRIK CYCL SBAG" % walls)
+turrets = sorted(t for t in TYPES if art(t, 6) == "1")
+need(turrets == ["GUN", "SAM"], "a turret on %s, want GUN SAM" % turrets)
+need(art("SILO", 7) == "1", "the Silo carries no fill")
+
+# (2) IT DRAWS, AND ONLY UNDER ENHANCED
+need(art("FACT", 10) not in (None, "0"), "the Construction Yard's intact model was not drawn: drawn=%s" % art("FACT", 10))
+gs = arts(section(A, "guns"))
+need("SBAG" in gs and gs["SBAG"][0].group(10) != "0", "the sandbag wall was not drawn by the remaster")
+for nm, L, on in (("--noebld", N, "0"), ("Classic", C, "0")):
+    hh = [re.match(HDR, l) for l in L]
+    hh = [m for m in hh if m]
+    need(hh and all(m.group(3) == on for m in hh), "%s header wants on=0" % nm)
+    drawn = [m.group(0) for v in arts(L).values() for m in v if m.group(10) != "0"]
+    need(not drawn, "%s: the system drew something [%s]" % (nm, drawn[0] if drawn else ""))
+    need(not poses(L), "%s: a moving part was drawn" % nm)
+
+# (3) THE FANS TURN AT THEIR RATE
+p1, p2 = poses(section(A, "first")), poses(section(A, "second"))
+yard = sorted(k for k in p1 if k[0] == "FACT" and k in p2)
+rates = []
+for k in yard:
+    d = (p2[k] - p1[k]) % 360.0
+    rates.append(round(360.0 - d, 1) if d > 180 else round(-d, 1))
+want = {62.4, 56.4}
+need(len(yard) >= 2 and want <= set(abs(r) for r in rates),
+     "the Construction Yard's fans turned %s degrees in three ticks, want 62.4 and 56.4" % rates)
+
+# (4) THE TURRETS AIM
+g = section(A, "guns")
+faces = {}
+for l in g:
+    m = re.match(r"^OBJ\|GUN#\d+\|BUILDING\|[^|]*\|cell=(\d+),(\d+)\|.*\|face=(-?\d+)$", l)
+    if m: faces[(int(m.group(1)), int(m.group(2)))] = int(m.group(3))
+gp = poses(g)
+guns = [(k, v) for k, v in gp.items() if k[0] == "GUN"]
+need(len(guns) >= 2 and len(faces) >= 2, "no turret poses or GUN facings to compare")
+ok_face = set(round(-((fc - 0) & 255) * 360.0 / 256.0, 2) for fc in faces.values())
+off = [v for k, v in guns if round(v, 2) not in ok_face]
+need(not off, "a Gun Turret's turret is drawn at %s, its facings are %s" % (off, sorted(faces.values())))
+sam = [v for k, v in gp.items() if k[0] == "SAM"]
+need(sam and all(abs(v + 180.0) < 0.01 for v in sam),
+     "the SAM Site's head (modelled facing south, engine facing north) is at %s, want -180" % sam)
+
+# (5) DEATH WITHOUT THE OLD SHATTER
+def hurt_id(L):
+    ids = [int(m.group(1)) for m in (re.match(r"^HURTOBJ\|FACT#0\|id=(\d+)\|", l) for l in L) if m]
+    return ids[-1] if ids else -1
+ida = hurt_id(A)
+wr = [l for l in A if re.match(r"^EBLD\|wreck\|key=%d\|frame=\d+\|pieces=[1-9]\d*$" % (2000000 + ida), l)]
+need(ida >= 0 and len(wr) == 1, "want one EBLD|wreck of its pieces for the killed yard, got %d" % len(wr))
+sh = [l for l in A if l.startswith("SHATTER|FACT|id=%d|" % ida)]
+need(not sh, "Enhanced: the old shatter fired for the killed yard [%s]" % (sh[0] if sh else ""))
+idn = hurt_id(N)
+need(any(l.startswith("SHATTER|FACT|id=%d|" % idn) for l in N),
+     "--noebld: no SHATTER|FACT line for the killed yard, so the A/B proves nothing")
+
+# (6) TWO RUNS ARE ONE RUN
+ours = ("EBLD", "EBLDMESH|", "EBLDART|", "EBLDPOSE|", "EBLDOBJ|")
+la = [l for l in A if l.startswith(ours)]
+lb = [l for l in B if l.startswith(ours)]
+need(la == lb and la, "the two Enhanced runs printed different EBLD lines")
+same = 0
+for s_ in "abcd":
+    try:
+        same += open("shots/g274_%s.png" % s_, "rb").read() == open("shots/g274b_%s.png" % s_, "rb").read()
+    except OSError:
+        pass
+need(same == 4, "only %d of the 4 shot pairs of the two Enhanced runs are identical" % same)
+
+if why:
+    more = " (and %d more)" % (len(why) - 6) if len(why) > 6 else ""
+    print("0 " + "; ".join(why[:6]) + more)
+else:
+    print("1 all 25 models loaded and attached, version 5, each with its cut and destroyed set, the "
+          "Construction Yard drawn %s times and the sandbags %s cells in the colour picture "
+          "and nothing of it under --noebld or Classic; the yard's fans turned %s degrees in "
+          "three ticks; %d Gun Turrets aimed at their engine facing and the SAM head at -180; "
+          "the killed yard left a wreck of its own pieces and no old shatter, which --noebld "
+          "brings back; two Enhanced runs are one run"
+          % (art("FACT", 10), gs["SBAG"][0].group(10), rates, len(guns)))
+PY
+)
+G274V=$(echo "$G274CHK" | head -1 | cut -d' ' -f1)
+G274MSG=$(echo "$G274CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G274 every remastered structure: a run failed or wrote no shot (GRC=$GRC). A missing game/ebld file in the run folder, or a binary without the version 3 reader, is the first thing to check"
+elif [ "$G274V" = "1" ]; then
+  ok "G274 every remastered structure: $G274MSG"
+else
+  bad "G274 every remastered structure: ${G274MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G275 THE REMASTERED SOLDIERS (einf/<TYPE>.c3m; model3d_mod.h m3inf_available and
+# m3inf_set_now; cnc_eyes.cpp m3inf_model_type). Enhanced's own animated Minigunner, made
+# by tools/art/remaster/infantry. The experimental set it once stood beside is retired
+# (its switch is forced off), so there is one set of 3-D soldiers.
+#
+# THE CLAIMS:
+#   (1) IT LOADS AS THE REMASTERED SET. einf/E1.c3m is read and reported as M3E|E1 with
+#       its bones and clips, apart from the experimental set's M3| lines.
+#   (2) ENHANCED DRAWS IT. On USER92 in Enhanced, at least five
+#       soldiers are posed from a model (M3DUMP inf=, read after the shot: a plain tick
+#       draws nothing and the dump counts the last frame drawn), and the brain's test Minigunners
+#       (E1TR) are among them as the Minigunner (M3INF2 type=E1 for all, none E1TR).
+#   (3) IT IS ITS OWN SWITCH. --noeinf and Classic draw no soldier from a model.
+#   (5) TWO ENHANCED RUNS ARE ONE PICTURE.
+#   (6) EVERY POSE IS HIS OWN. In a close fight (a copy of USER92 with six Nod riflemen
+#       beside the GDI squad, made here), the Minigunners lie down, lie prone and fire
+#       prone, every sample of every state from a clip of the model (clip= is never "-")
+#       and no soldier handed back to the 1995 sprite in any frame (M3DUMP inffall=0).
+#   (7) EVERY INFANTRY TYPE IS ITS OWN MODEL. All twenty remastered types (the soldiers
+#       E1 to E6 and RMBO, the civilians C1 to C10, Moebius, Chan, Delphi) load as
+#       M3E|<TYPE>, and in the same fight, the GDI squad made of every soldier type and
+#       the civilians standing by, each is posed from its own model's clips (M3INF2
+#       type=<TYPE>, clip= never "-"), none handed to the sprite.
+# =====================================================================================
+cat > /tmp/g275.txt <<'G275EOF'
+cam 31 34
+tick 20
+shot shots/g275_a.png
+m3dump
+quit
+G275EOF
+sed 's#g275_a#g275_b#' /tmp/g275.txt > /tmp/g275b.txt
+gbegin shots/g275_a.png shots/g275_b.png shots/g275_n.png shots/g275_c.png \
+       shots/g275.log shots/g275b.log shots/g275n.log shots/g275c.log
+G275ARGS="--reskin --noshroud --scen USER92 --pack SCG01EA.pack $BASE --dir missions/user_maps/ --nosound --w 1280 --h 800"
+grun shots/g275.log  $G275ARGS --script /tmp/g275.txt --enhanced --texset 1
+grun shots/g275b.log $G275ARGS --script /tmp/g275b.txt --enhanced --texset 1
+sed 's#g275_a#g275_n#' /tmp/g275.txt > /tmp/g275n.txt
+grun shots/g275n.log $G275ARGS --script /tmp/g275n.txt --enhanced --texset 1 --noeinf
+sed 's#g275_a#g275_c#' /tmp/g275.txt > /tmp/g275c.txt
+grun shots/g275c.log $G275ARGS --script /tmp/g275c.txt
+rm -rf /tmp/g275m && mkdir -p /tmp/g275m
+cp missions/user_maps/USER92.INI missions/user_maps/USER92.BIN missions/user_maps/USER92.HGT /tmp/g275m/ 2>/dev/null
+python3 - /tmp/g275m/USER92.INI <<'PY'
+import re, sys
+p = sys.argv[1]
+s = open(p, 'rb').read().decode('latin-1')
+nl = '\r\n' if '\r\n' in s else '\n'
+sec = s[s.index('[INFANTRY]'):]
+end = sec.find(nl + '[', 1)
+sec = sec[:end if end > 0 else len(sec)]
+last = [ln for ln in sec.split(nl) if re.match(r'^\d{3}=', ln)][-1]
+first = max(int(r) for r in re.findall(r'^(\d{3})=', sec, re.M)) + 1
+add = nl.join('%03d=BadGuy,E1,256,%d,%d,Hunt,128,None' % (first + i, 31 * 64 + 29 + i // 3 * 2, i % 3 + 1)
+              for i in range(6))
+open(p, 'wb').write(s.replace(last, last + nl + add, 1).encode('latin-1'))
+PY
+{ printf 'cam 31 33\ntick 4\n'
+  i=0; while [ $i -lt 120 ]; do printf 'tick 2\nshot shots/g275_f.png\nm3dump\n'; i=$((i+1)); done
+  echo quit; } > /tmp/g275f.txt
+gbegin shots/g275_f.png shots/g275f.log
+grun shots/g275f.log --reskin --noshroud --scen USER92 --pack SCG01EA.pack $BASE --dir /tmp/g275m/ \
+     --nosound --w 1280 --h 800 --script /tmp/g275f.txt --enhanced --texset 1
+# (7) the squad rebuilt from every type, in the same fight
+rm -rf /tmp/g275t && cp -R /tmp/g275m /tmp/g275t
+python3 - /tmp/g275t/USER92.INI <<'PY'
+import re, sys
+p = sys.argv[1]
+s = open(p, 'rb').read().decode('latin-1')
+types = ["E1", "E2", "E3", "E4", "E5", "E6", "RMBO"]
+k = [0]
+def swap(m):
+    t = types[k[0] % len(types)]; k[0] += 1
+    return m.group(1) + t + ","
+s = re.sub(r'^(\d{3}=GoodGuy,)(E1|E1TR|E3),', swap, s, flags=re.M)
+# the civilians and the three named characters, standing by south of the squad
+nl = '\r\n' if '\r\n' in s else '\n'
+sec = s[s.index('[INFANTRY]'):]
+end = sec.find(nl + '[', 1)
+sec = sec[:end if end > 0 else len(sec)]
+last = [ln for ln in sec.split(nl) if re.match(r'^\d{3}=', ln)][-1]
+first = max(int(r) for r in re.findall(r'^(\d{3})=', sec, re.M)) + 1
+civ = "C1 C2 C3 C4 C5 C6 C7 C8 C9 C10 MOEBIUS CHAN DELPHI".split()
+add = nl.join('%03d=Neutral,%s,256,%d,%d,Guard,64,None' % (first + i, t, 35 * 64 + 26 + i // 2, i % 2 * 2 + 1)
+              for i, t in enumerate(civ))
+s = s.replace(last, last + nl + add, 1)
+open(p, 'wb').write(s.encode('latin-1'))
+PY
+sed 's#g275_f#g275_t#' /tmp/g275f.txt > /tmp/g275t.txt
+gbegin shots/g275_t.png shots/g275t.log
+grun shots/g275t.log --reskin --noshroud --scen USER92 --pack SCG01EA.pack $BASE --dir /tmp/g275t/ \
+     --nosound --w 1280 --h 800 --script /tmp/g275t.txt --enhanced --texset 1
+G275TYPES=0; G275MISS=""
+for T in E1 E2 E3 E4 E5 E6 RMBO C1 C2 C3 C4 C5 C6 C7 C8 C9 C10 MOEBIUS CHAN DELPHI; do
+  if grep -aq "^M3E|$T|tris [0-9]*|.*|bones [1-9][0-9]*|clips [1-9]" shots/g275t.log \
+     && grep -aq "^M3INF2|id=[0-9]*|type=$T|.*|clip=[a-z]" shots/g275t.log; then
+    G275TYPES=$((G275TYPES+1)); else G275MISS="$G275MISS $T"; fi
+done
+G275TNOCLIP=$(grep -ac '^M3INF2|id=[0-9]*|.*|clip=-|' shots/g275t.log)
+G275TFALL=$(sed -n 's/^M3DUMP|.*|inffall=\([0-9]*\)|.*/\1/p' shots/g275t.log | sort -n | tail -1)
+g275st() { grep -ac "^M3INF2|id=[0-9]*|type=E1|state=$1|.*|clip=$1|" shots/g275f.log; }
+G275LIE=$(g275st liedown); G275PRONE=$(g275st prone); G275FP=$(g275st fireprone)
+G275NOCLIP=$(grep -ac '^M3INF2|id=[0-9]*|type=E1|.*|clip=-|' shots/g275f.log)
+G275FALL=$(sed -n 's/^M3DUMP|.*|inffall=\([0-9]*\)|.*/\1/p' shots/g275f.log | sort -n | tail -1)
+G275LOAD=$(grep -ac '^M3E|E1|tris [0-9]*|.*|bones [1-9][0-9]*|clips [1-9]' shots/g275.log)
+G275INF=$(sed -n 's/^M3DUMP|.*|inf=\([0-9]*\)|.*/\1/p' shots/g275.log | head -1)
+G275E1=$(grep -ac '^M3INF2|id=[0-9]*|type=E1|' shots/g275.log)
+G275TR=$(grep -ac '^M3INF2|id=[0-9]*|type=E1TR|' shots/g275.log)
+G275NOE=$(sed -n 's/^M3DUMP|.*|inf=\([0-9]*\)|.*/\1/p' shots/g275n.log | head -1)
+G275CLS=$(sed -n 's/^M3DUMP|.*|inf=\([0-9]*\)|.*/\1/p' shots/g275c.log | head -1)
+G275SAME=$(cmp -s shots/g275_a.png shots/g275_b.png && echo 1 || echo 0)
+if [ "$GRC" = "0" ] && gshots shots/g275_a.png shots/g275_b.png && [ "${G275LOAD:-0}" = "1" ] \
+   && [ "${G275INF:-0}" -ge 5 ] && [ "${G275E1:-0}" -gt 0 ] && [ "${G275TR:-1}" = "0" ] \
+   && [ "${G275NOE:-x}" = "0" ] && [ "${G275CLS:-0}" = "0" ] \
+   && [ "$G275SAME" = "1" ] && [ "${G275LIE:-0}" -gt 0 ] && [ "${G275PRONE:-0}" -gt 0 ] \
+   && [ "${G275FP:-0}" -gt 0 ] && [ "${G275NOCLIP:-1}" = "0" ] && [ "${G275FALL:-1}" = "0" ] \
+   && [ "$G275TYPES" = "20" ] && [ "${G275TNOCLIP:-1}" = "0" ] && [ "${G275TFALL:-1}" = "0" ]; then
+  ok "G275 the remastered soldiers: einf/E1.c3m loads as the remastered set; Enhanced poses $G275INF soldiers from it, the test Minigunners as the Minigunner ($G275E1 samples, none as E1TR); none under --noeinf or in Classic; two runs are one picture; in a close fight they lie down ($G275LIE), lie prone ($G275PRONE) and fire prone ($G275FP) from their own clips, no state without one and no soldier handed to the sprite; all $G275TYPES infantry types load and are posed from their own models in one fight"
+else
+  bad "G275 the remastered soldiers: rc=$GRC loaded=${G275LOAD:-0}(1) posed=${G275INF:-none}(>=5) as-E1=${G275E1:-0}(>0) as-E1TR=${G275TR:-?}(0) noeinf=${G275NOE:-none}(0) classic=${G275CLS:-none}(0 or none) same-picture=$G275SAME(1) fight: liedown=${G275LIE:-0} prone=${G275PRONE:-0} fireprone=${G275FP:-0}(all >0) states-without-clip=${G275NOCLIP:-?}(0) sprite-fallbacks=${G275FALL:-?}(0) types=$G275TYPES(20, missing:${G275MISS:- none}) types-without-clip=${G275TNOCLIP:-?}(0) types-fallbacks=${G275TFALL:-?}(0)"
+fi
+
+# G276: all three named modes, independent settings, preset round trip and distinct
+# headless frames. The world does not tick between the pictures.
+# =====================================================================================
+cat > /tmp/g276.txt <<'G276EOF'
+tick 30
+options
+optclick Visuals
+optvis
+optclick N64
+optvis
+optclick Enhanced
+optvis
+optclick Advanced...
+optclick N64
+optclick Bilinear filtering
+optvis
+optclick Enhanced
+optclick Bloom
+optvis
+optclick OK
+optclick N64
+optvis
+optclick Classic
+optvis
+gfxsave shots/g276.cfg
+optclick OK
+optclick Resume Mission
+shot shots/g276_classic_a.png
+options
+optclick Visuals
+optclick N64
+optclick OK
+optclick Resume Mission
+shot shots/g276_n64.png
+options
+optclick Visuals
+optclick Enhanced
+optclick OK
+optclick Resume Mission
+shot shots/g276_enhanced.png
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+shot shots/g276_classic_b.png
+quit
+G276EOF
+cat > /tmp/g276_reload.txt <<'G276EOF'
+options
+optclick Visuals
+optvis
+quit
+G276EOF
+gbegin shots/g276.cfg shots/g276_classic_a.png shots/g276_n64.png shots/g276_enhanced.png shots/g276_classic_b.png shots/g276.log shots/g276_reload.log
+G276BASE="--noshroud --nosound --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800"
+grun shots/g276.log $G276BASE --gfx --script /tmp/g276.txt
+grun shots/g276_reload.log $G276BASE --gfx shots/g276.cfg --script /tmp/g276_reload.txt
+gshots shots/g276.cfg shots/g276_classic_a.png shots/g276_n64.png shots/g276_enhanced.png shots/g276_classic_b.png
+G276OK=1; G276WHY=""
+g276bad() { G276OK=0; G276WHY="$G276WHY [$1]"; }
+G276M=$(grep -a '^OPTMODE|' shots/g276.log)
+echo "$G276M" | sed -n '1p' | grep -q 'mode=2|fx_mode=2|.*fx_enabled=1|fx_exp=0' || g276bad initial
+echo "$G276M" | sed -n '2p' | grep -q 'mode=1|fx_mode=1|.*fx_enabled=0|fx_exp=0' || g276bad n64
+echo "$G276M" | sed -n '3p' | grep -q 'mode=2|fx_mode=2|.*fx_enabled=1|fx_exp=0' || g276bad enhanced
+echo "$G276M" | sed -n '4p' | grep -q 'mode=2|fx_mode=2|tab=1|' || g276bad tab-n64
+echo "$G276M" | sed -n '5p' | grep -q 'mode=2|fx_mode=2|tab=2|.*e_bloom=0|' || g276bad tab-enhanced
+echo "$G276M" | sed -n '6p' | grep -q 'mode=1|fx_mode=1|.*n_bilinear=1|' || g276bad n64-profile
+echo "$G276M" | sed -n '7p' | grep -q 'mode=0|fx_mode=0|.*fx_enabled=0|fx_exp=0' || g276bad classic
+grep -q '^mode.n64.bilinear  *1' shots/g276.cfg 2>/dev/null || g276bad cfg-n64
+grep -q '^mode.enhanced.bloom_on  *0' shots/g276.cfg 2>/dev/null || g276bad cfg-enhanced
+grep -a '^OPTMODE|' shots/g276_reload.log | grep -q 'mode=0|fx_mode=0|.*n_bilinear=1|.*e_bloom=0|' || g276bad reload
+cmp -s shots/g276_classic_a.png shots/g276_classic_b.png || g276bad classic-roundtrip
+G276PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+    p=[np.asarray(Image.open('shots/g276_'+n+'.png').convert('RGB')).astype(np.int16) for n in ('classic_a','n64','enhanced')]
+    print(*(int((np.abs(a-b).sum(2)>24).sum()) for a,b in zip(p,p[1:])))
+except Exception: print('-1 -1')
+PYPIX
+)
+set -- $G276PX
+[ "${1:--1}" -ge 10000 ] || g276bad "classic-n64=$1"
+[ "${2:--1}" -ge 10000 ] || g276bad "n64-enhanced=$2"
+if [ "$GRC" != "0" ]; then bad "G276 mode run failed (GRC=$GRC)";
+elif [ "$G276OK" = "1" ]; then ok "G276 Classic, N64 and Enhanced profiles and frames; preset reload and Classic round trip";
+else bad "G276 modes:$G276WHY"; fi
+
+# =====================================================================================
+# G277: SPACE cycles through the new three-mode order with a deterministic wipe.
+# =====================================================================================
+cat > /tmp/g277.txt <<'G277EOF'
+tick 30
+options
+optclick Visuals
+optclick N64
+optclick OK
+optclick Resume Mission
+shot shots/g277_old.png
+gfxwipe freeze
+gfxcycle
+shot shots/g277_cap.png
+gfxwipe at 0.27
+shot shots/g277_mid.png
+gfxwipe at 3.70
+shot shots/g277_new.png
+optvis
+gfxwhoosh shots/g277_whoosh.wav
+quit
+G277EOF
+gbegin shots/g277_old.png shots/g277_mid.png shots/g277_new.png shots/g277_mid2.png shots/g277.log shots/g277b.log shots/g277_whoosh.wav
+G277BASE="--noshroud --nosound --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 --gfx"
+grun shots/g277.log $G277BASE --script /tmp/g277.txt
+cp shots/g277_mid.png shots/g277_mid1.png 2>/dev/null
+grun shots/g277b.log $G277BASE --script /tmp/g277.txt
+cp shots/g277_mid.png shots/g277_mid2.png 2>/dev/null
+cp shots/g277_mid1.png shots/g277_mid.png 2>/dev/null
+gshots shots/g277_old.png shots/g277_mid.png shots/g277_new.png shots/g277_mid2.png
+G277OK=1; G277WHY=""
+g277bad() { G277OK=0; G277WHY="$G277WHY [$1]"; }
+grep -a '^GFXMODE|enhanced|space' shots/g277.log >/dev/null || g277bad switch
+grep -a '^GFXWIPE|whoosh|playing' shots/g277.log >/dev/null || g277bad whoosh
+grep -a '^OPTMODE|' shots/g277.log | tail -1 | grep -q 'mode=2|fx_mode=2|.*fx_enabled=1|fx_exp=0' || g277bad target
+cmp -s shots/g277_mid.png shots/g277_mid2.png || g277bad nondeterministic
+G277PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+    a,b,c=[np.asarray(Image.open('shots/g277_'+n+'.png').convert('RGB')).astype(np.int16) for n in ('old','mid','new')]
+    d=lambda x,y:int((np.abs(x-y).sum(2)>24).sum())
+    print(d(a,b),d(b,c),d(a,c))
+except Exception: print('-1 -1 -1')
+PYPIX
+)
+set -- $G277PX
+[ "${1:--1}" -ge 1000 ] || g277bad "old-mid=$1"
+[ "${2:--1}" -ge 1000 ] || g277bad "mid-new=$2"
+[ "${3:--1}" -ge 10000 ] || g277bad "old-new=$3"
+if [ "$GRC" != "0" ]; then bad "G277 wipe run failed (GRC=$GRC)";
+elif [ "$G277OK" = "1" ]; then ok "G277 SPACE wipes from N64 to Enhanced, deterministically, with whoosh";
+else bad "G277 wipe:$G277WHY"; fi
+
+# =====================================================================================
+# G278: DOS Classic keeps a 320x200 pixel grid at a 1280x720 window size and
+# still accepts map-space clicks on the original sprite units.
+# =====================================================================================
+cat > /tmp/g278.txt <<'G278EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 53 55
+lclickcell 56 53
+player
+shot shots/g278_classic_720.png
+quit
+G278EOF
+gbegin shots/g278_classic_720.png shots/g278.log
+grun shots/g278.log --noshroud --nosound --scen SCG01EA --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g278.txt
+gshots shots/g278_classic_720.png
+G278OK=1
+grep -aE '^PLAYER\|.*selection=1\|what=MCV' shots/g278.log >/dev/null || G278OK=0
+grep -aE '^DOS2D\|loaded [1-9][0-9]* original SHP shapes' shots/g278.log >/dev/null || G278OK=0
+G278FRAME=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+    a=np.asarray(Image.open('shots/g278_classic_720.png').convert('RGB'))
+    outer=np.concatenate((a[:60].reshape(-1,3),a[660:].reshape(-1,3),
+                          a[60:660,:160].reshape(-1,3),a[60:660,1120:].reshape(-1,3)))
+    inner=a[60:660,160:1120]
+    print(int(a.shape==(720,1280,3) and np.count_nonzero(outer)==0 and
+              np.count_nonzero(inner)>10000))
+except Exception: print(0)
+PYPIX
+)
+[ "$G278FRAME" = "1" ] || G278OK=0
+if [ "$GRC" != "0" ]; then bad "G278 Classic scaling and selection run failed (GRC=$GRC)";
+elif [ "$G278OK" = "1" ]; then ok "G278 DOS Classic fills an integer-scaled 320x200 frame and selects the MCV at 1280x720";
+else bad "G278 DOS Classic frame or selection failed"; fi
+
+# =====================================================================================
+# G279: SPACE reaches all three named modes and returns to an unchanged DOS frame.
+# =====================================================================================
+cat > /tmp/g279.txt <<'G279EOF'
+tick 20
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+shot shots/g279_classic_a.png
+gfxwipe freeze
+gfxcycle
+shot shots/g279_cap1.png
+gfxwipe at 3.70
+gfxwipe run
+shot shots/g279_n64.png
+gfxwipe freeze
+gfxcycle
+shot shots/g279_cap2.png
+gfxwipe at 3.70
+gfxwipe run
+shot shots/g279_enhanced.png
+gfxwipe freeze
+gfxcycle
+shot shots/g279_cap3.png
+gfxwipe at 3.70
+gfxwipe run
+shot shots/g279_classic_b.png
+quit
+G279EOF
+gbegin shots/g279_classic_a.png shots/g279_n64.png shots/g279_enhanced.png shots/g279_classic_b.png shots/g279.log
+grun shots/g279.log --noshroud --nosound --scen SCG01EA --pack SCG01EA.pack $BASE --w 1280 --h 800 --script /tmp/g279.txt
+gshots shots/g279_classic_a.png shots/g279_n64.png shots/g279_enhanced.png shots/g279_classic_b.png
+G279OK=1
+[ "$(grep -ac '^GFXMODE|n64|space' shots/g279.log)" = 1 ] || G279OK=0
+[ "$(grep -ac '^GFXMODE|enhanced|space' shots/g279.log)" = 1 ] || G279OK=0
+[ "$(grep -ac '^GFXMODE|classic|space' shots/g279.log)" = 1 ] || G279OK=0
+cmp -s shots/g279_classic_a.png shots/g279_classic_b.png || G279OK=0
+cmp -s shots/g279_classic_a.png shots/g279_n64.png && G279OK=0
+cmp -s shots/g279_n64.png shots/g279_enhanced.png && G279OK=0
+if [ "$GRC" != "0" ]; then bad "G279 full graphics cycle failed (GRC=$GRC)";
+elif [ "$G279OK" = "1" ]; then ok "G279 SPACE cycles Classic, N64 and Enhanced and restores the exact Classic frame";
+else bad "G279 full graphics cycle or Classic round trip failed"; fi
+
+# =====================================================================================
+# G280: a later mission exercises a much broader original SHP set than GDI 1.
+# =====================================================================================
+cat > /tmp/g280.txt <<'G280EOF'
+tick 30
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 35 36
+dosdrawprobe
+shot shots/g280_classic_later.png
+quit
+G280EOF
+gbegin shots/g280_classic_later.png shots/g280.log
+grun shots/g280.log --noshroud --nosound --scen SCG06EA --pack SCG06EA.pack $BASE --w 1280 --h 800 --script /tmp/g280.txt
+gshots shots/g280_classic_later.png
+G280L=$(grep -a '^DOSDRAW|ok=1|count=' shots/g280.log | head -1 | cut -d= -f3)
+G280OK=1
+[ "${G280L:-0}" -ge 100 ] || G280OK=0
+grep -a '^DOS2D|missing original SHP' shots/g280.log >/dev/null && G280OK=0
+if [ "$GRC" != "0" ]; then bad "G280 later Classic mission failed (GRC=$GRC)";
+elif [ "$G280OK" = "1" ]; then ok "G280 later Classic mission draws $G280L engine sprite layers without missing shared SHPs";
+else bad "G280 later Classic mission has missing original sprites or too few layers ($G280L)"; fi
+
+# =====================================================================================
+# G281: the original theater archives contribute visible DOS scenery and Tiberium.
+# SCG05EA has Tiberium inside the playable bounds; reveal it before sampling.
+# =====================================================================================
+cat > /tmp/g281.txt <<'G281EOF'
+tick 30
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cheatset fog 0
+tick 1
+cam 32 23
+dosdrawprobe
+shot shots/g281_classic_tiberium.png
+quit
+G281EOF
+gbegin shots/g281_classic_tiberium.png shots/g281.log
+grun shots/g281.log --noshroud --nosound --scen SCG05EA --pack SCG05EA.pack $BASE --w 1280 --h 800 --script /tmp/g281.txt
+gshots shots/g281_classic_tiberium.png
+G281S=$(grep -aE '^DOS2D\|loaded [0-9]+ original SHP shapes' shots/g281.log | head -1 | awk '{print $2}')
+G281D=$(grep -a '^DOS2D|dynamic ok=1 count=' shots/g281.log | head -1 | sed 's/.*count=//')
+G281T=$(grep -a '^DOSDRAW|tibcells=' shots/g281.log | tail -1 | cut -d'|' -f2 | cut -d= -f2)
+G281OK=1
+[ "${G281S:-0}" -ge 200 ] || G281OK=0
+[ "${G281D:-0}" -ge 100 ] || G281OK=0
+[ "${G281T:-0}" -ge 100 ] || G281OK=0
+grep -a '^DOS2D|missing original SHP' shots/g281.log >/dev/null && G281OK=0
+if [ "$GRC" != "0" ]; then bad "G281 DOS theater scenery run failed (GRC=$GRC)";
+elif [ "$G281OK" = "1" ]; then ok "G281 Classic loads $G281S original shapes and draws $G281D dynamic scenery layers over $G281T Tiberium cells";
+else bad "G281 DOS theater scenery or Tiberium missing (shapes=$G281S dynamic=$G281D Tiberium=$G281T)"; fi
+
+# =====================================================================================
+# G282: the original sprite cursor is visible over the DOS map, and selecting a
+# unit draws TechnoClass's white corners and four-row health bar.
+# =====================================================================================
+cat > /tmp/g282.txt <<'G282EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 53 55
+cursor 1100 500
+shot shots/g282_cursor_away.png
+cursor 500 300
+shot shots/g282_cursor_map.png
+lclickcell 56 53
+player
+dosdrawprobe
+shot shots/g282_selected.png
+quit
+G282EOF
+gbegin shots/g282_cursor_away.png shots/g282_cursor_map.png shots/g282_selected.png shots/g282.log
+grun shots/g282.log --nosound --scen SCG01EA --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g282.txt
+gshots shots/g282_cursor_away.png shots/g282_cursor_map.png shots/g282_selected.png
+G282PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g282_cursor_away.png').convert('RGB'))
+ b=np.asarray(Image.open('shots/g282_cursor_map.png').convert('RGB'))
+ c=np.asarray(Image.open('shots/g282_selected.png').convert('RGB'))
+ pointer=int(np.count_nonzero(np.any(a[250:350,450:550]!=b[250:350,450:550],axis=2)))
+ z=c[165:330,690:855]
+ white=int(np.count_nonzero((z[:,:,0]>225)&(z[:,:,1]>225)&(z[:,:,2]>225)))
+ print(pointer,white)
+except Exception: print(0,0)
+PYPIX
+)
+set -- $G282PX
+G282OK=1
+[ "${1:-0}" -ge 50 ] || G282OK=0
+[ "${2:-0}" -ge 100 ] || G282OK=0
+grep -aE '^CURSOR\|at=500.0,300.0\|.*onmap=1' shots/g282.log >/dev/null || G282OK=0
+grep -aE '^PLAYER\|.*selection=1\|what=MCV' shots/g282.log >/dev/null || G282OK=0
+grep -a '^DOSDRAW|layer|MCV|.*|size=48,48|dimensions=36,36|' shots/g282.log >/dev/null || G282OK=0
+if [ "$GRC" != "0" ]; then bad "G282 Classic cursor and selection run failed (GRC=$GRC)";
+elif [ "$G282OK" = "1" ]; then ok "G282 DOS cursor changes $1 map pixels; selected MCV has $2 white bracket/bar pixels";
+else bad "G282 DOS cursor or original selection marks missing (cursor=$1 white=$2)"; fi
+
+# =====================================================================================
+# G283: original SHADOW.SHP edge frames come from the engine's Cell_Shadow index.
+# =====================================================================================
+cat > /tmp/g283.txt <<'G283EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 53 55
+dosdrawprobe
+shot shots/g283_fog.png
+cheatset fog 0
+tick 1
+dosdrawprobe
+shot shots/g283_clear.png
+quit
+G283EOF
+gbegin shots/g283_fog.png shots/g283_clear.png shots/g283.log
+grun shots/g283.log --nosound --scen SCG01EA --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g283.txt
+gshots shots/g283_fog.png shots/g283_clear.png
+G283PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g283_fog.png').convert('RGB'))
+ b=np.asarray(Image.open('shots/g283_clear.png').convert('RGB'))
+ print(int(np.count_nonzero(np.any(a[60:450,160:880]!=b[60:450,160:880],axis=2))))
+except Exception: print(0)
+PYPIX
+)
+G283FOG=$(grep -a '^DOSDRAW|fog|' shots/g283.log | head -1)
+G283PART=$(printf '%s' "$G283FOG" | sed -n 's/.*partial=\([0-9]*\).*/\1/p')
+G283GREEN=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g283_fog.png').convert('RGB'))[180:500,160:880]
+ print(int(np.count_nonzero((a[:,:,0]==84)&(a[:,:,1]==252)&(a[:,:,2]==84))))
+except Exception: print(999999)
+PYPIX
+)
+G283OK=1
+[ "${G283PART:-0}" -ge 1 ] || G283OK=0
+[ "${G283PX:-0}" -ge 1000 ] || G283OK=0
+[ "${G283GREEN:-999999}" -le 2 ] || G283OK=0
+grep -a '^DOS2D|loaded 269 original SHP shapes' shots/g283.log >/dev/null || G283OK=0
+if [ "$GRC" != "0" ]; then bad "G283 original DOS shroud run failed (GRC=$GRC)";
+elif [ "$G283OK" = "1" ]; then ok "G283 SHADOW.SHP draws $G283PART original edge cells; fog changes $G283PX pixels; no green unit shadows";
+else bad "G283 original shroud edge or coverage missing (partial=$G283PART changed=$G283PX)"; fi
+
+# =====================================================================================
+# G284: a live FIRE3 AnimClass plays successive original .SHP frames in Classic.
+# =====================================================================================
+cat > /tmp/g284.txt <<'G284EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 53 55
+efxanim 30 56 53
+tick 1
+dosdrawprobe
+shot shots/g284_fire_a.png
+tick 4
+dosdrawprobe
+shot shots/g284_fire_b.png
+quit
+G284EOF
+gbegin shots/g284_fire_a.png shots/g284_fire_b.png shots/g284.log
+grun shots/g284.log --nosound --scen SCG01EA --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g284.txt
+gshots shots/g284_fire_a.png shots/g284_fire_b.png
+G284FRAMES=$(grep -a '^DOSDRAW|anim|FIRE3|frame=' shots/g284.log | sed -n 's/.*frame=\([0-9]*\).*/\1/p' | tr '\n' ' ')
+G284PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g284_fire_a.png').convert('RGB'))
+ b=np.asarray(Image.open('shots/g284_fire_b.png').convert('RGB'))
+ print(int(np.count_nonzero(np.any(a[160:270,680:800]!=b[160:270,680:800],axis=2))))
+except Exception: print(0)
+PYPIX
+)
+G284OK=1
+[ "${G284PX:-0}" -ge 50 ] || G284OK=0
+[ "$(printf '%s' "$G284FRAMES" | awk '{print NF}')" -ge 2 ] || G284OK=0
+[ "$(printf '%s' "$G284FRAMES" | awk '{print $1}')" != "$(printf '%s' "$G284FRAMES" | awk '{print $2}')" ] || G284OK=0
+grep -a '^EFXANIM|type=30|.*|ok' shots/g284.log >/dev/null || G284OK=0
+if [ "$GRC" != "0" ]; then bad "G284 original DOS animation run failed (GRC=$GRC)";
+elif [ "$G284OK" = "1" ]; then ok "G284 original FIRE3 frames $G284FRAMES change $G284PX pixels";
+else bad "G284 FIRE3 stage or sprite animation missing (frames=$G284FRAMES changed=$G284PX)"; fi
+
+# =====================================================================================
+# G285: DOS Classic stamps the original opaque water pixels, including regions that
+# the shared N64 atlas marks as transparent holes for its separate water plane.
+# =====================================================================================
+cat > /tmp/g285.txt <<'G285EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 16 55
+shot shots/g285_water.png
+quit
+G285EOF
+gbegin shots/g285_water.png shots/g285.log
+grun shots/g285.log --noshroud --nosound --scen SCG01EA --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g285.txt
+gshots shots/g285_water.png
+G285PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g285_water.png').convert('RGB'),dtype=np.int16)[540:660,592:880]
+ blue=int(np.count_nonzero((a[:,:,2]>a[:,:,0]+20)&(a[:,:,2]>a[:,:,1]+5)&(a[:,:,2]>70)))
+ black=int(np.count_nonzero((a[:,:,0]<20)&(a[:,:,1]<20)&(a[:,:,2]<20)))
+ print(blue,black)
+except Exception: print(0,999999)
+PYPIX
+)
+set -- $G285PX
+G285OK=1
+[ "${1:-0}" -ge 6000 ] || G285OK=0
+[ "${2:-999999}" -le 1000 ] || G285OK=0
+if [ "$GRC" != "0" ]; then bad "G285 DOS water tile run failed (GRC=$GRC)";
+elif [ "$G285OK" = "1" ]; then ok "G285 original DOS water/shore tiles have $1 blue and $2 black pixels in the sea region";
+else bad "G285 DOS water holes or gaps visible (blue=$1 black=$2)"; fi
+
+# =====================================================================================
+# G286: Classic map clicks place a built structure, and its original MAKE sheet is live.
+# =====================================================================================
+cat > /tmp/g286.txt <<'G286EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cheatset money 1
+cheatset instant 1
+tick 20
+build PYLE
+ready PYLE
+startplace PYLE
+cam 56 53
+lclickcell 56 52
+tick 2
+dosdrawprobe
+objdump
+shot shots/g286_place.png
+quit
+G286EOF
+gbegin shots/g286_place.png shots/g286.log
+grun shots/g286.log --nosound --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g286.txt
+gshots shots/g286_place.png
+G286OK=1
+grep -a '^SIDEBAR-PLACE|PYLE|cell=56,52|.*|legal=1' shots/g286.log >/dev/null || G286OK=0
+grep -a '^OBJ|BUILDING|PYLE|GoodGuy|.*|x=56|y=52|.*|limbo=0|.*|doing=0|' shots/g286.log >/dev/null || G286OK=0
+grep -a '^DOSDRAW|layer|PYLE|asset=PYLEMAKE|frame=' shots/g286.log >/dev/null || G286OK=0
+grep -a '^SCRIPT|end .*0 failures' shots/g286.log >/dev/null || G286OK=0
+if [ "$GRC" != "0" ]; then bad "G286 Classic building click run failed (GRC=$GRC)";
+elif [ "$G286OK" = "1" ]; then ok "G286 Classic map click places a Barracks and renders PYLEMAKE";
+else bad "G286 Classic map click, placed Barracks, or construction sprite missing"; fi
+
+# =====================================================================================
+# G287: the original Construction Yard buildup changes frames during MCV deployment.
+# =====================================================================================
+cat > /tmp/g287.txt <<'G287EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 57 49
+lclickobj MCV 0
+expectsel 1
+order 57 49
+tick 12
+dosdrawprobe
+objdump
+shot shots/g287_early.png
+tick 12
+dosdrawprobe
+shot shots/g287_mid.png
+tick 12
+dosdrawprobe
+shot shots/g287_late.png
+quit
+G287EOF
+gbegin shots/g287_early.png shots/g287_mid.png shots/g287_late.png shots/g287.log
+grun shots/g287.log --nosound --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g287.txt
+gshots shots/g287_early.png shots/g287_mid.png shots/g287_late.png
+G287FRAMES=$(grep -a '^DOSDRAW|layer|FACT|asset=FACTMAKE|frame=' shots/g287.log | sed -n 's/.*frame=\([0-9]*\).*/\1/p' | tr '\n' ' ')
+G287OK=1
+[ "$(printf '%s' "$G287FRAMES" | awk '{print NF}')" -ge 2 ] || G287OK=0
+[ "$(printf '%s' "$G287FRAMES" | awk '{print $1}')" != "$(printf '%s' "$G287FRAMES" | awk '{print $2}')" ] || G287OK=0
+grep -a '^DOS2D|loaded 269 original SHP shapes' shots/g287.log >/dev/null || G287OK=0
+if [ "$GRC" != "0" ]; then bad "G287 Classic MCV deployment run failed (GRC=$GRC)";
+elif [ "$G287OK" = "1" ]; then ok "G287 MCV unfolds through original FACTMAKE frames $G287FRAMES";
+else bad "G287 FACTMAKE stages or source sprite pack missing (frames=$G287FRAMES)"; fi
+
+# =====================================================================================
+# G288: original wall overlays use SHAPE_GHOST / Map.UnitShadow. Sandbags on SCG01EA
+# expose the regression as bright LTGREEN pixels when that draw flag is dropped.
+# =====================================================================================
+cat > /tmp/g288.txt <<'G288EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 48 54
+walldump
+shot shots/g288_wall.png
+quit
+G288EOF
+gbegin shots/g288_wall.png shots/g288.log
+grun shots/g288.log --noshroud --nosound --scen SCG01EA --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g288.txt
+gshots shots/g288_wall.png
+G288PX=$(python3 - <<'PYPIX'
+from PIL import Image
+import numpy as np
+try:
+ a=np.asarray(Image.open('shots/g288_wall.png').convert('RGB'))[390:510,500:665]
+ green=np.count_nonzero((a[:,:,1]>=220)&(a[:,:,0]<=110)&(a[:,:,2]<=110))
+ tan=np.count_nonzero((a[:,:,0]>70)&(a[:,:,0]>a[:,:,2]+25)&(a[:,:,1]>65)&(a[:,:,1]<180))
+ print(green,tan)
+except Exception: print(999999,0)
+PYPIX
+)
+set -- $G288PX
+G288OK=1
+[ "${1:-999999}" -le 5 ] || G288OK=0
+[ "${2:-0}" -ge 1500 ] || G288OK=0
+grep -a '^WALLDUMP|48,54|SBAG|' shots/g288.log >/dev/null || G288OK=0
+grep -a '^WALLDUMP-END|cells=42|drawn=4' shots/g288.log >/dev/null || G288OK=0
+if [ "$GRC" != "0" ]; then bad "G288 Classic sandbag shadow run failed (GRC=$GRC)";
+elif [ "$G288OK" = "1" ]; then ok "G288 Classic sandbags retain $2 tan pixels and have $1 bright green shadow pixels";
+else bad "G288 Classic sandbag overlays have green shadows or missing sprites (green=$1 tan=$2)"; fi
+
+# =====================================================================================
+# G289: hyphenated DOS SHPs are in both the engine archive and Classic sprite pack.
+# The live artillery impact and vehicle hit must be drawn, not merely spawned.
+# =====================================================================================
+cat > /tmp/g289.txt <<'G289EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 49 55
+tick 26
+dosdrawprobe
+shot shots/g289_impact.png
+tick 8
+dosdrawprobe
+shot shots/g289_hit.png
+quit
+G289EOF
+gbegin shots/g289_impact.png shots/g289_hit.png shots/g289.log
+grun shots/g289.log --nosound --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g289.txt
+gshots shots/g289_impact.png shots/g289_hit.png
+G289PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g289_hit.png').convert('RGB'))[340:430,480:590].astype(np.int16)
+ print(int(np.count_nonzero((a[:,:,0]>170)&(a[:,:,1]>90)&(a[:,:,2]<110))))
+except Exception: print(0)
+PYPIX
+)
+G289OK=1
+grep -a '^DOS2D|loaded 269 original SHP shapes' shots/g289.log >/dev/null || G289OK=0
+grep -a '^DOSDRAW|anim|ART-EXP1|' shots/g289.log >/dev/null || G289OK=0
+grep -a '^DOSDRAW|anim|VEH-HIT3|' shots/g289.log >/dev/null || G289OK=0
+[ "${G289PX:-0}" -ge 100 ] || G289OK=0
+if [ "$GRC" != "0" ]; then bad "G289 Classic effect run failed (GRC=$GRC)";
+elif [ "$G289OK" = "1" ]; then ok "G289 original artillery and vehicle-hit sheets animate with $G289PX orange impact pixels";
+else bad "G289 original DOS impact or vehicle-hit sprite missing (orange=$G289PX)"; fi
+
+# =====================================================================================
+# G290: single-player BadGuy buildings use RemapRed, as HouseClass::Remap_Table does.
+# =====================================================================================
+cat > /tmp/g290.txt <<'G290EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 54 12
+objdump
+shot shots/g290_nod.png
+quit
+G290EOF
+gbegin shots/g290_nod.png shots/g290.log
+grun shots/g290.log --nosound --noshroud --scen SCB07EA --pack SCB07EA.pack $BASE --w 1280 --h 720 --script /tmp/g290.txt
+gshots shots/g290_nod.png
+G290RED=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g290_nod.png').convert('RGB'))[280:650,290:730].astype(np.int16)
+ print(int(np.count_nonzero((a[:,:,0]>a[:,:,1]+50)&(a[:,:,0]>a[:,:,2]+50)&(a[:,:,0]>100))))
+except Exception: print(0)
+PYPIX
+)
+G290OK=1
+grep -a '^OBJ|BUILDING|FACT|BadGuy|' shots/g290.log >/dev/null || G290OK=0
+grep -a '^OBJ|BUILDING|NUKE|BadGuy|' shots/g290.log >/dev/null || G290OK=0
+[ "${G290RED:-0}" -ge 10000 ] || G290OK=0
+if [ "$GRC" != "0" ]; then bad "G290 Nod campaign run failed (GRC=$GRC)";
+elif [ "$G290OK" = "1" ]; then ok "G290 Nod campaign structures use red remap ($G290RED red pixels)";
+else bad "G290 Nod campaign buildings are not red (red=$G290RED)"; fi
+
+# =====================================================================================
+# G291: the source's MOVEFLSH index 1 uses its white translucent table.
+# =====================================================================================
+cat > /tmp/g291.txt <<'G291EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 52 40
+lclickobj LTNK 0
+expectsel 1
+shot shots/g291_before.png
+order 52 42
+tick 1
+dosdrawprobe
+shot shots/g291_move.png
+quit
+G291EOF
+gbegin shots/g291_before.png shots/g291_move.png shots/g291.log
+grun shots/g291.log --nosound --noshroud --scen SCB07EA --pack SCB07EA.pack $BASE --w 1280 --h 720 --script /tmp/g291.txt
+gshots shots/g291_before.png shots/g291_move.png
+G291PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g291_before.png').convert('RGB'))[515:565,530:585].astype(np.int16)
+ b=np.asarray(Image.open('shots/g291_move.png').convert('RGB'))[515:565,530:585].astype(np.int16)
+ d=b-a
+ bright=int(np.count_nonzero((d[:,:,0]+d[:,:,1]+d[:,:,2])>45))
+ purple=int(np.count_nonzero((b[:,:,2]>b[:,:,1]+45)&(b[:,:,0]>b[:,:,1]+20)&(b[:,:,2]>80)))
+ print(bright,purple)
+except Exception: print(0,9999)
+PYPIX
+)
+set -- $G291PX
+G291OK=1
+grep -a '^DOSDRAW|anim|MOVEFLSH|' shots/g291.log >/dev/null || G291OK=0
+[ "${1:-0}" -ge 50 ] || G291OK=0
+[ "${2:-9999}" -le 5 ] || G291OK=0
+if [ "$GRC" != "0" ]; then bad "G291 Classic move-flash run failed (GRC=$GRC)";
+elif [ "$G291OK" = "1" ]; then ok "G291 move order gives $1 lightened pixels and $2 purple pixels";
+else bad "G291 original white move flash absent or purple (bright=$1 purple=$2)"; fi
+
+# =====================================================================================
+# G292: target structure follows the engine's alternating IsBlushing state.
+# =====================================================================================
+cat > /tmp/g292.txt <<'G292EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 52 55
+lclickobj E1:GoodGuy 0
+expectsel 1
+orderobj GUN:BadGuy 0
+tick 2
+objdump
+shot shots/g292_dark.png
+tick 1
+objdump
+shot shots/g292_lit.png
+quit
+G292EOF
+gbegin shots/g292_dark.png shots/g292_lit.png shots/g292.log
+grun shots/g292.log --nosound --noshroud --scen SCG01EA --pack SCG01EA.pack $BASE --w 1280 --h 720 --script /tmp/g292.txt
+gshots shots/g292_dark.png shots/g292_lit.png
+G292PX=$(python3 - <<'PYPIX'
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g292_dark.png').convert('RGB'))[355:430,305:375].astype(np.int16)
+ b=np.asarray(Image.open('shots/g292_lit.png').convert('RGB'))[355:430,305:375].astype(np.int16)
+ white=lambda z:int(np.count_nonzero((z[:,:,0]>190)&(z[:,:,1]>190)&(z[:,:,2]>190)))
+ print(white(a),white(b))
+except Exception: print(9999,0)
+PYPIX
+)
+set -- $G292PX
+G292OK=1
+grep -a '^OBJ|BUILDING|GUN|BadGuy|.*|id=0|.*|blush=0|flash=6|.*|flashme=1|' shots/g292.log >/dev/null || G292OK=0
+grep -a '^OBJ|BUILDING|GUN|BadGuy|.*|id=0|.*|blush=1|flash=5|.*|flashme=1|' shots/g292.log >/dev/null || G292OK=0
+[ "${2:-0}" -ge 50 ] || G292OK=0
+[ "$(( ${2:-0} - ${1:-0} ))" -ge 50 ] || G292OK=0
+if [ "$GRC" != "0" ]; then bad "G292 target flash run failed (GRC=$GRC)";
+elif [ "$G292OK" = "1" ]; then ok "G292 targeted structure brightens on engine blush tick (white $1 -> $2)";
+else bad "G292 targeted structure does not flash with engine blush (white $1 -> $2)"; fi
+
+# =====================================================================================
+# G293 THE REMASTERED EFFECTS (effects_mod.h "ENHANCED EFFECTS", efx_enhanced.h,
+# efx_enh.pack baked by tools/art/remaster/fx/make_fx.py). Under Enhanced, every particle
+# the cartridge's recipes throw wears the remastered art instead of the cartridge's, and
+# Enhanced adds emitters of its own (muzzle flashes, the landing-zone flare, the building
+# death). This was the largest shipped Enhanced feature with no gate once G264 retired.
+#
+# Four runs of SCG01EA at 1280x720, all with the same three anims started by the engine
+# itself four ticks in (efxanim: an FBALL1 on 48,54, an ART-EXP1 on 51,56 and a
+# landing-zone smoke on 46,57) and then 30 more ticks of the opening fight, whose own
+# shells land in view:
+#   enh    Enhanced, as a player gets it
+#   off    Enhanced with the remastered-effects dial off (gfx efx_enh 0): the control
+#   enh2   enh again, for determinism
+#   cl     Classic, chosen through the Options dialog
+#
+# THE CLAIMS, read from the renderer's own counters (efxdump's EFXENH and EFXDRAWSEQ
+# lines, counted where the draw chooses each particle's texture, so they cannot disagree
+# with it) as well as the picture:
+#   (1) THE SET LOADS. The log says the Enhanced pack loaded with as many sequences as the
+#       pack's own header holds (at least 13: the cartridge's eight plus five of its own),
+#       and EFXENH reports pack=loaded, seqs= the same number, on=1.
+#   (2) ENHANCED DRAWS THE REMASTERED ART AND NONE OF THE CARTRIDGE'S. Both explosions
+#       are the engine's (EFXANIM ok, EFXSEEN FBALL1 and ART-EXP1), the fight's own
+#       VEH-HIT3 lands, and over the run at least 100 particle draws come from the
+#       Enhanced pack and exactly 0 from the cartridge's. The fireball sheet is among
+#       them, and so are two sheets only the remastered set has: the landing-zone smoke
+#       wears LZSMOKE, and the flare Enhanced adds under it wears FLARE. Enhanced's extra
+#       emitters spawned something.
+#   (3) THE DIAL IS WHAT DOES IT, PARTICLE FOR PARTICLE. With efx_enh off the same run
+#       reports on=0, 0 Enhanced draws and some cartridge draws, sees the same engine
+#       anims, and spawns exactly Enhanced's count less Enhanced's extras: the remastered
+#       set changes the art and adds its own emitters, and moves nothing of the
+#       cartridge's. On the glass, the pixels within 80 of each explosion's projected cell
+#       differ between the two runs by at least 300 each.
+#   (4) CLASSIC DRAWS NONE OF THEM. on=0, 0 draws from either pack, no extras, while the
+#       engine still produced the FBALL1 (the 1995 renderer draws its own art for it).
+#   (5) TWO RUNS ARE ONE PICTURE. enh2's two shots are byte-identical to enh's, and so is
+#       every particle in both dumps (EFXP lines, non-empty).
+# NOT COVERED: the building death's rebuilt recipe (FRAG3: shock ring, lingering smoke,
+# embers), which only a structure dying reaches, and how the art looks to a person.
+# Every run is --noebld: the remastered buildings' own emitters (ebld_mod.h: steam,
+# embers, sparks in these same sheets, fired by the fight's hits on them) are not this
+# gate's subject, and G273 and G295 prove them.
+# =====================================================================================
+cat > /tmp/g293_enh.txt <<'G293EOF'
+cam 49 55
+tick 4
+efxanim 0 48 54
+efxanim 7 51 56
+efxanim 58 46 57
+tick 6
+probecell 48 54
+probecell 51 56
+shot shots/g293_enh_a.png
+efxdump
+tick 30
+shot shots/g293_enh_b.png
+efxdump
+quit
+G293EOF
+sed 's/^tick 4$/tick 4\
+gfx efx_enh 0/; s/g293_enh_/g293_off_/' /tmp/g293_enh.txt > /tmp/g293_off.txt
+sed 's/g293_enh_/g293_enh2_/' /tmp/g293_enh.txt > /tmp/g293_enh2.txt
+cat > /tmp/g293_cl.txt <<'G293EOF'
+tick 4
+options
+optclick Visuals
+optclick Classic
+optclick OK
+optclick Resume Mission
+cam 49 55
+efxanim 0 48 54
+efxanim 7 51 56
+efxanim 58 46 57
+tick 6
+shot shots/g293_cl_a.png
+efxdump
+tick 30
+shot shots/g293_cl_b.png
+efxdump
+quit
+G293EOF
+gbegin shots/g293_enh_a.png shots/g293_enh_b.png shots/g293_off_a.png shots/g293_off_b.png \
+       shots/g293_enh2_a.png shots/g293_enh2_b.png shots/g293_cl_a.png shots/g293_cl_b.png \
+       shots/g293_enh.log shots/g293_off.log shots/g293_enh2.log shots/g293_cl.log
+for g293_v in enh off enh2; do
+  grun shots/g293_$g293_v.log --nosound --noshroud --scen SCG01EA --pack SCG01EA.pack $BASE \
+       --w 1280 --h 720 --enhanced --texset 1 --noebld --script /tmp/g293_$g293_v.txt
+done
+grun shots/g293_cl.log --nosound --noshroud --scen SCG01EA --pack SCG01EA.pack $BASE \
+     --w 1280 --h 720 --noebld --script /tmp/g293_cl.txt
+gshots shots/g293_enh_a.png shots/g293_enh_b.png shots/g293_off_a.png shots/g293_off_b.png \
+       shots/g293_enh2_a.png shots/g293_enh2_b.png shots/g293_cl_a.png shots/g293_cl_b.png
+# The last EFXENH line of a run is its whole-run total; the fields by name.
+g293_f() { grep -a '^EFXENH|' "shots/g293_$1.log" | tail -1 | tr '|' '\n' | sed -n "s/^$2=//p"; }
+g293_seen() { sed -n "s/^EFXSEEN|$2|\([0-9]*\)$/\1/p" "shots/g293_$1.log" | tail -1; }
+g293_spawned() { sed -n 's/^EFXPART|pool=live|.*|spawned=\([0-9]*\)|.*/\1/p' "shots/g293_$1.log" | tail -1; }
+g293_slot() { sed -n "s/^EFXDRAWSEQ|slot=$2|[A-Z]*|enh=\([0-9]*\)|cart=\([0-9]*\)$/\1 \2/p" "shots/g293_$1.log" | tail -1; }
+# (1) the pack's own count, read from its header rather than written into this gate
+G293PACKN=$(python3 -c "import struct,sys; f=open('efx_enh.pack','rb'); m=f.read(8); print(struct.unpack('<II',f.read(8))[1] if m==b'CNC3DEFX' else 0)" 2>/dev/null)
+G293LOADN=$(sed -n 's/^effects: Enhanced art pack efx_enh.pack: \([0-9]*\) sequences$/\1/p' shots/g293_enh.log | head -1)
+G293OK1=1
+[ "${G293PACKN:-0}" -ge 13 ] || G293OK1=0
+[ "${G293LOADN:-x}" = "${G293PACKN:-y}" ] || G293OK1=0
+[ "$(g293_f enh pack)" = "loaded" ] || G293OK1=0
+[ "$(g293_f enh seqs)" = "${G293PACKN:-y}" ] || G293OK1=0
+[ "$(g293_f enh on)" = "1" ] || G293OK1=0
+# (2)
+G293ENH=$(g293_f enh drawn_enh); G293ENHC=$(g293_f enh drawn_cart); G293EXTRA=$(g293_f enh extras)
+set -- $(g293_slot enh 1); G293FB="${1:-0}"; G293FBC="${2:-x}"
+G293OWN=$(sed -n 's/^EFXDRAWSEQ|slot=1[0-9]|\([A-Z]*\)|enh=\([1-9][0-9]*\)|cart=0$/\1/p' shots/g293_enh.log | sort -u | tr '\n' ' ')
+G293OK2=1
+[ "$(grep -acE '^EFXANIM\|type=(0|7|58)\|.*\|ok$' shots/g293_enh.log)" = "3" ] || G293OK2=0
+[ "$(g293_seen enh FBALL1)" -ge 1 ] 2>/dev/null || G293OK2=0
+[ "$(g293_seen enh ART-EXP1)" -ge 1 ] 2>/dev/null || G293OK2=0
+[ "$(g293_seen enh VEH-HIT3)" -ge 1 ] 2>/dev/null || G293OK2=0
+[ "${G293ENH:-0}" -ge 100 ] || G293OK2=0
+[ "${G293ENHC:-x}" = "0" ] || G293OK2=0
+[ "$G293FB" -ge 1 ] && [ "$G293FBC" = "0" ] || G293OK2=0
+[ "$G293OWN" = "FLARE LZSMOKE " ] || G293OK2=0
+[ "${G293EXTRA:-0}" -ge 1 ] || G293OK2=0
+# (3)
+G293OFFE=$(g293_f off drawn_enh); G293OFFC=$(g293_f off drawn_cart)
+G293SPE=$(g293_spawned enh); G293SPO=$(g293_spawned off)
+G293OK3=1
+grep -a '^GFX|efx_enh=0$' shots/g293_off.log >/dev/null || G293OK3=0
+[ "$(g293_f off on)" = "0" ] || G293OK3=0
+[ "${G293OFFE:-x}" = "0" ] || G293OK3=0
+[ "${G293OFFC:-0}" -ge 100 ] || G293OK3=0
+[ "$(grep -a '^EFXSEEN|' shots/g293_enh.log | sort -u)" = "$(grep -a '^EFXSEEN|' shots/g293_off.log | sort -u)" ] || G293OK3=0
+[ -n "$G293SPE" ] && [ -n "$G293SPO" ] && [ -n "$G293EXTRA" ] \
+  && [ "$((G293SPE - G293EXTRA))" = "$G293SPO" ] || G293OK3=0
+G293AT=$(sed -n 's/^PROBE|at=\([-0-9.]*\),\([-0-9.]*\)|.*/\1 \2/p' shots/g293_enh.log | head -2 | tr '\n' ' ')
+G293PX=$(G293AT="$G293AT" python3 - <<'PYPIX'
+import os
+import numpy as np
+from PIL import Image
+try:
+ a=np.asarray(Image.open('shots/g293_enh_a.png').convert('RGB')).astype(np.int16)
+ b=np.asarray(Image.open('shots/g293_off_a.png').convert('RGB')).astype(np.int16)
+ d=np.abs(a-b).sum(axis=2)>60
+ v=[float(x) for x in os.environ['G293AT'].split()]
+ out=[]
+ for i in range(0,4,2):
+  c,r=int(v[i]),int(v[i+1])
+  out.append(int(d[max(r-80,0):r+80,max(c-80,0):c+80].sum()))
+ print(out[0],out[1])
+except Exception: print(0,0)
+PYPIX
+)
+set -- $G293PX; G293PXF="${1:-0}"; G293PXA="${2:-0}"
+[ "$G293PXF" -ge 300 ] && [ "$G293PXA" -ge 300 ] || G293OK3=0
+# (4)
+G293OK4=1
+[ "$(g293_f cl on)" = "0" ] || G293OK4=0
+[ "$(g293_f cl drawn_enh)" = "0" ] || G293OK4=0
+[ "$(g293_f cl drawn_cart)" = "0" ] || G293OK4=0
+[ "$(g293_f cl extras)" = "0" ] || G293OK4=0
+[ "$(grep -ac '^EFXANIM|.*|ok$' shots/g293_cl.log)" = "3" ] || G293OK4=0
+[ "$(g293_seen cl FBALL1)" -ge 1 ] 2>/dev/null || G293OK4=0
+# (5)
+G293OK5=1
+cmp -s shots/g293_enh_a.png shots/g293_enh2_a.png || G293OK5=0
+cmp -s shots/g293_enh_b.png shots/g293_enh2_b.png || G293OK5=0
+G293NP=$(grep -ac '^EFXP|' shots/g293_enh.log)
+[ "$G293NP" -ge 1 ] || G293OK5=0
+[ "$(grep -a '^EFXP|' shots/g293_enh.log)" = "$(grep -a '^EFXP|' shots/g293_enh2.log)" ] || G293OK5=0
+if [ "$GRC" != "0" ]; then bad "G293 remastered-effects runs failed (GRC=$GRC)";
+elif [ "$G293OK1$G293OK2$G293OK3$G293OK4$G293OK5" = "11111" ]; then
+  ok "G293 remastered effects: efx_enh.pack loads its $G293PACKN sequences; under Enhanced an engine FBALL1, ART-EXP1 and landing-zone smoke plus the fight's own hits draw $G293ENH particles from the remastered art and 0 from the cartridge's (fireball sheet $G293FB, the remastered set's own sheets $G293OWN, $G293EXTRA particles from Enhanced's own emitters); with the dial off 0 remastered and $G293OFFC cartridge draws, $G293SPO spawned = $G293SPE less the extras; $G293PXF and $G293PXA pixels differ at the two explosions; Classic draws none; two runs identical to the pixel and over $G293NP particles"
+else bad "G293 remastered effects (loads=$G293OK1 enhanced=$G293OK2 control=$G293OK3 classic=$G293OK4 determinism=$G293OK5): pack=$G293PACKN loaded=$G293LOADN enh=$G293ENH cart=$G293ENHC fireball=$G293FB/$G293FBC own=[$G293OWN] extras=$G293EXTRA off=$G293OFFE/$G293OFFC spawned=$G293SPE/$G293SPO px=$G293PXF,$G293PXA at=[$G293AT] particles=$G293NP"; fi
+
+# G294 THE REMASTERED CURSORS (ecur/ecur.bin; cursor3d_mod.h ecur_*). Under Enhanced every
+# cartridge cursor is drawn as its remastered model, a quarter smaller (ecur_scale 0.75), with
+# its glow, and it must move EXACTLY as the cartridge's does: the remastered models borrow
+# the cartridge meshes' own part tables and baked node animation, so the gate compares the
+# renderer's per-part motion for the two, frame for frame, rather than trusting that it looks
+# animated. Asserted against engine state and pixels:
+#   1. the file loads (23 models, 21 textures) and all 23 attach to the pack;
+#   2. every one of 16 cursor states draws its remastered model at scale 0.75 under Enhanced,
+#      the flipbook states the frame the cartridge's own index names; with --noecur and in
+#      the N64 picture none does;
+#   3. over a whole 25-tick cycle of every animated state, the per-part motion the dump
+#      prints (moved, translation) is identical with and without the remastered cursors,
+#      and not zero; the ion and enter flipbooks pass through every frame;
+#   4. the picture changes: remastered against cartridge at the cursor for every state, the
+#      spanner between two ticks, and the move marker's rings mid-life, which the dump says
+#      were drawn from the remastered model;
+#   5. two runs are identical to the pixel.
+g294_script() {   # $1 = tag
+  {
+    echo "tick 30"; echo "cam 48 52"; echo "cursor 660 500"
+    for s in 0 2 3 4 5 6 7 8 9 10 11 12 13 14 15 18; do
+      echo "cursor3dstate $s"; echo "cursor3ddump"; echo "shot shots/g294_$1_$s.png"
+    done
+    echo "cursor3dstate 6"; echo "shot shots/g294_$1_w0.png"; echo "tick 3"; echo "shot shots/g294_$1_w1.png"
+    for s in 4 5 6 7 9 10 11 12; do
+      echo "cursor3dstate $s"
+      for i in $(seq 1 25); do echo "cursor3ddump"; echo "tick 1"; done
+    done
+    echo "quit"
+  } > "/tmp/g294_$1.txt"
+}
+for t in enh enh2 off n64; do g294_script $t; done
+sed 's#shots/gm_#shots/g294m_on_#; s#^quit#cursor3ddump\
+quit#' "$GATEDIR/gate_ordermark.txt" > /tmp/g294m_on.txt
+sed 's#shots/gm_#shots/g294m_off_#' "$GATEDIR/gate_ordermark.txt" > /tmp/g294m_off.txt
+gbegin shots/g294_*.png shots/g294m_*.png shots/g294_*.log
+G294ARGS="--scen SCG01EA --pack SCG01EA.pack $BASE --noshroud"
+grun shots/g294_enh.log  $G294ARGS --script /tmp/g294_enh.txt  --enhanced --texset 1
+grun shots/g294_enh2.log $G294ARGS --script /tmp/g294_enh2.txt --enhanced --texset 1
+grun shots/g294_off.log  $G294ARGS --script /tmp/g294_off.txt  --enhanced --texset 1 --noecur
+grun shots/g294_n64.log  $G294ARGS --script /tmp/g294_n64.txt
+grun shots/g294m_on.log  --scen SCG01EC --pack SCG01EA.pack $BASE --script /tmp/g294m_on.txt  --enhanced --texset 1
+grun shots/g294m_off.log --scen SCG01EC --pack SCG01EA.pack $BASE --script /tmp/g294m_off.txt --enhanced --texset 1 --noecur
+gshots shots/g294_enh_0.png shots/g294_off_0.png shots/g294_enh_w1.png shots/g294m_on_mid.png shots/g294m_off_mid.png
+G294V="FAIL runs"
+if [ "$GRC" = "0" ]; then
+G294V=$(python3 - <<'PY'
+import re, filecmp
+import numpy as np
+from PIL import Image
+
+def log(t): return open('shots/g294_%s.log' % t, errors='replace').read().splitlines()
+def ecur(lines): return [dict(kv.split('=', 1) for kv in l.split('|')[1:]) for l in lines if l.startswith('CURSOR3DECUR|')]
+def c3d(lines):  return [dict(kv.split('=', 1) for kv in l.split('|')[1:]) for l in lines if l.startswith('CURSOR3D|')]
+bad = []
+enh, off, n64 = log('enh'), log('off'), log('n64')
+# 1
+if not any(l.startswith('ECUR|loaded|meshes 23|textures 21') for l in enh): bad.append('load')
+if not any(l.startswith('ECUR|attached|23 of 23') for l in enh): bad.append('attach')
+# 2: the static section is the first 16 dumps; state -> model code from the state table
+STATE = {0: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9, 11: 10, 12: 11, 13: 12, 14: 7, 15: 5, 18: 13}
+e, c = ecur(enh), c3d(enh)
+first = {}
+for d, k in zip(e, c):                        # each dump prints a state line, then its own
+    first.setdefault(int(k['state']), (d, k))
+for st, code in STATE.items():
+    d, k = first.get(st, ({'drawn': '-', 'name': '-', 'scale': '-'}, {'flip': '-'}))
+    want = 'ECUR%02X' % code + ('F%s' % k['flip'] if code in (10, 11) else '')
+    if d['drawn'] != '1' or d['name'] != want or d['scale'] != '0.7500':
+        bad.append('state%d:%s/%s/%s' % (st, d['drawn'], d['name'], d['scale']))
+if any(d['drawn'] != '0' for d in ecur(off)): bad.append('noecur-drew')
+if any(d['on'] != '0' or d['drawn'] != '0' for d in ecur(n64)): bad.append('n64-drew')
+# 3: per-part motion, remastered against cartridge, over every animated cycle
+def parts(lines): return [re.sub(r'\|tri0=\d+\|ntris=\d+', '', l) for l in lines if l.startswith('CURSOR3DPART|')]
+pe, po = parts(enh), parts(off)
+moved = [float(re.search(r'moved=([\d.]+)', l).group(1)) for l in pe]
+if not pe or pe != po: bad.append('motion-differs(%d/%d)' % (len(pe), len(po)))
+if not moved or max(moved) < 50: bad.append('motion-flat(%.1f)' % (max(moved) if moved else 0))
+flips = {}
+for d, k in zip(e, c):
+    if d['name'].startswith('ECUR0AF') or d['name'].startswith('ECUR0BF'):
+        flips.setdefault(d['name'][:6], set()).add(d['name'])
+if len(flips.get('ECUR0A', ())) != 4 or len(flips.get('ECUR0B', ())) != 3: bad.append('flips%s' % {k: len(v) for k, v in flips.items()})
+# 4: pixels
+def px(a, b, box=(600, 430, 730, 560)):
+    A = np.asarray(Image.open(a).convert('RGB').crop(box)).astype(int)
+    B = np.asarray(Image.open(b).convert('RGB').crop(box)).astype(int)
+    return int((np.abs(A - B).sum(2) > 60).sum())
+low = [st for st in STATE if px('shots/g294_enh_%d.png' % st, 'shots/g294_off_%d.png' % st) < 40]
+if low: bad.append('same-picture%s' % low)
+spin = px('shots/g294_enh_w0.png', 'shots/g294_enh_w1.png')
+if spin < 40: bad.append('wrench-still(%d)' % spin)
+m = open('shots/g294m_on.log', errors='replace').read()
+md = re.findall(r'markdraws=(\d+)', m)
+mark = px('shots/g294m_on_mid.png', 'shots/g294m_off_mid.png', (0, 0, 1280, 720))
+if not md or int(md[-1]) < 1 or mark < 100: bad.append('marker(%s,%d)' % (md[-1] if md else '-', mark))
+# 5
+for st in STATE:
+    if not filecmp.cmp('shots/g294_enh_%d.png' % st, 'shots/g294_enh2_%d.png' % st, shallow=False):
+        bad.append('nondeterministic%d' % st); break
+print(('OK %d part-motion lines identical to the cartridge, max travel %.1f, flipbooks 4+3, spanner %d px, marker %s draws %d px'
+       % (len(pe), max(moved), spin, md[-1], mark)) if not bad else 'FAIL ' + ' '.join(bad))
+PY
+)
+fi
+case "$G294V" in
+  OK*) ok "G294 remastered cursors: 23 models load and attach; all 16 cursor states draw their remastered model at 0.75 under Enhanced and none with --noecur or in N64; ${G294V#OK }; remastered and cartridge pictures differ at every state; two runs identical" ;;
+  *)   bad "G294 remastered cursors: $G294V (GRC=$GRC)" ;;
+esac
+
+# =====================================================================================
+# G295 THE DAMAGED STAGES OF EVERY REMASTERED STRUCTURE (ebld_mod.h format 4; game/ebld/,
+# baked by tools/art/remaster/bake_ebld.py; scene and claims in gate_ebldmg.py). Under
+# Enhanced every approved structure wears down hit by hit, breaks at half strength and
+# dies as the remaster lab plays it, with its effects for the whole and the broken
+# building. The Power Plant keeps its destroyed set (G273); the rest keep their pieces.
+#
+# SIX RUNS on missions made here from SCM01EA (gate_ebldmg.py maps g295m): the eleven
+# types of SCG91EA twice (the second a byte-for-byte replay), the eleven of SCG92EA, the
+# Silo filled by its harvester and shot slowly by riflemen (SCG93EA), and SCG91EA under
+# --noebld and under Classic. Real Mammoth shells from the south do the damage. Claims,
+# from the system's own dump lines:
+#   (1) EVERY TYPE GOES THROUGH EVERY STAGE: three or more chips off, a damaged stage
+#       with loose pieces, a wreck of its pieces (the Power Plant's shards), then it
+#       sinks and is gone.
+#   (2) EVERY EMITTER GIVES OFF PARTICLES in its state (a fill-gated one where the store
+#       holds Tiberium), every bursting one bursts; sparks on most types, the Obelisk's
+#       glow and ion sparks, strain bursts on the yard's boom and the factory's door, and
+#       the uplink tower's sparks stop at their end.
+#   (3) TURNING PARTS KEEP TURNING, the boom and the door keep trying, the flag pole
+#       bends to 30 degrees, the Hand of Nod's globe rolls off and settles on the ground.
+#   (4) LIQUIDS: the water and the pool drain, the waterfalls and the Silo's spill pour.
+#   (5) A building light is lit.
+#   (6) Two runs are one run; --noebld and Classic break nothing under the system.
+# =====================================================================================
+rm -rf g295m && python3 gate_ebldmg.py maps g295m 2>>"$OUT"
+for G295S in r n k; do
+  sed "s#shots/g295_#shots/g295${G295S}_#" g295m/SCG91EA.txt > "g295m/SCG91EA_$G295S.txt"
+done
+gbegin shots/g295a.log shots/g295a2.log shots/g295b.log shots/g295c.log shots/g295n.log \
+       shots/g295k.log shots/g295_SCG91EA_4.png shots/g295_SCG91EA_8.png \
+       shots/g295r_SCG91EA_4.png shots/g295r_SCG91EA_8.png
+G295ARGS="--pack SCG01EA.pack $BASE --dir g295m/ --noshroud --nosound --w 1280 --h 720"
+if [ -s g295m/SCG91EA.INI ]; then
+  grun shots/g295a.log  --scen SCG91EA $G295ARGS --enhanced --script g295m/SCG91EA.txt
+  grun shots/g295a2.log --scen SCG91EA $G295ARGS --enhanced --script g295m/SCG91EA_r.txt
+  grun shots/g295b.log  --scen SCG92EA $G295ARGS --enhanced --script g295m/SCG92EA.txt
+  grun shots/g295c.log  --scen SCG93EA $G295ARGS --enhanced --script g295m/SCG93EA.txt
+  grun shots/g295n.log  --scen SCG91EA $G295ARGS --enhanced --noebld --script g295m/SCG91EA_n.txt
+  grun shots/g295k.log  --scen SCG91EA $G295ARGS --script g295m/SCG91EA_k.txt
+  G295CHK=$(python3 gate_ebldmg.py check shots g295m 2>>"$OUT")
+else
+  G295CHK="0 the test missions were not made (missions/SCM01EA is not in the run folder)"
+fi
+G295V=$(echo "$G295CHK" | head -1 | cut -d' ' -f1)
+G295MSG=$(echo "$G295CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G295 the damaged stages: a run failed (GRC=$GRC). A binary without the format 4 reader, or game/ebld files older than it, is the first thing to check"
+elif [ "$G295V" = "1" ]; then
+  ok "G295 the damaged stages: $G295MSG"
+else
+  bad "G295 the damaged stages: ${G295MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# G296 THE REMASTERED VEHICLES AND AIRCRAFT (evhc_mod.h, game/evhc/*.evhc baked by
+# tools/art/remaster/bake_evhc.py). Under Enhanced every vehicle and aircraft type with a
+# file is drawn from its remastered model, its parts moved by the unit's own state, and it
+# breaks into the lab's destroyed model when it dies. Six runs of SCG90EA at 1280x720, on
+# private copies of its INI written by gate_evhc.py (every ground type placed GDI and Nod,
+# allied; a GDI helipad by the Nod SAM site):
+#   a     Enhanced: drive a Hum-vee and a Medium Tank, force-fire a Mammoth, send riflemen
+#         to the APC, then kill the Nod Mammoth and watch its wreck to the end
+#   a2    a again, for determinism
+#   n     a with --noevhc: the control
+#   cl    a in Classic
+#   b     Enhanced, the air: build a helipad, fly its free Orca at the SAM site, bring it
+#         down in flight (hurtunit: damage to the craft itself, through the brain's
+#         OpenCNC3D_Hurt_Object, since a craft in flight occupies no cell)
+#   c     Enhanced, the stock scenario: the MCV deploys, and a harvester docks
+#   c2    c with --noeplc: the yard has no placement, so the cartridge's deploy rig plays
+# THE CLAIMS, read from the renderer's own dump (evhcdump: EVHCART per model with the
+# observer counts, EVHCOBJ per unit with what the colour picture last drew, and the
+# EVHC|fire|death|impact|sink|gone events), in gate_evhc.py check:
+#   (1) all 21 files load and attach; the 16 placed types draw; each plan lies within 0.16
+#       cells of the cartridge model it stands in for; every type has a wreck;
+#   (2) the force-fired Mammoth's turret turns; (3) a driven Medium Tank's two track sides
+#       travel and its wheel flipbook steps; (4) a driven Hum-vee rolls and steers;
+#   (5) the Mammoth's barrels kick in turn; (6) the APC's rear door opens for riflemen;
+#   (7) the Nod Mammoth's death is this system's (as many pieces as its wreck, no old
+#       shatter), and its wreck sinks and is gone;
+#   (8) the Orca idles on the pad with no disc, spins up, its disc comes up and its ducts
+#       tilt in flight, and shot down at flight level it falls whole and breaks where it
+#       lands, within 40 ticks;
+#   (8b) w, Enhanced on stock SCB07EC: the GDI gunboat killed on the sea sinks within a
+#       second, its wreck on a water cell, while the Mammoth's on land sank dry;
+#   (9) the MCV unfolds in the remastered Construction Yard's placement (which draws the
+#       remastered MCV as its companion; the cartridge's deploy rig stands down for it, so
+#       the rig draws no MCV in c), and in c2, where the yard has no placement, the rig
+#       draws the remastered MCV; the harvester is drawn in the refinery's dock, and
+#       before that its arms work through a lift (clip off frame 0) and rest;
+#   (10) with --noevhc and in Classic nothing of it draws or claims, and the old shatter
+#       takes the Mammoth; (11) two Enhanced runs give identical pictures.
+# NOT COVERED: the Chinook's ramp (no scripted way to board a landed Chinook), the
+# hovercraft's bow ramp (a campaign mission's reinforcement; it is driven by the unit's
+# own unload state), and how any of it looks to a person.
+G296M=$(mktemp -d "${TMPDIR:-/tmp}/gate_evhc.XXXXXX")
+python3 "$GATEDIR/gate_evhc.py" missions missions "$G296M" >>"$OUT" 2>&1
+g296_a() {   # $1 = tag
+  {
+    echo "tick 3"; echo "cam 43 41"; echo "shot shots/g296_$1_1.png"; echo "evhcdump"
+    echo "lclickobj JEEP 1"; echo "order 41 38"; echo "lclickobj MTNK 4"; echo "order 45 38"
+    echo "lclickobj HTNK 0"; echo "actcell 39 36 c"
+    echo "cam 54 41"; echo "lclickobj E1 10"; echo "actclickobj APC 0"; echo "cam 43 41"
+    for i in 1 2 3 4 5 6 7 8; do echo "tick 4"; echo "shot shots/g296_$1_t.png"; echo "evhcdump"; done
+    echo "lclickobj JEEP 1"; echo "order 46 38"
+    for i in 1 2 3 4; do echo "tick 4"; echo "shot shots/g296_$1_t.png"; echo "evhcdump"; done
+    echo "shot shots/g296_$1_2.png"
+    for i in 1 2 3 4 5; do echo "hurtobj HTNK:BadGuy 0"; done
+    echo "tick 2"; echo "shot shots/g296_$1_3.png"; echo "evhcdump"
+    echo "tick 60"; echo "evhcdump"; echo "tick 90"; echo "evhcdump"; echo "quit"
+  } > "/tmp/g296_$1.txt"
+}
+for t in a a2 n cl; do g296_a $t; done
+{
+  echo "tick 5"; echo "cheatset money 1"; echo "cheatset instant 1"; echo "tick 3"
+  echo "build HPAD"; echo "ready HPAD 200"; echo "startplace HPAD"; echo "place auto"
+  echo "tick 110"; echo "cam 47 38"; echo "shot shots/g296_b_t.png"; echo "evhcdump"
+  echo "lclickobj ORCA 0"; echo "actcell 50 38"
+  for i in $(seq 1 12); do echo "tick 4"; echo "shot shots/g296_b_t.png"; echo "evhcdump"; done
+  echo "hurtunit ORCA 0 5000"
+  for i in $(seq 1 16); do echo "tick 3"; echo "shot shots/g296_b_t.png"; echo "evhcdump"; done
+  echo "quit"
+} > /tmp/g296_b.txt
+{
+  echo "tick 200"
+  for i in $(seq 1 46); do echo "cam 54 43"; echo "tick 3"; echo "shot shots/g296_c_t.png"; echo "evhcdump"; done
+  echo "tick 647"; echo "cam 51 47"; echo "shot shots/g296_c_t.png"; echo "evhcdump"
+  echo "cam 59 50"; echo "lclickobj MCV:@me"; echo "actclickobj MCV:@me"
+  echo "tick 30"; echo "shot shots/g296_c_t.png"; echo "evhcdump"; echo "eplcdump"; echo "quit"
+} > /tmp/g296_c.txt
+{
+  echo "tick 30"; echo "cam 31 16"; echo "hurtunit BOAT 0 5000"; echo "tick 3"; echo "evhcdump"
+  echo "tick 60"; echo "evhcdump"; echo "quit"
+} > /tmp/g296_w.txt
+gbegin shots/g296_a_1.png shots/g296_a_2.png shots/g296_a_3.png shots/g296_a2_1.png \
+       shots/g296_a2_2.png shots/g296_a2_3.png shots/g296_a.log shots/g296_a2.log \
+       shots/g296_n.log shots/g296_cl.log shots/g296_b.log shots/g296_c.log shots/g296_c2.log \
+       shots/g296_w.log
+G296ARGS="--scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720"
+grun shots/g296_a.log  $G296ARGS --dir "$G296M/all/" --enhanced --script /tmp/g296_a.txt
+grun shots/g296_a2.log $G296ARGS --dir "$G296M/all/" --enhanced --script /tmp/g296_a2.txt
+grun shots/g296_n.log  $G296ARGS --dir "$G296M/all/" --enhanced --noevhc --script /tmp/g296_n.txt
+grun shots/g296_cl.log $G296ARGS --dir "$G296M/all/" --script /tmp/g296_cl.txt
+grun shots/g296_b.log  $G296ARGS --dir "$G296M/air/" --enhanced --script /tmp/g296_b.txt
+grun shots/g296_c.log  $G296ARGS --enhanced --script /tmp/g296_c.txt
+grun shots/g296_c2.log $G296ARGS --enhanced --noeplc --script /tmp/g296_c.txt
+grun shots/g296_w.log  --scen SCB07EC --pack SCB07EC.pack $BASE --noshroud --nosound --w 1280 \
+     --h 720 --enhanced --script /tmp/g296_w.txt
+gshots shots/g296_a_1.png shots/g296_a_3.png shots/g296_a2_1.png shots/g296_a2_3.png
+rm -rf "$G296M"
+G296V=$(python3 "$GATEDIR/gate_evhc.py" check 2>&1 | tail -1)
+if [ "$GRC" != "0" ]; then
+  bad "G296 remastered vehicles: a run did not finish (GRC=$GRC); $G296V"
+else
+  case "$G296V" in
+    OK*) ok "G296 remastered vehicles: ${G296V#OK }; turret, tracks, wheels, recoil, the harvester's arms, the APC door, a ground death, a gunboat sunk on the sea, an aircraft shot down in flight, the deploy and dock rigs all move as the engine says; --noevhc and Classic draw none of it; two runs identical" ;;
+    *)   bad "G296 remastered vehicles: $G296V" ;;
+  esac
+fi
+
+# =====================================================================================
+# G297 WHAT A 3-D SOLDIER LEAVES AND THROWS (infdeath_mod.h). Enhanced, on a copy of
+# USER92 with six Nod riflemen placed beside the GDI squad so men fall and townsfolk who
+# run through the fight, 80 samples six
+# ticks apart (the fight, and long past the 80 ticks a body used to lie and sink), every
+# sample's INFDEATH line read.
+#
+# THE CLAIMS:
+#   (1) BODIES STAY. Men die (corpses > 0), and the last sample has as many bodies as the
+#       most ever counted: none sank away or expired.
+#   (2) EVERY BODY IS A RAGDOLL AT REST, ON THE GROUND, WITH BLOOD. At the end every body
+#       is asleep (the ragdoll took each fall and came to rest), each has its blood, and
+#       no ragdoll point is more than 0.004 of a cell into the ground.
+#   (3) BODIES ARE SHOVED. Moving units pushed a body at least once (pushes > 0).
+#   (4) SHOTS FLASH AND THROW BRASS. Rifles fired: flashes > 0, casings thrown but never
+#       more than the flashes (a launcher flashes and throws none), and casings expire
+#       (fewer alive at the end than ever made).
+#   (5) THE CAP. A second run with "most bodies on a map" at 5 never lists more than 5.
+#   (6) TWO RUNS ARE ONE PICTURE (the physics reads no clock).
+# =====================================================================================
+rm -rf /tmp/g297m && mkdir -p /tmp/g297m
+cp missions/user_maps/USER92.INI missions/user_maps/USER92.BIN missions/user_maps/USER92.HGT /tmp/g297m/ 2>/dev/null
+python3 - /tmp/g297m/USER92.INI <<'PY'
+import re, sys
+p = sys.argv[1]
+s = open(p, 'rb').read().decode('latin-1')
+nl = '\r\n' if '\r\n' in s else '\n'
+sec = s[s.index('[INFANTRY]'):]
+end = sec.find(nl + '[', 1)
+sec = sec[:end if end > 0 else len(sec)]
+last = [ln for ln in sec.split(nl) if re.match(r'^\d{3}=', ln)][-1]
+first = max(int(r) for r in re.findall(r'^(\d{3})=', sec, re.M)) + 1
+add = nl.join('%03d=BadGuy,E1,256,%d,%d,Hunt,128,None' % (first + i, 31 * 64 + 29 + i // 3 * 2, i % 3 + 1)
+              for i in range(6))
+# townsfolk standing by south of the squad: they run when the shooting starts, and over
+# the bodies
+add += nl + nl.join('%03d=Neutral,%s,256,%d,%d,Guard,64,None' % (first + 6 + i, t, 35 * 64 + 26 + i // 2, i % 2 * 2 + 1)
+                    for i, t in enumerate("C1 C2 C3 C4 C5 C6 C7 C8".split()))
+open(p, 'wb').write(s.replace(last, last + nl + add, 1).encode('latin-1'))
+PY
+{ printf 'cam 31 33\ntick 4\n'
+  i=0; while [ $i -lt 80 ]; do printf 'tick 6\nm3dump\n'; i=$((i+1)); done
+  printf 'shot shots/g297_a.png\nquit\n'; } > /tmp/g297.txt
+sed 's#g297_a#g297_b#' /tmp/g297.txt > /tmp/g297b.txt
+{ printf 'gfx einf_corpse_max 5\n'; sed 's#g297_a#g297_c#' /tmp/g297.txt; } > /tmp/g297c.txt
+gbegin shots/g297_a.png shots/g297_b.png shots/g297_c.png shots/g297.log shots/g297b.log shots/g297c.log
+G297ARGS="--reskin --noshroud --scen USER92 --pack SCG01EA.pack $BASE --dir /tmp/g297m/ --nosound --w 1280 --h 800 --enhanced --texset 1"
+grun shots/g297.log  $G297ARGS --script /tmp/g297.txt
+grun shots/g297b.log $G297ARGS --script /tmp/g297b.txt
+grun shots/g297c.log $G297ARGS --script /tmp/g297c.txt
+g297f() { sed -n "s/^INFDEATH.*|$1=\([-0-9.]*\).*/\1/p" "$2"; }
+G297MAX=$(g297f corpses shots/g297.log | sort -n | tail -1)
+G297END=$(g297f corpses shots/g297.log | tail -1)
+G297SLEEP=$(g297f asleep shots/g297.log | tail -1)
+G297BLOOD=$(g297f blood shots/g297.log | tail -1)
+G297BODIES=$(g297f bodies shots/g297.log | tail -1)
+G297LOW=$(g297f lowest shots/g297.log | sort -n | head -1)
+G297PUSH=$(g297f pushes shots/g297.log | tail -1)
+G297FL=$(g297f flashes shots/g297.log | tail -1)
+G297CM=$(g297f casings_made shots/g297.log | tail -1)
+G297CL=$(g297f casings_live shots/g297.log | tail -1)
+G297CAP=$(g297f corpses shots/g297c.log | sort -n | tail -1)
+G297SAME=$(cmp -s shots/g297_a.png shots/g297_b.png && echo 1 || echo 0)
+G297LOWOK=$(python3 -c "print(1 if float('${G297LOW:-0}') > -0.004 else 0)")
+if [ "$GRC" = "0" ] && gshots shots/g297_a.png shots/g297_b.png && [ "${G297MAX:-0}" -gt 0 ] \
+   && [ "${G297END:-0}" = "$G297MAX" ] && [ "${G297SLEEP:-x}" = "$G297BODIES" ] \
+   && [ "${G297BLOOD:-x}" = "$G297BODIES" ] && [ "$G297LOWOK" = "1" ] && [ "${G297PUSH:-0}" -gt 0 ] \
+   && [ "${G297FL:-0}" -gt 0 ] && [ "${G297CM:-0}" -gt 0 ] && [ "${G297CM:-0}" -le "${G297FL:-0}" ] \
+   && [ "${G297CL:-0}" -lt "${G297CM:-0}" ] \
+   && [ "${G297CAP:-99}" -le 5 ] && [ "$G297SAME" = "1" ]; then
+  ok "G297 soldiers' deaths and shots: $G297MAX bodies, all still there at the end, every one a ragdoll at rest with its blood, none below the ground (deepest ${G297LOW}); shoved $G297PUSH times; $G297FL muzzle flashes and $G297CM casings, expiring ($G297CL of $G297CM left); capped at 5 the list never passed $G297CAP; two runs are one picture"
+else
+  bad "G297 soldiers' deaths and shots: rc=$GRC bodies max=${G297MAX:-?} end=${G297END:-?} asleep=${G297SLEEP:-?} blood=${G297BLOOD:-?} of ${G297BODIES:-?} lowest=${G297LOW:-?}(>-0.004) pushes=${G297PUSH:-?}(>0) flashes=${G297FL:-?}(>0) casings made=${G297CM:-?}(>0, <=flashes) live=${G297CL:-?}(<made) capped=${G297CAP:-?}(<=5) same-picture=$G297SAME(1)"
+fi
+
+# =====================================================================================
+# G298 SOLDIERS COME APART (infdeath_mod.h). Enhanced, two maps.
+#
+# The "dead" example map as shipped (USER93: tanks and riflemen against twenty Nod
+# soldiers): its shells and rockets kill men by explosion. 50 samples six ticks apart.
+#   (1) AN EXPLOSION TEARS A BODY: blasts > 0, bodies torn > 0, and more pieces than torn
+#       bodies (they really are in pieces, and each one is drawn: torndraws > 0).
+#   (2) THE SPRAY LANDS: drops thrown, splats on the ground but never more than 90 a body,
+#       splats on a vehicle, and by the end no drop is still in the air.
+#   (3) NO PIECE UNDER THE GROUND: no ragdoll point more than 0.004 of a cell into it.
+#   (4) TWO RUNS ARE ONE PICTURE.
+#   (5) SWITCHED OFF (einf_gibs 0) nobody comes apart and nothing sprays.
+#
+# A copy of it rebuilt as a road test: four Nod men asleep in a medium tank's path are
+# shot by riflemen, who then walk away, an engineer sleeps further up the same path, and
+# the tank drives through.
+#   (6) A BODY DRIVEN OVER IS TORN (runover > 0), A LIVE MAN DRIVEN OVER IS CRUSHED AND
+#       TORN (crushes > 0: the engine deletes him with no death of his own, and the
+#       renderer has to see it), and THE TRACKS ARE LAID RED after (redpoints > 0).
+# =====================================================================================
+rm -rf /tmp/g298m && mkdir -p /tmp/g298m
+cp missions/user_maps/USER93.INI missions/user_maps/USER93.BIN missions/user_maps/USER93.HGT /tmp/g298m/ 2>/dev/null
+python3 - /tmp/g298m/USER93.INI <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, 'rb').read().decode('latin-1')
+nl = '\r\n' if '\r\n' in s else '\n'
+def sect(name, rows):
+    global s
+    a = s.index('[' + name + ']')
+    b = s.find(nl + '[', a + 1)
+    s = s[:a] + '[' + name + ']' + nl + nl.join(rows) + nl + s[b:]
+cell = lambda x, y: y * 64 + x
+sect('UNITS', ['000=GoodGuy,MTNK,256,%d,0,Guard,None' % cell(22, 47),
+               '001=GoodGuy,HARV,256,%d,0,Guard,None' % cell(27, 46)])
+sect('INFANTRY', ['000=BadGuy,E1,20,%d,1,Sleep,0,None' % cell(22, 40),
+                  '001=BadGuy,E1,20,%d,3,Sleep,0,None' % cell(22, 40),
+                  '002=BadGuy,E1,20,%d,2,Sleep,0,None' % cell(22, 39),
+                  '003=BadGuy,C1,20,%d,2,Sleep,0,None' % cell(21, 40),
+                  '004=BadGuy,E6,256,%d,0,Sleep,0,None' % cell(22, 36),
+                  '005=GoodGuy,E1,256,%d,1,Guard,0,None' % cell(18, 41),
+                  '006=GoodGuy,E1,256,%d,1,Guard,0,None' % cell(19, 41),
+                  '007=GoodGuy,E1,256,%d,1,Guard,0,None' % cell(17, 41)])
+open(p, 'wb').write(s.encode('latin-1'))
+PY
+{ printf 'cam 31 30\ntick 4\n'
+  i=0; while [ $i -lt 50 ]; do printf 'tick 6\nm3dump\n'; i=$((i+1)); done
+  printf 'cam 31 29\nshot shots/g298_a.png\nm3dump\nquit\n'; } > /tmp/g298.txt
+sed 's#g298_a#g298_b#' /tmp/g298.txt > /tmp/g298b.txt
+{ printf 'gfx einf_gibs 0\n'; sed 's#g298_a#g298_c#' /tmp/g298.txt; } > /tmp/g298c.txt
+{ printf 'zoom min\ncam 22 42\ntick 2\n'
+  for g298k in 1 2 3; do
+    printf 'lclickobj E1:GoodGuy 0\naddobj E1:GoodGuy 1\naddobj E1:GoodGuy 2\nactclickobj E1:BadGuy 0\ntick 90\n'
+  done
+  printf 'lclickobj E1:GoodGuy 0\naddobj E1:GoodGuy 1\naddobj E1:GoodGuy 2\nactcell 15 44\ntick 60\n'
+  printf 'lclickobj MTNK 0\nactcell 22 33\n'
+  i=0; while [ $i -lt 52 ]; do printf 'tick 8\nm3dump\ntmarkdump\n'; i=$((i+1)); done
+  printf 'cam 22 39\nshot shots/g298_d.png\nquit\n'; } > /tmp/g298d.txt
+gbegin shots/g298_a.png shots/g298_b.png shots/g298_c.png shots/g298_d.png shots/g298.log shots/g298b.log shots/g298c.log shots/g298d.log
+G298ARGS="--reskin --noshroud --scen USER93 --pack SCG01EA.pack $BASE --dir missions/user_maps/ --nosound --w 1280 --h 800 --enhanced --texset 1"
+grun shots/g298.log  $G298ARGS --script /tmp/g298.txt
+grun shots/g298b.log $G298ARGS --script /tmp/g298b.txt
+grun shots/g298c.log $G298ARGS --script /tmp/g298c.txt
+grun shots/g298d.log --reskin --noshroud --scen USER93 --pack SCG01EA.pack $BASE --dir /tmp/g298m/ --nosound --w 2560 --h 1440 --enhanced --texset 1 --script /tmp/g298d.txt
+g298f() { sed -n "s/^INFGIBS.*|$1=\([-0-9.]*\).*/\1/p" "$2" | tail -1; }
+G298BL=$(g298f blasts shots/g298.log); G298TORN=$(g298f torn shots/g298.log); G298PC=$(g298f pieces shots/g298.log)
+G298TD=$(g298f torndraws shots/g298.log); G298DM=$(g298f drops_made shots/g298.log); G298DL=$(g298f drops_live shots/g298.log)
+G298SG=$(g298f splats_ground shots/g298.log); G298SO=$(g298f splats_obj shots/g298.log)
+G298BOD=$(sed -n 's/^INFDEATH.*|bodies=\([0-9]*\).*/\1/p' shots/g298.log | tail -1)
+G298LOW=$(sed -n 's/^INFDEATH.*|lowest=\([-0-9.]*\).*/\1/p' shots/g298.log | sort -n | head -1)
+G298OFFBL=$(g298f blasts shots/g298c.log); G298OFFT=$(g298f torn shots/g298c.log); G298OFFD=$(g298f drops_made shots/g298c.log)
+G298CR=$(g298f crushes shots/g298d.log); G298RO=$(g298f runover shots/g298d.log)
+G298RED=$(sed -n 's/^TMARKBLOOD.*|redpoints=\([0-9]*\).*/\1/p' shots/g298d.log | sort -n | tail -1)
+G298SAME=$(cmp -s shots/g298_a.png shots/g298_b.png && echo 1 || echo 0)
+G298LOWOK=$(python3 -c "print(1 if float('${G298LOW:-0}') > -0.004 else 0)")
+G298CAPOK=$(python3 -c "print(1 if int('${G298SG:-0}') <= 90 * int('${G298BOD:-0}') else 0)")
+if [ "$GRC" = "0" ] && gshots shots/g298_a.png shots/g298_b.png shots/g298_c.png shots/g298_d.png \
+   && [ "${G298BL:-0}" -gt 0 ] && [ "${G298TORN:-0}" -gt 0 ] && [ "${G298PC:-0}" -gt "${G298TORN:-0}" ] \
+   && [ "${G298TD:-0}" -gt 0 ] && [ "${G298DM:-0}" -gt 0 ] && [ "${G298SG:-0}" -gt 0 ] && [ "$G298CAPOK" = "1" ] \
+   && [ "${G298SO:-0}" -gt 0 ] && [ "${G298DL:-1}" = "0" ] && [ "$G298LOWOK" = "1" ] && [ "$G298SAME" = "1" ] \
+   && [ "${G298OFFBL:-1}" = "0" ] && [ "${G298OFFT:-1}" = "0" ] && [ "${G298OFFD:-1}" = "0" ] \
+   && [ "${G298CR:-0}" -gt 0 ] && [ "${G298RO:-0}" -gt 0 ] && [ "${G298RED:-0}" -gt 0 ]; then
+  ok "G298 soldiers come apart: $G298BL blown apart, $G298TORN bodies in $G298PC pieces, drawn torn; $G298DM drops sprayed, $G298SG splats on the ground ($G298BOD bodies) and $G298SO on vehicles, none left in the air; nothing below the ground (deepest ${G298LOW}); off, nobody comes apart; on the road test $G298CR crushed alive and $G298RO bodies torn by the tracks, $G298RED red track points; two runs are one picture"
+else
+  bad "G298 soldiers come apart: rc=$GRC blasts=${G298BL:-?}(>0) torn=${G298TORN:-?}(>0) pieces=${G298PC:-?}(>torn) torndraws=${G298TD:-?}(>0) drops=${G298DM:-?}(>0) live=${G298DL:-?}(0) ground=${G298SG:-?}(>0, <=90x${G298BOD:-?}) obj=${G298SO:-?}(>0) lowest=${G298LOW:-?}(>-0.004) same=$G298SAME(1) off: blasts=${G298OFFBL:-?} torn=${G298OFFT:-?} drops=${G298OFFD:-?}(all 0) road: crushes=${G298CR:-?}(>0) runover=${G298RO:-?}(>0) red=${G298RED:-?}(>0)"
+fi
+
+# =====================================================================================
+# G299 THE DISTANCE FOG HAZES THE FAR VIEW AND NOTHING ELSE (distfog_mod.h). Enhanced.
+# One frame each of GDI 1 (Temperate), Nod 1 (Desert) and the Winter donor, fog off then
+# on. A MEASURING strength, not the shipped look: both theaters are set to thickness 0.6,
+# starting at the look-at point, full over 10 cells, so the gate proves the wiring and
+# survives any retuning (the tuned Temperate haze is thin enough to change only 14734
+# pixels, under the floor below). Each theater keeps its own shipped colour, which is
+# what (4) compares. Asked:
+#   (1) on Temperate the far part of the world changes: >= 20000 pixels in the top band
+#       of the world window;
+#   (2) the near part does not: zero pixels in the bottom of the world window, where
+#       every pixel is nearer than the look-at point and so short of the haze's start.
+#       Not "below the middle": the distance runs straight out from the eye, so the
+#       left and right ends of the middle rows are farther than the look-at point and
+#       take a little haze, measured at up to 3553 pixels in rows 420 to 460;
+#   (3) the sidebar does not change, by the >24 measure G225 uses (the world's own
+#       edge bleeds a level or two into the first columns past it);
+#   (4) each theater gets its own colour: the Desert haze pushes the top band warmer
+#       (red over blue) than the Temperate haze does;
+#   (5) a theater with no dials draws none: the Winter frame is the same with it on;
+#   (6) the log says so: one "on" line for theater 2 and one for theater 0;
+#   (7) two runs of the Temperate "on" frame are one digest.
+# =====================================================================================
+cat > /tmp/g299.txt <<'G299EOF'
+tick 20
+tickalpha 0
+gfx dfog_t_amount 0.6
+gfx dfog_t_start 0
+gfx dfog_t_depth 10
+gfx dfog_d_amount 0.6
+gfx dfog_d_start 0
+gfx dfog_d_depth 10
+gfx dfog_on 0
+shot shots/g299_off.png
+gfx dfog_on 1
+shot shots/g299_on.png
+quit
+G299EOF
+gbegin shots/g299_t_off.png shots/g299_t_on.png shots/g299_t_on2.png shots/g299_d_off.png \
+       shots/g299_d_on.png shots/g299_w_off.png shots/g299_w_on.png \
+       shots/g299_t.log shots/g299_t2.log shots/g299_d.log shots/g299_w.log
+for g299m in t:SCG01EA d:SCB01EA w:SCW01EA t2:SCG01EA; do
+  g299k=${g299m%%:*}; g299s=${g299m#*:}
+  grun shots/g299_$g299k.log --noshroud --scen $g299s --pack $g299s.pack $BASE --nosound \
+       --w 1280 --h 800 --enhanced --script /tmp/g299.txt
+  if [ "$g299k" = "t2" ]; then
+    mv shots/g299_on.png shots/g299_t_on2.png 2>/dev/null; rm -f shots/g299_off.png
+  else
+    mv shots/g299_off.png shots/g299_${g299k}_off.png 2>/dev/null
+    mv shots/g299_on.png shots/g299_${g299k}_on.png 2>/dev/null
+  fi
+done
+gshots shots/g299_t_off.png shots/g299_t_on.png shots/g299_t_on2.png shots/g299_d_off.png \
+       shots/g299_d_on.png shots/g299_w_off.png shots/g299_w_on.png
+G299R="0 0 0 0 0 0"
+if [ "$GRC" = "0" ]; then
+  G299R=$(python3 - <<'PY'
+import numpy as np
+from PIL import Image
+def load(x): return np.asarray(Image.open(x).convert('RGB')).astype(int)
+to, tn = load('shots/g299_t_off.png'), load('shots/g299_t_on.png')
+do, dn = load('shots/g299_d_off.png'), load('shots/g299_d_on.png')
+wo, wn = load('shots/g299_w_off.png'), load('shots/g299_w_on.png')
+ch = np.abs(to - tn).sum(axis=2) > 24
+top = int(ch[40:300, 0:940].sum())
+low = int(ch[540:780, 0:940].sum())
+bar = int(ch[0:800, 960:1280].sum())
+def warm(a, b):
+    d = (b - a)[40:300, 0:940]
+    return float((d[..., 0] - d[..., 2]).mean())
+wt, wd = warm(to, tn), warm(do, dn)
+win = int((np.abs(wo - wn).sum(axis=2) > 0).sum())
+print(top, low, bar, 1 if wd > wt + 2.0 else 0, win, "%.2f/%.2f" % (wd, wt))
+PY
+)
+fi
+set -- $G299R
+G299TOP="$1"; G299LOW="$2"; G299BAR="$3"; G299WARM="$4"; G299WIN="$5"; G299W="$6"
+G299T=$(grep -c '^FX|distfog|on theater 2 ' shots/g299_t.log)
+G299D=$(grep -c '^FX|distfog|on theater 0 ' shots/g299_d.log)
+G299SAME=0
+cmp -s shots/g299_t_on.png shots/g299_t_on2.png && G299SAME=1
+if [ "$GRC" = "0" ] && [ "${G299TOP:-0}" -ge 20000 ] && [ "${G299LOW:-1}" = "0" ] \
+   && [ "${G299BAR:-1}" = "0" ] && [ "${G299WARM:-0}" = "1" ] && [ "${G299WIN:-1}" = "0" ] \
+   && [ "${G299T:-0}" -ge 1 ] && [ "${G299D:-0}" -ge 1 ] && [ "$G299SAME" = "1" ]; then
+  ok "G299 the distance fog hazes the far view and nothing else: $G299TOP pixels change in the top of the world window, 0 in its bottom, 0 in the sidebar; the desert haze is warmer than the temperate one (red over blue $G299W); Winter draws none; logged for theaters 2 and 0; two runs one digest"
+else
+  bad "G299 the distance fog hazes the far view and nothing else: rc=$GRC top=${G299TOP:-?}(>=20000) low=${G299LOW:-?}(0) bar=${G299BAR:-?}(0) warmer=${G299WARM:-?}(1, $G299W) winter=${G299WIN:-?}(0) log_t=${G299T:-?} log_d=${G299D:-?}(>=1) same=$G299SAME(1)"
+fi
+
+# =====================================================================================
+# G300 THE GROUND PATCHES. Dry-ground comparisons prove both theater banks are
+# visible, F5 strength/density zero restores bare ground, the HUD stays unchanged,
+# fresh runs match, and Classic/DOS remain gated. SCB37EA has eligible plain ground
+# inside its playable rectangle; SCB21EA's old view had no patch that could fit.
+if python3 "$GATEDIR/gate_ground_patches.py" --rundir "$RUNDIR" \
+           --output "$RUNDIR/shots/g300" >>"$OUT" 2>&1; then
+  ok "G300 ground patches: Temperate and Desert visible, F5 controls, repeatability, HUD, Classic/DOS"
+else
+  bad "G300 ground patches: see hidden captures and diagnostics under shots/g300"
+fi
+
+# =====================================================================================
+# G302 THE WALL LINE (Tiberian Sun and Red Alert 2), Enhanced only.
+#
+# A sandbag is placed at 50,54 on SCG01EC, then a second at 54,54. Under Enhanced the brain
+# is told OpenCNC3D_Set_Wall_Fill(5), Red Alert 2's GuardRange for walls, so the second piece
+# finds the first four cells west of it and lays 51, 52 and 53 too, owned by the player and
+# joined (their connection nibble reads east and west, 10). Without --enhanced the same
+# script must leave those three cells empty: Classic places one wall a piece, as 1995 did.
+# The Enhanced run also has to have painted the preview: the placement cursor's green line
+# over the four cells, counted as green-dominant pixels in the shot taken while hovering.
+# =====================================================================================
+cat > /tmp/g302.txt <<'G302EOF'
+tick 20
+cheatset money 1
+cheatset instant 1
+tick 4
+cam 53 54
+build SBAG
+ready SBAG
+startplace SBAG
+place 50 54
+tick 10
+build SBAG
+ready SBAG
+startplace SBAG
+hover 54 54
+tick 2
+shot shots/g302_preview.png
+place 54 54
+tick 10
+objdump
+quit
+G302EOF
+sed 's#shots/g302_#shots/g302c_#' /tmp/g302.txt > /tmp/g302c.txt
+gbegin shots/g302_preview.png shots/g302c_preview.png shots/g302.log shots/g302c.log
+grun shots/g302.log  --nosound --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 \
+     --enhanced --texset 1 --script /tmp/g302.txt
+grun shots/g302c.log --nosound --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 \
+     --script /tmp/g302c.txt
+G302ON=$(grep -c '^WALLFILL|5' shots/g302.log)
+G302OFF=$(grep -c '^WALLFILL|0' shots/g302c.log)
+G302FILL=$(grep -cE '^WALL\|5[123]\|54\|SBAG\|0\|10\|0\|GoodGuy' shots/g302.log)
+G302CFILL=$(grep -cE '^WALL\|5[123]\|54\|' shots/g302c.log)
+G302GREEN=-1
+if gshots shots/g302_preview.png; then
+  G302GREEN=$(python3 - <<'PY' 2>>"$OUT"
+from PIL import Image
+import numpy as np
+a = np.asarray(Image.open("shots/g302_preview.png").convert("RGB")).astype(int)[:, :1120]
+r, g, b = a[..., 0], a[..., 1], a[..., 2]
+print(int(((g > 150) & (g > r + 60) & (g > b + 60)).sum()))
+PY
+)
+fi
+if [ "$GRC" = "0" ] && [ "$G302ON" -ge 1 ] && [ "$G302OFF" -ge 1 ] && [ "$G302FILL" = "3" ] \
+   && [ "$G302CFILL" = "0" ] && [ "${G302GREEN:-0}" -ge 6000 ] 2>/dev/null; then
+  ok "G302 the wall line: under Enhanced a sandbag placed four cells from another laid the three between, the player's and joined; Classic laid none; the preview painted $G302GREEN green pixels"
+else
+  bad "G302 the wall line: rc=$GRC fill_on=$G302ON(>=1) fill_off=$G302OFF(>=1) laid=$G302FILL(3) classic_laid=$G302CFILL(0) preview_green=${G302GREEN:-?}(>=6000)"
+fi
+
+# =====================================================================================
+# G304 A REMASTERED STRUCTURE GOES UP PART BY PART (ebld_place.h; game/eplc/<TYPE>.eplc,
+# baked by tools/art/remaster/bake_eplc.py from the remaster lab's placements). Under
+# ENHANCED a structure put down rises as the lab's Place button plays it: the slab out of
+# the ground with its dust, then every part through the slab, the game's placement jolt and
+# a rumble as the main structure rises, and at the end the remastered model at rest; a sale
+# plays it backwards; a wall line comes up course by course. Classic keeps the cartridge's
+# reveal.
+#
+# FIVE RUNS (gate_eplc.txt on SCG90EA: Enhanced twice, Enhanced with --noeplc, Classic;
+# gate_eplcwall.txt on SCG01EC, Enhanced). Read off the system's own dump lines:
+#   (1) IT LOADS AND MATCHES: loaded=25 attached=25 on=1, and every type's placement found
+#       every one of its building's triangles (unmatched=0). A building file whose geometry
+#       is not the placement's model fails here, by type, rather than being animated wrongly.
+#   (2) THE ORDER: the Power Plant built from the sidebar starts on the tick it is put down,
+#       slab and main structure below the ground; at 0.4 s the slab is rising and the main
+#       structure still waits; at 1.2 and 1.6 s the main structure rises; it ends "done" on
+#       the tick its 3.88 s are up, every part at rest.
+#   (3) THE DUST: at 0.4 s the particle pool holds at least 20 more smoke particles than the
+#       same moment without the placement (--noeplc).
+#   (4) THE CAMERA: the game's jolt at the press, 0.009 a footprint cell; no rumble while the
+#       slab comes up (0 and 0.4 s); a rumble while the main structure rises (1.6 s); none
+#       after it (2.2 s). The Construction Yard's one jolt is its own, 1.724 s in (on tick
+#       26 of its placement, 0.027 for its three cells) and not at the press.
+#   (5) THE HAND-OVER: the Weapons Factory's fans, spun up over the placement, meet the idle
+#       turn the remastered building draws after it within 3 degrees of one tick's turn; and
+#       six seconds after the Power Plant's end its frame is byte-identical to the same frame
+#       of the --noeplc run (the model at rest, the dust and the ring gone).
+#   (6) THE SALE runs the placement backwards on the engine's own sell clock.
+#   (7) THE WALLS: a sandbag line's pieces are drawn by the placement while they rise, and
+#       the three between the two placed pieces are laid and joined.
+#   (8) --noeplc and Classic run none of it: on=0, no EPLC|start line, no placement drawn.
+#   (9) TWO ENHANCED RUNS ARE ONE RUN: the shots byte-identical, the EPLCOBJ lines equal.
+# The gate needs game/ebld/*.ebld baked from the same remaster exports as game/eplc/*.eplc:
+# with files of another model, (1) names the types whose triangles do not match.
+# =====================================================================================
+sed 's#shots/g304_#shots/g304b_#' "$GATEDIR/gate_eplc.txt" > /tmp/g304b.txt
+sed 's#shots/g304_#shots/g304n_#' "$GATEDIR/gate_eplc.txt" > /tmp/g304n.txt
+sed 's#shots/g304_#shots/g304c_#' "$GATEDIR/gate_eplc.txt" > /tmp/g304c.txt
+G304ALL=""
+for G304R in g304 g304b g304n g304c; do
+  for G304S in n0 n1 n2 n3 n4 n7 w57 w58 w59 w60 f67 s30; do
+    G304ALL="$G304ALL shots/${G304R}_$G304S.png"
+  done
+done
+gbegin $G304ALL shots/g304_wall3.png shots/g304_wall9.png shots/g304.log shots/g304b.log \
+       shots/g304n.log shots/g304c.log shots/g304w.log
+G304ARGS="--scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720"
+grun shots/g304.log  $G304ARGS --enhanced --texset 1 --script "$GATEDIR/gate_eplc.txt"
+grun shots/g304b.log $G304ARGS --enhanced --texset 1 --script /tmp/g304b.txt
+grun shots/g304n.log $G304ARGS --enhanced --texset 1 --noeplc --script /tmp/g304n.txt
+grun shots/g304c.log $G304ARGS --script /tmp/g304c.txt
+grun shots/g304w.log --scen SCG01EC --pack SCG01EA.pack $BASE --noshroud --nosound \
+     --w 1280 --h 720 --enhanced --texset 1 --script "$GATEDIR/gate_eplcwall.txt"
+gshots shots/g304_n0.png shots/g304_n7.png shots/g304b_n7.png shots/g304n_n7.png \
+       shots/g304_w60.png shots/g304_wall9.png
+G304CHK=$(python3 - <<'PY' 2>>"$OUT"
+import re, hashlib
+def rd(n):
+    try:
+        with open("shots/%s.log" % n, errors="ignore") as f:
+            return f.read().splitlines()
+    except OSError:
+        return []
+A, B, N, C, W = rd("g304"), rd("g304b"), rd("g304n"), rd("g304c"), rd("g304w")
+why = []
+def need(cond, msg):
+    if not cond: why.append(msg)
+    return cond
+def section(L, name):
+    out, on = [], False
+    for l in L:
+        if l.startswith("ECHO|"):
+            on = (l == "ECHO|g304 " + name)
+            continue
+        if on: out.append(l)
+    return out
+HDR = r"^EPLC\|loaded=(\d+)\|attached=(\d+)\|on=([01])\|enhanced=([01])$"
+MODEL = r"^EPLCMODEL\|([A-Z0-9]+)\|attached=([01])\|rigs=(\d+)\|actors=(\d+)\|matched=(\d+)\|unmatched=(\d+)\|runs=(\d+)\|grow=(\d+)\|companion=(\d+)\|seconds=([0-9.]+)\|drawn=(\d+)$"
+OBJ = (r"^EPLCOBJ\|([A-Z0-9]+)\|key=(-?\d+)\|id=(\d+)\|mode=(PLACE|SELL|REST)\|start=(\d+)\|t=(-?[0-9.]+)\|len=([0-9.]+)"
+       r"\|moving=(\d+)\|slab_y=(-?[0-9.]+)\|main_y=(-?[0-9.]+)\|cut=([01])\|mine=([01])\|str=(-?\d+)\|str0=(\d+)"
+       r"\|bstate=(-?\d+)\|spin_deg=(-?[0-9.]+)\|spin_piece=(-?\d+)$")
+RUMBLE = r"^EPLCSHAKE\|rumble_x=(-?[0-9.]+)\|rumble_z=(-?[0-9.]+)$"
+SHAKE = r"^SHAKE\|amp=([0-9.]+)\|frame=(-?\d+)\|age=(-?\d+)\|"
+START = r"^EPLC\|start\|key=(-?\d+)\|type=([A-Z0-9]+)\|mode=(place|sell|replay)\|frame=(\d+)\|seconds=([0-9.]+)$"
+END = r"^EPLC\|end\|key=(-?\d+)\|why=(done|hit|sold)\|frame=(\d+)"
+POSE = r"^EBLDPOSE\|WEAP\|key=\d+\|id=\d+\|piece=(\d+)\|kind=spin\|deg=(-?[0-9.]+)$"
+SMOKE = r"^EFXPART\|sys=6\|SMOKE\|live=(\d+)$"
+TYPES = ("AFLD ATWR BIO BRIK CYCL EYE FACT FIX GTWR GUN HAND HOSP HPAD HQ MISS NUK2 NUKE "
+         "OBLI PROC PYLE SAM SBAG SILO TMPL WEAP").split()
+def first(L, rx):
+    for l in L:
+        m = re.match(rx, l)
+        if m: return m
+    return None
+def objs(L, t):
+    return [m for m in (re.match(OBJ, l) for l in L) if m and m.group(1) == t]
+def obj(sec, t):
+    o = objs(section(A, sec), t)
+    return o[0] if o else None
+
+# (1) LOADS AND MATCHES
+f = section(A, "first")
+h = first(f, HDR)
+need(h and h.group(1) == "25" and h.group(2) == "25" and h.group(3) == "1",
+     "Enhanced header wants loaded=25 attached=25 on=1, got [%s]" % (h.group(0) if h else "none"))
+ms = {m.group(1): m for m in (re.match(MODEL, l) for l in f) if m}
+need(sorted(ms) == sorted(TYPES), "EPLCMODEL lines for %s, want one per type" % sorted(ms))
+bad = [t for t, m in ms.items() if m.group(2) != "1" or m.group(6) != "0" or m.group(5) == "0"]
+need(not bad, "placements not attached or with unmatched triangles: %s" % bad)
+
+# (2) THE ORDER, on the Power Plant built from the sidebar
+st = [m for m in (re.match(START, l) for l in A) if m and m.group(2) == "NUKE"]
+need(len(st) == 1 and st[0].group(3) == "place", "want one EPLC|start for the built Power Plant, got %d" % len(st))
+n0, n1, n2, n3, n4, n5 = (obj(s, "NUKE") for s in ("n0", "n1", "n2", "n3", "n4", "n5"))
+ok_order = all((n0, n1, n2, n3, n4, n5))
+need(ok_order, "a Power Plant dump is missing: %s" % [s for s, o in zip(("n0", "n1", "n2", "n3", "n4", "n5"), (n0, n1, n2, n3, n4, n5)) if not o])
+if ok_order:
+    fl = lambda o, g: float(o.group(g))
+    need(n0.group(4) == "PLACE" and fl(n0, 6) == 0.0 and fl(n0, 9) < -0.05 and fl(n0, 10) < -0.4,
+         "at the press the slab and the main structure must be under the ground: [%s]" % n0.group(0))
+    need(-0.05 < fl(n1, 9) < 0.0 and fl(n1, 10) < -0.4 and abs(fl(n1, 6) - 0.4) < 0.01,
+         "at 0.4 s the slab must be rising and the main structure waiting: [%s]" % n1.group(0))
+    need(fl(n2, 10) > fl(n1, 10) and fl(n3, 10) > fl(n2, 10) and fl(n2, 9) == 0.0,
+         "the main structure must rise through 1.2 and 1.6 s on a slab at rest: %s %s" % (n2.group(10), n3.group(10)))
+    need(int(n5.group(8)) <= 2 and fl(n4, 10) == 0.0, "near its end every part must be (nearly) at rest: [%s]" % n5.group(0))
+    en = [m for m in (re.match(END, l) for l in A) if m and m.group(1) == n0.group(2)]
+    s0 = int(n0.group(5))
+    need(len(en) == 1 and en[0].group(2) == "done" and 57 <= int(en[0].group(3)) - s0 <= 60,
+         "the Power Plant must end 'done' 3.88 s (58 to 59 ticks) after its start, got %s" % [e.group(0) for e in en])
+# (3) THE DUST
+sa, sn = first(section(A, "n1"), SMOKE), first(section(N, "n1"), SMOKE)
+# (a pool with no smoke at all prints no smoke line)
+sav, snv = int(sa.group(1)) if sa else 0, int(sn.group(1)) if sn else 0
+need(sav >= snv + 20, "at 0.4 s the placement's dust is missing: smoke %d against %d without it" % (sav, snv))
+# (4) THE CAMERA
+def rum(L, s):
+    m = first(section(L, s), RUMBLE)
+    return abs(float(m.group(1))) + abs(float(m.group(2))) if m else -1
+need(rum(A, "n0") == 0 and rum(A, "n1") == 0, "the camera rumbled while the slab came up")
+need(rum(A, "n3") > 0.002, "no rumble while the main structure rose (1.6 s): %s" % rum(A, "n3"))
+need(rum(A, "n4") == 0, "the rumble outlasted the rise (2.2 s): %s" % rum(A, "n4"))
+sh = first(section(A, "n0"), SHAKE)
+need(sh and abs(float(sh.group(1)) - 0.018) < 1e-4 and ok_order and abs(int(sh.group(2)) - int(n0.group(5))) <= 1,
+     "the placement jolt at the press wants amp 0.018 on the start tick: [%s]" % (sh.group(0) if sh else "none"))
+fs = [m for m in (re.match(START, l) for l in A) if m and m.group(2) == "FACT"]
+f25, f26 = first(section(A, "f25"), SHAKE), first(section(A, "f26"), SHAKE)
+if need(fs and f25 and f26, "the Construction Yard's replay or its shake dumps are missing"):
+    s = int(fs[0].group(4))
+    need(int(f25.group(2)) < s and int(f26.group(2)) == s + 26 and abs(float(f26.group(1)) - 0.027) < 1e-4,
+         "the Construction Yard's jolt wants tick %d at 0.027 and none at the press: [%s] [%s]" % (s + 26, f25.group(0), f26.group(0)))
+# (5) THE HAND-OVER
+w55, w56, w57 = (obj(s, "WEAP") for s in ("w55", "w56", "w57"))
+p58 = {m.group(1): float(m.group(2)) for m in (re.match(POSE, l) for l in section(A, "w58")) if m}
+p59 = {m.group(1): float(m.group(2)) for m in (re.match(POSE, l) for l in section(A, "w59")) if m}
+if need(w55 and w56 and w57 and p58 and p59, "the Weapons Factory's dumps across its end are missing"):
+    pc = w57.group(17)
+    wrap = lambda d: (d + 180.0) % 360.0 - 180.0
+    if need(pc in p58 and pc in p59, "no idle pose for piece %s after the end" % pc):
+        rate = wrap(p59[pc] - p58[pc])
+        last = wrap(float(w57.group(16)) - float(w56.group(16)))
+        jump = wrap(p58[pc] - float(w57.group(16)))
+        need(abs(rate) > 1.0 and abs(last - rate) <= 3.0 and abs(jump - rate) <= 3.0,
+             "the fan does not meet its idle turn: placement's last step %.2f, step across the end %.2f, idle step %.2f degrees" % (last, jump, rate))
+def sha(p):
+    try:
+        return hashlib.sha256(open(p, "rb").read()).hexdigest()
+    except OSError:
+        return None
+need(sha("shots/g304_n7.png") and sha("shots/g304_n7.png") == sha("shots/g304n_n7.png"),
+     "six seconds after its end the Power Plant's frame differs from the run without the placement")
+# (6) THE SALE
+s10, s30 = obj("s10", "WEAP"), obj("s30", "WEAP")
+need(s10 and s30 and s10.group(4) == "SELL" and s30.group(4) == "SELL"
+     and float(s30.group(6)) < float(s10.group(6)) < float(s10.group(7)),
+     "the Weapons Factory's sale must run its placement backwards: %s %s" % (s10 and s10.group(6), s30 and s30.group(6)))
+# (7) THE WALLS
+# (the draws are counted up to the dump that prints them: wall9's counts the wall3 frame)
+wm = [m for m in (re.match(MODEL, l) for l in section(W, "wall9")) if m and m.group(1) == "SBAG"]
+need(wm and int(wm[0].group(11)) >= 1, "no sandbag piece drawn by the placement while the line rose")
+filled = [l for l in section(W, "wall39") if re.match(r"^WALLDUMP\|5[123],54\|SBAG\|icon=10\|", l)]
+need(len(filled) == 3, "the wall line wants 51..53 laid and joined, got %d" % len(filled))
+# (8) --noeplc AND CLASSIC RUN NONE OF IT
+for nm, L, enh in (("--noeplc", N, "1"), ("Classic", C, "0")):
+    hh = [m for m in (re.match(HDR, l) for l in L) if m]
+    need(hh and all(m.group(3) == "0" and m.group(4) == enh for m in hh), "%s header wants on=0 enhanced=%s" % (nm, enh))
+    need(not any(re.match(START, l) for l in L), "%s started a placement" % nm)
+    need(not any(re.match(OBJ, l) for l in L), "%s holds a building in a placement" % nm)
+    drawn = [m.group(1) for m in (re.match(MODEL, l) for l in L) if m and m.group(11) != "0"]
+    need(not drawn, "%s drew a placement: %s" % (nm, drawn))
+# (9) TWO ENHANCED RUNS ARE ONE RUN
+for s in ("n0", "n1", "n2", "n3", "n4", "n7", "w57", "w58", "w59", "w60", "f67", "s30"):
+    a, b = sha("shots/g304_%s.png" % s), sha("shots/g304b_%s.png" % s)
+    need(a and a == b, "the %s shots of the two Enhanced runs differ" % s)
+oa = [l for l in A if l.startswith("EPLCOBJ|") or l.startswith("EPLC|")]
+ob = [l for l in B if l.startswith("EPLCOBJ|") or l.startswith("EPLC|")]
+need(oa == ob and oa, "the EPLC lines of the two Enhanced runs differ")
+if why:
+    print("0 " + "; ".join(why[:6]))
+else:
+    print("1 25 placements matched; the Power Plant rose slab first and ended on its tick; dust %s against %s; rumble %.4f at 1.6 s; the yard's jolt on its tick; the fans met their idle turn; the hand-over frame identical; the sale ran back; the wall line rose; --noeplc and Classic ran none; two runs identical"
+          % (sav, snv, rum(A, "n3")))
+PY
+)
+G304V=$(echo "$G304CHK" | head -1 | cut -d' ' -f1)
+G304MSG=$(echo "$G304CHK" | head -1 | cut -d' ' -f2-)
+G304UN=$(grep -h '^EPLCMODEL|' shots/g304.log 2>/dev/null | grep -v '|attached=1|' | cut -d'|' -f2 | sort -u | tr '\n' ' ')
+if [ -n "$G304UN" ]; then
+  bad "G304 the placement part by part: not attached for $G304UN-- the building files in ebld/ are not the model the placements in eplc/ were made on (the load log says how many triangles did not match); rebake one or the other from the same lab export"
+elif [ "$GRC" != "0" ]; then
+  bad "G304 the placement part by part: a run failed or wrote no shot (GRC=$GRC). An unknown eplcdump or --noeplc means the engine half is not in this binary; a missing eplc/ folder in the run folder is the next thing to check"
+elif [ "$G304V" = "1" ]; then
+  ok "G304 the placement part by part: $G304MSG"
+else
+  bad "G304 the placement part by part: ${G304MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G301 THE TIBERIUM'S COLOUR, ITS LIGHT AND ITS FOG (tibglow_mod.h). Enhanced.
+# One frame of the big field at SCG15EC (8,55), built up a layer at a time: the field's
+# light off and the fog off; the light on; the fog on at a MEASURING thickness (1.2,
+# 1.2 cells high, so the gate proves the wiring whatever the shipped look is tuned to);
+# the crystals turned blue (hue 215); and the hue put back to the art's own 105.1. The
+# run starts from the art's own colour (hue 105.1, saturation 1), set before the first
+# frame, because the shipped default turns the crystals and claim 5 is about the original.
+# Asked:
+#   (1) the light changes the field: >= 20000 world pixels, the world window's mean
+#       green rises, and no pixel of the sidebar changes under the light, the fog or the
+#       hue (the >24 measure G225 uses);
+#   (2) the fog changes the field on top of the light: >= 20000 world pixels;
+#   (3) the base, five cells and more from the field (rows 0..90, columns 600..1120),
+#       takes neither: under 1500 pixels change there across both layers. The left half
+#       of those rows is excluded on purpose: a small patch of tiberium stands there by
+#       the river, and its own fog is meant to show. Measured: 0 in the base's columns;
+#   (4) the hue turns the crystals: >= 3000 more pixels read blue (b > g + 25) with the
+#       hue at 215, and the log carries the FX|tibcolour line for it;
+#   (5) putting the hue back draws the fog frame again byte for byte, which is the
+#       original art re-uploaded rather than a repaint of a repaint;
+#   (6) Classic is untouched: without --enhanced the same switches change no pixel;
+#   (7) two runs of the fog frame are one digest.
+#
+# THE SIDEBAR IS ITS OWN FOOTPRINT, NOT A COLUMN BAND. The Enhanced panel is drawn with
+# its authored alpha and rounded corners over a world that runs on underneath it, so at
+# 1280x720 the ground shows below the panel's foot (rows 683 on) in the very columns that
+# used to be all sidebar, and the fog moved 3364 of those ground pixels with not one
+# panel pixel changed. The panel's pixels are found without the switches under test, as
+# every pixel where the off frame differs from a twin drawn with --nosidebar, which keeps
+# the same view. Measured: 110478 of the 115200 pixels right of column 1120, the tabs
+# along the top and the tool wing from column 1035, and no pixel below the tabs left of
+# column 1000. The twin is held to both, so a --nosidebar that drew nothing different
+# (an empty footprint, a vacuous pass) or moved the view fails here.
+# =====================================================================================
+cat > /tmp/g301.txt <<'G301EOF'
+tick 5
+tickalpha 0
+cam 8 55
+tick 1
+gfx tib_hue 105.1
+gfx tib_sat 1
+gfx lights_on 1
+gfx light_tiberium 0
+gfx tibfog_on 0
+shot shots/g301_off.png
+gfx light_tiberium 1
+shot shots/g301_light.png
+gfx tibfog_on 1
+gfx tibfog_density 1.2
+gfx tibfog_height 1.2
+shot shots/g301_fog.png
+gfx tib_hue 215
+shot shots/g301_blue.png
+gfx tib_hue 105.1
+shot shots/g301_back.png
+quit
+G301EOF
+sed 's#shots/g301_#shots/g301b_#' /tmp/g301.txt > /tmp/g301b.txt
+sed 's#shots/g301_#shots/g301c_#' /tmp/g301.txt > /tmp/g301c.txt
+# the footprint twin: the same script up to the first frame, drawn with --nosidebar
+awk '{print} /^shot shots\/g301_off.png$/{exit}' /tmp/g301.txt \
+  | sed 's#shots/g301_off#shots/g301n_off#' > /tmp/g301n.txt
+echo quit >> /tmp/g301n.txt
+gbegin shots/g301_off.png shots/g301_light.png shots/g301_fog.png shots/g301_blue.png \
+       shots/g301_back.png shots/g301b_fog.png shots/g301c_off.png shots/g301c_back.png \
+       shots/g301n_off.png shots/g301.log shots/g301b.log shots/g301c.log shots/g301n.log
+grun shots/g301.log  --noshroud --scen SCG15EC --pack SCG15EC.pack $BASE --nosound \
+     --w 1280 --h 720 --enhanced --texset 1 --script /tmp/g301.txt
+grun shots/g301b.log --noshroud --scen SCG15EC --pack SCG15EC.pack $BASE --nosound \
+     --w 1280 --h 720 --enhanced --texset 1 --script /tmp/g301b.txt
+grun shots/g301c.log --noshroud --scen SCG15EC --pack SCG15EC.pack $BASE --nosound \
+     --w 1280 --h 720 --script /tmp/g301c.txt
+grun shots/g301n.log --noshroud --scen SCG15EC --pack SCG15EC.pack $BASE --nosound \
+     --w 1280 --h 720 --enhanced --texset 1 --nosidebar --script /tmp/g301n.txt
+G301CHK="- - - - - - - - - - -"
+if gshots shots/g301_off.png shots/g301_light.png shots/g301_fog.png shots/g301_blue.png \
+          shots/g301_back.png shots/g301b_fog.png shots/g301c_off.png shots/g301c_back.png \
+          shots/g301n_off.png; then
+  G301CHK=$(python3 - <<'PY' 2>>"$OUT"
+from PIL import Image
+import numpy as np
+L = lambda n: np.asarray(Image.open("shots/%s.png" % n).convert("RGB")).astype(int)
+off, lit, fog, blue = L("g301_off"), L("g301_light"), L("g301_fog"), L("g301_blue")
+def ch(a, b):
+    return np.abs(a - b).max(-1) > 24
+w_lit = int(ch(off, lit)[:, :1120].sum())
+# the panel's own pixels: where the off frame differs from its --nosidebar twin
+hud = np.abs(off - L("g301n_off")).max(-1) > 0
+hud_found = int(hud[:, 1120:].sum())
+hud_stray = int(hud[24:, :1000].sum())
+side = int((ch(off, lit) & hud).sum() + (ch(off, fog) & hud).sum() + (ch(off, blue) & hud).sum())
+green = 1 if lit[:, :1120, 1].mean() > off[:, :1120, 1].mean() + 2 else 0
+w_fog = int(ch(lit, fog)[:, :1120].sum())
+base = int(ch(off, fog)[:90, 600:1120].sum())
+isblue = lambda a: int((a[:, :1120, 2] > a[:, :1120, 1] + 25).sum())
+blue_more = isblue(blue) - isblue(fog)
+back = 1 if L("g301_back").tobytes() == fog.tobytes() else 0
+classic = int(ch(L("g301c_off"), L("g301c_back")).sum())
+same = 1 if L("g301b_fog").tobytes() == fog.tobytes() else 0
+print(w_lit, green, side, w_fog, base, blue_more, back, classic, same, hud_found, hud_stray)
+PY
+)
+fi
+set -- $G301CHK
+G301LIT="$1"; G301GRN="$2"; G301SB="$3"; G301FOG="$4"; G301BASE="$5"; G301BLUE="$6"
+G301BACK="$7"; G301CL="$8"; G301SAME="$9"; shift 9; G301HUD="$1"; G301STRAY="$2"
+G301LOG=$(grep -c "FX|tibcolour|hue 215.0" shots/g301.log 2>/dev/null)
+if [ "$GRC" = "0" ] && [ "${G301LIT:-0}" -ge 20000 ] 2>/dev/null && [ "$G301GRN" = "1" ] \
+   && [ "$G301SB" = "0" ] && [ "${G301HUD:-0}" -ge 90000 ] 2>/dev/null && [ "$G301STRAY" = "0" ] \
+   && [ "${G301FOG:-0}" -ge 20000 ] 2>/dev/null \
+   && [ "${G301BASE:-99999}" -lt 1500 ] 2>/dev/null && [ "${G301BLUE:-0}" -ge 3000 ] 2>/dev/null \
+   && [ "$G301BACK" = "1" ] && [ "$G301CL" = "0" ] && [ "$G301SAME" = "1" ] \
+   && [ "${G301LOG:-0}" -ge 1 ] 2>/dev/null; then
+  ok "G301 tiberium colour, light and fog: the light moves $G301LIT field pixels and the fog $G301FOG more, the base $G301BASE and not one of the sidebar's $G301HUD; hue 215 turns $G301BLUE pixels blue and 105.1 draws the original again; Classic unchanged; two runs one picture"
+else
+  bad "G301 tiberium colour, light and fog: rc=$GRC light=${G301LIT:-?}(>=20000) greener=${G301GRN:-?}(1) sidebar=${G301SB:-?}(0) panel=${G301HUD:-?}(>=90000 px right of column 1120) twin-view=${G301STRAY:-?}(0 px off the panel) fog=${G301FOG:-?}(>=20000) base=${G301BASE:-?}(<1500) blue=${G301BLUE:-?}(>=3000) back=${G301BACK:-?}(1) classic=${G301CL:-?}(0) same=${G301SAME:-?}(1) log=${G301LOG:-?}(>=1)"
+fi
+
+# G303 THE WALLS' STAGES AND THE REMASTERS IN THE LIGHT PASS (ebld_mod.h format 5;
+# game/ebld/, baked by tools/art/remaster/bake_ebld.py; scene and claims in
+# gate_ebldwall.py). Under Enhanced a remastered wall cell wears down by its engine damage
+# level (the concrete wall chips at its first level and breaks at its second, the
+# chain-link breaks at its first, sandbags have none) and, when the engine takes the cell
+# away, is blown into its connection mask's destroyed set, which sinks and goes; and every
+# remastered building draws its smooth normals and its self-lit surfaces into the light
+# pass's normal target, and the Barracks' flag waves.
+#
+# FIVE RUNS: SCG94EA (a copy of SCM01EA with a run of each wall and two Medium Tanks force-
+# firing on one cell of each) twice, the second a byte-for-byte replay, and in Classic;
+# SCG90EA's GDI base under Enhanced with and without --noebldnormals. Claims, from the
+# system's own dump lines and the pictures:
+#   (1) each wall's shot cell goes through its stages: chips and a damaged stage where the
+#       type has the levels, then one wreck with pieces, which sinks and is gone, and the
+#       cell leaves the wall dump;
+#   (2) the remasters drew their normals into the target (EBLDNRM), --noebldnormals none,
+#       and the two frames differ by at least 2000 pixels by more than eight levels;
+#   (3) the Barracks' flag was posed at several times (EBLDWAVE);
+#   (4) two runs are one run; Classic stages no wall cell.
+# NOT COVERED: how the light looks against the lab, which no counter can say; the shots
+# are for a person.
+# =====================================================================================
+rm -rf g303m && python3 "$GATEDIR/gate_ebldwall.py" maps g303m 2>>"$OUT"
+sed "s#shots/g303_#shots/g303r_#" g303m/SCG94EA.txt > g303m/SCG94EA_r.txt
+sed "s#shots/g303_#shots/g303k_#" g303m/SCG94EA.txt > g303m/SCG94EA_k.txt
+sed "s#shots/g303e_#shots/g303n_#" g303m/light.txt > g303m/light_n.txt
+gbegin shots/g303a.log shots/g303a2.log shots/g303k.log shots/g303e.log shots/g303n.log \
+       shots/g303e_light.png shots/g303n_light.png
+G303ARGS="--pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720"
+if [ -s g303m/SCG94EA.INI ]; then
+  grun shots/g303a.log  --scen SCG94EA $G303ARGS --dir g303m/ --enhanced --script g303m/SCG94EA.txt
+  grun shots/g303a2.log --scen SCG94EA $G303ARGS --dir g303m/ --enhanced --script g303m/SCG94EA_r.txt
+  grun shots/g303k.log  --scen SCG94EA $G303ARGS --dir g303m/ --script g303m/SCG94EA_k.txt
+  grun shots/g303e.log  --scen SCG90EA $G303ARGS --enhanced --script g303m/light.txt
+  grun shots/g303n.log  --scen SCG90EA $G303ARGS --enhanced --noebldnormals --script g303m/light_n.txt
+  G303CHK=$(python3 "$GATEDIR/gate_ebldwall.py" check shots g303m 2>>"$OUT")
+else
+  G303CHK="0 the test mission was not made (missions/SCM01EA is not in the run folder)"
+fi
+G303V=$(echo "$G303CHK" | head -1 | cut -d' ' -f1)
+G303MSG=$(echo "$G303CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G303 the walls' stages and the remasters' light: a run failed (GRC=$GRC). A binary without the format 5 reader, or game/ebld files older than it, is the first thing to check"
+elif [ "$G303V" = "1" ]; then
+  ok "G303 the walls' stages and the remasters' light: $G303MSG"
+else
+  bad "G303 the walls' stages and the remasters' light: ${G303MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G305 THE F5 PANEL'S STRUCTURES GROUP (fx_state.h 12p; the STRUCTURES blocks of the
+# light pass in fx_post.h; str_draw_class in cnc_eyes.cpp; scene and claims in
+# gate_structs.py). Under Enhanced eight dials grade and light the buildings and walls and
+# nothing else: gamma, brightness, contrast and saturation on a structure's own colour,
+# shade depth and sun strength on its sun-shadow tint, its self-lit glow and its occlusion.
+# They reach the remasters by the class their own normals carry and the cartridge's
+# buildings and walls by a class drawn for them while a dial is off neutral.
+#
+# THREE RUNS on SCG95EA (a copy of SCM01EA holding an Obelisk and a Temple, two civilian
+# houses, barbed wire and a wooden fence, a Medium Tank and three riflemen in one view):
+# Enhanced, Enhanced with --noebld, and Classic. Claims, from the pictures and the STRUCT
+# dump line:
+#   (1) EVERY DIAL MOVES THE STRUCTURES THE WAY IT SAYS: brighter, darker, wider about
+#       grey, greyer, the self-lit pixels darker, each on at least 20000 of their pixels
+#       (the glow on at least 200);
+#   (2) AND NOT ONE OTHER PIXEL, with the bloom off (the bloom spreads a structure's light
+#       onto the ground beside it, which is the bloom's job): the bound is found without
+#       the group, as the pixels that change when the buildings and walls are not drawn;
+#   (3) BRIGHTNESS 0 TAKES THE STRUCTURES TO BLACK and stays inside that bound, under
+#       Enhanced and with every structure the cartridge's (--noebld);
+#   (4) NEUTRAL IS THE OLD PATH: on=0 and nothing drawn into the normal target at the
+#       defaults, and the frame after every dial was moved and put back is the first frame
+#       byte for byte;
+#   (5) CLASSIC: brightness 0 moves nothing.
+# NOT COVERED: whether a setting looks right, which is for a person; byte identity at the
+# defaults against the renderer before the group existed is a comparison of two binaries
+# and was measured on G273, G274, G295, G303 and G304's frames when the group landed.
+# =====================================================================================
+rm -rf g305m && python3 "$GATEDIR/gate_structs.py" maps g305m 2>>"$OUT"
+gbegin shots/g305e.log shots/g305x.log shots/g305k.log shots/g305_n0.png shots/g305_n1.png \
+       shots/g305_nb_n.png shots/g305_nb_bare.png shots/g305_nb_mask.png \
+       shots/g305x_n.png shots/g305x_bare.png shots/g305x_mask.png \
+       shots/g305k_n.png shots/g305k_bare.png shots/g305k_mask.png
+G305ARGS="--scen SCG95EA --pack SCG01EA.pack $BASE --dir g305m/ --noshroud --nosound --w 1280 --h 720"
+if [ -s g305m/SCG95EA.INI ]; then
+  grun shots/g305e.log $G305ARGS --enhanced --texset 1 --script g305m/enh.txt
+  grun shots/g305x.log $G305ARGS --enhanced --texset 1 --noebld --script g305m/x.txt
+  grun shots/g305k.log $G305ARGS --script g305m/k.txt
+  gshots shots/g305_n0.png shots/g305_n1.png shots/g305_nb_mask.png shots/g305x_mask.png \
+         shots/g305k_mask.png
+  G305CHK=$(python3 "$GATEDIR/gate_structs.py" check shots g305m 2>>"$OUT")
+else
+  G305CHK="0 the test mission was not made (missions/SCM01EA is not in the run folder)"
+fi
+G305V=$(echo "$G305CHK" | head -1 | cut -d' ' -f1)
+G305MSG=$(echo "$G305CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G305 the structures group: a run failed (GRC=$GRC)"
+elif [ "$G305V" = "1" ]; then
+  ok "G305 the structures group: $G305MSG"
+else
+  bad "G305 the structures group: ${G305MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G306 THE CIVILIAN FIELDS AND HAYSTACKS PLACED AS OVERLAYS ARE DRAWN.
+#
+# V12..V18 placed in a scenario's [OVERLAY] are cell decorations the brain reports as
+# FIELD| lines and the renderer draws with the cartridge's own V12..V18 meshes (an overlay
+# V12 with the V13 mesh, as the console does).
+#
+# THE CLAIMS:
+#   (1) ENGINE TRUTH MATCHES THE SCENARIO. For every shipped mission that places one, the
+#       renderer's per-kind count of the cells the brain reported equals the per-kind count
+#       of the mission INI's own [OVERLAY] section, 96 cells over 17 missions; a mission
+#       that places none (SCG01EA) reports none. Every mission's pack resolves all seven
+#       meshes, and V12 resolves to V13's.
+#   (2) THEY ARE PUT WHERE THE CELL IS. On SCG06EA after a frame, all six cells were drawn,
+#       each anchored by draw_mesh itself at the cell centre with no lift, and the V12 cell
+#       drew as V13.
+#   (3) THEY ARE SEEN, in Classic and in Enhanced: the frame with fields differs from the
+#       same frame with `fields 0` in at least 5,000 world pixels and in no sidebar pixel.
+#   (4) TWO RUNS ARE ONE PICTURE.
+# =====================================================================================
+G306MISS="SCB31EA SCB60EA SCG03EA SCG04WB SCG06EA SCG07EA SCG08EA SCG08EB SCG09EA SCG10EA SCG13EA SCG13EB SCG15EA SCG22EA SCG32EA SCG71EB SCG73EA SCG01EA"
+printf 'tick 2\nfielddump\nquit\n' > /tmp/g306n.txt
+cat > /tmp/g306.txt <<'G306EOF'
+tick 20
+cam 33.5 36
+zoom max
+shot shots/g306_on.png
+fielddump
+fields 0
+shot shots/g306_off.png
+quit
+G306EOF
+sed 's#shots/g306_#shots/g306e_#' /tmp/g306.txt > /tmp/g306e.txt
+sed 's#shots/g306_#shots/g306b_#' /tmp/g306.txt > /tmp/g306b.txt
+gbegin shots/g306_on.png shots/g306_off.png shots/g306e_on.png shots/g306e_off.png \
+       shots/g306b_on.png shots/g306.log shots/g306e.log shots/g306b.log
+for g306m in $G306MISS; do
+  rm -f "shots/g306n_$g306m.log"
+  grun "shots/g306n_$g306m.log" --scen $g306m --pack $g306m.pack $BASE --nosound \
+       --script /tmp/g306n.txt
+done
+G306A="--scen SCG06EA --pack SCG06EA.pack $BASE --nosound --noshroud --w 1280 --h 720"
+grun shots/g306.log  $G306A --script /tmp/g306.txt
+grun shots/g306e.log $G306A --enhanced --script /tmp/g306e.txt
+grun shots/g306b.log $G306A --script /tmp/g306b.txt
+G306CNT=$(python3 - "$G306MISS" <<'PY' 2>>"$OUT"
+import re, sys
+names = ["V12", "V13", "V14", "V15", "V16", "V17", "V18"]
+def ini_counts(m):
+    c, sec = dict((n, 0) for n in names), None
+    for l in open("missions/%s.INI" % m, encoding="latin1"):
+        l = l.strip()
+        s = re.match(r"\[(.*)\]", l)
+        if s:
+            sec = s.group(1).upper(); continue
+        if sec == "OVERLAY" and "=" in l:
+            v = l.split("=", 1)[1].strip().upper()
+            if v in c: c[v] += 1
+    return c
+got = {}
+for m in sys.argv[1].split():
+    try:
+        for l in open("shots/g306n_%s.log" % m, encoding="latin1"):
+            if l.startswith("FIELDDUMP|"):
+                got[m] = dict(kv.split("=") for kv in l.strip().split("|")[1:])
+    except OSError:
+        pass
+bad, total, meshes = [], 0, 1
+for m in sys.argv[1].split():
+    want = ini_counts(m)
+    g = got.get(m)
+    if g is None:
+        bad.append(m + ":nodump"); continue
+    for n in names:
+        if int(g[n]) != want[n]:
+            bad.append("%s:%s=%s/%d" % (m, n, g[n], want[n]))
+    total += int(g["cells"])
+    ms = [int(g["m" + n]) for n in names]
+    if min(ms) < 0 or ms[0] != ms[1]:
+        meshes = 0
+        bad.append(m + ":mesh")
+print(total, meshes, len(got), ",".join(bad) or "-")
+PY
+)
+set -- ${G306CNT:-"- - - -"}
+G306TOT="$1"; G306MESH="$2"; G306RUNS="$3"; G306BAD="$4"
+G306PLACED=$(grep -ac '^FIELDAT|' shots/g306.log)
+G306AT=$(python3 - <<'PY' 2>>"$OUT"
+ok = 0
+for l in open("shots/g306.log", encoding="latin1"):
+    if not l.startswith("FIELDAT|"): continue
+    f = l.strip().split("|")
+    kv = dict(x.split("=") for x in f[4:])
+    x, y = int(f[1]), int(f[2])
+    if kv["ax"] == "-": continue
+    if abs(float(kv["ax"]) - (x + 0.5)) > 1e-3 or abs(float(kv["az"]) - (y + 0.5)) > 1e-3: continue
+    if abs(float(kv["lift"])) > 1e-3 or kv["drawn"] != "1": continue
+    if kv["as"] != ("V13" if f[3] == "V12" else f[3]): continue
+    ok += 1
+print(ok)
+PY
+)
+G306PIX="- - - - -"
+if gshots shots/g306_on.png shots/g306_off.png shots/g306e_on.png shots/g306e_off.png shots/g306b_on.png; then
+  G306PIX=$(python3 - <<'PY' 2>>"$OUT"
+from PIL import Image
+import numpy as np
+L = lambda n: np.asarray(Image.open("shots/%s.png" % n).convert("RGB")).astype(int)
+def diff(a, b):
+    d = np.abs(L(a) - L(b)).sum(-1) > 12
+    return int(d[:, :1120].sum()), int(d[:, 1120:].sum())
+c, cs = diff("g306_on", "g306_off")
+e, es = diff("g306e_on", "g306e_off")
+print(c, cs, e, es, 1 if L("g306_on").tobytes() == L("g306b_on").tobytes() else 0)
+PY
+)
+fi
+set -- $G306PIX
+G306C="$1"; G306CS="$2"; G306E="$3"; G306ES="$4"; G306SAME="$5"
+if [ "$GRC" = "0" ] && [ "$G306TOT" = "96" ] && [ "$G306MESH" = "1" ] && [ "$G306RUNS" = "18" ] \
+   && [ "$G306BAD" = "-" ] && [ "$G306PLACED" = "6" ] && [ "$G306AT" = "6" ] \
+   && [ "${G306C:-0}" -ge 5000 ] 2>/dev/null && [ "$G306CS" = "0" ] \
+   && [ "${G306E:-0}" -ge 5000 ] 2>/dev/null && [ "$G306ES" = "0" ] && [ "$G306SAME" = "1" ]; then
+  ok "G306 the field overlays: the brain reported the INI's own 96 field cells in 17 missions kind for kind and none on SCG01EA, every pack resolves the seven meshes (V12 as V13); SCG06EA's six drawn at their cell centres with no lift; $G306C Classic and $G306E Enhanced world pixels change with them, no sidebar pixel; two runs one picture"
+else
+  bad "G306 the field overlays: rc=$GRC cells=${G306TOT:-?}(96) meshes=${G306MESH:-?}(1) runs=${G306RUNS:-?}(18) mismatches=${G306BAD:-?}(-) placed=$G306PLACED(6) at_centre=${G306AT:-?}(6) classic_px=${G306C:-?}(>=5000) classic_sidebar=${G306CS:-?}(0) enh_px=${G306E:-?}(>=5000) enh_sidebar=${G306ES:-?}(0) same=${G306SAME:-?}(1)"
+fi
+
+# =====================================================================================
+# G308 THE CIVILIAN BUILDINGS AND THE FENCES (ebld_mod.h format 6; game/ebld/V01..V37,
+# BARB, WOOD, baked by tools/art/remaster/bake_ebld.py; scene and claims in
+# gate_ebldciv.py). Under Enhanced every remastered civilian building (V01 to V37, the
+# fields and haystacks V12 to V18 in their structure form, the oil pump V19) is drawn from
+# its remaster, wears down hit by hit, breaks at half strength and is blown into its
+# destroyed set, which sinks and goes; the eight that stand on part of their footprint
+# blow up and scorch on the cells they block; the oil pump's parts move frame by frame
+# with the cartridge's own clip and, once damaged, in its own struggling loop; the barbed
+# wire and the wooden fence are walls with their own connection pieces and are blown
+# apart cell by cell. Classic keeps the cartridge's art and its shatter.
+#
+# FIVE RUNS: SCG97EA (a copy of SCM01EA: V01 to V19 owned by Neutral, two Medium Tanks
+# force-firing on each, and a run of each fence with two tanks on one cell) twice, the
+# second a byte-for-byte replay, under --noebld and in Classic; SCG98EA (a copy of SCM02EA,
+# desert: V20 to V37) once. Claims, from the system's own dump lines:
+#   (1) every civilian and both fences are read the first time the mission shows them,
+#       each a version 6 model with its three sets (the fences with the wall flag);
+#   (2) every civilian's intact model was drawn (the observer);
+#   (3) every civilian is hit ten or more times, loses its chips, breaks once with loose
+#       pieces, is wrecked into exactly its destroyed set, sinks and goes; no old shatter;
+#   (4) the death's centre: an EBLD|blast on the blocked cells for V01 V02 V03 V04 V20 V21
+#       V25 V37, as the lab's `at` puts it, and none for the rest;
+#   (5) each fence's shot cell is wrecked with pieces, sinks and goes, with no damaged
+#       stage (one level, as the sandbags);
+#   (6) the oil pump: held, its intact frame and its clip pieces move three ticks apart;
+#       damaged, its own loop's tick runs on from the tick the switch started it at;
+#   (7) --noebld and Classic read none of it and the old shatter takes the civilians;
+#   (8) two runs are one run (dump lines and shots).
+# NOT COVERED: how each stage looks against the lab, which no counter can say; the
+# `gate_ebldciv.py sheet` scripts shoot every type at every stage for a person.
+# =====================================================================================
+rm -f shots/g308_*.png shots/g308r_*.png shots/g308n_*.png shots/g308k_*.png
+rm -rf g308m && python3 "$GATEDIR/gate_ebldciv.py" maps g308m 2>>"$OUT"
+sed "s#shots/g308_#shots/g308r_#" g308m/SCG97EA.txt > g308m/SCG97EA_r.txt
+sed "s#shots/g308_#shots/g308n_#" g308m/SCG97EA.txt > g308m/SCG97EA_n.txt
+sed "s#shots/g308_#shots/g308k_#" g308m/SCG97EA.txt > g308m/SCG97EA_k.txt
+gbegin shots/g308a.log shots/g308a2.log shots/g308b.log shots/g308n.log shots/g308k.log \
+       shots/g308_V01_intact.png shots/g308_V19_10_a.png shots/g308_V37_intact.png
+G308ARGS="$BASE --dir g308m/ --noshroud --nosound --w 1280 --h 720"
+if [ -s g308m/SCG97EA.INI ] && [ -s g308m/SCG98EA.INI ]; then
+  grun shots/g308a.log  --scen SCG97EA --pack SCG01EA.pack $G308ARGS --enhanced --texset 1 --script g308m/SCG97EA.txt
+  grun shots/g308a2.log --scen SCG97EA --pack SCG01EA.pack $G308ARGS --enhanced --texset 1 --script g308m/SCG97EA_r.txt
+  grun shots/g308b.log  --scen SCG98EA --pack SCB01EA.pack $G308ARGS --enhanced --texset 1 --script g308m/SCG98EA.txt
+  grun shots/g308n.log  --scen SCG97EA --pack SCG01EA.pack $G308ARGS --enhanced --texset 1 --noebld --script g308m/SCG97EA_n.txt
+  grun shots/g308k.log  --scen SCG97EA --pack SCG01EA.pack $G308ARGS --script g308m/SCG97EA_k.txt
+  gshots shots/g308_V01_intact.png shots/g308_V19_10_a.png shots/g308_V37_intact.png
+  G308CHK=$(python3 "$GATEDIR/gate_ebldciv.py" check shots g308m 2>>"$OUT")
+else
+  G308CHK="0 the test missions were not made (missions/SCM01EA and SCM02EA are not in the run folder)"
+fi
+G308V=$(echo "$G308CHK" | head -1 | cut -d' ' -f1)
+G308MSG=$(echo "$G308CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G308 the civilian buildings and fences: a run failed (GRC=$GRC). A binary without the format 6 reader, or no game/ebld/V*.ebld in the run folder, is the first thing to check"
+elif [ "$G308V" = "1" ]; then
+  ok "G308 the civilian buildings and fences: $G308MSG"
+else
+  bad "G308 the civilian buildings and fences: ${G308MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G309 A REMASTERED STRUCTURE DIES AS THE LAB'S DESTROY PLAYS IT (ebld_mod.h: the BOOM
+# trailer of game/ebld/<TYPE>.ebld, ebld_boom_step, ebld_anims_filter; scene and claims in
+# gate_ebldboom.py). Under Enhanced the engine's own effects for a remastered building's
+# death (a fireball on every cell it blocks, fires on half of them, the smoke column when
+# the wreck is cleared) and for its damage (the fires it attaches at each damage level, the
+# oil pump's flame spout) stand down, and the death plays the explosion the remaster lab
+# plays on Destroy, from the recipe the file carries, at the death's centre, with the lab's
+# jolt; the damaged stage is the file's own emitters. A wall cell collapses in its own dust
+# with no explosion. Classic keeps the engine's own effects, untouched.
+#
+# FIVE RUNS: SCG88EA (a copy of SCM01EA: the Weapons Factory, Refinery, Power Plant and
+# Construction Yard, the civilian houses V01 and V04, the oil pump V19, a run of barbed wire
+# and of concrete wall; each building broken by two Medium Tanks, held at its damaged stage
+# for three seconds, then killed with 1000 points of HE on a cell it blocks) under Enhanced
+# twice, the second a byte-for-byte replay, under --noebld and in Classic; SCG89EA (a copy
+# of SCM02EA, desert: the film studio V37) under Enhanced. Claims, from the system's own
+# dump lines:
+#   (1) every building explodes once, with its file's recipe (33 slots), on the tick it is
+#       wrecked, at its death's centre (the blocked cells' for V01 V04 V37), jolting the
+#       camera by the lab's cells (the SHAKE amplitude read back);
+#   (2) one engine fireball stood down for every cell it blocks, and its death craters;
+#   (3) no engine death or damage anim is live at any dump from the break to 8 seconds,
+#       and under Enhanced no engine death or damage recipe emitted a particle;
+#   (4) the explosion emitted (stage 119 at 8 s, 400+ particles, chunks) and drew the
+#       approved sheets (BIGBOOM, COAL, SHOCK, SMOKE, DEBRIS) in its first second;
+#   (5) the damaged stage's own emitters gave off by 3 seconds, and the oil pump's flame
+#       spout stood down;
+#   (6) the wall cells: wrecked, no explosion, their collapse dust played, no engine anim;
+#   (7) --noebld and Classic: no explosion and no stand-down, and the engine's fireballs and
+#       fires emitted particles;
+#   (8) two runs are one run (dump lines and shots).
+# NOT COVERED: how the explosion looks beside the lab's, which no counter can say: the
+# shots this gate writes (shots/g309_<TYPE>_*.png, intact, damaged at 1 and 3 seconds,
+# the blast at 0.13, 0.4, 1, 3 and 8 seconds) were laid beside the lab's at the same moments.
+# Classic frames byte-identical to the build before this work, measured once with that
+# binary, which the suite does not keep.
+# =====================================================================================
+rm -f shots/g309_*.png shots/g309r_*.png shots/g309n_*.png shots/g309k_*.png
+rm -rf g309m && python3 "$GATEDIR/gate_ebldboom.py" maps g309m 2>>"$OUT"
+for g309v in r n k; do
+  [ -s g309m/SCG88EA.txt ] && sed "s#shots/g309_#shots/g309${g309v}_#" g309m/SCG88EA.txt > g309m/SCG88EA_$g309v.txt
+done
+gbegin shots/g309a.log shots/g309a2.log shots/g309b.log shots/g309n.log shots/g309k.log \
+       shots/g309_WEAP_b006.png shots/g309_V19_dmg45.png shots/g309_V37_b015.png
+G309ARGS="$BASE --dir g309m/ --noshroud --nosound --w 1280 --h 720"
+if [ -s g309m/SCG88EA.INI ] && [ -s g309m/SCG89EA.INI ]; then
+  grun shots/g309a.log  --scen SCG88EA --pack SCG01EA.pack $G309ARGS --enhanced --texset 3 --script g309m/SCG88EA.txt
+  grun shots/g309a2.log --scen SCG88EA --pack SCG01EA.pack $G309ARGS --enhanced --texset 3 --script g309m/SCG88EA_r.txt
+  grun shots/g309b.log  --scen SCG89EA --pack SCB01EA.pack $G309ARGS --enhanced --texset 3 --script g309m/SCG89EA.txt
+  grun shots/g309n.log  --scen SCG88EA --pack SCG01EA.pack $G309ARGS --enhanced --texset 3 --noebld --script g309m/SCG88EA_n.txt
+  grun shots/g309k.log  --scen SCG88EA --pack SCG01EA.pack $G309ARGS --script g309m/SCG88EA_k.txt
+  gshots shots/g309_WEAP_b006.png shots/g309_V19_dmg45.png shots/g309_V37_b015.png
+  G309CHK=$(python3 "$GATEDIR/gate_ebldboom.py" check shots g309m 2>>"$OUT")
+else
+  G309CHK="0 the test missions were not made (missions/SCM01EA and SCM02EA are not in the run folder)"
+fi
+G309V=$(echo "$G309CHK" | head -1 | cut -d' ' -f1)
+G309MSG=$(echo "$G309CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G309 the remastered structures' deaths: a run failed (GRC=$GRC). A binary without the explosion trailer reader or the hurtcell and tickstr verbs is the first thing to check"
+elif [ "$G309V" = "1" ]; then
+  ok "G309 the remastered structures' deaths: $G309MSG"
+else
+  bad "G309 the remastered structures' deaths: ${G309MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G307 THE REMASTERED TERRAIN OBJECTS AND CELL DECORATIONS (game/ebld_terr.h and the
+# terrain path of ebld_mod.h; game/ebld/ROCK1..7, SPLIT2, SPLIT3 and their theater looks,
+# P04, P04_DES, SCRATE, WCRATE, with the field overlays drawing V13..V18; scenes and claims
+# in gate_eterr.py). Under Enhanced the desert rocks and the blossom trees are drawn whole
+# from their remasters, the trees playing their eight-second idle loop with the spore
+# bursts synced to it; the bonus crates, the fields and haystacks placed as overlays and
+# the crashed Orca on rock patch P04 are drawn from theirs at the cartridge's own anchor;
+# each theater draws its own look.
+#
+# FIFTEEN RUNS on three test missions (a temperate, a desert and a winter map, each its own
+# pack's ground with a block of clear cells): Enhanced, the same with --noeterr --noebld,
+# Classic, Enhanced again, and Enhanced with --noeterrstain. Enhanced is shot on its own
+# ground, the 144-texel terrain (--texset 3), which is what Enhanced draws by default. Claims, from the system's own dump lines and the pictures:
+#   (1) every crate and field cell drew as a remaster, anchored by draw_mesh at its cell
+#       centre with no lift (an overlay V12 as V13), and the map's P04 cell in the
+#       theater's look (P04_DES in the desert);
+#   (2) every rock and tree drew whole from its theater's file (SPLIT3_DES, SPLIT2_WIN..);
+#   (3) every tree's idle frame advances fifteen frames a second and no two trees of a
+#       scene share a phase; (4) by nine seconds every tree's synced emitters have burst;
+#   (5) the frames differ from the cartridge's (--noeterr --noebld) by at least 4000
+#       pixels (800 at the wreck) and in no sidebar pixel;
+#   (6) Classic drew nothing remastered; (7) two Enhanced runs are one picture;
+#   (8) a jeep driven onto the wooden crate opens it and the remaster goes with it, the
+#       steel crate stays;
+#   (2b) the remastered trees: the temperate T01 and T16 drawn whole from T01_TEM (T16
+#       through the alias), T02, T03, T05, T06, T07, T10 to T15, T17 from their _TEM files,
+#       the desert cacti T04, T09 and acacias T08, T18 from their _DES files, each with its
+#       wind on; the desert's T01 and the winter's T16, T02, T13 from no remastered file;
+#   (9) every blossom tree has its ground stain (the Tiberium crystals' crack, spread from
+#       its roots): one per tree, all six quads, centred inside its blocked cell, lit; the
+#       frame differs from the same frame with --noeterrstain by at least 300 pixels a tree,
+#       none in the sidebar, at least 80% of them greener; Classic draws none.
+# NOT COVERED: how they look against the lab, which no counter can say and was judged by
+# eye beside the lab's own shots; Classic byte-identical to the build before this system,
+# measured once with the old binary, which the suite does not keep.
+# =====================================================================================
+rm -rf g307m && python3 "$GATEDIR/gate_eterr.py" maps g307m 2>>"$OUT"
+gbegin g307m/SCG85EA.log
+G307B="$BASE --nosound --noshroud --w 1280 --h 720 --dir g307m/"
+if [ -f g307m/plan.json ]; then
+  for g307s in SCG85EA:SCG10EA SCG86EA:SCB33EA SCG87EA:SCW01EA; do
+    g307n=${g307s%%:*}; g307p=${g307s##*:}
+    grun g307m/$g307n.log   --scen $g307n --pack $g307p.pack $G307B --enhanced --texset 3 --script g307m/$g307n.txt
+    grun g307m/${g307n}_r.log --scen $g307n --pack $g307p.pack $G307B --enhanced --texset 3 --script g307m/${g307n}_r.txt
+    grun g307m/${g307n}_n.log --scen $g307n --pack $g307p.pack $G307B --enhanced --texset 3 --noeterr --noebld --script g307m/${g307n}_n.txt
+    grun g307m/${g307n}_c.log --scen $g307n --pack $g307p.pack $G307B --script g307m/${g307n}_c.txt
+    grun g307m/${g307n}_s.log --scen $g307n --pack $g307p.pack $G307B --enhanced --texset 3 --noeterrstain --script g307m/${g307n}_s.txt
+  done
+  G307CHK=$(python3 "$GATEDIR/gate_eterr.py" check g307m 2>>"$OUT")
+else
+  G307CHK="0 the test missions were not made (see the python error in the log)"
+fi
+G307V=$(echo "$G307CHK" | head -1 | cut -d' ' -f1)
+G307MSG=$(echo "$G307CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G307 the remastered terrain: a run failed (GRC=$GRC)"
+elif [ "$G307V" = "1" ]; then
+  ok "G307 the remastered terrain: $G307MSG"
+else
+  bad "G307 the remastered terrain: ${G307MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G310 RED ALERT'S GROUND UNDER ENHANCED (game/ra3d_terrain.h). In the Red Alert module,
+# Enhanced's world stands on the mission's own map instead of the Tiberian Dawn pack the
+# module loads as a placeholder: Red Alert's terrain set at 144 texels a cell from
+# ra3d/terrainenh_RA_<TH>.pack, its join strips from ra3d/terrainseam_RA_<TH>.pack drawn
+# by the code Tiberian Dawn's use, on the mission's own scene (ra3d/3d/<SCEN>.pack, its
+# heights), the whole mission rectangle; everything the mode draws on the ground still
+# drawn on it. Each run is handed its mission's scene, as the app hands it: a mission
+# booted on the shared placeholder pack stays in Classic.
+#
+# ELEVEN RUNS of the original missions, all hidden: SCG01EA (snow) under Enhanced twice,
+# and once on the 1995 tiles (texset 1);
+# with a strip pack this gate writes (gate_ra3dterrain.py seams: solid strips for every
+# key, so there are strips to see whatever the shipped pack holds), the same with
+# OPENCNC3D_TERRAINSEAM=off, and with no strips at all; SCG05EA (temperate); SCG13EA
+# (interior); SCG01EA in
+# Classic with the packs there and with them switched off; and Classic switched to
+# Enhanced through the Visuals dialog. Claims (gate_ra3dterrain.py check):
+#   (1) the SNOW sheet holds every cell of the shipped pack and none is missing, the
+#       shipped strips are all loaded, and the frame lays Red Alert cells on SCG01EA's
+#       own rectangle;
+#   (2) the Tiberian Dawn placeholder's terrain and sea are never built, and the frame
+#       is snow ground, not GDI 1's grass; two runs are one picture;
+#   (3) the gate's strips are drawn (counted, and at least 2,000 pixels of the view
+#       differ from the strip-less frame, none of the panel's), and OPENCNC3D_TERRAINSEAM=off
+#       takes them off exactly;
+#   (3b) the objects on the ground are still drawn, the same count over either set;
+#   (4) SCG05EA draws Red Alert's TEMPERAT ground, SCG13EA its interior from the 1995
+#       tiles (there is no Enhanced interior set);
+#   (5) Classic builds and draws none of it, and its picture is the same with the
+#       Enhanced packs switched off;
+#   (6) the Visuals dialog's Enhanced reaches the 3D ground.
+# NOT COVERED: how the paintings look, and Classic against the build before this
+# view, measured once with the old binary (identical), which the suite does not keep.
+# Without a staged Red Alert module in this folder (tools/ra3d/stage-frontend.py) the
+# gate does not run and says so.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ]; then
+  skip "G310 Red Alert's 3D ground: no Red Alert module is staged in this folder (tools/ra3d/stage-frontend.py)"
+elif [ ! -f ra3d/terrainenh_RA_SNOW.pack ] || [ ! -f ra3d/terrainseam_RA_SNOW.pack ]; then
+  bad "G310 Red Alert's 3D ground: ra3d/terrainenh_RA_SNOW.pack or ra3d/terrainseam_RA_SNOW.pack is not in the folder"
+else
+  rm -rf g310m && mkdir -p g310m
+  python3 "$GATEDIR/gate_ra3dterrain.py" seams ra3d/terrainenh_RA_SNOW.pack g310m/strips.pack 2>>"$OUT"
+  G310RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720"
+  printf 'dos_classic 1\nenabled 0\n' > g310m/classic.cfg
+  for g310n in a a2 a1995 b c d e h; do
+    # tick 0 for the frames compared to each other: the engine moves its units from the
+    # first tick on, and not identically from run to run
+    printf 'tick %s\ncam %s\nshot g310m/%s.png\nquit\n' "$(case $g310n in (e|h) echo 20;; (*) echo 0;; esac)" \
+      "$([ $g310n = e ] && echo '40 80' || echo '64 60')" "$g310n" > g310m/$g310n.txt
+  done
+  for g310n in f f2; do printf 'tick 0\nshot g310m/%s.png\nquit\n' "$g310n" > g310m/$g310n.txt; done
+  printf 'tick 5\noptions\noptclick Visuals\noptclick Enhanced\noptclick OK\ntick 5\nshot g310m/g.png\nquit\n' > g310m/g.txt
+  gbegin
+  export OPENCNC3D_RA3DFRAME=1
+  # THE ORE IS LEFT OUT of the ground the runs compare: the Red Alert engine seeds its random
+  # numbers from the clock (dllinterface.cpp GetRandSeed), so two runs of one mission give
+  # its ore patches different densities, and only the ore differs between them
+  export OPENCNC3D_RA3DORE=off
+  grun g310m/a.log  $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 3 --noshroud --script g310m/a.txt
+  grun g310m/a2.log $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 3 --noshroud --script g310m/a2.txt
+  grun g310m/a1995.log $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 1 --noshroud --script g310m/a1995.txt
+  export OPENCNC3D_RATERRAINSEAM=g310m/strips.pack
+  grun g310m/b.log $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 3 --noshroud --script g310m/b.txt
+  export OPENCNC3D_TERRAINSEAM=off
+  grun g310m/c.log $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 3 --noshroud --script g310m/c.txt
+  unset OPENCNC3D_TERRAINSEAM
+  export OPENCNC3D_RATERRAINSEAM=off
+  grun g310m/d.log $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 3 --noshroud --script g310m/d.txt
+  unset OPENCNC3D_RATERRAINSEAM OPENCNC3D_RA3DORE
+  grun g310m/e.log  $G310RA --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --enhanced --texset 3 --noshroud --script g310m/e.txt
+  grun g310m/h.log  $G310RA --scen SCG13EA --pack ra3d/3d/SCG13EA.pack --enhanced --texset 3 --noshroud --script g310m/h.txt
+  grun g310m/f.log  $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --gfx g310m/classic.cfg --script g310m/f.txt
+  export OPENCNC3D_RATERRAINENH=off OPENCNC3D_RATERRAINSEAM=off
+  grun g310m/f2.log $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --gfx g310m/classic.cfg --script g310m/f2.txt
+  unset OPENCNC3D_RATERRAINENH OPENCNC3D_RATERRAINSEAM
+  grun g310m/g.log  $G310RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --gfx g310m/classic.cfg --noshroud --script g310m/g.txt
+  unset OPENCNC3D_RA3DFRAME
+  if [ "$GRC" != "0" ]; then
+    bad "G310 Red Alert's 3D ground: a run failed (GRC=$GRC)"
+  elif ! gshots g310m/a.png g310m/a2.png g310m/b.png g310m/c.png g310m/d.png g310m/f.png g310m/f2.png; then
+    bad "G310 Red Alert's 3D ground: a picture was not written"
+  else
+    G310CHK=$(python3 "$GATEDIR/gate_ra3dterrain.py" check g310m ra3d/terrainenh_RA_SNOW.pack ra3d/terrainseam_RA_SNOW.pack 2>>"$OUT")
+    G310V=$(echo "$G310CHK" | head -1 | cut -d' ' -f1)
+    G310MSG=$(echo "$G310CHK" | head -1 | cut -d' ' -f2-)
+    if [ "$G310V" = "1" ]; then
+      ok "G310 Red Alert's 3D ground: $G310MSG"
+    else
+      bad "G310 Red Alert's 3D ground: ${G310MSG:-the check did not run (see the python error in the log)}"
+    fi
+  fi
+fi
+
+# G311 RED ALERT'S SEA UNDER ENHANCED (game/water_mod.h on game/ra3d_terrain.h's map). The
+# Tiberian Dawn Enhanced sea (its shore field, soft coast, foam, flow, waves and mirror)
+# drawn on Red Alert's own map: the water cut read off the 1995 tiles' palette indices,
+# Red Alert's ground cut and blended over the sea there, and the sea's base texture Red
+# Alert's own painted open water (W2) instead of the cartridge's WATER1 x WATER2.
+#
+# SIX RUNS, all hidden, the ore left out (G310 says why): Allied 1 in Enhanced, twice
+# pictured two ticks apart over its cove, then the same with water_fx 0 as the control
+# (Red Alert's painted water, as before this sea); Allied 1 on the 1995 tiles, Allied 5
+# (temperate), Soviet 7 (interior) and Allied 1 in Classic, by their logs. Asserted by
+# game/gate_rawater.py against the engine's own lines and the pixels: the theater's cut
+# census, the source built from the painted W2, a field with wet texels whose grain is the
+# painting's (not the cartridge's), the frame drawing the sea and the control not, the cove
+# moving between two ticks while the control holds still and differs from it, the 1995
+# base on the 1995 set, Allied 5 drawn, Interior and Classic drawing no sea.
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ]; then
+  skip "G311 Red Alert's sea: no Red Alert module is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g311m && mkdir -p g311m
+  G311RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --noshroud"
+  printf 'tick 0\ncam 54 56\nshot g311m/a.png\ntick 2\nshot g311m/b.png\nquit\n' > g311m/a.txt
+  printf 'gfx water_fx 0\ntick 0\ncam 54 56\nshot g311m/c.png\ntick 2\nshot g311m/d.png\nquit\n' > g311m/c.txt
+  printf 'tick 0\nshot g311m/x.png\nquit\n' > g311m/x.txt
+  printf 'dos_classic 1\nenabled 0\n' > g311m/classic.cfg
+  gbegin g311m/a.png g311m/b.png g311m/c.png g311m/d.png
+  export OPENCNC3D_RA3DORE=off
+  grun g311m/a.log $G311RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 3 --script g311m/a.txt
+  grun g311m/c.log $G311RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 3 --script g311m/c.txt
+  grun g311m/e.log $G311RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 1 --script g311m/x.txt
+  grun g311m/f.log $G311RA --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --enhanced --texset 3 --script g311m/x.txt
+  grun g311m/g.log $G311RA --scen SCU07EA --pack ra3d/3d/SCU07EA.pack --enhanced --texset 3 --script g311m/x.txt
+  grun g311m/h.log $G311RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --gfx g311m/classic.cfg --script g311m/x.txt
+  unset OPENCNC3D_RA3DORE
+  if [ "$GRC" != "0" ]; then
+    bad "G311 Red Alert's sea: a run failed (GRC=$GRC)"
+  elif ! gshots g311m/a.png g311m/b.png g311m/c.png g311m/d.png; then
+    bad "G311 Red Alert's sea: a picture was not written"
+  else
+    G311CHK=$(python3 "$GATEDIR/gate_rawater.py" check g311m 2>>"$OUT")
+    G311V=$(echo "$G311CHK" | head -1 | cut -d' ' -f1)
+    G311MSG=$(echo "$G311CHK" | head -1 | cut -d' ' -f2-)
+    if [ "$G311V" = "1" ]; then
+      ok "G311 $G311MSG"
+    else
+      bad "G311 Red Alert's sea: ${G311MSG:-the check did not run (see the python error in the log)}"
+    fi
+  fi
+fi
+
+# G312 THE APPROVED TREE STAGES: engine fire, burning mesh and charred snag, smoke out
+# after 30 seconds, stage pixels against --notreefire, and two identical Enhanced runs.
+# If the headless brain retains the dead tree, the verdict explicitly leaves the orphan
+# removal path unverified. No counter is substituted for the mesh/pixel comparison.
+#
+# THE PICTURE IS PINNED. The stage shots are compared with a fixed pixel bar, and that bar
+# was set under one shipped look. Retuning that look moved the snag's count from 1958 to
+# 1134 pixels with the snag still plainly a snag, so the gate was measuring the look
+# rather than the tree. Pinning the grade, mist and bloom alone was not enough (679
+# pixels): the living tree's cast shadow is much of what the snag is compared against,
+# and the terrain shadow strength had moved too. Every run therefore loads this preset,
+# which holds the whole look the bars were set under as far as a retune has moved it:
+# grade, mist, bloom, terrain shading, cloud shadows, dynamic light and the sea. It
+# carries no switches, and it has to apply in full, or the verdict says so.
+cat > gfx_g312.cfg <<'CFG'
+exposure -0.17857
+contrast 1.15625
+saturation 0.91071
+temperature -0.03571
+tint 0
+lift -0.07143
+gain 1.50446
+fog_density 0.06250
+fog_height 2.31250
+fog_scale 2.00000
+fog_speed 0.57143
+fog_wind 64.28571
+fog_light 4.42857
+bloom_threshold 0.68000
+bloom_knee 0.15000
+bloom_intensity 1.16071
+bloom_radius 1.60000
+bloom_passes 4
+terrain_shadow_strength 1.00000
+terrain_brightness 1.00000
+terrain_contrast 1.00000
+sun_floor 0.55000
+cloud_strength 0.47300
+cloud_speed 0.57100
+light_intensity 0.39286
+light_radius 2.74107
+water_shallow 0.30000
+water_deep 0.30000
+water_edge 0.45000
+water_fade 0.90000
+water_fade_width 0.90000
+water_foam_cross 0.30000
+water_reflect 0.26000
+water_spec 0.85000
+water_refract 0.02000
+water_fresnel 0.13000
+water_natural 0.88393
+water_dark 0.16000
+CFG
+rm -rf g312m
+python3 "$GATEDIR/gate_treefire.py" maps g312m 2>>"$OUT"
+gbegin g312m/TF.log g312m/TFr.log g312m/TFn.log
+G312ARGS="$BASE --scen SCG88EA --pack SCG10EA.pack --dir g312m/ --noshroud --nosound --w 1280 --h 720 --enhanced --texset 3 --gfx gfx_g312.cfg"
+if [ -f g312m/plan.json ]; then
+  grun g312m/TF.log $G312ARGS --script g312m/TF.txt
+  grun g312m/TFr.log $G312ARGS --script g312m/TFr.txt
+  grun g312m/TFn.log $G312ARGS --notreefire --script g312m/TFn.txt
+  G312CHK=$(python3 "$GATEDIR/gate_treefire.py" check g312m 2>>"$OUT")
+else
+  G312CHK="0 the tree fire test mission was not made"
+fi
+G312PRE="$(grep -ac '^FX|preset|gfx_g312.cfg: 38 applied, 0 unknown$' g312m/TF.log)$(grep -ac '^FX|preset|gfx_g312.cfg: 38 applied, 0 unknown$' g312m/TFr.log)$(grep -ac '^FX|preset|gfx_g312.cfg: 38 applied, 0 unknown$' g312m/TFn.log)"
+if [ "$GRC" != "0" ]; then
+  bad "G312 tree burning: a run failed (GRC=$GRC)"
+elif [ "$G312PRE" != "111" ]; then
+  bad "G312 tree burning: the pinned graphics preset did not apply cleanly (fire, repeat, no fire = $G312PRE, want 111), so the pictures are not the look its bars were set under; the check said: ${G312CHK#* }"
+elif [ "${G312CHK%% *}" = "1" ]; then
+  ok "G312 tree burning: ${G312CHK#* }"
+else
+  bad "G312 tree burning: ${G312CHK#* }"
+fi
+
+# G313 F5 IN A COOKED BUILD DOES NOTHING. F5 is the developer's key to the tuning panel: a
+# developer's build opens the panel on it, and a cooked build, which is what the packages
+# ship, binds nothing to it at all -- no panel, no message, nothing on screen. One real F5
+# keydown goes through SDL's own queue into the live loop (--presskey), so it meets every
+# handler a hand's F5 would, and the run reports which of the five surfaces a key can open
+# changed. The binary states whether it was cooked, and that is checked against the marker
+# the packagers read (the --gfxpanel refusal sentence), so the gate cannot assert the wrong
+# half. A cooked build must change nothing and print no FX|panel line; a developer's build
+# must open the panel. Each half is measured on the binary the suite was handed: an
+# ordinary run proves the developer's half, and the release's run on the cooked binaries
+# proves the cooked one.
+gbegin shots/g313_f5.log
+grun shots/g313_f5.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+  --run 3 --presskey F5
+G313L=$(grep -a '^PRESSKEY|F5|' shots/g313_f5.log | head -1)
+G313COOK=$(echo "$G313L" | sed -n 's/.*|cooked=\([01]\)|.*/\1/p')
+G313PANEL=$(echo "$G313L" | sed -n 's/.*|panel=\([01]>[01]\)|.*/\1/p')
+G313CHG=$(echo "$G313L" | sed -n 's/.*|changed=\([0-9]*\).*/\1/p')
+G313FX=$(grep -ac '^FX|panel|' shots/g313_f5.log)
+G313MARK=$(strings -a ./cnc_eyes 2>/dev/null | grep -c 'unavailable in a cooked build')
+[ "${G313MARK:-0}" -gt 1 ] && G313MARK=1
+if [ "$GRC" != "0" ]; then
+  bad "G313 F5 in a cooked build: the run itself failed (exit $GRC)"
+elif [ -z "$G313L" ] || [ -z "$G313COOK" ]; then
+  bad "G313 F5 in a cooked build: no PRESSKEY|F5 line, so the key was never pushed or never reported"
+elif [ "$G313COOK" != "$G313MARK" ]; then
+  bad "G313 F5 in a cooked build: the binary reports cooked=$G313COOK but carries the packagers' cooked marker $G313MARK time(s); the two must agree"
+elif [ "$G313COOK" = "1" ]; then
+  if [ "$G313PANEL" = "0>0" ] && [ "$G313CHG" = "0" ] && [ "$G313FX" = "0" ]; then
+    ok "G313 F5 in a cooked build does nothing: one real F5 through the live loop left the panel shut and all five surfaces unchanged, with no FX|panel line"
+  else
+    bad "G313 F5 in a cooked build: panel=$G313PANEL(want 0>0) changed=$G313CHG(want 0) FX|panel lines=$G313FX(want 0). [$G313L]"
+  fi
+else
+  if [ "$G313PANEL" = "0>1" ] && [ "${G313FX:-0}" -ge 1 ]; then
+    ok "G313 F5 in a developer's build opens the tuning panel: one real F5 through the live loop took it from shut to open ($G313FX FX|panel line). This binary is not cooked, so the cooked half (F5 does nothing) is proven when the suite runs on the cooked binaries, not here"
+  else
+    bad "G313 F5 in a developer's build: panel=$G313PANEL(want 0>1) FX|panel lines=$G313FX(want >=1). [$G313L]"
+  fi
+fi
+
+# G314 A USER MAP OPENS AS IT WAS SAVED, IN EITHER SPELLING OF ITS KEYS. Maps saved by
+# earlier builds spell three of the editor's keys CNC3DKind, CNC3DSmooth and CNC3DTheater.
+# Each is read only where the current key is absent, the current key wins where both are
+# present, and a save writes the current keys alone. Two maps made from the shipped snow
+# mission: A carries only the earlier spellings (Multi, smoothed, SNOW), B carries both,
+# with the earlier ones contradicting the current ones (Multi against Single, TEMPERATE
+# against SNOW) and written first, so a reader that took the first line it met reads them
+# wrong. Each is opened through the editor's own OPEN, read back, saved, and the saved file
+# is read. The theater is read where it decides something: a user map has no pack of its
+# own, so the theater picks the donor pack the map boots on, and a snow map must boot on
+# the snow one.
+G314U=missions/user_maps
+gbegin shots/g314.log
+rm -f $G314U/USERG314A.INI $G314U/USERG314A.BIN $G314U/USERG314B.INI $G314U/USERG314B.BIN
+if [ -s missions/SCS01EA.INI ] && [ -s missions/SCS01EA.BIN ]; then
+  awk '/^\[/ { sec = $0; sub(/\r$/, "", sec) }
+       sec == "[Basic]" && /^(Open)?CNC3DKind=/ { print "CNC3DKind=Multi"; print "CNC3DSmooth=1"; next }
+       sec == "[MAP]" && /^(Open)?CNC3DTheater=/ { print "CNC3DTheater=SNOW"; next }
+       { print }' missions/SCS01EA.INI > $G314U/USERG314A.INI
+  awk '/^\[/ { sec = $0; sub(/\r$/, "", sec) }
+       sec == "[Basic]" && /^(Open)?CNC3DKind=/ { print "CNC3DKind=Multi"; print "OpenCNC3DKind=Single"; next }
+       sec == "[MAP]" && /^(Open)?CNC3DTheater=/ { print "CNC3DTheater=TEMPERATE"; print "OpenCNC3DTheater=SNOW"; next }
+       { print }' missions/SCS01EA.INI > $G314U/USERG314B.INI
+  cp missions/SCS01EA.BIN $G314U/USERG314A.BIN
+  cp missions/SCS01EA.BIN $G314U/USERG314B.BIN
+fi
+# The two maps must really carry what this gate says they carry, or it proves nothing.
+G314PRE="$(grep -ac '^CNC3D' $G314U/USERG314A.INI 2>/dev/null)/$(grep -ac '^OpenCNC3D' $G314U/USERG314A.INI 2>/dev/null)"
+G314PRE="$G314PRE $(grep -ac '^CNC3D' $G314U/USERG314B.INI 2>/dev/null)/$(grep -ac '^OpenCNC3D' $G314U/USERG314B.INI 2>/dev/null)"
+{ echo "editopen USERG314A now"; echo editsave
+  echo "editopen USERG314B now"; echo editsave
+  echo quit; } > shots/g314.script
+grun shots/g314.log --edit --editmode 2 $BASE --nosound --w 1400 --h 900 \
+     --scen SCG01EA --pack SCG01EA.pack --script shots/g314.script
+G314OPEN=$(grep -ac '^EDITOPEN|opened|USERG314[AB]|' shots/g314.log)
+# What each map was read as, straight from the editor after its own OPEN booted it.
+g314o() { grep -a "^EDITOPEN|opened|$1|" shots/g314.log | head -1 | sed -n "s/.*|$2=\([A-Za-z0-9]*\).*/\1/p"; }
+G314TA=$(g314o USERG314A theater); G314TB=$(g314o USERG314B theater)
+G314UA=$(g314o USERG314A unlock)
+G314KA=$(g314o USERG314A kind);    G314KB=$(g314o USERG314B kind)
+g314keys() { tr -d '\r' < "$1" 2>/dev/null | grep -a -E '^(Open)?CNC3D' | sort | tr '\n' ' '; }
+G314FA=$(g314keys $G314U/USERG314A.INI)
+G314FB=$(g314keys $G314U/USERG314B.INI)
+rm -f $G314U/USERG314A.INI $G314U/USERG314A.BIN $G314U/USERG314B.INI $G314U/USERG314B.BIN \
+      $G314U/USERG314A.HGT $G314U/USERG314B.HGT
+G314WA="OpenCNC3DKind=Multi OpenCNC3DSmooth=1 OpenCNC3DTheater=SNOW "
+G314WB="OpenCNC3DKind=Single OpenCNC3DTheater=SNOW "
+if [ "$GRC" != "0" ]; then
+  bad "G314 user maps in either spelling: the run failed (exit $GRC)"
+elif [ "$G314PRE" != "3/0 2/2" ]; then
+  bad "G314 user maps in either spelling: the two test maps were not made as described (earlier/current key lines A and B: $G314PRE, want 3/0 2/2), so nothing below would mean anything"
+elif [ "${G314OPEN:-0}" != "2" ]; then
+  bad "G314 user maps in either spelling: $G314OPEN of the 2 maps were opened (is missions/SCS01EA in the run folder?)"
+elif [ "$G314TA" != "SNOW" ] || [ "$G314TB" != "SNOW" ]; then
+  bad "G314 user maps in either spelling: the two maps booted on theaters [$G314TA] and [$G314TB] (want SNOW twice, the snow donor). A map whose theater key is not read whole boots on the temperate donor"
+elif [ "$G314UA" != "1" ] || [ "$G314KA" != "Multi" ] || [ "$G314KB" != "Single" ]; then
+  bad "G314 user maps in either spelling: map A read unlock=$G314UA(want 1) kind=$G314KA(want Multi), map B kind=$G314KB(want Single, the current key over the earlier one)"
+elif [ "$G314FA" != "$G314WA" ] || [ "$G314FB" != "$G314WB" ]; then
+  bad "G314 user maps in either spelling: saved keys A=[$G314FA](want [$G314WA]) B=[$G314FB](want [$G314WB])"
+else
+  ok "G314 user maps in either spelling: a map carrying only the earlier key spellings opened as a smoothed multiplayer snow map on the snow donor, a map carrying both opened by the current keys, and both saved the current keys alone"
+fi
+
+# G315 AN AUTOMATED RUN IS A BACKGROUND PROCESS WHATEVER THE ENVIRONMENT SAYS. The suite
+# exports OPENCNC3D_BACKGROUND=1 for the few runs that start a binary bare, but every
+# automated entry point (--shot, --script, --run, --picktest and the rest in
+# confine_automated) must stay out of the way on its own, so a caller that sets the
+# variable wrongly, or not at all, still cannot raise a window or take the focus. Two runs
+# with the variable removed from their environment, each polled through lsappinfo while it
+# lives: every sample must read BackgroundOnly, and at least one must be taken, because a
+# run that was never seen proves nothing. There is no positive control on purpose: a run
+# that does take the desk is the thing this suite must never do.
+if command -v lsappinfo >/dev/null 2>&1; then
+  g315probe() {
+    g315log="$1"; shift
+    env -u OPENCNC3D_BACKGROUND ./cnc_eyes "$@" >"$g315log" 2>&1 &
+    g315p=$!
+    g315seen=""
+    g315i=0
+    while kill -0 "$g315p" 2>/dev/null && [ "$g315i" -lt 600 ]; do
+      g315t=$(lsappinfo list 2>/dev/null | grep "pid = $g315p " | sed -n 's/.*type="\([^"]*\)".*/\1/p' | head -1)
+      [ -n "$g315t" ] && g315seen="$g315seen $g315t"
+      g315i=$((g315i+1)); sleep 0.1
+    done
+    wait "$g315p"; g315rc=$?
+    cat "$g315log" >>"$OUT"
+    [ "$g315rc" = "0" ] || GRC="$g315rc"
+    G315ALL="$G315ALL $g315seen"
+    G315RUNS="$G315RUNS $(echo $g315seen | wc -w | tr -d ' ')"
+  }
+  gbegin shots/g315_shot.log shots/g315_script.log shots/g315_shot.png
+  G315ALL=""; G315RUNS=""
+  printf 'tick 30\nstate\nquit\n' > shots/g315.script
+  g315probe shots/g315_shot.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound \
+    --ticks 30 --shot shots/g315_shot.png
+  g315probe shots/g315_script.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound \
+    --script shots/g315.script
+  G315NOTBG=$(echo $G315ALL | tr ' ' '\n' | grep -v '^BackgroundOnly$' | grep -c .)
+  G315MIN=$(echo $G315RUNS | tr ' ' '\n' | sort -n | head -1)
+  if [ "$GRC" != "0" ]; then
+    bad "G315 automated runs stay in the background: a run failed (exit $GRC)"
+  elif [ "${G315MIN:-0}" -lt 1 ]; then
+    bad "G315 automated runs stay in the background: samples per run [$G315RUNS ], and a run that was never seen proves nothing"
+  elif [ "$G315NOTBG" != "0" ]; then
+    bad "G315 automated runs stay in the background: with OPENCNC3D_BACKGROUND unset a run reported [$(echo $G315ALL | tr ' ' '\n' | sort | uniq -c | tr '\n' ' ')], want BackgroundOnly only. An automated run that is not a background process takes the focus from whoever is at the machine"
+  else
+    ok "G315 automated runs stay in the background: a --shot and a --script run with OPENCNC3D_BACKGROUND removed from their environment read BackgroundOnly in every lsappinfo sample (samples per run:$G315RUNS)"
+  fi
+else
+  skip "G315 automated runs stay in the background: lsappinfo is not on this machine, so the activation policy cannot be read"
+fi
+
+# G316 AN INSTALL WITH NO MOVIES AND NO MUSIC PLAYS CLEANLY. No package carries the 1995
+# movies or the score: the Windows installer and the launcher's Setup screen download
+# them, and a player can untick both. The game finds them by file presence alone, so the
+# install a player gets with both boxes unticked is a folder without those files, and
+# this gate builds exactly that folder and plays the campaign flow in it.
+#
+# THE FOLDER. A temporary one holding a link to every entry of this run folder except
+# dosdata/ and the old top-level movies/; its dosdata/ is a real folder of links to every
+# entry of the real one except the movies, the music and the score (dosdata/movies/,
+# dosdata/music/, SCORES.MIX and TRANSIT.MIX, the paths the packagers leave out). The game
+# is then asked what it found rather than trusted to that list: MEDIA must read movies=0
+# and music=0, while the sound effects must still be there (sfx above 0), so the silence
+# measured below is the score's absence and not a broken dosdata.
+#
+# FOUR LEGS, all headless:
+#   a  G14's campaign flow, the same command, run in that folder: it must complete and
+#      exit 0, log all four of its movies (GDI1, LANDING, CONSYARD, GDI2) as missing and
+#      none as played, start no music at all, and its audio bank must count no theme
+#   b  the main menu's Intro & Sneak Peek is disabled there (the DMBTN line carries the
+#      flag the draw, the hit test and the keyboard walk all read), and in a --menushot
+#      its fill is the disabled grey and differs from Start's, while in this run folder,
+#      which has the intro, the same shot draws the two alike
+#   c  the jukebox there lists nothing (JUKEBOX|tracks=0), and its page shows no score
+#      row: gate_jukebox.py finds no row matching Act On Instinct, and ink in at most the
+#      two row bands the one line saying nothing is installed straddles (it is drawn 3
+#      pixels into a well whose rows start at 1, so measured, it reads rows=2)
+#   d  the control for c: in this run folder the same page lists tracks, so the zero in c
+#      belongs to the folder and not to the count
+G316D=$(mktemp -d "${TMPDIR:-/tmp}/g316.XXXXXX")
+gbegin shots/g316_flow.log shots/g316_menu.log shots/g316_menu_ctl.log shots/g316_jb.log \
+       shots/g316_jb_ctl.log shots/g316_menu.png shots/g316_menu_ctl.png shots/g316_jb.png \
+       shots/g316_jb_ctl.png shots/g316_jb_ctl.txt
+for g316e in "$RUNDIR"/*; do
+  g316n=$(basename "$g316e")
+  case "$g316n" in dosdata|movies|shots) continue ;; esac
+  ln -s "$g316e" "$G316D/$g316n"
+done
+mkdir -p "$G316D/dosdata" "$G316D/shots"
+for g316e in "$RUNDIR"/dosdata/*; do
+  g316n=$(basename "$g316e")
+  case "$g316n" in movies|music|SCORES.MIX|TRANSIT.MIX) continue ;; esac
+  if [ "$g316n" = "transit" ] && [ -d "$g316e" ]; then
+    mkdir -p "$G316D/dosdata/transit"
+    for g316t in "$g316e"/*; do
+      [ -e "$g316t" ] || continue
+      [ "$(basename "$g316t")" = "TRANSIT.MIX" ] || ln -s "$g316t" "$G316D/dosdata/transit/"
+    done
+    continue
+  fi
+  ln -s "$g316e" "$G316D/dosdata/$g316n"
+done
+G316ARGS="--dylib ./TiberianDawn.dylib --dir ./missions/ --content ./content/ --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack"
+# a. The flow, watchdogged exactly as G14 is: a flow that stops pumping events ignores TERM.
+( cd "$G316D" && exec ./opencnc3d --flowtest 60 $G316ARGS ) > shots/g316_flow.log 2>&1 &
+G316P=$!; G316W=0
+while kill -0 $G316P 2>/dev/null && [ $G316W -lt 300 ]; do sleep 1; G316W=$((G316W+1)); done
+G316TO=0
+if kill -0 $G316P 2>/dev/null; then
+  G316TO=1
+  kill $G316P 2>/dev/null
+  G316K=0
+  while kill -0 $G316P 2>/dev/null && [ $G316K -lt 10 ]; do sleep 1; G316K=$((G316K+1)); done
+  kill -9 $G316P 2>/dev/null
+fi
+wait $G316P; G316RC=$?
+cat shots/g316_flow.log >> "$OUT"
+G316L=$(cat shots/g316_flow.log)
+G316DONE=$(echo "$G316L" | grep -c "FLOWTEST|complete")
+G316MISS=$(echo "$G316L" | grep -cE "^CAMPAIGN\|movie\|(GDI1|LANDING|CONSYARD|GDI2)\|missing")
+G316PLAYED=$(echo "$G316L" | grep -cE "^CAMPAIGN\|movie\|[^|]*\|played")
+G316PLAY=$(echo "$G316L" | grep -c "^MUSIC|play|")
+G316BANK=$(echo "$G316L" | grep '^AUDIO|bank|' | head -1)
+G316THEMES=$(echo "$G316BANK" | sed -n 's/.*|themes=\([0-9]*\)\/.*/\1/p')
+G316SFX=$(echo "$G316BANK" | sed -n 's/.*|sfx=\([0-9]*\)\/.*/\1/p')
+G316MEDIA=$(echo "$G316L" | grep '^MEDIA|' | head -1)
+G316INTRO=$(echo "$G316L" | grep '^DMBTN|' | grep '|label=Intro & Sneak Peek|' | head -1 \
+            | sed -n 's/.*|disabled=\([0-9]*\)|.*/\1/p')
+# b. The menu, one frame each, in the folder without the intro and in this one with it.
+( cd "$G316D" && exec ./opencnc3d --menushot shots/g316_menu.png $G316ARGS ) \
+  > shots/g316_menu.log 2>&1 || GRC=$?
+./opencnc3d --menushot shots/g316_menu_ctl.png $G316ARGS > shots/g316_menu_ctl.log 2>&1 || GRC=$?
+cat shots/g316_menu.log shots/g316_menu_ctl.log >> "$OUT"
+[ -s "$G316D/shots/g316_menu.png" ] && cp "$G316D/shots/g316_menu.png" shots/g316_menu.png
+G316PIX=$(python3 - shots/g316_menu.png shots/g316_menu.log shots/g316_menu_ctl.png \
+    shots/g316_menu_ctl.log 2>&1 <<'G316PY'
+import sys
+from collections import Counter
+from PIL import Image
+def fills(png, log):
+    rect = {}
+    for line in open(log):
+        if line.startswith("DMBTN|"):
+            f = dict(p.split("=", 1) for p in line.rstrip("\n").split("|")[1:])
+            rect[f["label"]] = f
+    im = Image.open(png).convert("RGB")
+    s = im.size[0] // 320      # dms_write_shot draws the 320x200 plate at a whole scale
+    def fill(b):
+        x, y, w, h = (int(b[k]) for k in "xywh")
+        return Counter(im.getpixel((s * (x + dx) + s // 2, s * (y + dy) + s // 2))
+                       for dx in range(2, w - 2)
+                       for dy in range(1, h - 1)).most_common(1)[0][0]
+    return fill(rect["Intro & Sneak Peek"]), fill(rect["Start New Game"])
+try:
+    ni, ns = fills(sys.argv[1], sys.argv[2])
+    ci, cs = fills(sys.argv[3], sys.argv[4])
+except Exception as e:
+    print("G316|pix|error=%s|ok=0" % e)
+    sys.exit(0)
+rgb = lambda c: "%d,%d,%d" % c
+print("G316|pix|nomedia_intro=%s|nomedia_start=%s|ctl_intro=%s|ctl_start=%s|ok=%d"
+      % (rgb(ni), rgb(ns), rgb(ci), rgb(cs),
+         1 if (ni != ns and ci == cs and ns == cs) else 0))
+G316PY
+)
+echo "$G316PIX" >> "$OUT"
+G316PIXOK=$(echo "$G316PIX" | sed -n 's/.*|ok=\([0-9]\).*/\1/p')
+G316CTLI=$(grep '^DMBTN|' shots/g316_menu_ctl.log | grep '|label=Intro & Sneak Peek|' | head -1 \
+           | sed -n 's/.*|disabled=\([0-9]*\)|.*/\1/p')
+# c and d. The jukebox page, reached through the labels a player clicks, there and here.
+printf 'tick 10\noptions\noptclick Game Controls\noptclick Sound Controls\nshot shots/g316_jb.png\nquit\n' \
+  > "$G316D/shots/g316_jb.txt"
+( cd "$G316D" && exec ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 \
+    --script shots/g316_jb.txt ) > shots/g316_jb.log 2>&1 || GRC=$?
+sed 's|shots/g316_jb.png|shots/g316_jb_ctl.png|' "$G316D/shots/g316_jb.txt" > shots/g316_jb_ctl.txt
+./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 \
+    --script shots/g316_jb_ctl.txt > shots/g316_jb_ctl.log 2>&1 || GRC=$?
+cat shots/g316_jb.log shots/g316_jb_ctl.log >> "$OUT"
+G316JB=$(sed -n 's/^JUKEBOX|tracks=\([0-9]*\)|.*/\1/p' shots/g316_jb.log | tail -1)
+G316JBC=$(sed -n 's/^JUKEBOX|tracks=\([0-9]*\)|.*/\1/p' shots/g316_jb_ctl.log | tail -1)
+G316JBPIX=""
+[ -s "$G316D/shots/g316_jb.png" ] && cp "$G316D/shots/g316_jb.png" shots/g316_jb.png \
+  && G316JBPIX=$(python3 "$GATEDIR/gate_jukebox.py" shots/g316_jb.png dossidebar.pack 2>&1)
+echo "G316|jukebox-page|$G316JBPIX" >> "$OUT"
+G316JBROWS=$(echo "$G316JBPIX" | sed -n 's/^JUKEBOX|rows=\([0-9]*\)|.*/\1/p')
+G316JBAOI=$(echo "$G316JBPIX" | sed -n 's/.*|aoi=\(-*[0-9]*\)|.*/\1/p')
+rm -rf "$G316D"
+G316SAID="complete=$G316DONE(want 1) exit=$G316RC(want 0) movies-missing=$G316MISS(want 4) movies-played=$G316PLAYED(want 0) music-started=$G316PLAY(want 0) bank-themes=${G316THEMES:-none}(want 0) bank-sfx=${G316SFX:-none}(want >0) [${G316MEDIA:-no MEDIA line}](want movies=0, music=0/N) intro-disabled=${G316INTRO:-none}(want 1) here=${G316CTLI:-none}(want 0) [$G316PIX](want ok=1) jukebox-tracks=${G316JB:-none}(want 0) here=${G316JBC:-none}(want >0) [${G316JBPIX:-no page shot}](want rows<=2, aoi=-1)"
+if [ "$G316TO" = "1" ]; then
+  bad "G316 no media install: the flow was still running after ${G316W}s and had to be killed. $G316SAID"
+elif [ "$GRC" != "0" ]; then
+  bad "G316 no media install: a menu or jukebox run failed (exit $GRC). $G316SAID"
+elif [ "$G316RC" = "0" ] && [ "$G316DONE" = "1" ] && [ "$G316MISS" = "4" ] \
+     && [ "$G316PLAYED" = "0" ] && [ "$G316PLAY" = "0" ] && [ "$G316THEMES" = "0" ] \
+     && [ "${G316SFX:-0}" -gt 0 ] && echo "$G316MEDIA" | grep -qE '^MEDIA\|movies=0\|music=0/[0-9]+$' \
+     && [ "$G316INTRO" = "1" ] && [ "$G316CTLI" = "0" ] && [ "$G316PIXOK" = "1" ] \
+     && [ "$G316JB" = "0" ] && [ "${G316JBC:-0}" -gt 0 ] \
+     && [ -n "$G316JBROWS" ] && [ "$G316JBROWS" -le 2 ] && [ "$G316JBAOI" = "-1" ]; then
+  ok "G316 no media install: in a folder without the movies and the score the campaign flow completes and exits 0 with GDI1, LANDING, CONSYARD and GDI2 logged missing, no music started and no theme in the bank ($G316SFX sound effects still there, [$G316MEDIA]); Intro & Sneak Peek is drawn disabled there and live here; the jukebox lists 0 tracks there and $G316JBC here"
+else
+  bad "G316 no media install: $G316SAID"
+fi
+
+# =====================================================================================
+# G317 THE HUD SOUNDS BELONG TO THE SIDEBAR'S BUTTONS, AND THE TWO ARE CROSSED. Under
+# Enhanced the pointer arriving on a sidebar button plays hud_click.wav and a press on
+# one plays hud_mouseover.wav, the opposite of the file names, on purpose. Nothing else
+# sounds: not the screen-edge menu plates along the top (OPTIONS, SIDEBAR), not the
+# selected-unit card in the bottom-left corner, not any control of the in-game Options
+# dialog, and not the sidebar behind that dialog while it is up.
+#
+# HOW IT IS OBSERVED. hudprobe drives the same SDL handler the main loop calls, without
+# pressing the button underneath, and prints the hover and click counters (which only
+# move when the mixer actually started a voice) and the clip the last one started. Each
+# target is proven before it is probed: sbhit names the sidebar button or plate under
+# each pixel, card= is the unit card's own hit test, and the Options form of the probe
+# aims at a control by its label and prints the dialog's hit test at that pixel.
+#
+# THE SHOT BEFORE THE CARD PROBES IS LOAD-BEARING. The card's hit test follows the last
+# frame drawn, and a script line that draws nothing leaves it reporting "no card", so a
+# card probe without a drawn frame lands on nothing and proves nothing. Measured: card=0
+# at the tab pixel before the shot, card=4 (a group tab) after it.
+#
+# STRICT ON PURPOSE: the fourteen probe lines are compared in order, counters included,
+# so a sound that fires where it should not moves every later line and fails the gate.
+# =====================================================================================
+gbegin /tmp/g317.log shots/g317_card.png
+printf 'enabled 1\n' > gfx_g317.cfg
+cat > /tmp/g317.txt <<'G317EOF'
+tick 20
+sbhit 1140 282
+sbhit 1060 62
+sbhit 80 2
+sbhit 1100 2
+hudprobe hover 1140 282
+hudprobe click 1140 282
+hudprobe hover 1060 62
+hudprobe click 1060 62
+hudprobe hover 80 2
+hudprobe click 80 2
+hudprobe hover 1100 2
+hudprobe hover 500 500
+cam 56 55
+tick 1
+band 0 0 1279 900
+tick 1
+unitcard
+shot shots/g317_card.png
+hudprobe hover 20 950
+hudprobe click 20 950
+options
+hudprobe hover opt Game Controls
+hudprobe click opt Game Controls
+hudprobe hover 1140 282
+hudprobe click 1140 282
+quit
+G317EOF
+export OPENCNC3D_HUD=new
+grun /tmp/g317.log --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 960 \
+     --gfx gfx_g317.cfg --script /tmp/g317.txt
+unset OPENCNC3D_HUD
+gshots shots/g317_card.png
+G317SAID=$(python3 - /tmp/g317.log <<'G317PY'
+import re, sys
+log = open(sys.argv[1], 'rb').read().decode('latin-1').splitlines()
+bad = []
+targets = [l for l in log if l.startswith('SBHIT|')]
+want_t = ['item', 'repair', 'options', 'sidebar']
+got_t = [l.split('|')[2] for l in targets]
+if got_t != want_t: bad.append('targets=%s(want %s)' % (','.join(got_t), ','.join(want_t)))
+probes = [l for l in log if re.match(r'^HUDAUDIO\|(hover|click)\|', l)]
+# kind, sounds (1 = hit >= 0), hover count, click count, clip, on the card
+want = [('hover',1,1,0,'hud_click',0), ('click',1,1,1,'hud_mouseover',0),
+        ('hover',1,2,1,'hud_click',0), ('click',1,2,2,'hud_mouseover',0),
+        ('hover',0,2,2,'hud_mouseover',0), ('click',0,2,2,'hud_mouseover',0),
+        ('hover',0,2,2,'hud_mouseover',0), ('hover',0,2,2,'hud_mouseover',0),
+        ('hover',0,2,2,'hud_mouseover',1), ('click',0,2,2,'hud_mouseover',1),
+        ('hover',0,2,2,'hud_mouseover',0), ('click',0,2,2,'hud_mouseover',0),
+        ('hover',0,2,2,'hud_mouseover',0), ('click',0,2,2,'hud_mouseover',0)]
+got = []
+for l in probes:
+    m = re.match(r'^HUDAUDIO\|(\w+)\|hit=(-?\d+)\|hover=(\d+)\|click=(\d+)\|clip=(\w+)\|card=(\d+)$', l)
+    if not m: bad.append('unparsed[%s]' % l); continue
+    got.append((m.group(1), 1 if int(m.group(2)) >= 0 else 0, int(m.group(3)),
+                int(m.group(4)), m.group(5), 1 if int(m.group(6)) else 0))
+if len(got) != len(want): bad.append('probes=%d(want %d)' % (len(got), len(want)))
+for i, (g, w) in enumerate(zip(got, want)):
+    if g != w: bad.append('probe%d=%s(want %s)' % (i + 1, g, w))
+opt = [l for l in log if l.startswith('HUDAUDIO|target|')]
+if len(opt) != 2 or any(not re.search(r'\|item=(\d+)\|.*\|dialog_hit=\1\|open=1$', l) for l in opt):
+    bad.append('options-targets=%s(want 2 on the control, dialog open)' % opt)
+if not any(l.startswith('UNITCARD|shown=1|') for l in log): bad.append('card-not-shown')
+for c in ('hud_click', 'hud_mouseover'):
+    if not any(l.startswith('AMBIENCE|loaded|%s|' % c) for l in log): bad.append(c + '-not-loaded')
+print('ok' if not bad else ' '.join(bad))
+G317PY
+)
+if [ "$GRC" = "0" ] && [ "$G317SAID" = "ok" ]; then
+  ok "G317 HUD sounds: hovering a sidebar entry or the repair button plays hud_click and pressing one plays hud_mouseover; the OPTIONS and SIDEBAR plates, the battlefield, the unit card, the Options dialog's Game Controls button and the sidebar behind the open dialog play neither"
+else
+  bad "G317 HUD sounds: GRC=$GRC $G317SAID"
+fi
+
+# =====================================================================================
+# G318 THE PRODUCTION QUEUE STRIP (game/cnc_sidebar_enhanced.h, ehq_*; the cards are
+# rasterised by hud_enhanced_queue_card in game/hud_enhanced_impl.h). Under the Enhanced
+# HUD every item in production or queued gets a small card down the left edge of the
+# panel beside the power meter: its cameo at half size, the build clock, the percentage
+# and, when more than one is in hand, the count in the corner. Cards slide out from under
+# the panel, slide back under it when their item finishes or is cancelled, and the cards
+# below then rise to close the gap, every move eased.
+#
+# THREE RUNS, all headless, read by gate_hudq.py from the HUDQ line every drawn frame
+# prints (hudqlog 1):
+#   main     1280x720, the HUD's zoom 1: a power plant, ten Minigunners (one building,
+#            nine queued: ONE card reading 10), a Grenadier and a Rocket Soldier queued, a
+#            Medium Tank building and a Jeep queued. Asserts the six cards' order, counts,
+#            states and places; the slide out (from x=1096, under the panel's edge, to
+#            1056) and the slide back are monotonic and fastest in their middle third;
+#            the percentages rise; the finished power plant leaves at 100%, the
+#            Minigunner card waits for the space and then rises one place, eased; a held
+#            tank reads H; a cancelled tank's card leaves and the queued Jeep starts.
+#   more     854x480, nine items in a window with room for four: three cards, then a
+#            "+6" card counting what did not fit.
+#   classic  the main script with the 1995 sidebar: no strip at all.
+gbegin shots/g318_main.log shots/g318_more.log shots/g318_classic.log
+OPENCNC3D_HUD=new ./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
+    --w 1280 --h 720 --script gate_hudq.txt > shots/g318_main.log 2>&1 || GRC=$?
+OPENCNC3D_HUD=new ./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
+    --w 854 --h 480 --script gate_hudq_more.txt > shots/g318_more.log 2>&1 || GRC=$?
+OPENCNC3D_HUD=old ./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
+    --w 1280 --h 720 --script gate_hudq.txt > shots/g318_classic.log 2>&1 || GRC=$?
+cat shots/g318_main.log shots/g318_more.log shots/g318_classic.log >> "$OUT"
+G318V=$(python3 "$GATEDIR/gate_hudq.py" shots/g318_main.log shots/g318_more.log shots/g318_classic.log 2>&1)
+G318RC=$?
+echo "$G318V" >> "$OUT"
+if [ "$GRC" != "0" ]; then
+  bad "G318 production queue strip: a run failed (exit $GRC)"
+elif [ "$G318RC" = "0" ]; then
+  ok "G318 production queue strip: six cards in production order (power plant, ten Minigunners as one card reading 10, Grenadier, Rocket Soldier, Medium Tank, Jeep), each sliding out from under the panel's edge eased, percentages rising, the finished power plant sliding back under at 100% and the cards below rising to close the gap, a held tank reading HOLD, a cancelled tank leaving and the queued Jeep starting; a short window shows three cards and +6; the 1995 sidebar shows none"
+else
+  bad "G318 production queue strip: $(echo "$G318V" | grep -E 'BAD|verdict' | tr '\n' ' ')"
+fi
+
+# G319 CLASSIC AIRCRAFT SHADOWS ARE DARK SMUDGES, NOT SECOND AIRCRAFT. AircraftClass::
+# Draw_It draws each aircraft's frame again at its ground position with SHAPE_PREDATOR |
+# SHAPE_FADING, and a flying helicopter's rotor uses the same pair; CC_Draw_Shape turns
+# that into Map.SpecialGhost, which darkens the ground under the silhouette. Classic
+# honoured it only for Red Alert, so every Tiberian Dawn Orca, Apache and A-10 was drawn
+# twice in full colour and a flying Apache's rotor came out light green (palette index 4
+# drawn raw). game/gate_airshadow.py has the arms. In brief:
+#   shadow  SCB70EA's Air Strike: two frames of one tick, the second leaving out every
+#           layer the ENGINE flags FADING|PREDATOR, so the difference is the shadows'
+#           pixels whatever the renderer made of them. Over ground above the shade ramp's
+#           floor every one must be darker; the ground keeps 0.50..0.80 of its luminance
+#           (the 1995 table keeps 0.67 on Temperate grass); and each shadow is under half
+#           its aircraft's luminance and unlike its colours.
+#   rotor   SCG41EA's airborne Apache: the rotor is drawn as a shadow and its rectangle
+#           holds no pixel of palette index 4.
+# PROVEN TO FAIL: with the old Red-Alert-only rule, 11 arms go red, among them each
+# A-10's shadow at 2.2x the ground's luminance and 0 RGB levels from its aircraft (an
+# exact copy), and 1431 light-green pixels in the rotor.
+gbegin shots/g319_on.png shots/g319_off.png shots/g319_rotor.png shots/g319_shadow.log shots/g319_rotor.log
+grun shots/g319_shadow.log --scen SCB70EA --pack SCG01EA.pack $BASE --noshroud --nosound \
+     --w 1280 --h 720 --script gate_airshadow.txt
+grun shots/g319_rotor.log --scen SCG41EA --pack SCG41EA.pack $BASE --noshroud --nosound \
+     --w 1280 --h 720 --script gate_airshadow_rotor.txt
+gshots shots/g319_on.png shots/g319_off.png shots/g319_rotor.png
+G319V=$(python3 "$GATEDIR/gate_airshadow.py" shots/g319_shadow.log shots/g319_rotor.log shots 2>&1)
+G319RC=$?
+echo "$G319V" >> "$OUT"
+if [ "$GRC" != "0" ]; then
+  bad "G319 Classic aircraft shadows: a run failed (exit $GRC)"
+elif [ "$G319RC" = "0" ]; then
+  ok "G319 Classic aircraft shadows: each A-10's shadow darkens the grass under it to $(echo "$G319V" | grep -a -m1 'of the ground' | sed 's/.*keeps \([0-9.]*\).*/\1/') of its luminance and is no copy of the aircraft; a flying Apache's rotor holds no light green"
+else
+  bad "G319 Classic aircraft shadows: $(echo "$G319V" | grep -aE '^BAD|verdict' | tr '\n' ' ')"
+fi
+
+# =====================================================================================
+# G320 THE OBELISK OF LIGHT'S BEAM (laser_mod.h; the Classic lines in dosclassic_mod.h;
+# the brain's EFX|LINE record, OpenCNC3D_Note_Line in dllinterface.cpp; scene and claims in
+# gate_laser.py). The 1995 engine draws the Obelisk's shot as lines kept on the firer, not
+# as an anim or a projectile, and until this gate's change no mode drew it at all.
+#
+# TWO RUNS on SCG96EA (a copy of SCM01EA: a powered Nod Obelisk and a GDI Mammoth Tank in
+# its range, the player GDI). The first only finds the frame the Obelisk fires on. The
+# second stands on a frame long before it, the frame just before it, the frame itself and
+# the six after it, and shoots every one in Classic, N64 and Enhanced with the beam on and
+# off (`laser 1|0`), so the beam's pixels are the difference of two pictures of one frame.
+# Claims, from the pictures and the LASER dump lines:
+#   (1) ENGINE TRUTH: one beam, born on the frame the first run saw it fire, carrying the
+#       engine's own three lines (colours 0x7D 0x7D 0x7F, source offsets +1 -1 0, five
+#       frames) and the Obelisk's type;
+#   (2) NOT BEFORE: before the shot and on the frame just before it, the picture with the
+#       beam switched on is the picture with it off, byte for byte, in every mode;
+#   (3) ON THE FRAME IT FIRES AND AFTER, as long as the mode shows it (five frames in
+#       Classic and Enhanced, the engine's; six under N64, the cartridge's): Classic draws
+#       only on the line between the engine's two coordinates, in exactly the palette's
+#       two colours; N64 only on the line from the cartridge's source to the target, every
+#       pixel the cartridge's (255, 10, 10); Enhanced a white-hot core on the line (and in
+#       the impact flare) that adds red; none of them touches the sidebar;
+#   (4) AND GONE AFTER: identical again on every later frame shot;
+#   (5) THE BLOOM TAKES IT: under Enhanced the beam moves at least 1.3 times as many
+#       pixels with the bloom on as off.
+# NOT COVERED: whether the Enhanced beam looks right, which is for a person; a beam whose
+# firer is off the picture (Classic draws none, as Draw_It drew none).
+#
+# THE PICTURE IS PINNED. Claims (3) and (5) read Enhanced's pixels against fixed bars (a
+# white-hot threshold, a corridor round the line, the sidebar's first column), and those
+# were set under one shipped look. Retuning that look with a wider, brighter bloom moved
+# two terrain pixels by one level at the sidebar's edge and lifted a lamp beside the
+# impact disc over the white-hot bar, with the beam unchanged. Both runs therefore load
+# this preset, which holds the look the bars were set under as far as a retune has moved
+# it: grade, mist, bloom, terrain shading, cloud shadows, dynamic light and the sea. It
+# carries no switches, so `gfxmode` still chooses each mode, and it has to apply in full
+# or the verdict says so.
+# =====================================================================================
+cat > gfx_g320.cfg <<'CFG'
+exposure -0.17857
+contrast 1.15625
+saturation 0.91071
+temperature -0.03571
+tint 0
+lift -0.07143
+gain 1.50446
+fog_density 0.06250
+fog_height 2.31250
+fog_scale 2.00000
+fog_speed 0.57143
+fog_wind 64.28571
+fog_light 4.42857
+bloom_threshold 0.68000
+bloom_knee 0.15000
+bloom_intensity 1.16071
+bloom_radius 1.60000
+bloom_passes 4
+terrain_shadow_strength 1.00000
+terrain_brightness 1.00000
+terrain_contrast 1.00000
+sun_floor 0.55000
+cloud_strength 0.47300
+cloud_speed 0.57100
+light_intensity 0.39286
+light_radius 2.74107
+water_shallow 0.30000
+water_deep 0.30000
+water_edge 0.45000
+water_fade 0.90000
+water_fade_width 0.90000
+water_foam_cross 0.30000
+water_reflect 0.26000
+water_spec 0.85000
+water_refract 0.02000
+water_fresnel 0.13000
+water_natural 0.88393
+water_dark 0.16000
+CFG
+rm -rf g320m && python3 "$GATEDIR/gate_laser.py" maps g320m 2>>"$OUT"
+gbegin shots/g320find.log shots/g320.log shots/g320_a0_classic_on.png \
+       shots/g320_a0_n64_on.png shots/g320_a0_enhanced_on.png shots/g320_a5_n64_on.png
+G320ARGS="--scen SCG96EA --pack SCG01EA.pack $BASE --dir g320m/ --noshroud --nosound --w 1280 --h 720 --gfx gfx_g320.cfg"
+if [ -s g320m/SCG96EA.INI ]; then
+  grun shots/g320find.log $G320ARGS --script g320m/find.txt
+  G320S=$(python3 "$GATEDIR/gate_laser.py" script g320m shots/g320find.log 2>>"$OUT")
+  if [ "$(echo "$G320S" | cut -d' ' -f1)" = "1" ]; then
+    grun shots/g320.log $G320ARGS --script g320m/laser.txt
+    gshots shots/g320_a0_classic_on.png shots/g320_a0_n64_on.png \
+           shots/g320_a0_enhanced_on.png shots/g320_a5_n64_on.png
+    G320CHK=$(python3 "$GATEDIR/gate_laser.py" check shots g320m 2>>"$OUT")
+  else
+    G320CHK="$G320S"
+  fi
+else
+  G320CHK="0 the test mission was not made (missions/SCM01EA is not in the run folder)"
+fi
+G320V=$(echo "$G320CHK" | head -1 | cut -d' ' -f1)
+G320MSG=$(echo "$G320CHK" | head -1 | cut -d' ' -f2-)
+G320PRE="$(grep -ac '^FX|preset|gfx_g320.cfg: 38 applied, 0 unknown$' shots/g320find.log)$(grep -ac '^FX|preset|gfx_g320.cfg: 38 applied, 0 unknown$' shots/g320.log)"
+if [ "$GRC" != "0" ]; then
+  bad "G320 the Obelisk's beam: a run failed (GRC=$GRC)"
+elif [ "$G320PRE" != "11" ]; then
+  bad "G320 the Obelisk's beam: the pinned graphics preset did not apply cleanly (find, laser = $G320PRE, want 11), so the pictures are not the look its bars were set under; the check said: ${G320MSG:-nothing}"
+elif [ "$G320V" = "1" ]; then
+  ok "G320 the Obelisk's beam: $G320MSG"
+else
+  bad "G320 the Obelisk's beam: ${G320MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# G321 CLASSIC SHOWS A SKIRMISH PLAYER'S SELECTION, THE 1995 RUBBER BAND, DESERT ART IN
+# DESERT COLOURS AND A MUZZLE FLASH WITHOUT A WHITE DISC (game/dosclassic_mod.h). Four
+# faults Classic had, each measured on rendered pixels against a control frame or the
+# 1995 palettes (game/gate_classic_ui.py has the arms):
+#   selection  the "selected by me" mask knew only GoodGuy and BadGuy, so a skirmish
+#              player (a Multi house) never saw a bracket or a target flash.
+#   band       the drag box was a one-screen-pixel green line; 1995 draws Draw_Rect in
+#              WHITE, one game pixel wide.
+#   desert     every sprite decoded through the sidebar's Temperate palette, which turns
+#              Desert art blue and lavender; the pack now carries TEMPERAT.PAL and
+#              DESERT.PAL and the map's theater picks one.
+#   gunfire    Tiberian Dawn's translucent animations (GUNFIRE, SMOKEY) went through no
+#              table, so the muzzle flash's white rim, a faint shade in 1995, drew solid.
+# PROVEN TO FAIL with all four old behaviours restored in one build: 7 arms red, among
+# them 0 pixels added by selecting the MCV, a 2399-pixel band with no WHITE in it,
+# 19280 pixels in Temperate-only colours on the Nod base, and 2032 to 2240 WHITE pixels
+# inside each of three muzzle flashes.
+gbegin shots/g321_sel.png shots/g321_nosel.png shots/g321_band.png shots/g321_noband.png \
+       shots/g321_desert.png shots/g321_ui.log shots/g321_desert.log
+rm -f shots/g321_gf_*.png
+grun shots/g321_ui.log --scen SCM01EA --pack SCM01EA.pack $BASE --skirmish --side gdi --nosound \
+     --w 1280 --h 800 --script gate_classic_ui.txt
+grun shots/g321_desert.log --scen SCG41EA --pack SCG41EA.pack $BASE --noshroud --nosound \
+     --w 1280 --h 800 --script gate_classic_desert.txt
+gshots shots/g321_sel.png shots/g321_nosel.png shots/g321_band.png shots/g321_noband.png \
+       shots/g321_desert.png
+G321V=$(python3 "$GATEDIR/gate_classic_ui.py" shots/g321_ui.log shots/g321_desert.log shots dosclassic.pack 2>&1)
+G321RC=$?
+echo "$G321V" >> "$OUT"
+if [ "$GRC" != "0" ]; then
+  bad "G321 Classic selection, band, Desert palette and muzzle flash: a run failed (exit $GRC)"
+elif [ "$G321RC" = "0" ]; then
+  ok "G321 Classic: a skirmish player's selected MCV gets its brackets, the drag box is the 1995 white rectangle one game pixel wide, the Nod base on a Desert map has no Temperate-only colour in it, and $(echo "$G321V" | grep -ac '^ok   gunfire: the flash') muzzle flashes hold no white disc"
+else
+  bad "G321 Classic selection, band, Desert palette and muzzle flash: $(echo "$G321V" | grep -aE '^BAD|verdict' | tr '\n' ' ')"
+fi
+
+# =====================================================================================
+# G322 THE ENHANCED BUILDING APRONS TAKE NO PINK CAST FROM THE GROUND (bibenh_mod.h; the
+# calibration ground in bibenh.pack from tools/art/remaster/bib/bake_bibenh.py; claims in
+# gate_bibhue.py). The apron is multiplied into the ground by one colour ratio per theater,
+# K, calibrated on that theater's grass or sand. On anything else K is wrong: the temperate
+# K lifts red 3.3 x and green and blue about 1.9 x, so a dirt road, bare earth or rock
+# under an apron came out salmon pink, as it did in front of the Temple of Nod on
+# SCG15EA. Under Tier 2 the apron is now drawn by a shader that reads the ground under
+# each pixel and keeps K to the calibration colour (bibenh_mod.h, "WHY THE MULTIPLY ALONE").
+# Three views (the Temple on SCG15EA, a grass base on SCG05EA, a desert Temple on SCB70EA),
+# each shot as drawn now (`bibhue 1`), by the old three passes (`bibhue 0`) and bare; the
+# claims, against the pictures and the renderer's `bibdump` state and scene read-back:
+# no apron pixel in the pink band at the Temple or on the grass base, the road under the
+# Temple's apron goes to dirt-coloured hue 25..60, the apron over grass and on the desert
+# sand within 3 levels of the old drawing, and nothing away from an apron changes.
+# PROVEN TO FAIL: the renderer before this change, run on a folder holding the version 3
+# pack it read, fails every run (no `bibhue`, no `bibdump`) and every picture arm: 7086 of
+# the Temple apron's 32840 pixels (21.6%) in the pink band, the road under it at
+# (54.9, 46.8, 43.7), hue 16.7, and 3204 of 42308 (7.6%) on the grass base. The same
+# arms on this change: 33 (0.1%), hue 38, and 26 (0.06%); the bare ground holds 45 and 36.
+# =====================================================================================
+gbegin shots/g322_tmpl.log shots/g322_grass.log shots/g322_desert.log \
+       shots/g322_tmpl_new.png shots/g322_tmpl_old.png shots/g322_tmpl_ground.png \
+       shots/g322_grass_new.png shots/g322_grass_old.png shots/g322_grass_ground.png \
+       shots/g322_desert_new.png shots/g322_desert_old.png shots/g322_desert_ground.png
+for G322T in tmpl grass desert; do
+  case "$G322T" in
+    tmpl)  G322M=SCG15EA; G322C="56.5 58" ;;
+    grass) G322M=SCG05EA; G322C="11 29" ;;
+    *)     G322M=SCB70EA; G322C="5.5 45.5" ;;
+  esac
+  sed -e "s/TAG/$G322T/g" -e "s/VIEW/$G322C/" "$GATEDIR/gate_bibhue.txt" > "shots/g322_$G322T.txt"
+  grun "shots/g322_$G322T.log" --scen "$G322M" --pack "$G322M.pack" $BASE --noshroud --nosound \
+       --w 1280 --h 800 --script "shots/g322_$G322T.txt"
+done
+gshots shots/g322_tmpl_new.png shots/g322_tmpl_old.png shots/g322_tmpl_ground.png \
+       shots/g322_grass_new.png shots/g322_grass_old.png shots/g322_grass_ground.png \
+       shots/g322_desert_new.png shots/g322_desert_old.png shots/g322_desert_ground.png
+G322CHK=$(python3 "$GATEDIR/gate_bibhue.py" shots 2>>"$OUT")
+echo "$G322CHK" >> "$OUT"
+G322OK=$(echo "$G322CHK" | head -1 | cut -d' ' -f1)
+G322MSG=$(echo "$G322CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G322 Enhanced aprons take no pink from the ground: a run failed (GRC=$GRC)"
+elif [ "$G322OK" = "1" ]; then
+  ok "G322 Enhanced aprons take no pink from the ground: $G322MSG"
+else
+  bad "G322 Enhanced aprons take no pink from the ground: ${G322MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G323 THE HAND OF NOD'S GATE OPENS FOR EVERY SOLDIER IT TRAINS, DAMAGED OR NOT, AND THE
+# SOLDIER COMES OUT THROUGH IT (game/cnc_eyes.cpp hand_door_*, hand_exit_*; ebld_mod.h
+# ebld_stand_xf, ebld_hand_gate; the cut's leaf pieces from tools/art/remaster/hand_sculpt/
+# cut_HAND.py and their clip from hand_door_HAND.py --cut). The engine has no door for the
+# Hand of Nod and puts a trained soldier down at its own exit point, which on the sculpted
+# model falls by the gate's east jamb; the renderer opens the gate's door clip when he
+# appears and draws him from the opening, eased onto the engine's position. The damaged
+# stage used to keep the leaves inside the cut's standing base, so its gate stayed shut.
+# gate_handdoor.txt (a Nod skirmish on SCM01EA: a Hand of Nod at 7,17 trains a soldier,
+# is damaged below half by one hit and trains another) runs twice under Enhanced and once
+# in the 1995 look; gate_handdoor.py holds the claims: the gate found on the model, open 0
+# -> 1 -> 0 for each soldier in both stages, the damaged leaves (cut pieces of their own)
+# moved by the clip (upper >= 80 degrees, lower >= 200 pack units sunk), the soldier drawn
+# within 0.2 cells of the opening on his first tick out while the engine has him further
+# away, eased onto the engine's position by 135 ticks, the pictures round the damaged gate
+# changing while it is open and not once shut, the two Enhanced runs identical, and the
+# 1995 look drawing him exactly where the engine puts him.
+# PROVEN TO FAIL: this renderer with the previous game/ebld/HAND.ebld (the leaves inside
+# the cut's base) fails claim 3, no EBLDMOVE line for gate_upper or gate_lower, and the
+# pictures round the damaged gate change by 88 pixels open (the soldier alone) against 725
+# with the leaves cut; the renderer before this change prints no EBLDDOOR at all, so every
+# claim on the gate and the soldier fails. Measured here: the engine puts the soldier 0.226
+# cells from the opening's middle, he is drawn 0.120 from it, and the gap closes by 135 ticks.
+# =====================================================================================
+if [ ! -s SCM01EA.pack ] || [ ! -s missions/SCM01EA.INI ]; then
+  bad "G323 the Hand of Nod's gate: SCM01EA.pack or missions/SCM01EA.INI is not installed. Run tools/stage-skirmish-maps.sh first."
+else
+gbegin shots/g323a.log shots/g323b.log shots/g323c.log shots/g323_a_i106.png shots/g323_a_i116.png \
+       shots/g323_a_d106.png shots/g323_a_d116.png shots/g323_a_d150.png shots/g323_b_d116.png
+for G323R in a b c; do
+  sed "s/TAG/$G323R/g" "$GATEDIR/gate_handdoor.txt" > "shots/g323_$G323R.txt"
+done
+G323ARGS="--scen SCM01EA --pack SCM01EA.pack $BASE --skirmish --side nod --credits 20000 --noshroud --nosound --w 1280 --h 720"
+grun shots/g323a.log $G323ARGS --enhanced --texset 3 --script shots/g323_a.txt
+grun shots/g323b.log $G323ARGS --enhanced --texset 3 --script shots/g323_b.txt
+grun shots/g323c.log $G323ARGS --script shots/g323_c.txt
+gshots shots/g323_a_i116.png shots/g323_a_d106.png shots/g323_a_d116.png shots/g323_a_d150.png \
+       shots/g323_b_d116.png
+G323CHK=$(python3 "$GATEDIR/gate_handdoor.py" shots 2>>"$OUT")
+echo "$G323CHK" >> "$OUT"
+G323OK=$(echo "$G323CHK" | head -1 | cut -d' ' -f1)
+G323MSG=$(echo "$G323CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G323 the Hand of Nod's gate opens for each soldier: a run failed (GRC=$GRC)"
+elif [ "$G323OK" = "1" ]; then
+  ok "G323 $G323MSG"
+else
+  bad "G323 the Hand of Nod's gate opens for each soldier: ${G323MSG:-the check did not run (see the python error in the log)}"
+fi
+fi
+
+# =====================================================================================
+# G324 THE WEAPONS FACTORY'S DOOR OPENS ON THE ENGINE'S DOOR, Enhanced (ebld_mod.h, THE
+# WEAPONS FACTORY'S DOOR; the clips from tools/art/remaster/door_WEAP.py in
+# game/ebld/WEAP.ebld; scripts and claims in gate_weapdoor.py). The remastered factory's
+# door was one fixed piece: it stayed shut while every vehicle drove out through it. Now
+# its two panels are clip parts played on the frame the cartridge gives the engine's door
+# stage (stage * 59 / 9), intact and, once damaged, on the cut's clip, where the jammed
+# lower panel keeps its struggle and is carried down by the door's travel. TWO RUNS: a
+# Medium Tank out of the intact factory on SCG90EA, and a Humvee out of the damaged one on
+# SCG01EC (its Nod guns wear the factory below half first). Claims, from the dumps: the
+# model carries both clips; every dump puts the door frame on the stage; every drawn door
+# piece is at that frame; the intact door draws shut to open and shuts again; damaged, the
+# upper panel lifts stage by stage and the lower one rides its loops and the door.
+# PROVEN TO FAIL: the same runs on the WEAP.ebld before this change (no door clips) fail
+# claim (1) and draw no door pose at all.
+# =====================================================================================
+gbegin shots/g324_intact.log shots/g324_damaged.log shots/g324_intact_open.png shots/g324_damaged_open.png
+rm -rf g324 && python3 "$GATEDIR/gate_weapdoor.py" scripts g324 >/dev/null 2>>"$OUT"
+grun shots/g324_intact.log --scen SCG90EA --pack SCG01EA.pack $BASE --enhanced --texset 3 --noshroud \
+     --nosound --w 1280 --h 720 --script g324/intact.txt
+grun shots/g324_damaged.log --scen SCG01EC --pack SCG01EA.pack $BASE --enhanced --texset 3 --noshroud \
+     --nosound --w 1280 --h 720 --script g324/damaged.txt
+gshots shots/g324_intact_open.png shots/g324_damaged_open.png
+G324CHK=$(python3 "$GATEDIR/gate_weapdoor.py" check shots 2>>"$OUT")
+echo "$G324CHK" >> "$OUT"
+G324OK=$(echo "$G324CHK" | head -1 | cut -d' ' -f1)
+G324MSG=$(echo "$G324CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G324 the Weapons Factory's door: a run failed (GRC=$GRC). A binary without the frames verb or the door rule, or a WEAP.ebld without its door clips, is the first thing to check"
+elif [ "$G324OK" = "1" ]; then
+  ok "G324 the Weapons Factory's door: $G324MSG"
+else
+  bad "G324 the Weapons Factory's door: ${G324MSG:-the check did not run (see the python error in the log)}"
+fi
+
 # THE SKIP COUNT IS PART OF THE SUMMARY, never left off it. A run that quietly dropped a
 # gate and printed the same shape of line as a run that did not is how a suite starts
 # lying about its own coverage, and release.sh reads this line.
 if [ "${SKIPPED:-0}" != "0" ]; then
-  echo "----- $LABEL: $PASS pass, $FAIL fail, $SKIPPED skipped (CNC3D_GATES_INTERACTIVE=1 runs them) -----" | tee -a "$OUT"
+  echo "----- $LABEL: $PASS pass, $FAIL fail, $SKIPPED skipped (OPENCNC3D_GATES_INTERACTIVE=1 runs them) -----" | tee -a "$OUT"
 else
   echo "----- $LABEL: $PASS pass, $FAIL fail -----" | tee -a "$OUT"
 fi

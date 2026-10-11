@@ -25,8 +25,8 @@
  *  own phase offset, which folds for free. A continuous per-cell rate would have no
  *  common period and no fold, which is the trap the cloud drift recorded.
  * ==================================================================================== */
-#ifndef CNC3D_RAIN_GLSL_H
-#define CNC3D_RAIN_GLSL_H
+#ifndef OPENCNC3D_RAIN_GLSL_H
+#define OPENCNC3D_RAIN_GLSL_H
 
 #include <stdlib.h>
 #include <string.h>
@@ -123,4 +123,4 @@ static char* rain_glsl_source(const char* body)
     return out;
 }
 
-#endif /* CNC3D_RAIN_GLSL_H */
+#endif /* OPENCNC3D_RAIN_GLSL_H */

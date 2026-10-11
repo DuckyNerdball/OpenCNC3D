@@ -43,6 +43,7 @@
 
 #include <ctype.h>
 #include "edit_tables.h"
+#include "autoheight_mod.h"   /* the AUTO HEIGHTMAP generator, a port of tools/autoheight */
 #include "edit_emblem.h"
 #include "terrain_tiles.h"
 #include <dirent.h>
@@ -142,7 +143,7 @@ static char g_editScen[32] = "";
 /* THE MAP'S DISPLAY NAME -- what [Basic] Name= carries, and what both this editor's
    OPEN MAP browser and the GAME's own User Maps list already show beside the code.
  *
- * THE FILE IS ALWAYS A SLOT, AND THAT IS NOT NEGOTIABLE. app/cnc3d.cpp finds user maps
+ * THE FILE IS ALWAYS A SLOT, AND THAT IS NOT NEGOTIABLE. app/opencnc3d.cpp finds user maps
  * by PROBING the names USER00..USER99 (usermaps_scan) rather than by reading the
  * directory: it has to compile for Windows 98 against a freestanding mingw, the same
  * reason specops_scan refuses to drag dirent.h in. A map filed under a free-text
@@ -1046,7 +1047,7 @@ static bool  g_elevSmoothUnlock = false;
  * the ladder, as shipped, untouched. Deriving would unlock every cartridge map on sight
  * and there would be nothing left for CONVERT to be.
  *
- * So it is a CNC3D-owned key in [Basic], written the way CNC3DKind and Enhanced are:
+ * So it is an OpenCNC3D-owned key in [Basic], written the way OpenCNC3DKind and Enhanced are:
  * any previous copy dropped, a fresh one written only when it is true, and the 1995
  * engine ignoring a key it does not know. This holds what the map that is OPEN said, so
  * the map-change reset has something honest to reset to. */
@@ -1059,12 +1060,6 @@ static int  g_elevOffLadder, g_elevTotal;
 
 /* TUNING. Every number this feature turns on, in one place, because that is the rule
    and because a balance sweep over any of them has to find them together. */
-#define AH_SLOPE_FIRST   13     /* TEMPLATE_SLOPE1, brain defines.h                 */
-#define AH_SLOPE_LAST    50     /* TEMPLATE_SLOPE38                                 */
-#define AH_SLOPE_N       (AH_SLOPE_LAST - AH_SLOPE_FIRST + 1)
-#define AH_PLACE_MAX     8192   /* placements one map may carry                     */
-#define AH_TOP_RUNG      4      /* ELEV_RUNG's last index                           */
-#define AH_GROUND_RUNG   1      /* the rung the ladder calls "ground"               */
 #define AH_ARM_FRAMES    900UL  /* how long the REPLACE warning stays armed, frames */
 
 /* THE AUTO HEIGHTMAP'S REPORT. Declared here for the same reason everything else on
@@ -3395,7 +3390,7 @@ static inline int eui_new_grid(void)
    TD's own WINTER.MIX art (tools/win_to_n64bank.py) -- the cartridge never shipped it.
    Index 3 is Red Alert's snow LOOK on the same TD template set: the pack and the
    editor call it SNOW, while the INI's Theater= line says WINTER for the TD brain
-   (which has no snow theater) and a CNC3DTheater=SNOW line carries the truth for
+   (which has no snow theater) and an OpenCNC3DTheater=SNOW line carries the truth for
    everything of ours. eui_theater_index answers for BOTH spellings. */
 static const char* const EUI_THEATERS[5] = { "TEMPERATE", "DESERT", "WINTER",
                                              "SNOW", "SAND" };
@@ -3507,7 +3502,7 @@ static int eui_menu_row(int id)
 static void eui_menu_rect(const EuiLayout* L, float* x, float* y, float* w, float* h)
 {
     const float S = L->s;
-    *x = L->topH * 1.20f + ef_text_w("CNC3D", 2.0f * S) + 10 * S
+    *x = L->topH * 1.20f + ef_text_w("OpenCNC3D", 2.0f * S) + 10 * S
        + ef_text_w("MISSION EDITOR", 1.0f * S) + 20 * S;
     *y = (L->topH - 26 * S) * 0.5f;
     *w = 96 * S;
@@ -3590,7 +3585,7 @@ struct MapEntry {
     char scen[16];
     char kind;              /* 'U' user, 'O' official                                */
     char name[48];          /* [Basic] Name=, when the map has one                    */
-    unsigned char enhanced; /* [Basic] Enhanced=1 -- this one needs OpenCNC 3D             */
+    unsigned char enhanced; /* [Basic] Enhanced=1 -- this one needs OpenCNC3D             */
     /* THE FOLDER IT WAS FOUND IN, and its absence is why opening a user map could not
        work. The two tabs scan two DIFFERENT directories: user_maps/ and the missions
        root. The reopen then booted the chosen scenario out of the SESSION'S launch
@@ -3618,7 +3613,7 @@ static bool g_mapListBuilt = false;
  * the third to missions/user_maps/user_maps/user_maps/, and so on without bound. The
  * maps were still saved -- into a folder the game's User Maps menu never looks in.
  *
- * app/cnc3d.cpp hit the same thing and solved it with base_dir(); this is the editor's
+ * app/opencnc3d.cpp hit the same thing and solved it with base_dir(); this is the editor's
  * half. Stripping rather than remembering, so it is idempotent no matter which of the
  * two folders the editor was launched pointing at. */
 static void edit_maps_root(char* out, int n)
@@ -3794,7 +3789,7 @@ static void eui_draw_openlist(const EuiLayout* L, float lx, float ly, float lw, 
         const MapEntry& me = g_mapList[idx];
         ef_text(x + 8 * S, y + h * 0.5f - 3 * S, me.scen, t1,
                 EUI_RGB(on ? EUI_GOLD : EUI_DIM));
-        /* The map's own name after its code, and a mark on the ones that need CNC3D.
+        /* The map's own name after its code, and a mark on the ones that need OpenCNC3D.
            A column of scenario codes does not tell you which is the one you were
            working on yesterday. */
         const float nx = x + 8 * S + 78 * S;
@@ -5230,7 +5225,7 @@ static void eui_draw_enh(const EuiLayout* L, int fbw, int fbh, float t1)
         const char* a = "NO ENHANCED RULES ON THIS MAP";
         const char* b = "ADD RULE, in the panel on the right";
         const char* c = "these are conditions the 1995 engine cannot express, so a map";
-        const char* d = "that uses them is tagged and will only run in CNC3D.";
+        const char* d = "that uses them is tagged and will only run in OpenCNC3D.";
         ef_text(L->railW + 30 * S, L->topH + 40 * S, a, EUI_TL(t1), EUI_RGB(EUI_DIM));
         ef_text(L->railW + 30 * S, L->topH + 40 * S + 22 * S, b, t1, EUI_RGB(EUI_FAINT));
         ef_text(L->railW + 30 * S, L->topH + 40 * S + 48 * S, c, EUI_TS(t1),
@@ -6217,7 +6212,7 @@ static void eui_draw_script_panel(const EuiLayout* L, float t1)
         char n[96];
         if (enh)
             snprintf(n, sizeof n, "%d ENHANCED   %s", (int)g_enh.size(),
-                     g_enh.empty() ? "MAP RUNS ANYWHERE" : "MAP NEEDS CNC3D");
+                     g_enh.empty() ? "MAP RUNS ANYWHERE" : "MAP NEEDS OpenCNC3D");
         else if (teams)
             snprintf(n, sizeof n, "%d TEAMS   %s", (int)g_teams.size(),
                      g_teamDirty ? "EDITED" : "AS SHIPPED");
@@ -6525,7 +6520,7 @@ static void edit_enh_row(int row, bool back)
         g_enhClause = 0;
         g_enhDirty = true;
         edit_toast(EUI_GREEN, "ENHANCED RULE ADDED",
-                   "carrier trigger created too; this map now needs CNC3D");
+                   "carrier trigger created too; this map now needs OpenCNC3D");
         return;
     }
     if (row == 1) {
@@ -7206,7 +7201,7 @@ static void edit_check_run(void)
     if (!g_enh.empty()) {
         snprintf(w, sizeof w, "this map uses %d Enhanced rule%s", (int)g_enh.size(),
                  g_enh.size() == 1 ? "" : "s");
-        chk_add(CHK_OK, w, "it will only run in CNC3D; the 1995 engine would skip them");
+        chk_add(CHK_OK, w, "it will only run in OpenCNC3D; the 1995 engine would skip them");
     }
     if (!g_checkErrors && !g_checkWarns)
         chk_add(CHK_OK, "nothing wrong found",
@@ -8066,7 +8061,7 @@ static void eui_draw_viewport(const EuiLayout* L, int fbw, int fbh, float t1)
                     snprintf(l1, sizeof l1, "%d ENHANCED RULES", (int)g_enh.size());
                     snprintf(l2, sizeof l2, g_enh.empty()
                              ? "this map runs on any engine"
-                             : "this map needs CNC3D; the 1995 engine would skip these");
+                             : "this map needs OpenCNC3D; the 1995 engine would skip these");
                     l2col = g_enh.empty() ? EUI_FAINT : EUI_GREEN;
                 }
             } else if (g_editMode == 4 && g_scriptView == 1) {
@@ -8374,8 +8369,8 @@ static void eui_draw(int fbw, int fbh)
     eui_coin(L.topH * 0.68f, L.topH * 0.5f, L.topH * 0.34f, g_editFrame);
     {
         const float nameX = L.topH * 1.24f;
-        ef_text(nameX, L.topH * 0.34f, "CNC3D", t2, EUI_RGB(EUI_GOLD));
-        const float subX = nameX + ef_text_w("CNC3D", t2) + 10 * S;
+        ef_text(nameX, L.topH * 0.34f, "OpenCNC3D", t2, EUI_RGB(EUI_GOLD));
+        const float subX = nameX + ef_text_w("OpenCNC3D", t2) + 10 * S;
         ef_text(subX, L.topH * 0.39f,
                 eui_playtest ? "PLAYTESTING" : "MISSION EDITOR", t1,
                 EUI_RGB(eui_playtest ? EUI_GOLD : EUI_DIM));
@@ -8803,7 +8798,9 @@ static bool edit_repaint_cell(int cx, int cy)
     pc->v1 = (y0 + TT_TS) / (float)at.uh;
     /* The sea plane shows through an alpha-hole tile, so the hole flag has to follow the
        art or painting a river leaves dry ground with a river drawn on it. */
-    pc->holes = (unsigned char)(sea ? 1 : 0);
+    const unsigned char holes = (unsigned char)(sea ? 1 : 0);
+    if (pc->holes != holes) g_cellHolesGen++;   /* a dry map that gains water builds its field */
+    pc->holes = holes;
     return true;
 }
 
@@ -10776,110 +10773,49 @@ static int elev_import_beside_map(char* why, int whyN)
 
 
 /* ------------------------------------------------------------------------------------
- *  THE AUTO HEIGHTMAP -- fit a heightmap to the cliff art a map already carries
+ *  THE AUTO HEIGHTMAP -- a heightmap for a map that has none, from its tiles alone
  *
  *  The tier brush works the other way round: you paint ground and it derives the cliff
- *  art. This is for the map that already HAS cliff art -- one converted from a DOS
- *  editor, or one whose slopes were stamped by hand out of the cliff drawer -- and no
- *  relief under it. Every such map is a heightmap waiting to be read, because the 1995
- *  map format has no elevation field at all and the only thing in it that says "high
- *  ground" is which SLOPE template the designer painted. That is exactly the reading the
- *  N64 porters made by hand for all 55 of the cartridge's heightmapped scenarios.
+ *  art. This is for the map that already HAS its art -- one converted from a DOS editor,
+ *  or one whose slopes were stamped by hand out of the cliff drawer -- and no relief
+ *  under it. The 1995 map format has no elevation field at all; the only things in it
+ *  that say "high ground" or "low ground" are which templates the designer painted, and
+ *  the N64 porters read exactly that, by hand, for the 55 heightmapped scenarios.
  *
- *  IT DOES NOT ASK FOR THE MAP TO BE CONVERTED FIRST, AND MUST NOT. Converting is
- *  elev_write over the whole map, which REPAINTS as plain ground every block whose four
- *  corners are level -- that is, every block of a flat map, including the ones carrying
- *  the slope art. Requiring it would destroy the input before the fit could read it: the
- *  prerequisite and the feature cannot both exist. Neither half of the fit needs the
- *  ladder anyway. It reads template ids and icon numbers out of the .BIN, and it writes
- *  corner bytes; the ladder is a property of the bytes it writes, not a precondition on
- *  the bytes it reads.
+ *  THE METHOD IS THE GENERATOR'S, NOT THIS FILE'S. autoheight_mod.h is a port of
+ *  tools/autoheight/generate.py, which learned how those 55 were drawn and made the
+ *  heightmaps of every map the cartridge left flat; the same ground from the same tiles,
+ *  checked corner for corner by tools/autoheight/port_check.py. What it does that the
+ *  first version of this button did not: it CLOSES a plateau across the gaps in its
+ *  cliff line instead of leaving a thin ridge, it OUT-VOTES contradictory art instead of
+ *  leaving the map maker a page of red cells, it settles WATER on the lowest terrace
+ *  beside it and carves it, it spreads RAMPS where terraces meet without art, levels the
+ *  ground under BUILDINGS and round multiplayer STARTS, and rolls the big open patches.
  *
- *  IT WRITES THROUGH THE LADDER, WHICH IS WHAT MAKES IT SAFE TO PRESS. The first build
- *  of this feature wrote a free interpolation into every corner, and the result was that
- *  ONE PRESS on SCB31EA took a map from 0 of 3844 playable corners off the ladder to
- *  1320 of 3844 -- so the elevation panel replaced itself with the conversion gate and
- *  refused everything, on a map that had been fully usable a moment earlier. A tool
- *  whose first press disables the panel it lives on is not a tool. So the fit's output
- *  is a TIER FIELD over the 2x2 blocks, exactly what the rung tool authors, and the
- *  bytes go down through elev_coarse and elev_heights, exactly the path a brush stroke
- *  takes. Every corner it writes therefore lands on a rung by construction, every corner
- *  it declines to write keeps the byte it already had, and the off-the-ladder count can
- *  only fall. On the flat-with-art maps this feature is for it falls to zero, and the
- *  fit becomes what CONVERT should have been: the way onto the ladder that READS the
- *  cliff art instead of erasing it. It is one undo entry, and the unlock is inside it.
+ *  IT GOES OFF THE LADDER, ON PURPOSE, AND THE PANEL STAYS USABLE. Ramps, carved water
+ *  and swells are not on the five rungs. The first build of this feature locked the
+ *  elevation panel that way; the answer then was to write only rungs, and the answer now
+ *  is the smooth brush's own: the press sets g_elevSmoothUnlock, inside its undo entry,
+ *  so the rung tool keeps working on the generated ground and one undo takes the ground
+ *  and the unlock back together.
  *
- *  IT WORKS PER TEMPLATE PLACEMENT, NOT PER CELL. A cliff is a stamped 2x2 (sometimes
- *  2x3 or 3x2) block of art, the climb is spread across that block, and the block's own
- *  id says which way is up. Reading it per cell would throw away both facts.
+ *  THE REPORT IS WHERE THE FIT OVERRULED THE ART, not where it gave up: DISAGREE marks a
+ *  cliff piece the solve out-voted, CLAMPED a cell the five rungs could not hold, ORPHAN
+ *  a cliff stamp too broken to carry a step.
  *
- *      1. recover every SLOPE placement from the .BIN
- *      2. read its high side off the compass below
- *      3. flood the open ground so every cell knows its nearest placement and which
- *         side of it the cell is on
- *      4. solve one level per placement from the constraint that two adjacent open
- *         cells are the same height, and MARK the cells where two placements disagree
- *      5. reduce the cell levels to one tier per 2x2 block, and write the ground from
- *         that field through the ladder
+ *  THE WHOLE GRID IS WRITTEN, the border included: a rectangle-only fit leaves a step
+ *  along all four edges of the map. The generator carries the terrain out past the
+ *  playable rectangle from its nearest playable cell.
  *
- *  WATER IS NOT GROUND AND IS LEFT ALONE, by the same rule and for the same reason the
- *  smooth brush keeps off it: the sea surface is drawn from the terrain's own corners,
- *  so lifting one lifts the sea into a hill. The first build flooded water like open
- *  ground and gave it a rung -- HEIGHT|30,21 moved from centre 0.0000 to 1.9844 on a
- *  lake. Here water cells are a barrier to the flood, a block holding any water cell
- *  keeps the tier it was seeded with, and a corner any of whose four cells is water is
- *  not written at all. Those corners are counted and said, not silently skipped.
- *
- *  THE COMPASS IS MEASURED, AND THE MEASUREMENT IS REPRODUCIBLE. Over the 55 cartridge
- *  scenarios that ship a heightmap, 4603 SLOPE placements sit wholly inside their map's
- *  playable rectangle; 4509 of them (97.96%) have a mean height gradient that agrees
- *  with the entry below, 18 (0.39%) point the other way and 76 (1.65%) are level. That
- *  arithmetic -- the same projection onto the same eight directions this file uses -- is
- *  in tools/romdump/cliff_compass.py and the numbers here are its output:
- *
- *      python3 tools/romdump/cliff_compass.py
- *
- *  Do not restate them from anywhere else. They were quoted wrongly once already, from a
- *  per-cell average that answers a different question.
- *
- *  THE WHOLE GRID IS WRITTEN, NOT THE PLAYABLE RECTANGLE, and the border is the reason:
- *  a rectangle-only fit leaves the cells outside it at whatever height they were, which
- *  is a step along all four edges of the map. Nothing plays there, so following the
- *  terrain out is free and looks right from inside.
- *
- *  AND g_mapX..g_mapH IS NOT WRONG ABOUT THOSE MAPS. It reads one cell wider on every
- *  side than the [Map] X/Y/Width/Height in the file, and that is the brain's own doing
- *  rather than a disagreement to work around: CNCMapDataStruct keeps the file's own
- *  rectangle in OriginalMapCell* and widens MapCell* by a cell in each direction before
- *  handing it over (dllinterface.cpp, GAME_STATE_STATIC_MAP). A map declaring 1,1 62x62
- *  therefore arrives as 0,0 64x64, exactly as one declaring 36,39 26x23 arrives as
- *  35,38 28x25. Every other "outside the playable area" test in this file measures
- *  against the grown one for the same reason.
+ *  AND g_mapX..g_mapH IS ONE CELL WIDER on every side than the [Map] X/Y/Width/Height in
+ *  the file: CNCMapDataStruct keeps the file's own rectangle in OriginalMapCell* and
+ *  widens MapCell* by a cell in each direction (dllinterface.cpp, GAME_STATE_STATIC_MAP).
+ *  The generator's playable rectangle is the file's, so the fit narrows it back.
  * ---------------------------------------------------------------------------------- */
 
-/* THE COMPASS. One high side per SLOPE template, in grid axes: dy is POSITIVE SOUTH.
-   Four straight edges of seven variants each and ten corner pieces, which is how
-   Westwood organised the 1995 cliff art. */
-struct AhCompass { signed char dx, dy; };
-static const AhCompass AH_COMPASS[AH_SLOPE_N] = {
-    { 0,-1},{ 0,-1},{ 0,-1},{ 0,-1},{ 0,-1},{ 0,-1},{ 0,-1},   /* S01..S07  north */
-    { 1, 0},{ 1, 0},{ 1, 0},{ 1, 0},{ 1, 0},{ 1, 0},{ 1, 0},   /* S08..S14  east  */
-    { 0, 1},{ 0, 1},{ 0, 1},{ 0, 1},{ 0, 1},{ 0, 1},{ 0, 1},   /* S15..S21  south */
-    {-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},{-1, 0},   /* S22..S28  west  */
-    { 1,-1},                                                   /* S29  north-east */
-    { 1, 1},                                                   /* S30  south-east */
-    {-1, 1},                                                   /* S31  south-west */
-    {-1,-1},                                                   /* S32  north-west */
-    {-1, 1},                                                   /* S33  south-west */
-    {-1,-1},                                                   /* S34  north-west */
-    { 1,-1},                                                   /* S35  north-east */
-    { 1, 1},                                                   /* S36  south-east */
-    { 1, 1},                                                   /* S37  south-east */
-    { 1,-1}                                                    /* S38  north-east */
-};
-
-/* WHY A CELL IS MARKED. The report is a picture of what the fit could not commit to,
-   and the three reasons are different problems, so they are different colours. */
+/* WHY A CELL IS MARKED. The report is a picture of where the fit overruled the art: a
+   cliff piece it out-voted, a cell the five rungs could not hold, a cliff stamp too
+   broken to carry a step. Three different things, so three colours. */
 enum { AH_OK = 0, AH_DISAGREE = 1, AH_CLAMPED = 2, AH_ORPHAN = 3 };
 
 /* THE REPORT IS ONE COPY, and g_ah itself is declared with the rest of the panel state
@@ -10915,98 +10851,6 @@ static int ah_mark_count(void)
         for (int cx = 0; cx < g_gridW; cx++)
             if (g_ahMark[cy * g_gridW + cx]) n++;
     return n;
-}
-
-static inline bool ah_is_slope(int t)
-{
-    return t >= AH_SLOPE_FIRST && t <= AH_SLOPE_LAST;
-}
-
-struct AhPlace {
-    short ox, oy, w, h;
-    short tid;
-    signed char ux, uy;
-    int   pot;          /* level relative to its component's root  */
-    int   base;         /* absolute rung of its LOW side           */
-    int   parent;       /* weighted union-find                     */
-};
-static AhPlace g_ahPlace[AH_PLACE_MAX];
-static int     g_ahPlaceN = 0;
-
-/* Union-find with a potential: find() returns the root and fills *pot with this
-   placement's level relative to that root. Path compression rewrites the potential as
-   it goes, so the walk stays flat and the arithmetic stays exact. */
-static int ah_find(int a, int* pot)
-{
-    int r = a, sum = 0;
-    while (g_ahPlace[r].parent != r) { sum += g_ahPlace[r].pot; r = g_ahPlace[r].parent; }
-    int n = a, acc = sum;
-    while (g_ahPlace[n].parent != n) {
-        const int nxt  = g_ahPlace[n].parent;
-        const int mine = g_ahPlace[n].pot;
-        g_ahPlace[n].parent = r;
-        g_ahPlace[n].pot    = acc;
-        acc -= mine;
-        n = nxt;
-    }
-    *pot = (a == r) ? 0 : g_ahPlace[a].pot;
-    return r;
-}
-
-/* Which side of a placement a cell is on: 1 high, 0 low. The projection onto the
-   compass direction, from the placement's own centre, which is what makes a diagonal
-   piece read as a corner rather than as two edges. */
-static inline int ah_side_of(const AhPlace* p, int cx, int cy)
-{
-    const float dx = ((float)cx + 0.5f) - ((float)p->ox + (float)p->w * 0.5f);
-    const float dy = ((float)cy + 0.5f) - ((float)p->oy + (float)p->h * 0.5f);
-    return (dx * (float)p->ux + dy * (float)p->uy) > 0.0f ? 1 : 0;
-}
-
-/* Recover every SLOPE placement from the .BIN. An ORIGIN is a cell carrying icon 0 of a
-   slope template; the placement then claims the cells of its own w x h box that carry
-   that template and the icon that box position implies. A cell of slope art that no
-   origin claims is an ORPHAN -- half a template someone painted over -- and is reported
-   rather than guessed at. */
-static int ah_recover(short* own /* EDIT_GRID_MAX */, unsigned char* wall, int* orphans)
-{
-    g_ahPlaceN = 0;
-    *orphans = 0;
-    for (int i = 0; i < g_gridW * g_gridH; i++) { own[i] = -1; wall[i] = 0; }
-    for (int cy = 0; cy < g_gridH; cy++)
-        for (int cx = 0; cx < g_gridW; cx++)
-            if (ah_is_slope(g_editTmpl[cy * g_editBinW + cx]))
-                wall[cy * g_gridW + cx] = 1;
-
-    for (int cy = 0; cy < g_gridH && g_ahPlaceN < AH_PLACE_MAX; cy++)
-        for (int cx = 0; cx < g_gridW && g_ahPlaceN < AH_PLACE_MAX; cx++) {
-            const int t = g_editTmpl[cy * g_editBinW + cx];
-            if (!ah_is_slope(t) || g_editIcon[cy * g_editBinW + cx] != 0) continue;
-            const int tw = EDIT_TEMPLATES[t].w, th = EDIT_TEMPLATES[t].h;
-            AhPlace* p = &g_ahPlace[g_ahPlaceN];
-            p->ox = (short)cx; p->oy = (short)cy;
-            p->w = (short)tw;  p->h = (short)th;
-            p->tid = (short)t;
-            p->ux = AH_COMPASS[t - AH_SLOPE_FIRST].dx;
-            p->uy = AH_COMPASS[t - AH_SLOPE_FIRST].dy;
-            p->parent = g_ahPlaceN; p->pot = 0; p->base = AH_GROUND_RUNG;
-            int claimed = 0;
-            for (int dy = 0; dy < th; dy++)
-                for (int dx = 0; dx < tw; dx++) {
-                    const int x = cx + dx, y = cy + dy;
-                    if (x >= g_gridW || y >= g_gridH) continue;
-                    if (g_editTmpl[y * g_editBinW + x] != t) continue;
-                    if (g_editIcon[y * g_editBinW + x] != dy * tw + dx) continue;
-                    if (own[y * g_gridW + x] >= 0) continue;   /* first origin wins */
-                    own[y * g_gridW + x] = (short)g_ahPlaceN;
-                    claimed++;
-                }
-            if (claimed) g_ahPlaceN++;
-        }
-    for (int cy = 0; cy < g_gridH; cy++)
-        for (int cx = 0; cx < g_gridW; cx++)
-            if (wall[cy * g_gridW + cx] && own[cy * g_gridW + cx] < 0) (*orphans)++;
-    return g_ahPlaceN;
 }
 
 /* HOW MUCH RELIEF THIS MAP ALREADY HAS, counted over the whole corner grid, which is
@@ -11088,187 +10932,61 @@ static int ah_fit(char* why, int whyN)
         return 0;
     }
 
-    int orphans = 0;
-    const int np = ah_recover(own, wall, &orphans);
-    if (np <= 0) {
-        if (why) snprintf(why, whyN, "this map has no cliff art on it, so there is no "
-                          "relief to read -- stamp some slope pieces first, or use the "
-                          "rung brush");
-        return 0;
-    }
-
-    /* THE TIER FIELD HAS TO EXIST BEFORE THE FIT CAN LEAVE PARTS OF IT ALONE. A block
-       the flood never reaches, and every block the sea touches, keeps the tier the map
-       already implies -- so seed it if the map has not been read yet. */
+    /* THE GENERATOR. The same method as tools/autoheight/generate.py, which made the
+       approved heightmaps of every map the cartridge left flat (autoheight_mod.h is the
+       port and says what it does). It reads the tiles, the playable rectangle, the
+       buildings already placed and, on a multiplayer map, the starts, and answers every
+       corner: plateaus closed across the gaps in their cliff lines, contradictory art
+       out-voted rather than left for the map maker, water settled on its lowest bank and
+       carved, ramps spread, bases level, and the big open ground rolling. */
     if (!g_elevSeeded) elev_seed();
-    /* AND THE LADDER COUNT HAS TO BE CURRENT, because the report carries it either side
-       and the whole safety claim is a comparison between those two numbers. */
     sbr_recount_ladder();
     const int offBefore = g_elevOffLadder;
-
-    /* 3. THE FLOOD. Every open cell takes the placement nearest it and the side of that
-       placement it lies on. Four-connected and breadth first, so "nearest" is the walk
-       a unit would take rather than a straight line through a cliff. WATER IS A BARRIER,
-       not open ground: the sea is not standing on a rung and asking it which side of a
-       cliff it is on has no answer. */
-    int head = 0, tail = 0;
-    for (int i = 0; i < g_gridW * g_gridH; i++) {
-        dist[i] = -1; side[i] = -1; lvl[i] = 0;
-        if (edit_cell_is_water(i % g_gridW, i / g_gridW)) wall[i] = 1;
-        if (own[i] >= 0) { dist[i] = 0; q[tail++] = i; }
+    AutoHeightIn ain;
+    ain.W = g_gridW; ain.H = g_gridH;
+    ain.tmpl = g_editTmpl; ain.icon = g_editIcon;
+    /* g_mapX..g_mapH is the INI's rectangle grown by one cell on every side (the brain's
+       own widening, see above); the generator wants the INI's own */
+    ain.px = std::max(0, g_mapX + 1); ain.py = std::max(0, g_mapY + 1);
+    ain.pw = std::max(1, std::min(g_gridW - ain.px, g_mapW - 2));
+    ain.ph = std::max(1, std::min(g_gridH - ain.py, g_mapH - 2));
+    for (const SimObject& o : g_objects) {
+        if (o.kind != K_BUILDING) continue;
+        const EditItem* it = eui_item_by_code(o.type);
+        if (!it) continue;
+        std::vector<std::pair<int, int>> fc;
+        for (int k = 0; k < (int)it->n; k++)
+            fc.push_back({o.cx + it->dx[k], o.cy + it->dy[k]});
+        ain.foot.push_back(fc);
     }
-    while (head < tail) {
-        const int c = q[head++];
-        const int cx = c % g_gridW, cy = c / g_gridW;
-        static const int D[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        for (int k = 0; k < 4; k++) {
-            const int nx = cx + D[k][0], ny = cy + D[k][1];
-            if (nx < 0 || ny < 0 || nx >= g_gridW || ny >= g_gridH) continue;
-            const int n = ny * g_gridW + nx;
-            if (wall[n] || own[n] >= 0) continue;
-            own[n]  = own[c];
-            dist[n] = (short)(dist[c] + 1);
-            side[n] = (signed char)ah_side_of(&g_ahPlace[own[c]], nx, ny);
-            q[tail++] = n;
-        }
-    }
-
-    /* 4. THE LEVELS. Two adjacent open cells are the same height, whichever placements
-       own them, so every such pair is one equation. The first equation between two
-       components joins them; a later one that disagrees is two placements asking for
-       different ground in the same place, and BOTH cells are marked. */
+    if (g_mapIsMulti)
+        for (int k = 0; k < EDIT_MAX_PLAYERS; k++)
+            if (g_waypoint[k] >= 0)
+                ain.starts.push_back({g_waypoint[k] % edit_ini_w(), g_waypoint[k] / edit_ini_w()});
+    /* PROOF ONLY: the swells' rolling field is drawn from a different random generator
+       than tools/autoheight's, so a corner-for-corner comparison with it is made with
+       them off (tools/autoheight/port_check.py, gate G190). */
+    ain.swells = getenv("OPENCNC3D_AUTOHGT_NOSWELLS") == NULL;
+    ain.seed = 2166136261u;
+    for (const char* c = g_editScen; *c; c++) ain.seed = (ain.seed ^ (unsigned char)*c) * 16777619u;
+    AutoHeightOut aout;
+    autoheight_generate(ain, aout);
+    const int np = aout.places, orphans = aout.orphans, clamped = aout.clamped;
     memset(mk, 0, sizeof mk);
     int disagree = 0;
-    for (int cy = 0; cy < g_gridH; cy++)
-        for (int cx = 0; cx < g_gridW; cx++) {
-            const int a = cy * g_gridW + cx;
-            if (wall[a] || own[a] < 0 || side[a] < 0) continue;
-            static const int D[2][2] = { {1,0}, {0,1} };
-            for (int k = 0; k < 2; k++) {
-                const int nx = cx + D[k][0], ny = cy + D[k][1];
-                if (nx >= g_gridW || ny >= g_gridH) continue;
-                const int b = ny * g_gridW + nx;
-                if (wall[b] || own[b] < 0 || side[b] < 0) continue;
-                if (own[a] == own[b]) continue;
-                int pa = 0, pb = 0;
-                const int ra = ah_find(own[a], &pa), rb = ah_find(own[b], &pb);
-                /* base[a] + side[a] == base[b] + side[b] */
-                const int want = (pa + side[a]) - (pb + side[b]);
-                if (ra != rb) {
-                    g_ahPlace[rb].parent = ra;
-                    g_ahPlace[rb].pot    = want;
-                } else if (want != 0) {
-                    if (!mk[a]) { mk[a] = AH_DISAGREE; disagree++; }
-                    if (!mk[b]) { mk[b] = AH_DISAGREE; disagree++; }
-                }
-            }
-        }
-
-    /* Each component is anchored on its own, because two components share no ground and
-       nothing relates them: the level most of its open cells want becomes GROUND. The
-       histogram is nine bins wide and saturates at its ends, which only matters for a
-       component asking for more than nine levels -- and everything past the fifth is
-       clamped and marked below anyway, so the saturation cannot hide anything. */
-    {
-        static int hist[AH_PLACE_MAX][9];
-        static int seen[AH_PLACE_MAX];
-        for (int i = 0; i < np; i++) { seen[i] = 0; for (int k = 0; k < 9; k++) hist[i][k] = 0; }
-        for (int i = 0; i < g_gridW * g_gridH; i++) {
-            if (wall[i] || own[i] < 0 || side[i] < 0) continue;
-            int pot = 0;
-            const int r = ah_find(own[i], &pot);
-            int v = pot + side[i] + 4;              /* biased so the index is >= 0 */
-            if (v < 0) v = 0; else if (v > 8) v = 8;
-            hist[r][v]++;
-            seen[r] = 1;
-        }
-        for (int r = 0; r < np; r++) {
-            if (!seen[r]) continue;
-            int bestk = 4, bestn = -1;
-            for (int k = 0; k < 9; k++)
-                if (hist[r][k] > bestn) { bestn = hist[r][k]; bestk = k; }
-            /* the winning level is (bestk - 4); shift the component so it reads GROUND */
-            g_ahPlace[r].base = AH_GROUND_RUNG - (bestk - 4);
-        }
-        for (int i = 0; i < np; i++) {
-            int pot = 0;
-            const int r = ah_find(i, &pot);
-            g_ahPlace[i].base = g_ahPlace[r].base + pot;
-        }
-    }
-
-    /* 5. THE RUNGS ARE FIVE AND THE MAP MAY WANT MORE. A placement whose low side is
-       already at the top has nowhere to put its high side, so it is clamped and its own
-       cells are marked: the fit declines to invent a sixth rung. */
-    int clamped = 0;
-    for (int i = 0; i < np; i++) {
-        int b = g_ahPlace[i].base;
-        if (b < 0) b = 0;
-        if (b > AH_TOP_RUNG - 1) b = AH_TOP_RUNG - 1;
-        if (b != g_ahPlace[i].base) {
-            g_ahPlace[i].base = b;
-            for (int cy = g_ahPlace[i].oy; cy < g_ahPlace[i].oy + g_ahPlace[i].h; cy++)
-                for (int cx = g_ahPlace[i].ox; cx < g_ahPlace[i].ox + g_ahPlace[i].w; cx++) {
-                    if (cx < 0 || cy < 0 || cx >= g_gridW || cy >= g_gridH) continue;
-                    if (own[cy * g_gridW + cx] != i) continue;
-                    if (!mk[cy * g_gridW + cx]) {
-                        mk[cy * g_gridW + cx] = AH_CLAMPED;
-                        clamped++;
-                    }
-                }
-        }
-    }
     for (int i = 0; i < g_gridW * g_gridH; i++) {
-        if (wall[i] || own[i] < 0 || side[i] < 0) continue;
-        int v = g_ahPlace[own[i]].base + side[i];
-        if (v < 0 || v > AH_TOP_RUNG) {
-            if (v < 0) v = 0; else v = AH_TOP_RUNG;
-            if (!mk[i]) { mk[i] = AH_CLAMPED; clamped++; }
-        }
-        lvl[i] = (short)v;
+        const int v = aout.mark[i];
+        mk[i] = v == AHG_OUTVOTED ? AH_DISAGREE : v == AHG_CLAMPED ? AH_CLAMPED
+              : v == AHG_ORPHAN ? AH_ORPHAN : 0;
+        disagree += v == AHG_OUTVOTED;
     }
-    /* Orphan cliff art gets its own mark: it contributes no height, so the corners
-       around it are carried by whatever else touches them. Water was turned into a wall
-       above and must not be reported as orphaned art, so the mark is only for cells that
-       really do carry a slope template. */
-    for (int i = 0; i < g_gridW * g_gridH; i++)
-        if (wall[i] && own[i] < 0 && !mk[i] &&
-            ah_is_slope(g_editTmpl[(i / g_gridW) * g_editBinW + (i % g_gridW)]))
-            mk[i] = AH_ORPHAN;
+    (void)own; (void)wall; (void)dist; (void)side; (void)lvl; (void)q; (void)tier; (void)kk;
+    for (int i = 0; i < (g_gridW + 1) * (g_gridH + 1); i++) nh[i] = aout.corner[i];
 
-    /* 6. THE TIER FIELD. One rung per 2x2 block, and it is the LOWEST thing standing in
-       that block -- the same reading elev_seed makes of a map's own corners, so the two
-       agree about what "the ground this block stands on" means. A cell of cliff art
-       counts as its placement's LOW side, which is the ground the art rises out of.
-       A block the flood never reached, and every block the sea touches, keeps the tier
-       the map already had. */
-    memcpy(tier, g_elevTier, sizeof tier);
-    for (int by = 0; by < elev_bh(); by++)
-        for (int bx = 0; bx < elev_bw(); bx++) {
-            int lo = -1;
-            bool wet = false;
-            for (int dy = 0; dy < 2 && !wet; dy++)
-                for (int dx = 0; dx < 2 && !wet; dx++) {
-                    const int cx = 2 * bx + dx, cy = 2 * by + dy;
-                    if (cx >= g_gridW || cy >= g_gridH) continue;
-                    if (edit_cell_is_water(cx, cy)) { wet = true; continue; }
-                    const int c = cy * g_gridW + cx;
-                    if (own[c] < 0) continue;               /* orphan art, or unreached */
-                    const int v = wall[c] ? g_ahPlace[own[c]].base : (int)lvl[c];
-                    if (lo < 0 || v < lo) lo = v;
-                }
-            if (wet || lo < 0) continue;
-            if (lo < 0) lo = 0;
-            if (lo > AH_TOP_RUNG) lo = AH_TOP_RUNG;
-            tier[by * elev_bw() + bx] = (unsigned char)lo;
-        }
-    elev_coarse(tier, kk);
-    elev_heights(kk, nh);
-
-    /* 7. THE BYTES. Every corner the sea does not use takes the ladder's own value for
-       it; every corner the sea does use is left exactly as it was found. That is the
-       whole of the safety property: what is written is on a rung, what is not written
-       has not moved, so the off-the-ladder count cannot rise. */
+    /* THE BYTES: every corner, the water's included. The generator settles each body of
+       water on the lowest terrace beside it and carves it flat below that, which is how
+       every generated map the game ships draws its water, so the sea is written with the
+       land rather than left at whatever height it had under ground that has moved. */
     EditSnap before = edit_snapshot("auto heightmap");
     const unsigned wetWas = ah_wet_hash();
     const int hw = g_gridW + 1;
@@ -11276,7 +10994,6 @@ static int ah_fit(char* why, int whyN)
     for (int gy = 0; gy <= g_gridH; gy++)
         for (int gx = 0; gx <= g_gridW; gx++) {
             const int i = gy * hw + gx;
-            if (sbr_corner_wet(gx, gy)) { held++; continue; }
             const unsigned char v = nh[i];
             if (g_pack.corner[i] != v) moved++;
             g_pack.corner[i] = v;
@@ -11322,13 +11039,10 @@ static int ah_fit(char* why, int whyN)
         sbr_recount_ladder();     /* nothing moved, but the readout still has to be true */
     }
 
-    /* THE INVARIANT, COUNTED RATHER THAN ASSERTED. Every corner this fit wrote came out
-       of ELEV_RUNG, so the only playable corners that can still be off the ladder are the
-       ones it declined to write -- which is exactly the ones the sea uses. Anything else
-       is the fit having gone off the ladder, and that is the fault that locked the panel
-       the first time this feature was built. Counted on the SAME lattice elev_seed and
-       sbr_recount_ladder walk, because a count on a different denominator is a different
-       question. */
+    /* OFF THE LADDER, COUNTED: the playable corners not on a rung that are not the
+       sea's. The generator puts ramps, carved banks and swells there by design, so this
+       is a reading for the report, not an invariant; what keeps the panel usable is the
+       unlock above. Counted on the same lattice elev_seed and sbr_recount_ladder walk. */
     int stray = 0;
     for (int by = 0; by < elev_bh(); by++)
         for (int bx = 0; bx < elev_bw(); bx++) {
@@ -15447,10 +15161,10 @@ static void edit_read_overlay_extra(const char* path)
                 (int)g_ovExtra.size(), g_ovExtra.size() == 1 ? "" : "s");
 }
 
-/* THE TWO CNC3D-OWNED [Basic] KEYS, read for the map being opened.
+/* THE TWO OpenCNC3D-OWNED [Basic] KEYS, read for the map being opened.
  *
- * CNC3DKind says whether the map belongs in the User Maps list or the skirmish one.
- * CNC3DSmooth says the rung tool is unlocked on it because somebody has already painted
+ * OpenCNC3DKind says whether the map belongs in the User Maps list or the skirmish one.
+ * OpenCNC3DSmooth says the rung tool is unlocked on it because somebody has already painted
  * smooth ground here -- see g_elevIniUnlock.
  *
  * BOTH, WHICH IS WHY THE EARLY `break` IS GONE. It stopped at the first key found, so
@@ -15459,7 +15173,31 @@ static void edit_read_overlay_extra(const char* path)
  * IT ASSIGNS THE LIVE FLAG AS WELL AS THE LATCH, and that is what stops the previous
  * map's unlock standing over this one: this runs on every editor load -- the first boot,
  * OPEN, NEW's donor reload, and the round trip through PLAY -- before anything can look
- * at the flag. */
+ * at the flag.
+ *
+ * THE WHOLE KEY AND ITS '=' ARE MATCHED (edit_ini_value), never a prefix of it: every
+ * key of ours starts with the same nine letters, so a prefix compare would read an
+ * OpenCNC3DSmooth line as OpenCNC3DKind and turn a multiplayer map into a single one.
+ *
+ * Maps saved by earlier builds spell the two keys CNC3DKind and CNC3DSmooth. Each is
+ * read only when the key above is absent, and a save writes only the keys above. */
+static const char* edit_ini_value(const char* p, const char* key)
+{
+    const size_t n = strlen(key);
+    if (strncasecmp(p, key, n)) return NULL;
+    p += n;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p != '=') return NULL;
+    p++;
+    while (*p == ' ' || *p == '\t') p++;
+    return p;
+}
+/* The [Basic] lines a save drops before it writes its own copy of the two keys. */
+static bool edit_is_kind_line(const char* p)
+{
+    return edit_ini_value(p, "OpenCNC3DKind") || edit_ini_value(p, "OpenCNC3DSmooth")
+        || edit_ini_value(p, "CNC3DKind")     || edit_ini_value(p, "CNC3DSmooth");
+}
 static void edit_read_kind(const char* path)
 {
     g_mapIsMulti = 0;
@@ -15469,17 +15207,23 @@ static void edit_read_kind(const char* path)
     if (!f) return;
     char line[1024];
     bool inBasic = false;
+    int kind = -1, kindEarlier = -1, smooth = -1, smoothEarlier = -1;
     while (fgets(line, sizeof line, f)) {
         const char* p = line;
         while (*p == ' ' || *p == '\t') p++;
         if (*p == '[') { inBasic = !strncasecmp(p, "[BASIC]", 7); continue; }
         if (!inBasic) continue;
-        if (!strncasecmp(p, "CNC3DKind", 9))
-            g_mapIsMulti = (strstr(p, "Multi") != NULL) ? 1 : 0;
-        else if (!strncasecmp(p, "CNC3DSmooth", 11))
-            g_elevIniUnlock = (strchr(p, '1') != NULL);
+        const char* v;
+        if      ((v = edit_ini_value(p, "OpenCNC3DKind")))   kind          = strstr(v, "Multi") ? 1 : 0;
+        else if ((v = edit_ini_value(p, "OpenCNC3DSmooth"))) smooth        = strchr(v, '1') ? 1 : 0;
+        else if ((v = edit_ini_value(p, "CNC3DKind")))       kindEarlier   = strstr(v, "Multi") ? 1 : 0;
+        else if ((v = edit_ini_value(p, "CNC3DSmooth")))     smoothEarlier = strchr(v, '1') ? 1 : 0;
     }
     fclose(f);
+    if (kind < 0)   kind   = kindEarlier;
+    if (smooth < 0) smooth = smoothEarlier;
+    g_mapIsMulti = (kind == 1) ? 1 : 0;
+    g_elevIniUnlock = (smooth == 1);
     g_elevSmoothUnlock = g_elevIniUnlock;
 }
 
@@ -15731,6 +15475,17 @@ static int edit_write_ini(const char* src, const char* dst)
     char line[2048];
     bool skipping = false, emitted = false, inBasic = false, wroteKind = false;
     bool inMap = false, wroteName = false;
+    /* Does [MAP] already carry OpenCNC3DTheater? Asked before the copy starts, because
+       the line can come after an earlier spelling of the same key. */
+    bool mapHasTheater = false;
+    while (fgets(line, sizeof line, in)) {
+        const char* p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '[') { inMap = !strncasecmp(p, "[MAP]", 5); continue; }
+        if (inMap && edit_ini_value(p, "OpenCNC3DTheater")) { mapHasTheater = true; break; }
+    }
+    rewind(in);
+    inMap = false;
     while (fgets(line, sizeof line, in)) {
         const char* p = line;
         while (*p == ' ' || *p == '\t') p++;
@@ -15754,11 +15509,11 @@ static int edit_write_ini(const char* src, const char* dst)
                 wroteName = true;
             }
             if (inBasic && !wroteKind) {
-                fprintf(out, "CNC3DKind=%s\n", g_mapIsMulti ? "Multi" : "Single");
+                fprintf(out, "OpenCNC3DKind=%s\n", g_mapIsMulti ? "Multi" : "Single");
                 /* THE SMOOTH-BRUSH UNLOCK, owned exactly as the tag below is: written
                    only while it is true, and any older copy dropped further down, so a
                    map that has never been smoothed keeps a file with no line in it. */
-                if (g_elevSmoothUnlock) fprintf(out, "CNC3DSmooth=1\n");
+                if (g_elevSmoothUnlock) fprintf(out, "OpenCNC3DSmooth=1\n");
                 /* THE ENHANCED TAG. Written only when the map really has Enhanced rules,
                    and REMOVED when the last one is deleted -- a map that claims to need
                    an engine it does not need would be refused for nothing. The 1995
@@ -15773,7 +15528,7 @@ static int edit_write_ini(const char* src, const char* dst)
             if (skipping && !emitted) { edit_emit_owned(out); emitted = true; }
             /* THE MAP'S STRIDE, stated where the brain reads it: a big map carries
                [MAP] Version=1 (display.cpp:1297) so its cell numbers and its sparse
-               .BIN are read on the 128 grid. The key is owned like CNC3DKind is --
+               .BIN are read on the 128 grid. The key is owned like OpenCNC3DKind is --
                written to MATCH the document and any stale copy dropped -- because a
                map whose file and whose cells disagree about the stride is corrupted
                silently, cell by cell. A legacy map's [MAP] passes through untouched
@@ -15796,10 +15551,20 @@ static int edit_write_ini(const char* src, const char* dst)
             continue;
         }
         /* Drop any previous copy of the key rather than accumulating them. */
-        if (inBasic && !strncasecmp(p, "CNC3DKind", 9)) continue;
-        if (inBasic && !strncasecmp(p, "CNC3DSmooth", 11)) continue;
+        if (inBasic && edit_is_kind_line(p)) continue;
         if (inBasic && !strncasecmp(p, "Enhanced", 8) && p[8] == '=') continue;
         if (inMap && !strncasecmp(p, "Version=", 8)) continue;
+        /* The theater key in its earlier spelling is written back in the current one,
+           unless the section already carries the current one, which then stands. */
+        if (inMap && edit_ini_value(p, "CNC3DTheater")) {
+            if (!mapHasTheater) {
+                const char* v = edit_ini_value(p, "CNC3DTheater");
+                fprintf(out, "OpenCNC3DTheater=%s", v);
+                const size_t vl = strlen(v);
+                if (!vl || v[vl - 1] != '\n') fputs("\r\n", out);
+            }
+            continue;
+        }
         if (!skipping) fputs(line, out);
     }
     if (inBasic && !wroteName) {
@@ -15807,8 +15572,8 @@ static int edit_write_ini(const char* src, const char* dst)
         wroteName = true;
     }
     if (inBasic && !wroteKind) {
-        fprintf(out, "CNC3DKind=%s\n", g_mapIsMulti ? "Multi" : "Single");
-        if (g_elevSmoothUnlock) fprintf(out, "CNC3DSmooth=1\n");
+        fprintf(out, "OpenCNC3DKind=%s\n", g_mapIsMulti ? "Multi" : "Single");
+        if (g_elevSmoothUnlock) fprintf(out, "OpenCNC3DSmooth=1\n");
         if (!g_enh.empty()) fprintf(out, "Enhanced=1\n");
     }
     /* A source file with none of the owned sections still needs them. */
@@ -15985,10 +15750,10 @@ static bool edit_write_seed_ini(const char* dst)
     const char* thname = EUI_THEATERS[thidx];
     /* The TD brain has four theaters and SNOW is not one of them: a snow map says
        Theater=WINTER to the engine (same template set, same land data) and carries
-       CNC3DTheater=SNOW for the pipeline and the editor, which read it first. */
+       OpenCNC3DTheater=SNOW for the pipeline and the editor, which read it first. */
     const char* thbrain = (thidx == 3) ? "WINTER"
                         : (thidx == 4) ? "DESERT" : thname;
-    fprintf(f, "; Written by the OpenCNC 3D map editor. Cells are y*%d + x.\r\n",
+    fprintf(f, "; Written by the OpenCNC3D map editor. Cells are y*%d + x.\r\n",
             edit_ini_w());
     fprintf(f, "[Basic]\r\n");
     /* The map's own name if it has been given one, and its slot if it has not. Both
@@ -16001,8 +15766,8 @@ static bool edit_write_seed_ini(const char* dst)
     fprintf(f, "Player=%s\r\n", EUI_HOUSES[g_mapPlayer].key);
     fprintf(f, "CarryOverMoney=0\r\nBuildLevel=7\r\nTheme=No theme\r\n");
     fprintf(f, "Intro=x\r\nBrief=x\r\nAction=x\r\nWin=x\r\nLose=x\r\nPercent=0\r\n");
-    fprintf(f, "CNC3DKind=%s\r\n", g_mapIsMulti ? "Multi" : "Single");
-    if (g_elevSmoothUnlock) fprintf(f, "CNC3DSmooth=1\r\n");
+    fprintf(f, "OpenCNC3DKind=%s\r\n", g_mapIsMulti ? "Multi" : "Single");
+    if (g_elevSmoothUnlock) fprintf(f, "OpenCNC3DSmooth=1\r\n");
     fprintf(f, "\r\n[MAP]\r\n");
     /* Version FIRST: the engine reads it before it sizes anything else, and a seeded
        big map with the key missing would be read at the legacy stride. */
@@ -16010,7 +15775,7 @@ static bool edit_write_seed_ini(const char* dst)
     /* Theater lives in [MAP] and not in [Basic]; reading it from the wrong section is a
        known trap in this engine and writing it to the wrong one is the same trap. */
     fprintf(f, "Theater=%s\r\n", thbrain);
-    fprintf(f, "CNC3DTheater=%s\r\n", thname);
+    fprintf(f, "OpenCNC3DTheater=%s\r\n", thname);
     fprintf(f, "X=%d\r\nY=%d\r\nWidth=%d\r\nHeight=%d\r\n", g_mapX, g_mapY, g_mapW, g_mapH);
     /* A SECTION FOR EVERY HOUSE THE ENGINE HAS. It is not what makes a house exist:
        HouseClass::Read_INI walks HOUSE_FIRST to HOUSE_COUNT and news every one of them,
@@ -16152,18 +15917,25 @@ static const char* edit_pack_for(const char* dir, const char* scen)
     f = fopen(ini, "rb");
     if (f) {
         char line[256];
-        bool ours = false;
+        int earlier = -1;
         while (fgets(line, sizeof line, f)) {
-            /* CNC3DTheater is the truth when present (snow maps say Theater=WINTER
-               to the brain); a plain Theater= only stands until it appears. */
-            if (strncasecmp(line, "CNC3DTheater=", 13) == 0) {
-                th = eui_theater_index(line + 13);
-                ours = true;
+            /* OpenCNC3DTheater is the truth when present (snow maps say Theater=WINTER
+               to the brain); a plain Theater= only stands until it appears. A map saved
+               by an earlier build spells it CNC3DTheater, which stands in for it when it
+               is absent. Whole keys, as edit_ini_value matches them: a prefix compare
+               reads the value from the wrong column. */
+            const char* v;
+            if ((v = edit_ini_value(line, "OpenCNC3DTheater"))) {
+                th = eui_theater_index(v);
+                earlier = -1;
                 break;
             }
-            if (!ours && strncasecmp(line, "Theater=", 8) == 0)
-                th = eui_theater_index(line + 8);
+            if ((v = edit_ini_value(line, "CNC3DTheater")))
+                earlier = eui_theater_index(v);
+            else if ((v = edit_ini_value(line, "Theater")))
+                th = eui_theater_index(v);
         }
+        if (earlier >= 0) th = earlier;
         fclose(f);
     }
     snprintf(buf, sizeof buf, "%s.pack", edit_donor_for(th));
@@ -16221,6 +15993,7 @@ static void edit_set_world_grid(int nw, int nh)
             cells[(size_t)cy * nw + cx] = c;
         }
     g_pack.cell.swap(cells);
+    g_cellHolesGen++;
 
     /* Corners: ground level everywhere, the old relief kept where it overlaps. A map
        arriving here is about to be flattened (blank) or re-dressed from its .HGT
@@ -16252,7 +16025,7 @@ static void edit_set_world_grid(int nw, int nh)
 /* A FREE NAME FOR A NEW MAP, from a small known space.
  *
  * USER00..USER99, and the space is the point: the GAME lists user maps by PROBING these
- * names rather than reading the directory, because app/cnc3d.cpp has to compile for
+ * names rather than reading the directory, because app/opencnc3d.cpp has to compile for
  * Windows 98 against a freestanding mingw and specops_scan already refuses to drag
  * dirent.h in for exactly that reason. The editor may use dirent -- cnc_eyes is not in
  * that build -- but what it WRITES has to be findable by something that cannot.
@@ -16279,7 +16052,7 @@ static void edit_next_user_name(char* out, int n)
  *  SAVE AS -- name the map, keep the slot
  *
  *  the project owner asked to NAME his maps instead of living with USER07. The name cannot be the
- *  FILENAME: the game finds user maps by probing USER00..USER99 (app/cnc3d.cpp
+ *  FILENAME: the game finds user maps by probing USER00..USER99 (app/opencnc3d.cpp
  *  usermaps_scan), so a map saved as "Tiberium Valley.INI" would work perfectly in this
  *  editor and never appear in the game at all. So the file keeps a slot and the name
  *  goes where every list already reads it from -- [Basic] Name=.
@@ -16759,6 +16532,14 @@ static bool edit_service_play(SDL_Window* win, const GameOpts* o)
            which is the same bug wearing its other face. */
         if (req == 2) edit_maps_root(dir, sizeof dir);
         else          snprintf(dir, sizeof dir, "%s", g_editOpenDir);
+        /* WITH ITS TRAILING SLASH. The engine glues the folder and the scenario together
+           with no separator (see boot_precheck), and the browser lists user maps from
+           edit_userdir, which has none: without this, every user map opened from the
+           browser booted "missions/user_mapsUSER07.INI" and was refused as missing. */
+        {
+            const size_t dl = strlen(dir);
+            if (dl && dir[dl - 1] != '/' && dl + 1 < sizeof dir) { dir[dl] = '/'; dir[dl + 1] = 0; }
+        }
         if (dir[0]) nx.dir = dir;
         nx.pack = edit_pack_for(nx.dir, scen);   /* the map's own pack, or its
                                                     theater's donor -- see edit_pack_for */
@@ -16894,15 +16675,15 @@ static bool edit_service_play(SDL_Window* win, const GameOpts* o)
         g_playFromEditor = true;
         /* PLAY MEANS THE GAME, INCLUDING HOW THE GAME LOOKS.
          *
-         * g_fx.enabled is zero-initialised and only app/cnc3d.cpp turns it on -- it calls
-         * game_visuals_default_enhanced("cnc3d-fx.cfg") unless --classic. The editor is
+         * g_fx.enabled is zero-initialised and only app/opencnc3d.cpp turns it on -- it calls
+         * game_visuals_default_enhanced("opencnc3d-fx.cfg") unless --classic. The editor is
          * launched as cnc_eyes directly, by Editor.app, which passes no --gfx, so every
          * mission played out of the editor came up in CLASSIC: the pre-chain picture and
          * the old DOS HUD. You were testing your map against a presentation the game
          * does not ship with. Same call the game makes, same preset file, so a tuned
-         * cnc3d-fx.cfg is honoured here too. */
+         * opencnc3d-fx.cfg is honoured here too. */
         if (!g_fx.enabled) {
-            game_visuals_default_enhanced("cnc3d-fx.cfg");
+            game_visuals_default_enhanced("opencnc3d-fx.cfg");
             fprintf(stderr, "edit: playing in ENHANCED, the way the game starts\n");
         }
         /* Playing OUT OF THE EDITOR is the moment you are asking whether the script
@@ -16958,7 +16739,7 @@ static void edit_shot_overlay_at_screen_centre(int fbw, int fbh)
     if (!g_editOn) return;
     edit_draw_footprint(fbw, fbh);
     edit_draw_overlay(fbw, fbh);
-    if (getenv("CNC3D_EDIT_SAVE")) edit_save();
+    if (getenv("OPENCNC3D_EDIT_SAVE")) edit_save();
     fprintf(stderr, "edit: screen centre (%d,%d) -> cell %d,%d%s\n",
             fbw / 2, fbh / 2, g_editCellX, g_editCellY,
             g_editOverMap ? "" : "  (off the map)");

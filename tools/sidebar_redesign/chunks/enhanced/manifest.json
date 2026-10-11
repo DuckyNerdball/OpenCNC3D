@@ -1,0 +1,54 @@
+{
+  "approved": "2026-10-07 user: Great. This is good! Time to implement it ingame",
+  "source": "CNC Interface Lab v13",
+  "assets": {
+    "eh_body": {
+      "frames": 1,
+      "sha256": "887d4c62531daf35b0c33c1bba47015b9214ccc29176faefbb4c40ebea74a0bf"
+    },
+    "eh_map": {
+      "frames": 1,
+      "sha256": "c4c7d126a1a114011a72f0aee4a42e5e273e42778d547d19b0a745c408af6c8a"
+    },
+    "eh_wing": {
+      "frames": 1,
+      "sha256": "c0eaf6c566a1742bd8e717712272975e212c54e5132410595a46527e317e44b8"
+    },
+    "eh_header": {
+      "frames": 3,
+      "sha256": "d35d44c6212fdf3535cd4c6cac2a304edf5c32ab1e979d81f1dd2304c2b9bd0d"
+    },
+    "eh_plate": {
+      "frames": 4,
+      "sha256": "718107317af1eb287e4a253d231bcae180f273ddf9ccbff441b287b48e1692f9"
+    },
+    "eh_repair": {
+      "frames": 1,
+      "sha256": "35b891668a65f5c2eca035f82284375a0e1014089560dbf25f4c3ebd6c792e22"
+    },
+    "eh_sell": {
+      "frames": 1,
+      "sha256": "46a904b4f61fbb9e474437ee34fcf451b40e880aa4acd920685101b9b1622d28"
+    },
+    "eh_power": {
+      "frames": 1,
+      "sha256": "e61f8e88c45656d1960ccc9261e3224de1f3c12a9385be34ddbea1fed0c9d598"
+    },
+    "eh_structures": {
+      "frames": 1,
+      "sha256": "57009d734f6b985145f04791e7c619e3606ffaf67fbf3c1d26a263350bcc59e6"
+    },
+    "eh_infantry": {
+      "frames": 1,
+      "sha256": "3ac7cace8946457d249f2d93347446a4d92a3de12d990d0050a184b083df4a43"
+    },
+    "eh_vehicles": {
+      "frames": 1,
+      "sha256": "f21a73a5e15326ad31947211ab217dcc17c121673d48a3741d7e35f6035ea185"
+    },
+    "eh_aircraft": {
+      "frames": 1,
+      "sha256": "894422031bf8b866807dcf83ff30faeb3fb1aa22a3188d30288b438d9b91aa0f"
+    }
+  }
+}

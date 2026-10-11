@@ -35,11 +35,11 @@ import sys
 import os
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.environ.get("CNC3D_ROOT") or os.path.abspath(os.path.join(_HERE, ".."))
+_ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(os.path.join(_HERE, ".."))
 
-# The cartridge is not in the repo. Pass it as argv[1], or point CNC3D_ROM at it.
+# The cartridge is not in the repo. Pass it as argv[1], or point OPENCNC3D_ROM at it.
 ROM_CANDIDATES = [
-    p for p in [os.environ.get("CNC3D_ROM"), os.path.join(_ROOT, "data", "rom", "cnc_eu.z64")] if p
+    p for p in [os.environ.get("OPENCNC3D_ROM"), os.path.join(_ROOT, "data", "rom", "cnc_eu.z64")] if p
 ]
 
 # (name, RAM address, format, width, height, frames)  -- from the init disassembly.

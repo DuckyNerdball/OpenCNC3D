@@ -1,0 +1,42 @@
+# G274. EVERY REMASTERED STRUCTURE AND WALL LOADS, AND THE INTACT-ONLY ONES DRAW AND MOVE.
+#
+# Under Enhanced every approved remastered structure is drawn from its ebld file
+# (game/ebld_mod.h): the Power Plant with its full wear-down and wreck, every other one
+# from its intact model alone, with its moving parts moving, and the sandbag, chain-link
+# and concrete walls from their sixteen connection pieces. gates.sh runs this script four
+# times (Enhanced twice, Enhanced with --noebld, and Classic) and reads the dumps.
+#
+# THE SCENE is SCG90EA's two bases. The camera first sits over the player's Construction
+# Yard (cell 53,51: intact only, two turning fans), twice, three ticks apart, so the fans'
+# drawn angle can be read off each dump; then over the Nod base's Gun Turrets and the
+# sandbag line in front of them (cell 50,36 and 57,36, wall cells on row 37). Each ebldump
+# reports what the frame BEFORE it drew (the observer counts are cleared by the dump), so
+# every dump follows a shot. Then the Construction Yard is killed with two hurtobj (800 to
+# 50, then dead): an intact-only building leaves a wreck with no pieces and no old
+# shatter. The ECHO lines name the dumps.
+tick 20
+cam 54 50
+zoom max
+shot shots/g274_a.png
+echo g274 first
+obj FACT 0
+ebldump
+tick 3
+shot shots/g274_b.png
+echo g274 second
+ebldump
+cam 53 36
+shot shots/g274_c.png
+echo g274 guns
+obj GUN 0
+obj GUN 1
+ebldump
+cam 54 50
+hurtobj FACT 0
+tick 20
+hurtobj FACT 0
+tick 30
+shot shots/g274_d.png
+echo g274 dead
+ebldump
+quit

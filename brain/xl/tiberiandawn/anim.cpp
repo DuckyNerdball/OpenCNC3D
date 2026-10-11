@@ -646,7 +646,7 @@ AnimClass::AnimClass(AnimType animnum, COORDINATE coord, unsigned char timedelay
     */
     if (*this == ANIM_LZ_SMOKE) {
         /*
-        **	OpenCNC 3D lockstep: the 2019 comment that stood here said "This should be OK as
+        **	OpenCNC3D lockstep: the 2019 comment that stood here said "This should be OK as
         **	it's not used in MP", and that assumption is what this gate replaces.
         **
         **	PlayerPtr is the house of whoever is sitting at THIS machine, and Sight_From
@@ -665,7 +665,7 @@ AnimClass::AnimClass(AnimType animnum, COORDINATE coord, unsigned char timedelay
         **	user map can, and the faithful answer for the day one does is to reveal for
         **	the TRIGGER'S OWN house, which is shared, rather than for this machine's.
         */
-        if (CNC3D_Lockstep) {
+        if (OpenCNC3D_Lockstep) {
             GlyphX_Debug_Print("AnimClass: drop-zone smoke reveals the map for PlayerPtr, the LOCAL "
                                "seat's house, which is not shared between peers. It reveals nothing "
                                "in a network match.");

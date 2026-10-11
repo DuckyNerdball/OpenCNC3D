@@ -13,14 +13,14 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in September 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
 // Both MixFileClass constructors now refuse a file whose header carries a
 // negative entry count or data size, or whose entry table cannot be read in
 // full. Such a file is left off the mixfile list, so lookups in it answer
 // "not found" instead of searching an unallocated or half-read table. A file
 // with a sound header is read exactly as before.
 // It does not change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -333,7 +333,7 @@ MixFileClass<T, TCRC>::MixFileClass(char const* filename)
     **	Load up the offset control array. If RAM is exhausted, then the mixfile is invalid.
     */
     /*
-    **	OpenCNC 3D: a header that cannot be believed is an archive that holds nothing. The
+    **	OpenCNC3D: a header that cannot be believed is an archive that holds nothing. The
     **	count is a signed 16-bit field, so a damaged file can carry a negative one, which
     **	is a negative allocation and then a search over a NULL table; a positive count on
     **	a file too short to hold its table leaves the table uninitialised and searched as
@@ -485,7 +485,7 @@ MixFileClass<T, TCRC>::MixFileClass(char const* filename, PKey const* key)
     **	Load up the offset control array. If RAM is exhausted, then the mixfile is invalid.
     */
     /*
-    **	OpenCNC 3D: a header that cannot be believed is an archive that holds nothing. The
+    **	OpenCNC3D: a header that cannot be believed is an archive that holds nothing. The
     **	count is a signed 16-bit field, so a damaged file can carry a negative one, which
     **	is a negative allocation and then a search over a NULL table; a positive count on
     **	a file too short to hold its table leaves the table uninitialised and searched as

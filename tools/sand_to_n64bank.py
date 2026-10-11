@@ -3,7 +3,7 @@
 template set.
 
 Same aliasing pattern as SNOW (see snow_to_n64bank.py): the TD brain has no sand
-theater, so SAND maps say Theater=DESERT to the engine and CNC3DTheater=SAND to
+theater, so SAND maps say Theater=DESERT to the engine and OpenCNC3DTheater=SAND to
 everything of ours. The bank's skeleton is TD's DESERT-flagged template set out of
 DESERT.MIX (.DES icon sets); the ART is Dune 2000's:
 

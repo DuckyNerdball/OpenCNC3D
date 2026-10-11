@@ -13,7 +13,7 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in September 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in September 2026. This is not EA's original file.
 // This copy is the large-map fork's, and it carries every change the fork
 // records in brain/xl/DIVERGENCE.md. This block records one of them: Init_Theater
 // no longer copies the theater palette from a NULL pointer when the theater
@@ -279,12 +279,12 @@ void DisplayClass::Init_Clear(void)
     MapClass::Init_Clear();
 
     /*
-    ** OpenCNC 3D: drop Build Anywhere with the scenario, for the reason ObjectClass::Init
+    ** OpenCNC3D: drop Build Anywhere with the scenario, for the reason ObjectClass::Init
     ** drops the invincibility mask -- Clear_Scenario() is on every path that begins a
     ** scenario, so a switch cleared here cannot follow the player out of a skirmish
     ** and into a campaign mission.
     */
-    CNC3D_BuildAnywhereHouses = 0;
+    OpenCNC3D_BuildAnywhereHouses = 0;
 
     /*
     ** Clear any object being placed
@@ -336,20 +336,20 @@ void DisplayClass::Init_IO(void)
 }
 
 /***********************************************************************************************
- * CNC3D_Report_Missing_Palette -- Says, once per lookup, that a theater palette was not found. *
+ * OpenCNC3D_Report_Missing_Palette -- Says, once per lookup, that a theater palette was not found. *
  *                                                                                             *
- *    OpenCNC 3D. The host runs this engine as a library and keeps its log; the engine's own       *
+ *    OpenCNC3D. The host runs this engine as a library and keeps its log; the engine's own       *
  *    debug print compiles to nothing in a release build, so the line goes out the way every   *
  *    other host-facing readout in this modified engine does, as a prefixed line on stdout.    *
  *                                                                                             *
  * INPUT:   palname  -- the palette entry that was asked for (TEMPERAT.PAL and its kin)        *
  *          root     -- the theater archive's root name (TEMPERAT, WINTER, DESERT)             *
  *=============================================================================================*/
-static void CNC3D_Report_Missing_Palette(char const* palname, char const* root)
+static void OpenCNC3D_Report_Missing_Palette(char const* palname, char const* root)
 {
     char msg[160];
     sprintf(msg,
-            "CNC3D|theater|%s is in no loaded archive: %s.MIX is missing, empty or damaged; "
+            "OPENCNC3D|theater|%s is in no loaded archive: %s.MIX is missing, empty or damaged; "
             "palette zeroed, mission continues",
             palname,
             root);
@@ -443,7 +443,7 @@ void DisplayClass::Init_Theater(TheaterType theater)
     sprintf(fullname, "%s.PAL", Theaters[theater].Root);
     void const* ptr = MFCD::Retrieve(fullname);
     /*
-    **	OpenCNC 3D: the palette entry is looked up in the theater archive, and when that
+    **	OpenCNC3D: the palette entry is looked up in the theater archive, and when that
     **	archive is missing, empty or damaged the lookup answers NULL. Copying from NULL
     **	is a fault inside mission start, so the palette is zeroed instead and the fault
     **	is reported through the host's log. Nothing below depends on the palette holding
@@ -453,7 +453,7 @@ void DisplayClass::Init_Theater(TheaterType theater)
     if (ptr != NULL) {
         Mem_Copy((void*)ptr, GamePalette, 768);
     } else {
-        CNC3D_Report_Missing_Palette(fullname, Theaters[theater].Root);
+        OpenCNC3D_Report_Missing_Palette(fullname, Theaters[theater].Root);
         memset(GamePalette, 0, 768);
     }
 
@@ -921,10 +921,10 @@ bool DisplayClass::Passes_Proximity_Check(ObjectTypeClass const* object)
  *   06/07/1994 JLB : Handles concrete check.                                                  *
  *   10/11/1994 BWG : Added IsProximate check for ore refineries                               *
  *=============================================================================================*/
-uint64_t DisplayClass::CNC3D_BuildAnywhereHouses = 0;
+uint64_t DisplayClass::OpenCNC3D_BuildAnywhereHouses = 0;
 
 /***********************************************************************************************
- * DisplayClass::CNC3D_Set_Build_Anywhere -- Lifts the base adjacency rule for one house.      *
+ * DisplayClass::OpenCNC3D_Set_Build_Anywhere -- Lifts the base adjacency rule for one house.      *
  *                                                                                             *
  *    Sets or clears one house's bit. While the bit is set, that house's buildings no longer   *
  *    have to touch its existing base. NOTHING ELSE is relaxed: the ground still has to be     *
@@ -935,24 +935,24 @@ uint64_t DisplayClass::CNC3D_BuildAnywhereHouses = 0;
  *                                                                                             *
  * OUTPUT:  none                                                                               *
  *=============================================================================================*/
-void DisplayClass::CNC3D_Set_Build_Anywhere(HousesType house, bool on)
+void DisplayClass::OpenCNC3D_Set_Build_Anywhere(HousesType house, bool on)
 {
     if (house == HOUSE_NONE || house >= HOUSE_COUNT) {
         return;
     }
     if (on) {
-        CNC3D_BuildAnywhereHouses |= (1ULL << house);
+        OpenCNC3D_BuildAnywhereHouses |= (1ULL << house);
     } else {
-        CNC3D_BuildAnywhereHouses &= ~(1ULL << house);
+        OpenCNC3D_BuildAnywhereHouses &= ~(1ULL << house);
     }
 }
 
-bool DisplayClass::CNC3D_Build_Anywhere(HousesType house)
+bool DisplayClass::OpenCNC3D_Build_Anywhere(HousesType house)
 {
-    if (CNC3D_BuildAnywhereHouses == 0 || house == HOUSE_NONE || house >= HOUSE_COUNT) {
+    if (OpenCNC3D_BuildAnywhereHouses == 0 || house == HOUSE_NONE || house >= HOUSE_COUNT) {
         return (false);
     }
-    return ((CNC3D_BuildAnywhereHouses & (1ULL << house)) != 0);
+    return ((OpenCNC3D_BuildAnywhereHouses & (1ULL << house)) != 0);
 }
 
 bool DisplayClass::Passes_Proximity_Check(ObjectTypeClass const* object,
@@ -970,7 +970,7 @@ bool DisplayClass::Passes_Proximity_Check(ObjectTypeClass const* object,
     }
 
     /*
-    ** OpenCNC 3D: the cheat menu's Build Anywhere.
+    ** OpenCNC3D: the cheat menu's Build Anywhere.
     **
     ** IT LIFTS THE ADJACENCY RULE ONLY. This routine is the whole of the "must touch
     ** your base" test and nothing else; whether the GROUND will take a foundation is
@@ -982,7 +982,7 @@ bool DisplayClass::Passes_Proximity_Check(ObjectTypeClass const* object,
     ** classic brain put it in that one's #else arm, which USE_RA_AI compiles out: it
     ** built clean, changed nothing, and only the measurement caught it.
     */
-    if (CNC3D_Build_Anywhere(house)) {
+    if (OpenCNC3D_Build_Anywhere(house)) {
         return (true);
     }
 
@@ -2970,7 +2970,7 @@ CELL DisplayClass::Calculated_Cell(SourceType dir, HousesType house)
             cell = Scen.Waypoint[WAYPT_REINF];
             if (cell < 1) {
                 /*
-                **	OpenCNC 3D lockstep: the original fallback read Coord_Cell(TacticalCoord), a
+                **	OpenCNC3D lockstep: the original fallback read Coord_Cell(TacticalCoord), a
                 **	DisplayClass view member, from inside the simulation. In this build that
                 **	expression is already peer invariant and always equals XY_Cell(MapCellX,
                 **	MapCellY): under REMASTER_BUILD, DisplayClass::Set_Tactical_Position
@@ -3040,7 +3040,7 @@ CELL DisplayClass::Calculated_Cell(SourceType dir, HousesType house)
         **	with WAYPT_REINF, which is shared state.
         */
         case SOURCE_VISIBLE:
-            if (CNC3D_Lockstep) {
+            if (OpenCNC3D_Lockstep) {
                 GlyphX_Debug_Print("Calculated_Cell: Edge=Visible (SOURCE_VISIBLE) is not supported in "
                                    "a network match and produced no reinforcement cell. It derives its "
                                    "cell from the local camera and the local viewport, which are not "

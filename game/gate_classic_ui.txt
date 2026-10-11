@@ -1,0 +1,23 @@
+# G321 leg 1 (game/gate_classic_ui.py reads what this writes): a skirmish player's
+# selection and the rubber band in Classic.
+#
+# The player of a skirmish is one of the Multi houses, and Classic's test for "selected by
+# me" knew only GoodGuy and BadGuy, so no bracket was ever drawn round a skirmish
+# player's units. The pointer is parked over the sidebar, where it is the plain arrow in
+# every frame, so the frames below differ only by what the leg is about.
+
+tick 4
+gfxmode 0
+lclickobj MCV:@me
+cursor 1200 700
+player
+shot shots/g321_sel.png
+deselect
+cursor 1200 700
+shot shots/g321_nosel.png
+band 200 200 900 700
+cursor 1200 700
+shot shots/g321_band.png
+bandoff
+shot shots/g321_noband.png
+quit

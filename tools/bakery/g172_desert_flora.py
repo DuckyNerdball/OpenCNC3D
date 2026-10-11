@@ -39,7 +39,7 @@ confusion the theater resolver below exists to prevent.
 THE THEATER IDENTITY, and why this gate does not compare a string to "DESERT".
 There are TWO theater words in this project and they legitimately disagree.
 missions/SCA01EA.INI says Theater=DESERT, which is what the Tiberian Dawn brain runs,
-and carries CNC3DTheater=SAND, which is what we repaint the ground with -- so its baked
+and carries OpenCNC3DTheater=SAND, which is what we repaint the ground with -- so its baked
 pack's theater field says SAND. A gate keyed on the string "DESERT" therefore misses a
 genuine desert mission, and the same hole swallows SNOW, our repaint of WINTER. So the
 identity used here is the ENGINE theater, read from the scenario's own INI Theater= key

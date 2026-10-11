@@ -4,7 +4,7 @@
 <dict>
     <key>CFBundleName</key>              <string>Editor</string>
     <key>CFBundleDisplayName</key>       <string>Editor</string>
-    <key>CFBundleIdentifier</key>        <string>com.slipgate.cnc3d.editor</string>
+    <key>CFBundleIdentifier</key>        <string>com.slipgate.opencnc3d.editor</string>
     <key>CFBundleVersion</key>           <string>1.0</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundlePackageType</key>       <string>APPL</string>

@@ -1,0 +1,477 @@
+{
+  "date": "2026-10-06",
+  "baseline_commit": "3d54660f0",
+  "hardware": "Apple M5 Max, 40 GPU cores, 64 GB RAM",
+  "resolution": [
+    2560,
+    1440
+  ],
+  "settings_sha256": "54914f69cbb1c0ddc9d341f4abf4442e4a4c20316f614695b3b3d8db2295ef5c",
+  "settings": "Enhanced current settings, no shroud, FPS overlay disabled for fixed-view images only",
+  "source_sha256": {
+    "game/cnc_eyes.cpp": "b3ff2203dbc116b75cb67194f2673c0caf66a59b32e4e684eff9aeeb3b3bdfa5",
+    "game/mesh_batch.h": "c4d582e80794bc4e699637f5dd873bc4aee51e74876bacf6215222b7fe7b0137",
+    "game/ebld_mod.h": "43aea3c4a8b434c9d6a38279f60dd5ed143af4e86d0b6f86ac3898850bc86c6a",
+    "game/gate_structs.py": "f3e8ad89074262ac3f9aa7c7b74ebd295760edb462b46b933e39a507b4c7c788",
+    "tools/perf/structure-compare.py": "0fd46cee33fcc1d37c6ab50db1119b400857955f72822397c4442b342aa90e39"
+  },
+  "views": [
+    [
+      50,
+      54,
+      3000
+    ],
+    [
+      52,
+      12,
+      4200
+    ],
+    [
+      32,
+      32,
+      4200
+    ],
+    [
+      2,
+      2,
+      1200
+    ],
+    [
+      60,
+      60,
+      1200
+    ],
+    [
+      50,
+      54,
+      1200
+    ],
+    [
+      50,
+      54,
+      4200
+    ]
+  ],
+  "fixed_baseline": [
+    {
+      "median_ms": 32.72,
+      "p90_ms": 34.84
+    },
+    {
+      "median_ms": 29.05,
+      "p90_ms": 31.49
+    },
+    {
+      "median_ms": 33.04,
+      "p90_ms": 35.67
+    },
+    {
+      "median_ms": 26.69,
+      "p90_ms": 29.09
+    },
+    {
+      "median_ms": 30.46,
+      "p90_ms": 32.59
+    },
+    {
+      "median_ms": 33.08,
+      "p90_ms": 35.87
+    },
+    {
+      "median_ms": 33.37,
+      "p90_ms": 35.41
+    }
+  ],
+  "fixed_optimized": [
+    {
+      "median_ms": 20.39,
+      "p90_ms": 22.41
+    },
+    {
+      "median_ms": 18.4,
+      "p90_ms": 19.71
+    },
+    {
+      "median_ms": 21.74,
+      "p90_ms": 22.42
+    },
+    {
+      "median_ms": 16.1,
+      "p90_ms": 17.41
+    },
+    {
+      "median_ms": 18.77,
+      "p90_ms": 20.32
+    },
+    {
+      "median_ms": 21.36,
+      "p90_ms": 22.34
+    },
+    {
+      "median_ms": 21.88,
+      "p90_ms": 23.13
+    }
+  ],
+  "damaged_baseline": [
+    {
+      "median_ms": 37.71,
+      "p90_ms": 40.72
+    },
+    {
+      "median_ms": 37.88,
+      "p90_ms": 42.7
+    }
+  ],
+  "damaged_optimized": [
+    {
+      "median_ms": 25.34,
+      "p90_ms": 27.42
+    },
+    {
+      "median_ms": 26.7,
+      "p90_ms": 29.16
+    }
+  ],
+  "pan_baseline": [
+    {
+      "median_ms": 32.485,
+      "p90_ms": 37.17,
+      "worst_ms": 609.21,
+      "over_50ms": 1
+    },
+    {
+      "median_ms": 32.865,
+      "p90_ms": 35.97,
+      "worst_ms": 39.74,
+      "over_50ms": 0
+    },
+    {
+      "median_ms": 33.475,
+      "p90_ms": 36.64,
+      "worst_ms": 41.21,
+      "over_50ms": 0
+    }
+  ],
+  "pan_optimized": [
+    {
+      "median_ms": 21.675,
+      "p90_ms": 23.58,
+      "worst_ms": 629.58,
+      "over_50ms": 1
+    },
+    {
+      "median_ms": 21.72,
+      "p90_ms": 23.89,
+      "worst_ms": 29.58,
+      "over_50ms": 0
+    },
+    {
+      "median_ms": 21.6,
+      "p90_ms": 23.56,
+      "worst_ms": 28.55,
+      "over_50ms": 0
+    }
+  ],
+  "live_baseline": [
+    {
+      "frames": 149,
+      "mean_ms": 33.67,
+      "worst_ms": 633.4
+    },
+    {
+      "frames": 168,
+      "mean_ms": 29.89,
+      "worst_ms": 40.9
+    },
+    {
+      "frames": 166,
+      "mean_ms": 30.15,
+      "worst_ms": 38.3
+    },
+    {
+      "frames": 168,
+      "mean_ms": 29.82,
+      "worst_ms": 36.9
+    }
+  ],
+  "live_optimized": [
+    {
+      "frames": 242,
+      "mean_ms": 20.68,
+      "worst_ms": 630.7
+    },
+    {
+      "frames": 276,
+      "mean_ms": 18.17,
+      "worst_ms": 25.9
+    },
+    {
+      "frames": 276,
+      "mean_ms": 18.16,
+      "worst_ms": 25.4
+    },
+    {
+      "frames": 274,
+      "mean_ms": 18.31,
+      "worst_ms": 25.8
+    }
+  ],
+  "pixel_comparison": {
+    "clear": {
+      "pixels": [
+        {
+          "view": 0,
+          "changed_pixels": 1,
+          "max_channel_delta": 1
+        },
+        {
+          "view": 1,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 2,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 3,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 4,
+          "changed_pixels": 3,
+          "max_channel_delta": 1
+        },
+        {
+          "view": 5,
+          "changed_pixels": 9,
+          "max_channel_delta": 1
+        },
+        {
+          "view": 6,
+          "changed_pixels": 1,
+          "max_channel_delta": 1
+        }
+      ],
+      "stats": {
+        "hits": "8807",
+        "uploads": "6403",
+        "culled": "10641",
+        "draws": "5571",
+        "class_skip": "7266",
+        "entries": "343",
+        "bytes": "35429400"
+      }
+    },
+    "fog": {
+      "pixels": [
+        {
+          "view": 0,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 1,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 2,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 3,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 4,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 5,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 6,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        }
+      ],
+      "stats": {
+        "hits": "0",
+        "uploads": "49515",
+        "culled": "13935",
+        "draws": "37722",
+        "class_skip": "29232",
+        "entries": "0",
+        "bytes": "0"
+      }
+    },
+    "normal-off": {
+      "pixels": [
+        {
+          "view": 0,
+          "changed_pixels": 8,
+          "max_channel_delta": 1
+        },
+        {
+          "view": 1,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 2,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 3,
+          "changed_pixels": 0,
+          "max_channel_delta": 0
+        },
+        {
+          "view": 4,
+          "changed_pixels": 1,
+          "max_channel_delta": 1
+        },
+        {
+          "view": 5,
+          "changed_pixels": 4,
+          "max_channel_delta": 1
+        },
+        {
+          "view": 6,
+          "changed_pixels": 5,
+          "max_channel_delta": 1
+        }
+      ],
+      "stats": {
+        "hits": "8868",
+        "uploads": "5784",
+        "culled": "10341",
+        "draws": "5292",
+        "class_skip": "0",
+        "entries": "231",
+        "bytes": "23704704"
+      }
+    },
+    "wave": [
+      {
+        "view": 0,
+        "changed_pixels": 1,
+        "max_channel_delta": 1
+      },
+      {
+        "view": 1,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 2,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 3,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 4,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 5,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 6,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      }
+    ],
+    "culling": [
+      {
+        "view": 0,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 1,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 2,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 3,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 4,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 5,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 6,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      }
+    ],
+    "original-path": [
+      {
+        "view": 0,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 1,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 2,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 3,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 4,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 5,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      },
+      {
+        "view": 6,
+        "changed_pixels": 0,
+        "max_channel_delta": 0
+      }
+    ]
+  },
+  "raw_evidence": "/private/tmp/opencnc3d-structure-perf"
+}

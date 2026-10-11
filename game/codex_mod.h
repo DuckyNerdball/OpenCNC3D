@@ -177,7 +177,10 @@ static int codex_mesh_for(const char* code)
 {
     std::map<std::string, PackType>::iterator it = g_pack.type.find(code);
     if (it == g_pack.type.end() || it->second.conf < 1) return -1;
-    return it->second.mesh;
+    /* Under Enhanced a building with an approved fixed model turns on this page as the
+       fixed model, the same one the map draws; the turntable is where the cartridge's
+       missing north sides show most. */
+    return n64fix_codex_mesh(it->second.mesh);
 }
 
 /* ------------------------------------------------------------------------ the layout */
@@ -981,7 +984,7 @@ static void codex_open(void)
        player back the sidebar they had rather than the one this decided they should
        have. The three plates are pinned to the window and stay. */
     g_cxSlideWas = g_h6SlideTarget;
-    g_h6SlideTarget = H6_BAR_W;
+    g_h6SlideTarget = eh_travel();
     g_cxDirty = true;
     codex_duck_to(CODEX_DUCK_TO, (double)SDL_GetTicks());
     printf("CODEX|open|house=%s|cat=%d|frame=%d\n",

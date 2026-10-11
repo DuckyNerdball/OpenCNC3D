@@ -144,10 +144,10 @@ cp package/build/three.core.min.js    public/vendor/
 cp package/examples/jsm/controls/OrbitControls.js public/vendor/
 ```
 
-## Putting it on cnc3dgame.com/maps
+## Putting it on opencnc3d.com/maps
 
 ```
-./install-into-site.sh /path/to/cnc3d-web
+./install-into-site.sh /path/to/opencnc3d-web
 ```
 
 copies `public/` into the site's `public/maps/` and prints the one `next.config.mjs`

@@ -2,7 +2,7 @@
 #
 # The renderer owns no group list. Every one of these lines goes through
 # CNC_Handle_ControlGroup_Request into Handle_Team (conquer.cpp:2987) and the answer is
-# read back out of CNC3D_Dump_Selection, so a green run here means the engine's own state
+# read back out of OpenCNC3D_Dump_Selection, so a green run here means the engine's own state
 # is what the number keys move, not a shadow copy that could drift from it.
 #
 # SCG90EA at max zoom on 54,51, because it has a Medium Tank and a Jeep of the player's

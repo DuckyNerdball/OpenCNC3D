@@ -13,14 +13,14 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 //
-// MODIFIED for OpenCNC 3D in August 2026. This is not EA's original file.
+// MODIFIED for OpenCNC3D in August 2026. This is not EA's original file.
 // Declares the new per-house invincibility members on ObjectClass (the
 // static bitmask, the setter and the const query) with a comment explaining
 // why the switch sits there rather than in the DLL layer, and widens the
 // virtual Get_Ownable return type from unsigned char to unsigned short so
 // the ownable mask can carry houses above bit 7.
 // It DOES change the game simulation.
-// The complete diff against upstream is brain/patches/vanilla-cnc3d.patch,
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
 
@@ -160,7 +160,7 @@ public:
     static void Init(void);
 
     /*
-    **	INVINCIBILITY (project OpenCNC 3D addition; not upstream).
+    **	INVINCIBILITY (project OpenCNC3D addition; not upstream).
     **
     **	WHY IT LIVES HERE. The exported debug interface already switches money
     **	(DEBUG_REQUEST_ADD_RESOURCES), instant build (DEBUG_REQUEST_END_PRODUCTION), the
@@ -184,9 +184,9 @@ public:
     **	It is cleared by Init(), which Clear_Scenario() calls, so it cannot survive into the
     **	next scenario. Default is OFF.
     */
-    static unsigned CNC3D_InvincibleHouses;
-    static void CNC3D_Set_Invincible(HousesType house, bool on);
-    bool CNC3D_Is_Invincible(void) const;
+    static unsigned OpenCNC3D_InvincibleHouses;
+    static void OpenCNC3D_Set_Invincible(HousesType house, bool on);
+    bool OpenCNC3D_Is_Invincible(void) const;
 
     /*
     **	Query functions.

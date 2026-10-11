@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the Windows half: cnc3d.exe, cnc_eyes.exe and the brain DLL beside them.
+# Build the Windows half: opencnc3d-game.exe, cnc_eyes.exe and the brain DLLs beside them.
 #
 #   tools/win/build-win.sh              -> build/win/
 #   tools/win/build-win.sh --no-brain   -> skip the brain (it changes rarely and is slow)
@@ -22,17 +22,17 @@ cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
 
 # THE BUILD NUMBER, regenerated before anything compiles. tools/version.sh reads the
-# VERSION file at the repo root and writes game/cnc3d_build.h; nothing else in the tree
+# VERSION file at the repo root and writes game/opencnc3d_build.h; nothing else in the tree
 # is allowed to carry a version string, so there is no second copy to forget to bump.
 # tools/release.sh has already written the header with the bare release number by
 # the time it calls this, and regenerating it here would stamp the binary
 # "+sha-dirty" for a build that is about to become the tag.
-if [ -z "$CNC3D_SKIP_VERSION_HEADER" ]; then
-    sh "$ROOT/tools/version.sh" --header "$ROOT/game/cnc3d_build.h"
+if [ -z "$OPENCNC3D_SKIP_VERSION_HEADER" ] || [ ! -f "$ROOT/game/opencnc3d_build.h" ]; then
+    sh "$ROOT/tools/version.sh" --header "$ROOT/game/opencnc3d_build.h"
 fi
 
-HOST=${CNC3D_WIN_HOST:-i686-w64-mingw32}
-SDK="${CNC3D_WINSDK:-$HOME/.cnc3d-winsdk}"
+HOST=${OPENCNC3D_WIN_HOST:-i686-w64-mingw32}
+SDK="${OPENCNC3D_WINSDK:-$HOME/.opencnc3d-winsdk}"
 OUT="$ROOT/build/win"
 DO_BRAIN=1
 [ "$1" = "--no-brain" ] && DO_BRAIN=0
@@ -67,7 +67,15 @@ LIBDIRS="-L$SDL2_ROOT/lib -L$SDK/lib/$HOST"
 CDEFS="-DGL_SILENCE_DEPRECATION"
 # A COOKED BUILD has no F5 panel (see app/build.sh). $CDEFS already reaches every object
 # below, so this one line is the whole of the Windows half.
-[ -n "$CNC3D_COOKED" ] && CDEFS="$CDEFS -DCNC3D_COOKED=1"
+[ -n "$OPENCNC3D_COOKED" ] && CDEFS="$CDEFS -DOPENCNC3D_COOKED=1"
+# NO BUILD MACHINE'S FOLDERS IN THE BINARIES. -g records the directory every object was
+# compiled in, and __FILE__ in the engine's log lines spells out the same path, so a
+# shipped .exe or .dll would otherwise carry the absolute path of whichever checkout and
+# SDK folder built it, user name included. Mapped to "." for the tree and "winsdk" for
+# the SDK, the debug information still names every source file, relative to the repo
+# root, and two checkouts of one commit compile the same paths into their binaries.
+PATHMAP="-ffile-prefix-map=$ROOT=. -ffile-prefix-map=$SDK=winsdk"
+CDEFS="$CDEFS $PATHMAP"
 
 echo "== C sources ($HOST)"
 # THE C DIALECT SPLIT IS THE MAC BUILD'S, NOT A NEW ONE.
@@ -120,20 +128,21 @@ echo "== renderer"
 # -fpermissive for the same reason the brain build needs it, and only for that reason:
 # these translation units include the Remaster's dllinterface.h, whose MS-style anonymous
 # unions GCC rejects and clang accepts. Nothing in our own code relies on it.
-# -DCNC3D_NO_MAIN compiles cnc_eyes.cpp as a library for cnc3d.exe, exactly as the Mac
+# -DOPENCNC3D_NO_MAIN compiles cnc_eyes.cpp as a library for opencnc3d-game.exe, exactly as the Mac
 # app build does. It is compiled twice because cnc_eyes.exe (what the gates drive) needs
-# the main() and cnc3d.exe must not have two.
-$CXX -std=c++14 -O2 -g -fms-extensions -fpermissive -DCNC3D_NO_MAIN \
-     $CDEFS $INC -I"$HDR" -c "$WIN_EYES_CPP" -o "$OBJ/cnc_eyes_lib.o"
+# the main() and opencnc3d-game.exe must not have two. Both take the build header, so
+# cnc_eyes.exe carries the same build mark the Mac renderer does.
+$CXX -std=c++14 -O2 -g -fms-extensions -fpermissive -DOPENCNC3D_NO_MAIN \
+     $CDEFS -include "$ROOT/game/opencnc3d_build.h" $INC -I"$HDR" -c "$WIN_EYES_CPP" -o "$OBJ/cnc_eyes_lib.o"
 $CXX -std=c++14 -O2 -g -fms-extensions -fpermissive \
-     $CDEFS $INC -I"$HDR" -c "$WIN_EYES_CPP" -o "$OBJ/cnc_eyes_main.o"
+     $CDEFS -include "$ROOT/game/opencnc3d_build.h" $INC -I"$HDR" -c "$WIN_EYES_CPP" -o "$OBJ/cnc_eyes_main.o"
 $CXX -std=c++14 -O2 -g -fms-extensions -fpermissive \
-     $CDEFS $INC -I"$HDR" -c "$WIN_APP_CPP" -o "$OBJ/cnc3d.o"
+     $CDEFS $INC -I"$HDR" -c "$WIN_APP_CPP" -o "$OBJ/opencnc3d.o"
 
 # -static-libgcc and -static-libstdc++ are NOT enough on their own: they leave
 # libwinpthread-1.dll as a runtime dependency, and a stock Windows 11 does not have it,
-# so the build would have died on the project owner's machine with a missing-DLL box and nothing else
-# to go on. The explicit -Bstatic -lwinpthread folds that one in too.
+# so the build would have died on a player's machine with a missing-DLL box and nothing
+# else to go on. The explicit -Bstatic -lwinpthread folds that one in too.
 #
 # A blanket -static was tried first and is wrong: it also drags in the static libSDL2.a,
 # which then wants every Windows multimedia import SDL normally resolves inside its own
@@ -158,48 +167,52 @@ $CXX -std=c++14 -O2 -g -fms-extensions -fpermissive \
 LIBS="-lmingw32 -lSDL2main -Wl,-Bdynamic -lSDL2 -Wl,-Bstatic -lopengl32 -lwininet -lz -lws2_32 -static"
 
 echo "== link"
-# THE ICON AND THE VERSION BLOCK, compiled into cnc3d.exe as resources. One executable per
-# platform, called C&C3D, with a game icon on it so it is obvious which file to run.
-# tools/launchers/make_icon.py writes cnc3d.ico beside the .icns from ONE source image, so
+# THE ICON AND THE VERSION BLOCK, compiled into opencnc3d-game.exe as resources, so the game
+# carries the same face and the same build number as the launcher in front of it.
+# tools/launchers/make_icon.py writes opencnc3d.ico beside the .icns from ONE source image, so
 # the Windows and macOS icons cannot drift apart.
 #
-# tools/win/cnc3d.rc is a TEMPLATE and is substituted here rather than compiled as it
+# tools/win/opencnc3d.rc is a TEMPLATE and is substituted here rather than compiled as it
 # stands. The version it carries comes from tools/version.sh, which reads the VERSION file
 # at the repo root, so Explorer's Properties tab and the menu plate cannot disagree and
 # there is still only one place the number is written down.
 #
-# Only cnc3d.exe gets any of this. cnc_eyes.exe is the verification binary the gate suite
-# drives on the Windows test machine, not something anybody double-clicks, and giving it the game's
-# face would undo the point of the exercise.
+# Of the binaries this script links, only opencnc3d-game.exe gets any of this (the launcher,
+# OpenCNC3D.exe, gets the same template from tools/win/build-launcher-win.sh). cnc_eyes.exe
+# is the verification binary the gate suite drives on Windows, not something anybody
+# double-clicks, and giving it the game's face would undo the point of the exercise.
 RCOBJ=""
-if [ -f "$ROOT/tools/win/cnc3d.rc" ] && [ -f "$ROOT/tools/launchers/cnc3d.ico" ]; then
-    cp "$ROOT/tools/launchers/cnc3d.ico" "$OBJ/cnc3d.ico"
+if [ -f "$ROOT/tools/win/opencnc3d.rc" ] && [ -f "$ROOT/tools/launchers/opencnc3d.ico" ]; then
+    cp "$ROOT/tools/launchers/opencnc3d.ico" "$OBJ/opencnc3d.ico"
     VER_COMMA=$(sh "$ROOT/tools/version.sh" --rcversion)
     VER_STRING=$(cat "$ROOT/VERSION" | tr -d '[:space:]')
     sed -e "s/@VER_COMMA@/$VER_COMMA/g" -e "s/@VER_STRING@/$VER_STRING/g" \
-        "$ROOT/tools/win/cnc3d.rc" > "$OBJ/cnc3d.rc"
+        -e "s/@EXE_NAME@/opencnc3d-game.exe/g" \
+        "$ROOT/tools/win/opencnc3d.rc" > "$OBJ/opencnc3d.rc"
     # An unsubstituted placeholder would reach windres and be reported as a syntax error
     # on a line number in a generated file, which is a long way from the cause. Say it here
     # instead. This is also the test that fails loudly if the template gains a placeholder
-    # the substitution above does not know about.
-    if grep -q '@VER_' "$OBJ/cnc3d.rc"; then
-        echo "ERROR: tools/win/cnc3d.rc has a placeholder build-win.sh does not substitute:" >&2
-        grep -n '@VER_' "$OBJ/cnc3d.rc" >&2
+    # the substitution above does not know about: any @NAME@ left over, not only the ones
+    # known today. The template's own comment mentions "@VER placeholders", which this
+    # pattern does not match, because a placeholder is closed by a second @.
+    if grep -qE '@[A-Z][A-Z_]*@' "$OBJ/opencnc3d.rc"; then
+        echo "ERROR: tools/win/opencnc3d.rc has a placeholder build-win.sh does not substitute:" >&2
+        grep -nE '@[A-Z][A-Z_]*@' "$OBJ/opencnc3d.rc" >&2
         exit 1
     fi
     # windres errors used to go to /dev/null, so a resource script that stopped compiling
     # reported itself as one warning line about a missing icon and the real message was
     # destroyed. The version block makes that worse, because a silent failure now costs the
     # version as well as the face. The output is kept and shown.
-    if $HOST-windres "$OBJ/cnc3d.rc" -O coff -o "$OBJ/cnc3d_res.o" 2>"$OBJ/windres.err"; then
-        RCOBJ="$OBJ/cnc3d_res.o"
-        echo "== resources: icon + version $VER_STRING compiled into cnc3d.exe"
+    if $HOST-windres "$OBJ/opencnc3d.rc" -O coff -o "$OBJ/opencnc3d_res.o" 2>"$OBJ/windres.err"; then
+        RCOBJ="$OBJ/opencnc3d_res.o"
+        echo "== resources: icon + version $VER_STRING compiled into opencnc3d-game.exe"
     else
-        echo "WARNING: windres failed; cnc3d.exe will ship without its icon and version" >&2
+        echo "WARNING: windres failed; opencnc3d-game.exe will ship without its icon and version" >&2
         sed 's/^/  windres: /' "$OBJ/windres.err" >&2
     fi
 else
-    echo "WARNING: no cnc3d.ico (run tools/launchers/make_icon.py); shipping without an icon" >&2
+    echo "WARNING: no opencnc3d.ico (run tools/launchers/make_icon.py); shipping without an icon" >&2
 fi
 
 # THE UTF-8 MANIFEST, on both executables. The per-user directory SDL_GetPrefPath answers
@@ -211,7 +224,7 @@ fi
 # It makes the process code page UTF-8 on Windows 10 version 1903 and later, and earlier
 # Windows ignores the element. Resource 1 of type 24 (RT_MANIFEST) is the one Windows
 # reads when it starts a process. Compiled into its own object rather than folded into
-# cnc3d.rc, because cnc_eyes.exe carries no icon and no version block and needs this.
+# opencnc3d.rc, because cnc_eyes.exe carries no icon and no version block and needs this.
 cat > "$OBJ/game.manifest" <<'XML'
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
@@ -226,7 +239,7 @@ printf '1 24 "game.manifest"\n' > "$OBJ/game_manifest.rc"
 MANOBJ=""
 if ( cd "$OBJ" && $HOST-windres game_manifest.rc -O coff -o game_manifest.o 2>"$OBJ/manifest.err" ); then
     MANOBJ="$OBJ/game_manifest.o"
-    echo "== manifest: UTF-8 code page declared for cnc3d.exe and cnc_eyes.exe"
+    echo "== manifest: UTF-8 code page declared for opencnc3d-game.exe and cnc_eyes.exe"
 else
     echo "WARNING: windres could not compile the manifest; both executables will ship without the UTF-8 code page" >&2
     sed 's/^/  windres: /' "$OBJ/manifest.err" >&2
@@ -239,7 +252,7 @@ fi
 # nothing in it assumes the top bit is clear. With the flag a 64-bit Windows gives the
 # process 4 GB. Read back with objdump -p: the Characteristics word carries 0x20.
 $CXX -Wl,--large-address-aware -o "$OUT/cnc_eyes.exe" "$OBJ/cnc_eyes_main.o" $MANOBJ $COBJ $LIBDIRS $LIBS
-$CXX -Wl,--large-address-aware -o "$OUT/cnc3d.exe"    "$OBJ/cnc3d.o" "$OBJ/cnc_eyes_lib.o" $RCOBJ $MANOBJ $COBJ $LIBDIRS $LIBS
+$CXX -Wl,--large-address-aware -o "$OUT/opencnc3d-game.exe"    "$OBJ/opencnc3d.o" "$OBJ/cnc_eyes_lib.o" $RCOBJ $MANOBJ $COBJ $LIBDIRS $LIBS
 
 cp "$SDL2_ROOT/bin/SDL2.dll" "$OUT/"
 
@@ -264,7 +277,7 @@ cp "$SDL2_ROOT/bin/SDL2.dll" "$OUT/"
 # and kept linking on the Mac. A new net source that netcheck calls needs adding HERE as
 # well as to sources.sh.
 echo "== netcheck.exe"
-$CC -std=gnu89 -O2 -g -Wall -Wl,--stack,16777216 -o "$OUT/netcheck.exe" \
+$CC -std=gnu89 -O2 -g -Wall $PATHMAP -Wl,--stack,16777216 -o "$OUT/netcheck.exe" \
     "$ROOT/net/netcheck.c" "$ROOT/net/lockstep.c" "$ROOT/net/net_udp.c" \
     "$ROOT/net/roomcode.c" -lws2_32
 
@@ -282,7 +295,7 @@ $CC -std=gnu99 -O2 -g -Wall -I"$ROOT/brain/host" -o "$OUT/cncbrain.exe" "$ROOT/b
 $CC -std=gnu99 -O2 -g -Wall -I"$ROOT/brain/host" -o "$OUT/cnc_twobrain.exe" "$ROOT/brain/host/cnc_twobrain.c"
 
 if [ $DO_BRAIN -eq 1 ]; then
-    echo "== brain (TiberianDawn.dll)"
+    echo "== brains (TiberianDawn.dll + RedAlert.dll)"
     # -fpermissive: GCC rejects the Remaster header's MS-style anonymous unions with
     # named struct types, and one extra qualification on a constructor. Both are ISO
     # conformance complaints about name lookup with no effect on generated code, and
@@ -290,14 +303,25 @@ if [ $DO_BRAIN -eq 1 ]; then
     # WOULD have mattered, the pointer-to-unsigned-int truncation, does not arise at all
     # at 32 bits, which is why this is a safe flag here and would not have been at 64.
     tc="$ROOT/brain/vanilla/cmake/$(echo $HOST | cut -d- -f1)-mingw-w64-toolchain.cmake"
+    # A cache remembers the cmake and the mingw tools that configured it by absolute path.
+    # After the build machine's toolchain moves (an Intel Homebrew in /usr/local replaced
+    # by a native one in /opt/homebrew) the cache names programs that no longer run, and
+    # every configure fails in the silent subshell below. It holds nothing that is not
+    # rebuilt from source, so a cache from another cmake is thrown away.
+    if [ -f brain/vanilla/build-win/CMakeCache.txt ] && \
+       [ "$(sed -n 's/^CMAKE_COMMAND:INTERNAL=//p' brain/vanilla/build-win/CMakeCache.txt)" != "$(command -v cmake)" ]; then
+        echo "   brain/vanilla/build-win was configured by another cmake: configuring it fresh"
+        rm -rf brain/vanilla/build-win
+    fi
     mkdir -p brain/vanilla/build-win
     (cd brain/vanilla/build-win && \
      cmake .. -DCMAKE_TOOLCHAIN_FILE="$tc" \
-              -DCMAKE_CXX_FLAGS="-fms-extensions -fpermissive -flifetime-dse=1" \
+              -DCMAKE_CXX_FLAGS="-fms-extensions -fpermissive -flifetime-dse=1 $PATHMAP" \
+              -DCMAKE_C_FLAGS="$PATHMAP" \
               -DCMAKE_SHARED_LINKER_FLAGS="-static" \
               -DBUILD_REMASTERTD=ON -DBUILD_VANILLATD=OFF -DBUILD_VANILLARA=OFF \
-              -DBUILD_REMASTERRA=OFF -DSDL2=OFF -DOPENAL=OFF -DNETWORKING=OFF >/dev/null && \
-     cmake --build . --target TiberianDawn -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" >/dev/null) \
+              -DBUILD_REMASTERRA=ON -DSDL2=OFF -DOPENAL=OFF -DNETWORKING=OFF >/dev/null && \
+     cmake --build . --target TiberianDawn RedAlert -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" >/dev/null) \
         || { echo "ERROR: the Windows brain did not build. Re-run with the cmake output" >&2
              echo "       visible, or delete brain/vanilla/build-win and try again: a cache" >&2
              echo "       generated under a different path refuses every later configure." >&2
@@ -313,7 +337,22 @@ if [ $DO_BRAIN -eq 1 ]; then
     # result is a Windows package carrying a renderer from this commit and a brain from
     # some earlier one, which is the precise failure the both-platforms rule exists to
     # prevent, reported as success.
-    cp brain/vanilla/build-win/TiberianDawn.dll "$OUT/"
+    for brain in TiberianDawn.dll RedAlert.dll; do
+        [ -f "brain/vanilla/build-win/$brain" ] \
+            || { echo "ERROR: cmake reported success but $brain was not produced" >&2; exit 1; }
+        cp "brain/vanilla/build-win/$brain" "$OUT/"
+    done
+fi
+
+# The RA bootstrap probe is a build/test tool, not a shipped game binary. Keep it in the
+# cross-build output so CI can execute it under its Windows runtime and compare its report
+# with macOS, while tools/win/make-build-win.sh continues to package only named products.
+# C11 is required for the ABI static assertions, warnings are errors because a bad mirror
+# invalidates the gate, and a static link keeps the native runner independent of MinGW DLLs.
+if [ -f "$ROOT/brain/host/ra_bootstrap.c" ]; then
+    echo "== ra_bootstrap.exe"
+    $CC -std=c11 -O2 -g -Wall -Wextra -Werror -static -I"$ROOT/brain/host" \
+        -o "$OUT/ra_bootstrap.exe" "$ROOT/brain/host/ra_bootstrap.c"
 fi
 
 echo

@@ -1,4 +1,4 @@
-"""C&C3D sidebar, drawn natively for 640x480 (Tier 1 floor: Win98 / Voodoo 2, 16-bit).
+"""OpenCNC3D sidebar, drawn natively for 640x480 (Tier 1 floor: Win98 / Voodoo 2, 16-bit).
 
 Not an upscale of the DOS bar. The pixel budget goes from 16,000 to 76,800 and the
 pixels are finally square, so curves are curves and bevels get modelled properly

@@ -74,11 +74,13 @@ extern "C" {
 #define DB_WIN_H 95  /* MaxVisible*OBJECT_HEIGHT, then -1           :200,204 */
 
 /* sidebar.h SideBarGeneralEnums:211-236 */
-#define DB_MAX_BUILDABLES 30
+/* Red Alert sidebar.h permits 75; TD uses fewer but shares this state container. */
+#define DB_MAX_BUILDABLES 75
 #define DB_OBJECT_WIDTH 32
 #define DB_OBJECT_HEIGHT 24
 #define DB_STRIP_WIDTH 35
 #define DB_MAX_VISIBLE 4
+#define DB_RA95_MAX_EXTRA_ROWS 32
 #define DB_BUTTON_WIDTH 16   /* mini scroll button              sidebar.h:226 */
 #define DB_SBUTTON_HEIGHT 12 /* mini scroll button              sidebar.h:227 */
 #define DB_UP_X_OFFSET 2     /* sidebar.h:222 (== sidebar.cpp:1248 X+spacing+1) */
@@ -292,6 +294,11 @@ int db_state_add(DB_State *st, int column, const char *cameo);
 
 /* Draws the whole 240..319 sidebar column into `s`. `s` must be 320x200. */
 void db_draw_sidebar(DB_Surface *s, const DB_Pack *p, const DB_State *st);
+/* The 1996 Red Alert 320x200 Classic sidebar, using its own LORES.MIX shapes. */
+void db_draw_ra_sidebar(DB_Surface *s, const DB_Pack *p, const DB_State *st);
+void db_draw_ra_sidebar_win95(DB_Surface *s, const DB_Pack *p,
+                              const DB_State *st, int credits, int extra_rows,
+                              int padding);
 
 /* One conversion at the end. `rgba` must hold w*h*4 bytes. Index 0 -> opaque black
  * (the DOS screen has no alpha); pass want_alpha to get index 0 as transparent. */

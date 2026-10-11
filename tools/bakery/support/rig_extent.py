@@ -8,7 +8,7 @@ import os
 import struct
 import sys
 
-_ROOT = os.environ.get("CNC3D_ROOT") or os.path.abspath(
+_ROOT = os.environ.get("OPENCNC3D_ROOT") or os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
 sys.path.insert(0, os.path.join(_ROOT, "tools", "bakery"))
 import packinspect as PI

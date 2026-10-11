@@ -156,7 +156,7 @@ except where noted):
   objects are meaningless by the dump's own documentation).
 - The remaster's vestigial 8-bit render page (externs.h GBUFF_INIT 3072x3072,
   the collapsed MEGAMAPS value) deliberately does NOT scale with the stride:
-  1024 cells x 24px would be a 576MB page for output OpenCNC 3D never reads. A
+  1024 cells x 24px would be a 576MB page for output OpenCNC3D never reads. A
   tactical view confined to the page's 128-cell reach is the accepted cost;
   revisit only if some later phase starts consuming the brain's own pixels.
 - INTEGER LAW notes: negative >> and negative %/ division rely on arithmetic
@@ -173,7 +173,7 @@ except where noted):
 
   `defines.h` HOUSEF_* now shift `1ULL`; `cell.h`
   IsMappedByPlayerMask/IsVisibleByPlayerMask, `house.h` Allies and its
-  Get_Allies accessor, `object.h` IsSelectedMask and CNC3D_InvincibleHouses,
+  Get_Allies accessor, `object.h` IsSelectedMask and OpenCNC3D_InvincibleHouses,
   and `type.h` Ownable all become `uint64_t`. The `Get_Ownable` virtual widens
   with them, which is why `object.h`, `techno.h`, `type.h`, `abstract.cpp`,
   `object.cpp` and `techno.cpp` all appear: the compiler refuses a mismatched
@@ -203,12 +203,12 @@ except where noted):
   are exactly the ones a compiler cannot see. They need a brain that can boot a
   scenario as the oracle.
 
-- PORTED 27 Aug 2026: the four `CNC3D_*` exports the classic brain gained
-  after the fork point and XL lacked -- `CNC3D_Set_Build_Anywhere`,
-  `CNC3D_Get_Build_Anywhere`, `CNC3D_Proximity_Ok` and
-  `CNC3D_Force_Verdict` (the v0.6.3 cheat menu). With them the symbol
+- PORTED 27 Aug 2026: the four `OpenCNC3D_*` exports the classic brain gained
+  after the fork point and XL lacked -- `OpenCNC3D_Set_Build_Anywhere`,
+  `OpenCNC3D_Get_Build_Anywhere`, `OpenCNC3D_Proximity_Ok` and
+  `OpenCNC3D_Force_Verdict` (the v0.6.3 cheat menu). With them the symbol
   surfaces differ by exactly one name in one direction: XL exports
-  `CNC3D_ABI_Facts` and the classic brain does not. Gate XLb asserts that
+  `OpenCNC3D_ABI_Facts` and the classic brain does not. Gate XLb asserts that
   and nothing looser, so the host can call every other export
   unconditionally on either brain.
 
@@ -216,7 +216,7 @@ except where noted):
   adjacency rule (DisplayClass, DLLExportClass and BuildingClass), because
   hooking only the cursor routines gives a green cursor and a click that is
   silently refused -- which is what the classic brain shipped for an hour
- . `DisplayClass::CNC3D_BuildAnywhereHouses` is uint64_t
+ . `DisplayClass::OpenCNC3D_BuildAnywhereHouses` is uint64_t
   here where the classic brain has unsigned: the 64-house phase widens
   every house mask, and this one would otherwise be found by a player at
   slot 32 rather than by a compiler.
@@ -229,7 +229,7 @@ except where noted):
   soldier leaves through the door before it turns for the rally instead of
   walking out through the side of the hut. The cargo plane's drop in
   `AircraftClass::Mission_Unload` sends a delivered vehicle (never a harvester)
-  to the airstrip's rally. `CNC3D_Can_Rally` refuses `STRUCT_HELIPAD`, whose
+  to the airstrip's rally. `OpenCNC3D_Can_Rally` refuses `STRUCT_HELIPAD`, whose
   craft never leave it. The three sites are the same code in both trees
   (the XL `Exit_Object` differs one line above, in how it takes the door
   direction, and is otherwise unchanged); gate G249 measures the classic brain
@@ -253,12 +253,12 @@ except where noted):
   the dynamic-map cell fields keep their classic widths, and the house
   arrays keep MAX_HOUSES 32 (houses are Phase 3). Confined 64-wide content
   fits every classic field.
-- NEW EXPORT `CNC3D_ABI_Facts(struct CNC3DAbiFactsStruct*)`
+- NEW EXPORT `OpenCNC3D_ABI_Facts(struct OpenCNC3DAbiFactsStruct*)`
   (dllinterface.h/.cpp): {AbiVersion, MapStride=1024, MaxExportCells,
   MaxHouses, MaxPlayers, sizeof(CNCMapDataStruct), sizeof(CNCPlayerInfoStruct),
   sizeof(CNCShroudEntryStruct)} so the host's vtable phase can assert at
   dlopen and refuse a mismatched dylib loudly.
-- The OBJ| dump's `inicell` field (CNC3D_Print_One) still emits the
+- The OBJ| dump's `inicell` field (OpenCNC3D_Print_One) still emits the
   forkpoint's `cy * 64 + cx` convention. That formula is in flight on the
   classic side, and the parity comparator treats inicell as stride-derived
   either way, so it is dropped from the comparison rather than normalized.
@@ -394,7 +394,7 @@ theater archive is missing, zero length or damaged the lookup answers NULL and t
 copy is a NULL dereference inside `CNC_Start_Custom_Instance`, the crash any play
 folder assembled without its content/ archives met at every mission start. Both
 copies now zero the palette instead, and the first prints one
-`CNC3D|theater|` line for the host's log. With the archive present nothing changes.
+`OPENCNC3D|theater|` line for the host's log. With the archive present nothing changes.
 
 **This is NOT a divergence from the unforked engine.** It was fixed there first and
 ported here by hand, the same two guards and the same reporter, because `tiberiandawn/`

@@ -1,4 +1,4 @@
-# Building OpenCNC 3D
+# Building OpenCNC3D
 
 This repository is source. It contains no game data, so a fresh clone will compile but
 will not run until you supply two things you already own.
@@ -18,20 +18,28 @@ offset in `docs/re-findings.md` is quoted against it. A US dump will not line up
 
 ## 2. Prerequisites
 
-**macOS** — Xcode command line tools, SDL2, and Python 3 for the asset tools:
+**macOS**: Xcode command line tools, cmake and ninja, and Python 3 for the asset tools.
+The Mac build is universal (Apple Silicon and Intel in one package, built on either), so
+it links an SDL built for both rather than Homebrew's, which carries only the build
+machine's CPU:
 
 ```
 xcode-select --install
-brew install sdl2
+brew install cmake ninja
+tools/mac/setup-sdl-mac.sh            # once: universal SDL3 + sdl2-compat, into ~/.opencnc3d-macsdk
 ```
 
-**Windows** — the shipped binary is 32-bit, built with mingw-w64 i686. The 32-bit choice
+The build scripts find that SDL by themselves. `OPENCNC3D_MAC_ARCHS=arm64` (or `x86_64`)
+makes a quicker one-CPU development build; the play folder check then says it is not
+universal, so it cannot be shipped by mistake.
+
+**Windows**: the shipped binary is 32-bit, built with mingw-w64 i686. The 32-bit choice
 is deliberate: the Remaster DLL casts a pointer through `unsigned int`, which is lossless
 at 32 bits and truncates at 64. The scripts below drive that toolchain from a Unix shell,
 which is also how CI builds it.
 
 ```
-tools/win/setup-toolchain.sh          # once: fetches the two SDKs mingw-w64 lacks, into ~/.cnc3d-winsdk
+tools/win/setup-toolchain.sh          # once: fetches the two SDKs mingw-w64 lacks, into ~/.opencnc3d-winsdk
 ```
 
 **Both** need Python 3 with `pillow` and `numpy` for the extraction and baking tools.
@@ -59,7 +67,7 @@ turns the result into the packs the renderer loads. **One step of that chain is 
 from this snapshot:** the PK4 pack baker is compiled bytecode whose source was lost and
 is not published, so `tools/bakery/bake5.py` stops at its first import. See
 `tools/bakery/README.md` for exactly what still runs and what does not. The `game/bake_*.py` scripts each own
-one slice — sidebar, infantry, tiberium, campaign, effects, verdict screens.
+one slice: sidebar, infantry, tiberium, campaign, effects, verdict screens.
 
 These are the least documented part of the project and they were built to be run by
 someone who already knew the pipeline. Start from `docs/re-findings.md` for the formats
@@ -69,21 +77,30 @@ produces.
 Two environment variables are honoured throughout:
 
 ```
-CNC3D_ROOT      the repository root, when a tool is run from outside the tree
-CNC3D_ROM       the cartridge, when it is not at data/rom/cnc_eu.z64
+OPENCNC3D_ROOT      the repository root, when a tool is run from outside the tree
+OPENCNC3D_ROM       the cartridge, when it is not at data/rom/cnc_eu.z64
 ```
 
 ## 5. The build
 
 ```
 game/make-build.sh                    # macOS: renderer + app, into a playable folder
-tools/win/make-build-win.sh           # Windows: a zip containing everything
+tools/win/make-build-win.sh           # Windows: a zip of the game, without the movies and music
 tools/win/build-win.sh --no-brain     # skip the DLL, which changes rarely
 ```
 
 `game/make-build.sh` takes the destination as its first argument and reads the baked data
-from `CNC3D_DATA`. The Windows zip expands to `CNC3D-windows-<commit>/`, contains
-`PLAY.bat`, and needs nothing installed on the target machine.
+from `OPENCNC3D_DATA`. The Windows zip expands to `OpenCNC3D-windows-<commit>/`, whose one
+file to run is `OpenCNC3D.exe`, the launcher, and needs nothing installed on the target
+machine.
+
+The play folder `game/make-build.sh` makes keeps the 1995 movies and music, because the
+gates that play a movie or measure the score run in it. The packages do not carry them:
+`tools/mac/make-package-mac.sh` and the Windows packager leave out every path in
+`tools/media/media-paths.txt`. A player gets them through the Windows installer or the
+launcher's Setup screen, downloaded from disc images on archive.org: the movies from the
+1995 Gold discs (EA's 2007 freeware release), the music from the Covert Operations disc
+image. The game plays without them.
 
 The SDL libraries are copied into the macOS build by `tools/bundle-sdl.sh`, which is
 called with no file list on purpose so it scans the whole output folder. Skipping that
@@ -91,7 +108,7 @@ step produces a build that runs only on the machine that made it.
 
 ## 6. Two render tiers
 
-Tier 2 is the modern desktop build — Windows and macOS — and may use shaders. Tier 1 is
+Tier 2 is the modern desktop build, Windows and macOS, and may use shaders. Tier 1 is
 the constrained one kept reachable as a stretch goal: Windows 98 on a 3dfx Voodoo 2
 through Glide, fixed function, no shaders, no render targets, 640x480, 16-bit colour.
 
@@ -104,9 +121,11 @@ is off unless asked for, so the default build draws the same picture on both tie
 
 ## 7. If it does not run
 
-- **"Could not find the game"** — the executable resolves its own data directory relative
+- **"Could not find the game"**: the executable resolves its own data directory relative
   to itself. It is looking for the baked packs, not the source tree.
-- **Missing movies** — the campaign names 72 `.VQA` files and they are split across both
-  1995 discs. See `data/dosdata/README.md`.
-- **A tool cannot find the ROM** — set `CNC3D_ROM`. Nothing hardcodes a path any more, and
+- **Missing movies or music**: no package carries them. Tick them in Setup, or in the
+  launcher's Settings (the gear button), and the launcher downloads them. In a development
+  tree, the campaign names 72 `.VQA` files and they are split across both 1995 discs; see
+  `data/dosdata/README.md`.
+- **A tool cannot find the ROM**: set `OPENCNC3D_ROM`. Nothing hardcodes a path any more, and
   anything that appears to is a bug worth reporting.

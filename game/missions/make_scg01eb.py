@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- SCG01EB, "GDI mission 1, but the player can build".
+OpenCNC3D -- SCG01EB, "GDI mission 1, but the player can build".
 
 WHY THIS EXISTS
   The sidebar work needs a mission where the player actually has a factory. Neither

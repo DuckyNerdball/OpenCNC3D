@@ -61,8 +61,8 @@
  *  from his own radar blip and his own tank. So the green uniform is recognised here and
  *  rewritten to the SAME LIVERY_BAND the DOS art uses, and all three art sets agree.
  * ==================================================================================== */
-#ifndef CNC3D_REMASTER_INF_H
-#define CNC3D_REMASTER_INF_H
+#ifndef OPENCNC3D_REMASTER_INF_H
+#define OPENCNC3D_REMASTER_INF_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -638,4 +638,4 @@ done:
     return ok;
 }
 
-#endif /* CNC3D_REMASTER_INF_H */
+#endif /* OPENCNC3D_REMASTER_INF_H */

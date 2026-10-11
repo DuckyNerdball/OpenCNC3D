@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build the macOS launcher.
 #
-#   ./build.sh                  -> ./cnc3d-launcher
+#   ./build.sh                  -> ./opencnc3d-launcher
 #   ./build.sh --shot out.png   -> build, then render one frame to a PNG
 #
 # The Windows half is tools/win/build-launcher-win.sh and reads the SAME source
@@ -14,15 +14,16 @@ cd "$(dirname "$0")"
 
 # THE OLDEST macOS THESE BINARIES RUN ON, sourced the way every other build script here
 # sources it. It was missing, and the failure was silent in the worst way: the
-# cnc3d-launch line below expands "$CNC3D_MACOS_MIN" into an empty string, clang refuses
+# opencnc3d-launch line below expands "$OPENCNC3D_MACOS_MIN" into an empty string, clang refuses
 # "missing version number in -mmacosx-version-min=", the `&& echo` swallows the failure
 # because a failing left side of && is not an error under set -e, and build.sh prints
-# "built ./cnc3d-launcher" and exits 0 having produced NO app-bundle executable at all.
-# Anyone running this script on its own got a stale cnc3d-launch or none.
+# "built ./opencnc3d-launcher" and exits 0 having produced NO app-bundle executable at all.
+# Anyone running this script on its own got a stale opencnc3d-launch or none.
 #
-# It also means cnc3d-launcher itself was stamped with the build machine's SDK floor --
+# It also means opencnc3d-launcher itself was stamped with the build machine's SDK floor --
 # minos 26.0 on the shipped v0.6.7 -- rather than the project's 14.0.
 . ../tools/mac/deployment-target.sh
+[ "$(uname -s)" = "Darwin" ] && opencnc3d_need_mac_sdl
 
 # The update host, stamped in. Always run: it writes lcfg.h whether or not a key
 # file exists, so a fresh clone compiles without one.
@@ -37,10 +38,10 @@ CFLAGS="-O2 -Wall -Wextra -std=gnu89 -I. -I../game -I../menu -I../video -DGL_SIL
 
 # -lcurl: libcurl ships in the macOS SDK, so this adds nothing for the player to
 # install. -lz: the zip extractor inflates with it, and the game already links it.
-cc $CFLAGS -mmacosx-version-min="$CNC3D_MACOS_MIN" -o cnc3d-launcher $LAUNCHER_SOURCES \
+cc $OPENCNC3D_ARCH $CFLAGS -mmacosx-version-min="$OPENCNC3D_MACOS_MIN" -o opencnc3d-launcher $LAUNCHER_SOURCES \
     $(sdl2-config --cflags --libs) -lcurl -lz -framework OpenGL
 
-echo "built ./cnc3d-launcher"
+echo "built ./opencnc3d-launcher"
 
 # AND IT CARRIES ITS OWN SDL, exactly as game/build.sh and app/build.sh do for the two
 # game halves. The linker records Homebrew's ABSOLUTE path, so a launcher built here and
@@ -53,7 +54,7 @@ echo "built ./cnc3d-launcher"
 # binaries have been self-contained since the bundling work; the launcher was the one
 # Mach-O left out of it, and one line is cheaper than remembering.
 if [ "$(uname -s)" = "Darwin" ]; then
-    sh ../tools/bundle-sdl.sh . cnc3d-launcher
+    sh ../tools/bundle-sdl.sh . opencnc3d-launcher
 fi
 
 # THE APP BUNDLE'S OWN EXECUTABLE, on macOS. It was a bash script,
@@ -67,13 +68,13 @@ fi
 # a corrupt download (-10825). Apple Silicon runs the game itself under Rosetta, but the
 # app's own executable is what the system loads first, so it carries both slices.
 if [ "$(uname -s)" = "Darwin" ]; then
-    cc -arch x86_64 -arch arm64 -mmacosx-version-min="$CNC3D_MACOS_MIN" -O2 -Wall \
-       -o cnc3d-launch mac_launch.c
-    echo "built ./cnc3d-launch (the .app executable)"
+    cc -arch x86_64 -arch arm64 -mmacosx-version-min="$OPENCNC3D_MACOS_MIN" -O2 -Wall \
+       -o opencnc3d-launch mac_launch.c
+    echo "built ./opencnc3d-launch (the .app executable)"
 fi
 
 if [ "$1" = "--shot" ]; then
     shift
     OUT="${1:-launcher.png}"
-    ./cnc3d-launcher --dir ../playable --shot "$OUT" --scale 3
+    ./opencnc3d-launcher --dir ../playable --shot "$OUT" --scale 3
 fi

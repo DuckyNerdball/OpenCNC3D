@@ -56,13 +56,13 @@ def campaign_scenarios():
 # used to be derived purely from the .INI files missed these, and the Nod campaign walk
 # caught it: every one of Nod's 35 cues played and NOD1PRE alone reported missing,
 # because Choose_Side plays the side's opening briefing itself rather than reading it
-# out of scenario 1 (app/cnc3d.cpp: camp_movie(win, au, side ? "NOD1PRE" : "GDI1"),
+# out of scenario 1 (app/opencnc3d.cpp: camp_movie(win, au, side ? "NOD1PRE" : "GDI1"),
 # mirroring 1995's intro.cpp). GDI1 is also SCG01EA's Brief=, so only NOD1PRE was
 # actually absent -- but deriving the list from the scenario files alone is the kind of
 # completeness bug that hides until someone plays the other faction.
 ENGINE_MOVIES = {
-    "GDI1": ["app/cnc3d.cpp:Choose_Side (GDI opening briefing)"],
-    "NOD1PRE": ["app/cnc3d.cpp:Choose_Side (Nod opening briefing)"],
+    "GDI1": ["app/opencnc3d.cpp:Choose_Side (GDI opening briefing)"],
+    "NOD1PRE": ["app/opencnc3d.cpp:Choose_Side (Nod opening briefing)"],
 }
 
 
@@ -89,7 +89,7 @@ def wanted_movies(missiondir):
                 continue
             name = k.group(1).strip().upper()
             # `x` is the scenario files' own "no movie here" marker, and camp_movie in
-            # app/cnc3d.cpp treats it as a no-op rather than a missing file.
+            # app/opencnc3d.cpp treats it as a no-op rather than a missing file.
             if name and name not in ("X", "NONE", "<NONE>"):
                 want.setdefault(name, []).append("%s:%s" % (scen, key))
     for name, why in ENGINE_MOVIES.items():

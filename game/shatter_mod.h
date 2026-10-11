@@ -106,6 +106,11 @@ static std::map<int, ShatterMesh> g_shatMeshUnit;
 struct ShatterLive {
     int   mi, tri0, tri1, house, face;
     int   id, k, serial;             /* owning object, piece index, death serial */
+    /* WHAT KIND OF OBJECT DIED. Heap ids are numbered per kind, from 0 in each pool, so
+       a vehicle's id alone says nothing about which building shares it. Only a building's
+       pieces stand in for an object that is still in the heap (shatter_owns); a vehicle
+       or an aircraft has left the heap by the time its pieces spawn. */
+    bool  unit;
     int   launchTick;                /* it hangs in place until this tick */
     float px, py, pz, vx, vy, vz;    /* world, cells and cells/tick */
     float ppx, ppy, ppz;             /* previous tick, for the sub-tick lerp */
@@ -593,7 +598,7 @@ static void shatter_note_death(int id, int mi, int face, int house,
         liveTris += pc.tri1 - pc.tri0;
         ShatterLive L;
         L.mi = mi; L.tri0 = pc.tri0; L.tri1 = pc.tri1; L.house = house; L.face = face;
-        L.id = id; L.k = k; L.serial = serial;
+        L.id = id; L.k = k; L.serial = serial; L.unit = isUnit;
         L.cmx = pc.cx; L.cmy = pc.cy; L.cmz = pc.cz;
         L.r = pc.r * MODEL_SCALE;
         L.low = pc.low * MODEL_SCALE;
@@ -852,12 +857,18 @@ static void shatter_step(int frame)
 
 /* Does the shatter pool own this object's geometry? While it does, draw_object_mesh must
    not also draw the building: the pieces ARE the building. The empty-pool early-out keeps
-   this free in every frame where nothing has died, which is nearly all of them. */
-static bool shatter_owns(int id)
+   this free in every frame where nothing has died, which is nearly all of them.
+   BUILDINGS ONLY, AND ONLY A BUILDING'S PIECES. The id used to be matched on its own, and
+   a ground vehicle's pieces are registered under its plain unit id, which the building
+   heap numbers independently: every vehicle that shattered hid the building sharing its
+   id, and that building's shadow, for the three seconds or so its debris lived. A dead
+   vehicle has already left the heap, so nothing standing is ever the pool's but a
+   building. */
+static bool shatter_owns(const SimObject& o)
 {
-    if (g_shatLive.empty() || id < 0) return false;
+    if (g_shatLive.empty() || o.id < 0 || o.kind != K_BUILDING) return false;
     for (size_t i = 0; i < g_shatLive.size(); i++)
-        if (g_shatLive[i].id == id) return true;
+        if (!g_shatLive[i].unit && g_shatLive[i].id == o.id) return true;
     return false;
 }
 

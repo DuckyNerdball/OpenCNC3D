@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenCNC 3D -- one-command gate for SCG90EA, the test map.
+OpenCNC3D -- one-command gate for SCG90EA, the test map.
 
 Regenerates the mission, runs proof_testmap.txt through the real ./cnc_eyes, and then
 ASSERTS on engine state rather than on the exit code. Every claim below failed at least

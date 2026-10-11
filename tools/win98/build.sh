@@ -92,7 +92,7 @@ echo "   out    : $OUT"
 # ---------------------------------------------------------------------------
 # w98proto: the first native Win98 prototype. Pure software rendering, no GL,
 # no Glide, no SDL. It links the project's OWN dosbar.c unedited, which is the
-# whole point: this is OpenCNC 3D code, not a demo written to look like it.
+# whole point: this is OpenCNC3D code, not a demo written to look like it.
 # ---------------------------------------------------------------------------
 SRC="$ROOT/tier1/w98_gfx.c $ROOT/tier1/softras.c $ROOT/tier1/t1_draw.c $ROOT/tier1/w98_proto.c $ROOT/game/dosbar.c"
 INC="-I$ROOT/tier1 -I$ROOT/game"
@@ -147,13 +147,13 @@ echo "   built  : $OUT/cncbrain.exe ($(wc -c < "$OUT/cncbrain.exe" | tr -d ' ') 
 # so is not committed.
 # ---------------------------------------------------------------------------
 ICONRES=""
-if [ -f "$OUT/cnc3d.ico" ]; then
-    printf '1 ICON "%s"\n' "$OUT/cnc3d.ico" > "$OUT/icon.rc"
+if [ -f "$OUT/opencnc3d.ico" ]; then
+    printf '1 ICON "%s"\n' "$OUT/opencnc3d.ico" > "$OUT/icon.rc"
     i686-w64-mingw32-windres "$OUT/icon.rc" -O coff -o "$OUT/icon.res"
     ICONRES="$OUT/icon.res"
 else
-    echo "   note   : no $OUT/cnc3d.ico, building without a program icon"
-    echo "            (tools/win98/mkicon.py <dossidebar.pack> $OUT/cnc3d.ico)"
+    echo "   note   : no $OUT/opencnc3d.ico, building without a program icon"
+    echo "            (tools/win98/mkicon.py <dossidebar.pack> $OUT/opencnc3d.ico)"
 fi
 $CC -std=gnu89 $CFLAGS -I"$ROOT/tier1" -c "$ROOT/tier1/w98_brain.c" -o "$OUT/w98_brain.o"
 $CC -std=gnu89 $CFLAGS -I"$ROOT/tier1" -c "$ROOT/tier1/t1_terrain.c" -o "$OUT/t1_terrain.o"
@@ -183,7 +183,7 @@ echo "   built  : $OUT/w98braintest.exe ($(wc -c < "$OUT/w98braintest.exe" | tr 
 # an import library built with dlltool from the REAL glide2x.dll off the project owner's box, so we
 # link against exactly the entry points that driver exports.
 # ---------------------------------------------------------------------------
-GLIDE="${CNC3D_GLIDE_SDK:-$HOME/.cnc3d-win98sdk/glide}"
+GLIDE="${OPENCNC3D_GLIDE_SDK:-$HOME/.opencnc3d-win98sdk/glide}"
 if [ -f "$GLIDE/lib/libglide2x.a" ] && [ -f "$GLIDE/include/glide.h" ]; then
     cc_quiet $CC -std=gnu89 $CFLAGS -I"$GLIDE/include" -I"$ROOT/tier1" \
         -c "$ROOT/tier1/t1_glidetest.c" -o "$OUT/t1_glidetest.o"

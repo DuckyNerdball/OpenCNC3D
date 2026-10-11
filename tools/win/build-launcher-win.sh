@@ -2,7 +2,7 @@
 # Cross compile the Windows launcher, from the Mac, with the toolchain the game
 # already uses.
 #
-#   tools/win/build-launcher-win.sh          -> build/win/C&C3D.exe
+#   tools/win/build-launcher-win.sh          -> build/win/OpenCNC3D.exe
 #
 # It reads launcher/sources.sh, the SAME list launcher/build.sh reads, so a file
 # added on one platform cannot be forgotten on the other. That is repository rules rule 4
@@ -18,15 +18,15 @@
 #     (its diagnostics and the whole gate suite talk on stdout); a launcher has no
 #     such traffic in the case that matters, and launcher.c attaches to the parent
 #     console when there is one, so --check from a cmd prompt still prints.
-#  3. The icon and version resource are compiled in from the same tools/win/cnc3d.rc
+#  3. The icon and version resource are compiled in from the same tools/win/opencnc3d.rc
 #     template the game uses, so the file Explorer shows carries the eagle and the
 #     build number.
 set -e
 cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
 
-HOST=${CNC3D_WIN_HOST:-i686-w64-mingw32}
-SDK="${CNC3D_WINSDK:-$HOME/.cnc3d-winsdk}"
+HOST=${OPENCNC3D_WIN_HOST:-i686-w64-mingw32}
+SDK="${OPENCNC3D_WINSDK:-$HOME/.opencnc3d-winsdk}"
 OUT="$ROOT/build/win"
 OBJ="$OUT/obj-launcher"
 
@@ -64,18 +64,19 @@ echo "== resources"
 # tools/win/build-win.sh. An unsubstituted @VER@ reaching windres is a syntax
 # error rather than a silent blank, which is why they are checked.
 RCOBJ=""
-if [ -f tools/launchers/cnc3d.ico ]; then
+if [ -f tools/launchers/opencnc3d.ico ]; then
     VER_COMMA=$(sh "$ROOT/tools/version.sh" --rcversion)
     VER_STRING=$(tr -d '[:space:]' < "$ROOT/VERSION")
     sed -e "s/@VER_COMMA@/$VER_COMMA/g" -e "s/@VER_STRING@/$VER_STRING/g" \
-        tools/win/cnc3d.rc > "$OBJ/cnc3d.rc"
-    # The EXACT placeholders, not the string "@VER": cnc3d.rc's own header comment
-    # contains the phrase "the two @VER placeholders", so a loose match fails every
-    # build on a comment that is doing its job.
-    grep -qE '@VER_(COMMA|STRING)@' "$OBJ/cnc3d.rc" \
-        && { echo "a version placeholder was not substituted" >&2; exit 1; }
-    cp tools/launchers/cnc3d.ico "$OBJ/"
-    if $HOST-windres "$OBJ/cnc3d.rc" -O coff -o "$OBJ/res.o" 2>"$OBJ/windres.err"; then
+        -e "s/@EXE_NAME@/OpenCNC3D.exe/g" \
+        tools/win/opencnc3d.rc > "$OBJ/opencnc3d.rc"
+    # A whole placeholder, @NAME@, not the string "@VER": opencnc3d.rc's own header
+    # comment contains the phrase "the two @VER placeholders", so a loose match fails
+    # every build on a comment that is doing its job.
+    grep -qE '@[A-Z][A-Z_]*@' "$OBJ/opencnc3d.rc" \
+        && { echo "a placeholder in tools/win/opencnc3d.rc was not substituted" >&2; exit 1; }
+    cp tools/launchers/opencnc3d.ico "$OBJ/"
+    if $HOST-windres "$OBJ/opencnc3d.rc" -O coff -o "$OBJ/res.o" 2>"$OBJ/windres.err"; then
         RCOBJ="$OBJ/res.o"
         echo "   icon + version $VER_STRING compiled in"
     else
@@ -83,7 +84,7 @@ if [ -f tools/launchers/cnc3d.ico ]; then
         sed 's/^/  windres: /' "$OBJ/windres.err" >&2
     fi
 else
-    echo "WARNING: tools/launchers/cnc3d.ico is missing; no icon" >&2
+    echo "WARNING: tools/launchers/opencnc3d.ico is missing; no icon" >&2
 fi
 
 echo "== manifest"
@@ -121,15 +122,15 @@ echo "== link"
 # SDL2.dll is the only file that has to travel beside the .exe.
 LIBS="-lmingw32 -lSDL2main -Wl,-Bdynamic -lSDL2 -Wl,-Bstatic -lopengl32 -lwininet -lz -static"
 
-$CC -mwindows -o "$OUT/C&C3D.exe" $OBJS $RCOBJ "$OBJ/manifest.o" $LIBDIRS $LIBS
+$CC -mwindows -o "$OUT/OpenCNC3D.exe" $OBJS $RCOBJ "$OBJ/manifest.o" $LIBDIRS $LIBS
 
 # Asked of the binary, not of the build: a launcher without it still links and runs,
 # and fails only on the machines the manifest is for.
-grep -aq '>UTF-8</activeCodePage>' "$OUT/C&C3D.exe" || {
+grep -aq '>UTF-8</activeCodePage>' "$OUT/OpenCNC3D.exe" || {
     echo "the linked launcher carries no UTF-8 code page manifest" >&2
     exit 1
 }
 
 cp "$SDL2_ROOT/bin/SDL2.dll" "$OUT/" 2>/dev/null || true
-ls -la "$OUT/C&C3D.exe"
-echo "built $OUT/C&C3D.exe"
+ls -la "$OUT/OpenCNC3D.exe"
+echo "built $OUT/OpenCNC3D.exe"

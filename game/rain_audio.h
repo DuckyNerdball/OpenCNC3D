@@ -1,6 +1,6 @@
 /* ====================================================================================
- *  rain_audio.h -- THE SOUND OF THE RAIN, and it is the one sound in this game that
- *                  did not come off a disc.
+ *  rain_audio.h -- procedural rain, on the Enhanced ambience bus.
+ *                  Soundly environment/HUD clips are owned by ambience_mod.h.
  *
  *  EVERY OTHER SOUND HERE IS THE 1995 GAME'S OR THE CARTRIDGE'S. That rule is what
  *  makes the audio worth anything, and it is not being relaxed generally: it is being
@@ -43,8 +43,8 @@
  *  mixer_play_loop is plain C that a Win98 backend inherits unchanged. It is absent on
  *  Tier 1 only because the rain that would justify it is.
  * ==================================================================================== */
-#ifndef CNC3D_RAIN_AUDIO_H
-#define CNC3D_RAIN_AUDIO_H
+#ifndef OPENCNC3D_RAIN_AUDIO_H
+#define OPENCNC3D_RAIN_AUDIO_H
 
 #include "../audio/cncaudio.h"
 
@@ -237,7 +237,7 @@ static void rain_audio_update(void)
     if (g_rainAudVoice < 0 || !mixer_voice_active(cnc_audio_mixer(g_au), g_rainAudVoice)) {
         /* priority 255: a bed stolen by a passing rifle shot and never coming back is
            worse than no bed, and this voice is stopped by hand on every exit anyway */
-        g_rainAudVoice = mixer_play_loop(cnc_audio_mixer(g_au), MIX_BUS_FX,
+        g_rainAudVoice = mixer_play_loop(cnc_audio_mixer(g_au), MIX_BUS_AMBIENCE,
                                          g_rainAudPcm, RAIN_AUD_LEN, gain, 0, 255);
         g_rainAudGain = gain;
         if (!g_rainAudSaid) {
@@ -253,4 +253,4 @@ static void rain_audio_update(void)
     }
 }
 
-#endif /* CNC3D_RAIN_AUDIO_H */
+#endif /* OPENCNC3D_RAIN_AUDIO_H */

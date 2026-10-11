@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Heightmaps</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The remaster lab's Heightmaps category: served by tools/art/remaster/viewer/serve.py at
+     /heights/ and shown in the lab's frame. One map at a time: the game itself as the
+     cartridge left the map and with its generated heights, the whole map in 3D, the tiles
+     beside the relief, and the review buttons. The data is tools/autoheight/lab_export.py's. -->
+<style>
+  :root { --bg:#16181b; --panel:#202328; --line:#33373e; --text:#d8dade; --dim:#8a9099;
+          --accent:#e0b040; --ok:#5cc28a; --bad:#e06a5a; --side:260px; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font:13px/1.4 -apple-system, "Segoe UI", sans-serif; overflow:hidden; }
+  select, button, textarea { background:#2b2f35; color:var(--text); border:1px solid var(--line);
+    border-radius:4px; padding:3px 8px; font:inherit; }
+  button { cursor:pointer; }
+  button:disabled { opacity:.4; cursor:default; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  #list { position:absolute; left:0; top:0; bottom:0; width:var(--side); overflow-y:auto;
+    background:var(--panel); border-right:1px solid var(--line); }
+  #list h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim);
+    margin:0; padding:10px 12px 4px; }
+  .item { display:flex; gap:8px; align-items:center; padding:5px 10px; cursor:pointer;
+    border-left:3px solid transparent; }
+  .item:hover { background:#272b31; }
+  .item.sel { background:#2d3239; border-left-color:var(--accent); }
+  .thumb { position:relative; width:52px; height:52px; flex:none; border-radius:4px; background:#15171a; overflow:hidden; }
+  .thumb img { width:100%; height:100%; object-fit:cover; }
+  .dot { position:absolute; top:3px; right:3px; width:9px; height:9px; border-radius:50%; border:1px solid #0008; }
+  .dot.review { background:var(--accent); } .dot.approved { background:var(--ok); } .dot.rejected { background:var(--bad); }
+  .meta { display:flex; flex-direction:column; min-width:0; }
+  .meta span { color:var(--dim); font-size:12px; }
+  .status.review { color:var(--accent); } .status.approved { color:var(--ok); } .status.rejected { color:var(--bad); }
+  #main { position:absolute; left:var(--side); right:0; top:0; bottom:0; display:flex; flex-direction:column; }
+  #bar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:8px 14px; border-bottom:1px solid var(--line); }
+  #bar h3 { margin:0; font-size:14px; font-weight:600; }
+  #bar .sub { color:var(--dim); }
+  #bar .nums { margin-left:auto; color:var(--dim); font-size:12px; }
+  #bar .nums b { color:var(--text); font-weight:500; }
+  #views { display:flex; gap:4px; }
+  #body { flex:1; min-height:0; position:relative; }
+  .view { position:absolute; inset:0; display:none; overflow:auto; }
+  .view.show { display:block; }
+  #vGame .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:8px 14px; }
+  #vGame figure, #vMap figure { margin:0; }
+  #vGame img, #vMap img { width:100%; display:block; border-radius:4px; background:#000; image-rendering:auto; }
+  figcaption { color:var(--dim); font-size:12px; padding:3px 0 0; }
+  #vMap .row { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; padding:8px 14px; }
+  #v3d canvas { width:100%; height:100%; display:block; }
+  #v3dctl { position:absolute; left:14px; top:10px; display:flex; gap:8px; align-items:center;
+    background:#202328cc; padding:6px 10px; border-radius:6px; color:var(--dim); }
+  #review { border-top:1px solid var(--line); padding:8px 14px; display:flex; gap:10px; align-items:flex-start; }
+  #review textarea { flex:1; height:44px; resize:vertical; }
+  #review .btns { display:flex; flex-direction:column; gap:4px; }
+  #rstate { font-weight:600; min-width:120px; }
+  #rstate.approved { color:var(--ok); } #rstate.rejected { color:var(--bad); } #rstate.review { color:var(--accent); }
+  #comments { max-height:80px; overflow-y:auto; color:var(--dim); font-size:12px; min-width:220px; max-width:40%; }
+  #comments em { color:var(--text); font-style:normal; }
+  .empty { padding:40px; color:var(--dim); }
+</style>
+</head>
+<body>
+<nav id="list"></nav>
+<div id="main">
+  <div id="bar">
+    <h3 id="title">Heightmaps</h3><span class="sub" id="sub"></span>
+    <div id="views">
+      <button data-v="vGame" class="on" title="The game itself at the two places with the most relief: as the cartridge left the map, and with the generated heights">In game</button>
+      <button data-v="v3d" title="The whole map in 3D, its own tile art over the generated ground; drag to turn, scroll to zoom">3D</button>
+      <button data-v="vMap" title="The tiles, the generated heights as a relief, and the tiles lit by those heights">Map</button>
+    </div>
+    <span class="nums" id="nums"></span>
+  </div>
+  <div id="body">
+    <div class="view show" id="vGame"></div>
+    <div class="view" id="v3d"><canvas id="gl"></canvas>
+      <div id="v3dctl">
+        <label><input type="checkbox" id="flat3d"> flat (as the cartridge left it)</label>
+        <label>height <input type="range" id="ex3d" min="1" max="3" step="0.25" value="1"> <span id="exv">1x</span></label>
+      </div></div>
+    <div class="view" id="vMap"></div>
+  </div>
+  <div id="review">
+    <span id="rstate"></span>
+    <div id="comments"></div>
+    <textarea id="ctext" placeholder="A comment on this map's heights"></textarea>
+    <div class="btns"><button id="send">Comment</button><button id="approve">Approve</button></div>
+    <div class="btns"><button id="reject">Reject</button><button id="reopen">Reopen</button></div>
+  </div>
+</div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const S = { rows: [], key: "", sig: "", view: "vGame", heights: null };
+const row = () => S.rows.find(r => r.key === S.key);
+const dat = r => `data/${r.scen}/`;
+const STATUS = { review: "ready for review", approved: "approved", rejected: "rejected" };
+
+function list() {
+  const gk = r => `${r.group || "Covert Ops"}: ${r.theater.toLowerCase()}`;
+  const groups = [...new Set(S.rows.map(gk))];
+  $("list").innerHTML = S.rows.length ? groups.map(g => `<h2>${esc(g)}</h2>` +
+    S.rows.filter(r => gk(r) === g).map(r => `<div class="item${r.key === S.key ? " sel" : ""}" data-k="${esc(r.key)}">
+      <div class="thumb"><img src="${dat(r)}relief.png?${r.stamp}" alt=""><span class="dot ${r.status}"></span></div>
+      <div class="meta"><b>${esc(r.name)}</b><span>${esc(r.scen)}</span><span class="status ${r.status}">${STATUS[r.status] || ""}</span></div></div>`).join("")).join("")
+    : `<div class="empty">No generated heightmaps yet: tools/autoheight/lab_export.py writes them.</div>`;
+  for (const el of $("list").querySelectorAll(".item")) el.onclick = () => pick(el.dataset.k);
+}
+
+function draw() {
+  const r = row(); if (!r) return;
+  const v = `?${r.stamp}`, b = dat(r);
+  $("title").textContent = `${r.name}`;
+  $("sub").textContent = `${r.scen}, ${r.theater.toLowerCase()}, ${r.rect[2]} x ${r.rect[3]} cells` +
+    (r.real_twin ? `: the same ground as ${r.real_twin}, so the cartridge's own heights for it, not generated` :
+     r.twins && r.twins.length ? `: the same ground as ${r.twins.join(", ")}, and the same heights` : "");
+  const c = r.check, rungs = Object.entries(r.rungs).map(([k, n]) => `${k}: ${Math.round(100 * n / r.corners)}%`).join(", ");
+  $("nums").innerHTML = `rungs <b>${rungs}</b> &middot; steep walkable cells <b>${c.steep}</b> &middot; ` +
+    `bridges tilted <b>${c.bridge}</b> &middot; bases unlevelled <b>${c.base}</b> of ${c.buildings}`;
+  $("nums").title = `Rungs: share of the map's corners on each of the five heights (0 lowest, 4 highest; 1 is the main ground). ` +
+    `Steep walkable cells: open ground climbing more than ${r.steep_limit} bytes inside one cell, the cartridge's own 99th percentile.`;
+  $("vGame").innerHTML = r.shots.length ? r.shots.map(k => `<div class="row">
+      <figure><img src="${b}shot_${k}_flat.png${v}" alt=""><figcaption>As the cartridge left it: flat</figcaption></figure>
+      <figure><img src="${b}shot_${k}_gen.png${v}" alt=""><figcaption>Generated heights (cell ${r.spots[k - 1].join(", ")})</figcaption></figure></div>`).join("")
+    : `<div class="empty">No game shots for this map yet.</div>`;
+  $("vMap").innerHTML = `<div class="row">
+      <figure><img src="${b}tiles.png${v}" alt=""><figcaption>The map's tiles (the whole 64 x 64)</figcaption></figure>
+      <figure><img src="${b}relief.png${v}" alt=""><figcaption>Generated heights, lit (playable area); colour by rung</figcaption></figure>
+      <figure><img src="${b}over.png${v}" alt=""><figcaption>The tiles lit by the generated heights, contours every half rung</figcaption></figure></div>`;
+  $("rstate").className = r.status;
+  $("rstate").textContent = r.status === "approved" ? "Approved" : r.status === "rejected" ? "Rejected" : "Ready for review";
+  $("comments").innerHTML = (r.comments || []).map(c => `<div><em>${esc(c.at)}</em> ${esc(c.text)}</div>`).join("");
+  $("send").disabled = $("ctext").disabled = r.status === "approved";
+  if (S.view === "v3d") load3d(r);
+}
+
+async function refresh() {
+  try {
+    const rows = await (await fetch("api/index", { cache: "no-store" })).json();
+    const sig = JSON.stringify(rows);
+    if (sig === S.sig) return;
+    S.sig = sig; S.rows = rows;
+    if (!row()) S.key = (new URLSearchParams(location.search).get("t")) || (rows[0] || {}).key || "";
+    if (!row() && rows.length) S.key = rows[0].key;
+    list(); draw();
+  } catch (e) {}
+}
+function pick(k) {
+  S.key = k; S.loaded = null;
+  const u = new URL(location.href); u.searchParams.set("t", k); history.replaceState(null, "", u);
+  list(); draw();
+}
+for (const b of document.querySelectorAll("#views button")) b.onclick = () => {
+  S.view = b.dataset.v;
+  for (const x of document.querySelectorAll("#views button")) x.classList.toggle("on", x === b);
+  for (const v of document.querySelectorAll(".view")) v.classList.toggle("show", v.id === S.view);
+  if (S.view === "v3d") { resize(); const r = row(); if (r) load3d(r); }
+};
+async function review(action) {
+  const text = $("ctext").value;
+  if (action === "comment" && !text.trim()) return;
+  const res = await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: S.key, action, text }) });
+  if (res.ok && action === "comment") $("ctext").value = "";
+  S.sig = ""; await refresh();
+}
+$("send").onclick = () => review("comment");
+$("approve").onclick = () => review("approve");
+$("reject").onclick = () => review("reject");
+$("reopen").onclick = () => review("reopen");
+
+// ---- 3D: the map's own tiles over its generated ground, one unit a cell, one rung (64
+// bytes) one cell tall, the same proportion the game draws
+const canvas = $("gl");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x16181b);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
+const controls = new OrbitControls(camera, canvas);
+scene.add(new THREE.HemisphereLight(0xdfe6ff, 0x3a3020, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(-40, 60, -30); scene.add(sun);
+let mesh = null;
+function resize() {
+  const w = $("v3d").clientWidth, h = $("v3d").clientHeight; if (!w || !h) return;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+function applyHeights() {
+  if (!mesh || !S.heights) return;
+  const pos = mesh.geometry.attributes.position, ex = parseFloat($("ex3d").value), flat = $("flat3d").checked;
+  for (let i = 0; i < 65 * 65; i++) pos.setY(i, flat ? 0 : S.heights[i] / 64 * ex);
+  pos.needsUpdate = true; mesh.geometry.computeVertexNormals();
+}
+async function load3d(r) {
+  if (S.loaded === r.key + r.stamp) return;
+  S.loaded = r.key + r.stamp;
+  const hj = await (await fetch(`${dat(r)}heights.json?${r.stamp}`, { cache: "no-store" })).json();
+  S.heights = hj.corners;
+  if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.map && mesh.material.map.dispose(); }
+  const g = new THREE.PlaneGeometry(64, 64, 64, 64); g.rotateX(-Math.PI / 2); g.translate(32, 0, 32);
+  const tex = new THREE.TextureLoader().load(`${dat(r)}tiles.png?${r.stamp}`);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: tex }));
+  scene.add(mesh); applyHeights();
+  const [X, Y, W, H] = hj.rect;
+  controls.target.set(X + W / 2, 1, Y + H / 2);
+  camera.position.set(X + W / 2, Math.max(W, H) * 0.75, Y + H / 2 + Math.max(W, H) * 0.75);
+  controls.update(); resize();
+}
+$("ex3d").oninput = () => { $("exv").textContent = $("ex3d").value + "x"; applyHeights(); };
+$("flat3d").onchange = applyHeights;
+renderer.setAnimationLoop(() => { if (S.view === "v3d") { controls.update(); renderer.render(scene, camera); } });
+
+await refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

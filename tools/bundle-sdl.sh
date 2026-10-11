@@ -3,7 +3,7 @@
 # make the binaries load them from THERE rather than from this machine's Homebrew.
 #
 #   tools/bundle-sdl.sh <folder>                 fix every Mach-O in <folder>
-#   tools/bundle-sdl.sh <folder> cnc3d cnc_eyes  fix just these
+#   tools/bundle-sdl.sh <folder> opencnc3d cnc_eyes  fix just these
 #
 # WHY THIS EXISTS. True of every macOS release cut before this.
 #
@@ -24,8 +24,8 @@
 #  * libSDL2-2.0.0.dylib -- linked normally, fixed by rewriting the load command to
 #    @executable_path. @executable_path (not @loader_path) is correct here because the
 #    thing that loads it IS the main executable, and it stays correct for the .app route:
-#    C&C3D.app/Contents/MacOS/cnc3d-launch is a shell script that cd's to playable/ and
-#    execs ./cnc3d, so the main executable is still playable/cnc3d and @executable_path is
+#    OpenCNC3D.app/Contents/MacOS/opencnc3d-launch is a shell script that cd's to playable/ and
+#    execs ./opencnc3d, so the main executable is still playable/opencnc3d and @executable_path is
 #    still playable/. Nothing is loaded from inside the bundle.
 #
 #  * libSDL3.dylib -- because what Homebrew installs as "SDL2" today is sdl2-compat, a
@@ -54,9 +54,14 @@
 # a dangling pointer. That failure is silent until dyld gives up.
 #
 # This script is idempotent and safe to run on an already-fixed folder: a binary whose
-# load command already starts with @ is left alone, and the libraries are re-copied only
-# when they are absent.
+# load command already starts with @executable_path is left alone, and the libraries are
+# re-copied only when they are absent or are missing a CPU the binaries carry.
 set -e
+
+# The project's Mac settings, for the universal SDL's place on PATH: callers that have not
+# sourced them themselves (game/make-build.sh reaches this before it does) would otherwise
+# find whichever sdl2-config the shell happens to have.
+. "$(cd "$(dirname "$0")" && pwd)/mac/deployment-target.sh"
 
 FOLDER="${1:-}"
 [ -n "$FOLDER" ] || { echo "usage: bundle-sdl.sh <folder> [binary ...]" >&2; exit 1; }
@@ -112,8 +117,29 @@ for b in $BINS; do
 done
 [ -n "$SDL2_BASE" ] || SDL2_BASE="libSDL2-2.0.0.dylib"
 
+# ---------------------------------------------------------------- the CPUs they need
+# A copy already in the folder is kept, which is what makes a re-run cheap -- UNLESS it is
+# missing a CPU the binaries carry. The binaries went universal (arm64 + x86_64) after
+# Intel-only builds, and a play folder from before holds an Intel-only SDL: kept as it was,
+# it sits beside universal binaries, the game runs on an Intel Mac, and dyld refuses it on
+# every Apple Silicon Mac. So a copy that does not cover every
+# architecture of every binary being fixed is removed here and fetched again below.
+NEED=""
+for b in $BINS; do
+    for a in $(lipo -archs "$b" 2>/dev/null); do
+        case " $NEED " in *" $a "*) ;; *) NEED="$NEED $a" ;; esac
+    done
+done
+covers() { [ -z "$NEED" ] || lipo "$1" -verify_arch $NEED 2>/dev/null; }
+for l in "$FOLDER/$SDL2_BASE" "$FOLDER/libSDL3.dylib"; do
+    if [ -f "$l" ] && ! covers "$l"; then
+        echo "bundle-sdl: $(basename "$l") in $FOLDER is $(lipo -archs "$l" 2>/dev/null), the binaries need$NEED: replacing it"
+        rm -f "$l"
+    fi
+done
+
 LIBDIRS=""
-if [ -n "${CNC3D_SDL_LIBDIR:-}" ]; then LIBDIRS="$CNC3D_SDL_LIBDIR"; fi
+if [ -n "${OPENCNC3D_SDL_LIBDIR:-}" ]; then LIBDIRS="$OPENCNC3D_SDL_LIBDIR"; fi
 LIBDIRS="$LIBDIRS $(sdl2-config --libs 2>/dev/null | tr ' ' '\n' | sed -n 's/^-L//p')"
 LIBDIRS="$LIBDIRS /usr/local/lib /opt/homebrew/lib
          /usr/local/opt/sdl2-compat/lib /opt/homebrew/opt/sdl2-compat/lib
@@ -121,7 +147,7 @@ LIBDIRS="$LIBDIRS /usr/local/lib /opt/homebrew/lib
 
 if [ -z "$SDL2_SRC" ] && [ ! -f "$FOLDER/$SDL2_BASE" ]; then
     for d in $LIBDIRS; do
-        if [ -f "$d/$SDL2_BASE" ]; then SDL2_SRC="$d/$SDL2_BASE"; break; fi
+        if [ -f "$d/$SDL2_BASE" ] && covers "$d/$SDL2_BASE"; then SDL2_SRC="$d/$SDL2_BASE"; break; fi
     done
 fi
 
@@ -130,10 +156,16 @@ if [ -n "$SDL2_SRC" ] && [ ! -f "$FOLDER/$SDL2_BASE" ]; then
     chmod u+w "$FOLDER/$SDL2_BASE"
     echo "bundle-sdl: copied $SDL2_SRC"
 fi
+if [ -f "$FOLDER/$SDL2_BASE" ] && ! covers "$FOLDER/$SDL2_BASE"; then
+    echo "bundle-sdl: the $SDL2_BASE found is $(lipo -archs "$FOLDER/$SDL2_BASE"), the binaries need$NEED." >&2
+    echo "            Run tools/mac/setup-sdl-mac.sh for a universal SDL." >&2
+    rm -f "$FOLDER/$SDL2_BASE"
+    exit 1
+fi
 [ -f "$FOLDER/$SDL2_BASE" ] || {
     echo "bundle-sdl: cannot find $SDL2_BASE to copy into $FOLDER." >&2
     echo "            Looked in: $LIBDIRS" >&2
-    echo "            Set CNC3D_SDL_LIBDIR to the folder that holds it." >&2
+    echo "            Set OPENCNC3D_SDL_LIBDIR to the folder that holds it." >&2
     exit 1
 }
 
@@ -147,7 +179,7 @@ if LC_ALL=C grep -qa 'libSDL3\.dylib' "$FOLDER/$SDL2_BASE"; then
         SDL3_SRC=""
         for d in $LIBDIRS /usr/local/opt/sdl3/lib /opt/homebrew/opt/sdl3/lib; do
             for n in libSDL3.0.dylib libSDL3.dylib; do
-                if [ -f "$d/$n" ]; then SDL3_SRC="$d/$n"; break; fi
+                if [ -f "$d/$n" ] && covers "$d/$n"; then SDL3_SRC="$d/$n"; break; fi
             done
             if [ -n "$SDL3_SRC" ]; then break; fi
         done
@@ -163,6 +195,12 @@ if LC_ALL=C grep -qa 'libSDL3\.dylib' "$FOLDER/$SDL2_BASE"; then
         # the shim opens it by explicit path, so its LC_ID_DYLIB is never consulted.
         cp "$SDL3_SRC" "$FOLDER/libSDL3.dylib"
         chmod u+w "$FOLDER/libSDL3.dylib"
+        covers "$FOLDER/libSDL3.dylib" || {
+            echo "bundle-sdl: the SDL3 found ($SDL3_SRC) is $(lipo -archs "$SDL3_SRC"), the binaries need$NEED." >&2
+            echo "            Run tools/mac/setup-sdl-mac.sh for a universal SDL." >&2
+            rm -f "$FOLDER/libSDL3.dylib"
+            exit 1
+        }
         echo "bundle-sdl: copied $SDL3_SRC -> libSDL3.dylib (sdl2-compat dlopens it)"
     fi
     SDL3_BASE="libSDL3.dylib"
@@ -188,8 +226,13 @@ resign_if_adhoc "$FOLDER/$SDL2_BASE"
 
 for b in $BINS; do
     p=$(sdl_load_path "$b")
+    # @rpath/ is rewritten as well as an absolute path. A CMake-built SDL (the universal
+    # one tools/mac/setup-sdl-mac.sh makes) names itself @rpath/libSDL2-2.0.0.dylib, the
+    # linker copies that into every binary, and none of these binaries carries an
+    # LC_RPATH, so left alone it resolves to nothing and the game dies in dyld at launch.
     case "$p" in
-        /*) install_name_tool -change "$p" "@executable_path/$SDL2_BASE" "$b"
+        /*|@rpath/*)
+            install_name_tool -change "$p" "@executable_path/$SDL2_BASE" "$b"
             resign_if_adhoc "$b"
             echo "bundle-sdl: $(basename "$b") -> @executable_path/$SDL2_BASE" ;;
         @*) : ;;   # already bundled
@@ -203,7 +246,7 @@ done
 # first SDL call on a clean Mac.
 FAILED=0
 for f in $BINS "$FOLDER/$SDL2_BASE"; do
-    LEAK=$(otool -L "$f" 2>/dev/null | awk 'NR>1 && /^[ \t]/ && ($1 ~ /^\/usr\/local\// || $1 ~ /^\/opt\/homebrew\//) { print $1 }')
+    LEAK=$(otool -L "$f" 2>/dev/null | awk 'NR>1 && /^[ \t]/ && ($1 ~ /^\/usr\/local\// || $1 ~ /^\/opt\/homebrew\// || $1 ~ /^@rpath\/libSDL/) { print $1 }')
     [ -z "$LEAK" ] || { echo "bundle-sdl: FAIL $f still loads $LEAK" >&2; FAILED=1; }
 done
 for f in "$SDL2_BASE" $SDL3_BASE; do

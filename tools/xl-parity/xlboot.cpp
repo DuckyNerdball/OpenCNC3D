@@ -50,8 +50,8 @@ typedef void (*CNC_Init_t)(const char*, CNC_Event_Callback_Type);
 typedef void (*CNC_Config_t)(const CNCRulesDataStruct&);
 typedef bool (*CNC_Start_Custom_t)(const char*, const char*, const char*, int, bool);
 typedef bool (*CNC_Advance_t)(uint64);
-typedef int (*CNC3D_Dump_t)(void);
-typedef bool (*CNC3D_AbiFacts_t)(void*);
+typedef int (*OpenCNC3D_Dump_t)(void);
+typedef bool (*OpenCNC3D_AbiFacts_t)(void*);
 
 static int g_events = 0;
 static int g_brainMsgs = 0;
@@ -116,8 +116,8 @@ int main(int argc, char** argv)
     CNC_Config_t Config = (CNC_Config_t)dlsym(hnd, "CNC_Config");
     CNC_Start_Custom_t Start = (CNC_Start_Custom_t)dlsym(hnd, "CNC_Start_Custom_Instance");
     CNC_Advance_t Advance = (CNC_Advance_t)dlsym(hnd, "CNC_Advance_Instance");
-    CNC3D_Dump_t Dump = (CNC3D_Dump_t)dlsym(hnd, "CNC3D_Dump_Objects");
-    CNC3D_AbiFacts_t Facts = (CNC3D_AbiFacts_t)dlsym(hnd, "CNC3D_ABI_Facts");
+    OpenCNC3D_Dump_t Dump = (OpenCNC3D_Dump_t)dlsym(hnd, "OpenCNC3D_Dump_Objects");
+    OpenCNC3D_AbiFacts_t Facts = (OpenCNC3D_AbiFacts_t)dlsym(hnd, "OpenCNC3D_ABI_Facts");
     if (!Init || !Config || !Start || !Advance) {
         printf("XLBOOT|FAIL|dlsym|a required export is missing\n");
         return 1;

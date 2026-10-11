@@ -78,7 +78,7 @@ static unsigned nm_now_ms(void)
    3 since the match became a star of up to eight: WELCOME now names the seat the host
    assigned, START carries the final roster once everyone is in, and SYNC names the seat
    it came from so a hash can be attributed. A v2 peer would take a seat nobody gave it. */
-#define NM_VERSION 10  /* 4: the tech level travels; 5: a per-seat mode does too;
+#define NM_VERSION 12  /* 4: the tech level travels; 5: a per-seat mode does too;
                           6: AI takeover and short game; 7: player names, so the
                           HELLO carries a handle and the setup carries eight;
                           8: the start waits for every seat's round trip.
@@ -104,7 +104,16 @@ static unsigned nm_now_ms(void)
                           so a 9 and a 10 in one room would destroy the same house one
                           tick apart on every departure. A 10 also waits on a departed
                           seat until the host says so and asks the host for that seat's
-                          missing turns, which a 9 host never answers. */
+                          missing turns, which a 9 host never answers.
+
+                          11 BECAUSE THE WORLD HASH CHANGED, not the wire. An 11 leaves
+                          each peer's control groups out of the hash, a 10 hashes them, so
+                          a 10 and an 11 in one room disagree at frame 0 and end the match
+                          with THE MACHINES STOPPED AGREEING before anyone has moved.
+                          Refused by name instead.
+
+                          12 includes the engine-owned building power-off state in the
+                          world hash and the POWER_SWITCH order in the brain ABI. */
 #define NM_JOIN_TIMEOUT_MS 10000u   /* HELLOs unanswered this long is failed, by name */
 /* HOW LONG A PRESSED START WAITS FOR A SEAT THAT HAS NOT ANSWERED A PING, and how often
    that seat is asked while it does. About a dozen asks, fewer when the caller polls more
@@ -360,6 +369,33 @@ static int s_desynced = 0;
 static int s_host_gone = 0;
 static unsigned s_desync_frame = 0;
 static unsigned s_synced_frames = 0;
+
+/* THE ALARM, said once, and it names EVERY seat rather than the first one that differed.
+   NETDESYNC alone says "seat 2's world is not mine", which is one of two very different
+   stories: seat 2 drifted, or this machine did and seat 2 was merely the first to be
+   heard. The second line lists each seat's hash for the frame, this one's included, with
+   a ? for a peer whose report for that frame has not arrived yet; the odd one out is the
+   machine that parted. Three internet matches were lost before this line existed, and
+   every log named a different seat with nothing to say which side of the split it was
+   on. */
+static void nm_say_desync(unsigned frame, int seat, unsigned mine, unsigned theirs)
+{
+    unsigned slot = frame % NM_HASH_RING;
+    int i;
+    s_desynced = 1;
+    s_desync_frame = frame;
+    printf("NETDESYNC|frame=%u|seat=%d|mine=%08X|peer=%08X|abi=%08X|scen=%08X\n",
+           frame, seat, mine, theirs, s_abi, s_scen);
+    printf("NETDESYNC-SEATS|frame=%u", frame);
+    for (i = 0; i < s_seats && i < NM_MAX_SEATS; i++) {
+        if (s_setup.mode[i] != NM_SEAT_HUMAN && s_setup.mode[i] != NM_SEAT_OPEN) continue;
+        if (i == s_seat) printf("|s%d=%08X*", i, mine);
+        else if (s_peer_hash_frame[i][slot] == frame) printf("|s%d=%08X", i, s_peer_hash[i][slot]);
+        else printf("|s%d=?", i);
+    }
+    printf("\n");
+    fflush(stdout);
+}
 /* HOW OFTEN THIS MATCH NEEDED A TURN ASKED FOR (nm_ask_for_turn) and how often this peer
    answered somebody else's request. Printed when the match ends, because a repair that
    works is otherwise invisible: the match simply does not stop. */
@@ -399,7 +435,7 @@ static int s_keep_next[NM_MAX_SEATS];
 static unsigned s_need_gone_ms[NM_MAX_SEATS];
 static unsigned s_gone_answer_said_ms = 0;
 
-/* A TEST INSTRUMENT, OFF UNLESS THE ENVIRONMENT ASKS FOR IT. CNC3D_NETTEST_HOLD_BYE set to
+/* A TEST INSTRUMENT, OFF UNLESS THE ENVIRONMENT ASKS FOR IT. OPENCNC3D_NETTEST_HOLD_BYE set to
    "<seat>:<ms>" makes the HOST hold every goodbye it sends to that seat for that many
    milliseconds, while turns go on flowing. It forces the one arrival order that a loopback
    match otherwise reaches only by chance: a survivor that already holds every turn the
@@ -413,7 +449,7 @@ static unsigned s_test_held_due[NM_TEST_HOLD_MAX];
 static int s_test_held_n = 0;
 /* THE SAME KIND OF INSTRUMENT FOR THE OTHER ORDER A LOOPBACK MATCH NEVER REACHES: a
    survivor that hears the goodbye but never receives the departing seat's last turns.
-   CNC3D_NETTEST_CUT_RELAY set to "<from>:<to>:<turn>" makes the HOST stop passing seat
+   OPENCNC3D_NETTEST_CUT_RELAY set to "<from>:<to>:<turn>" makes the HOST stop passing seat
    <from>'s turn packets on to seat <to> from the first one whose newest turn is <turn> or
    later. The host still takes its own copy of each. Nothing in play sets it. */
 static int s_test_cut_from = -1;
@@ -423,7 +459,7 @@ static unsigned s_test_cut_turn = 0;
    departing seat's last turn when it reads the goodbye, while a survivor has not yet run
    it. The host reaches that order on a real link whenever the goodbye is delayed more than
    the turns in front of it; on loopback it only reaches it by chance.
-   CNC3D_NETTEST_LATE_BYE set to "<from>:<to>:<turn>:<ms>" does two things on the HOST.
+   OPENCNC3D_NETTEST_LATE_BYE set to "<from>:<to>:<turn>:<ms>" does two things on the HOST.
    It holds seat <from>'s turn packets for seat <to> that many milliseconds, from the first
    one whose newest turn is <turn> or later, so that <to> runs behind the host. Every other
    seat gets them at once and the host takes its own copy at once. And it reads a goodbye
@@ -772,7 +808,7 @@ static void nm_reset_match(int seat, int seats)
     s_test_hold_seat = -1;
     s_test_hold_ms = 0;
     {
-        const char* hold = getenv("CNC3D_NETTEST_HOLD_BYE");
+        const char* hold = getenv("OPENCNC3D_NETTEST_HOLD_BYE");
         int hs;
         unsigned hms;
         if (hold && sscanf(hold, "%d:%u", &hs, &hms) == 2 && hs > 0 && hs < NM_MAX_SEATS) {
@@ -786,7 +822,7 @@ static void nm_reset_match(int seat, int seats)
     s_test_cut_to = -1;
     s_test_cut_turn = 0;
     {
-        const char* cut = getenv("CNC3D_NETTEST_CUT_RELAY");
+        const char* cut = getenv("OPENCNC3D_NETTEST_CUT_RELAY");
         int cf, ct;
         unsigned cturn;
         if (cut && sscanf(cut, "%d:%d:%u", &cf, &ct, &cturn) == 3 && cf > 0 && ct > 0
@@ -808,7 +844,7 @@ static void nm_reset_match(int seat, int seats)
     s_test_late_bye_since = 0;
     s_test_late_bye_state = 0;
     {
-        const char* late = getenv("CNC3D_NETTEST_LATE_BYE");
+        const char* late = getenv("OPENCNC3D_NETTEST_LATE_BYE");
         int lf, lt;
         unsigned lturn, lms;
         if (late && sscanf(late, "%d:%d:%u:%u", &lf, &lt, &lturn, &lms) == 4 && lf > 0
@@ -959,7 +995,7 @@ int nm_lobby_host(unsigned short port, const NmSetup* setup, unsigned abi_hash,
     s_humans = humans;
     s_lobby_humans = humans;
     s_pass = nm_pass_hash(password);
-    snprintf(s_lobby_name, sizeof s_lobby_name, "%s", (name && *name) ? name : "OpenCNC 3D GAME");
+    snprintf(s_lobby_name, sizeof s_lobby_name, "%s", (name && *name) ? name : "OpenCNC3D GAME");
     memset(s_have, 0, sizeof s_have);
     memset(s_ack, 0, sizeof s_ack);
     memset(s_ready, 0, sizeof s_ready);
@@ -2862,7 +2898,7 @@ static void nm_test_release_held(void)
     }
 }
 
-/* CNC3D_NETTEST_LATE_BYE's delayed relay: one packet in, sent to `seat` once it is due. A
+/* OPENCNC3D_NETTEST_LATE_BYE's delayed relay: one packet in, sent to `seat` once it is due. A
    full queue sends at once rather than dropping, and the gate that uses the switch checks
    from the logs that the order it wanted really happened. */
 static void nm_test_delay_push(int seat, const unsigned char* p, int n)
@@ -2891,7 +2927,7 @@ static void nm_test_release_delayed(void)
     }
 }
 
-/* CNC3D_NETTEST_LATE_BYE's held goodbye, handed back to the receive loop as though it had
+/* OPENCNC3D_NETTEST_LATE_BYE's held goodbye, handed back to the receive loop as though it had
    just arrived, once this host has run every turn the departing seat sent. Returns its
    length the one time it is due, and 0 otherwise. */
 static int nm_test_late_bye_due(unsigned char* in, NetAddr* from)
@@ -2967,7 +3003,7 @@ static void nm_pump(void)
     if (!s_sock) return;
     if (s_test_held_n > 0) nm_test_release_held();
     if (s_test_delay_n > 0) nm_test_release_delayed();
-    /* A goodbye CNC3D_NETTEST_LATE_BYE held is read first, once it is due. Outside that
+    /* A goodbye OPENCNC3D_NETTEST_LATE_BYE held is read first, once it is due. Outside that
        test the first call returns 0 and this is the plain receive loop. */
     while ((n = nm_test_late_bye_due(in, &from)) > 0
            || (n = net_recv(s_sock, &from, in, (int)sizeof in)) > 0) {
@@ -3019,11 +3055,7 @@ static void nm_pump(void)
                 s_peer_hash_frame[seat][slot] = frame;
                 if (s_my_hash_frame[slot] == frame) {
                     if (s_my_hash[slot] != hash && !s_desynced) {
-                        s_desynced = 1;
-                        s_desync_frame = frame;
-                        printf("NETDESYNC|frame=%u|seat=%u|mine=%08X|peer=%08X|abi=%08X|scen=%08X\n",
-                               frame, seat, s_my_hash[slot], hash, s_abi, s_scen);
-                        fflush(stdout);
+                        nm_say_desync(frame, (int)seat, s_my_hash[slot], hash);
                     } else if (s_my_hash[slot] == hash) {
                         s_synced_frames++;
                     }
@@ -3047,7 +3079,7 @@ static void nm_pump(void)
                relayed packet wears the host's address, so there the packet's seat is the
                only truth there is. */
             if (s_is_host && src > 0 && who != src) continue;
-            /* CNC3D_NETTEST_LATE_BYE: the first goodbye from that seat is held, and repeats
+            /* OPENCNC3D_NETTEST_LATE_BYE: the first goodbye from that seat is held, and repeats
                of it are dropped, until the receive loop hands the held copy back. */
             if (s_is_host && src > 0 && src == s_test_late_from && s_test_late_bye_state != 2) {
                 if (s_test_late_bye_state == 0) {
@@ -3616,11 +3648,7 @@ void nm_note_hash(unsigned frame, unsigned hash)
             if (i == s_seat) continue;
             if (s_peer_hash_frame[i][slot] != frame) continue;
             if (s_peer_hash[i][slot] != hash && !s_desynced) {
-                s_desynced = 1;
-                s_desync_frame = frame;
-                printf("NETDESYNC|frame=%u|seat=%d|mine=%08X|peer=%08X|abi=%08X|scen=%08X\n",
-                       frame, i, hash, s_peer_hash[i][slot], s_abi, s_scen);
-                fflush(stdout);
+                nm_say_desync(frame, i, hash, s_peer_hash[i][slot]);
             } else if (s_peer_hash[i][slot] == hash) {
                 s_synced_frames++;
             }
