@@ -1987,7 +1987,19 @@ static bool water_fx_draw(void)
             if (!c.holes || !cell_shown(c.x, c.y) || !cell_in_view(c.x, c.y)) continue;
             sumY += terrain_corner_y(c.x, c.y); nY++;
         }
-        if (nY > 0) reflOn = water_reflection_render((float)(sumY / nY));
+        if (nY > 0) {
+            /* EVERY Nth FRAME, when asked. The mirror target persists between frames,
+               so a frame that skips the redraw reflects the previous one; the ripple
+               displacement hides a single frame of lag. Always redrawn when there is
+               no previous mirror to show, so a skip can never bind an empty target. */
+            static unsigned reflSerial = 0;
+            static int reflValid = 0;
+            const int every = (int)(g_fx.water_reflect_every + 0.5f);
+            const int due = every <= 1 || !reflValid || (reflSerial % (unsigned)every) == 0;
+            reflSerial++;
+            if (due) { reflOn = water_reflection_render((float)(sumY / nY)); reflValid = reflOn; }
+            else reflOn = 1;
+        }
     }
     int sceneW = 1, sceneH = 1;
     water_scene_grab(&sceneW, &sceneH);

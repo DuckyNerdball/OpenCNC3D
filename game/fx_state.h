@@ -397,6 +397,7 @@ struct FxState {
     float water_refract;              /* how far the ripple bends what is under the water  */
     float water_fresnel;              /* reflection looking straight down; grazing is 1    */
     int   water_reflect_scene;        /* mirror the world into the water, not just a sky   */
+    float water_reflect_every;        /* redraw the mirror every Nth frame; 1 is every frame */
     float water_natural;              /* eases the cobalt toward a greyer, greener water   */
     float water_dark;                 /* plainly darker water, on top of the tint          */
     float water_wake;                 /* a moving boat's trail; 0 draws none               */
@@ -1572,6 +1573,8 @@ static const FxParam FX_PARAMS[] = {
   "how reflective the water is looking straight down; grazing views are always fully reflective" },
 { FXP_BOOL,  "water_reflect_scene", "mirror the world", FXO(water_reflect_scene), 0,1,0,
   "cliffs, buildings and units reflected in the water, drawn once more from under it each frame; off reflects a plain sky" },
+{ FXP_STEP,  "water_reflect_every", "mirror every Nth frame", FXO(water_reflect_every), 1.0f, 4.0f, 1.0f,
+  "the mirror is one more draw of the world; at 2 it is drawn on alternate frames and the ripple hides the frame of lag" },
 { FXP_FLOAT, "water_natural", "natural colour", FXO(water_natural), 0.0f, 1.0f, 0,
   "eases the cartridge's cobalt toward a greyer, greener water; 0 is the console's colour" },
 { FXP_FLOAT, "water_dark", "darkness", FXO(water_dark), 0.0f, 0.5f, 0,
@@ -2490,6 +2493,7 @@ static void fx_defaults(FxState* s)
     s->water_refract = 0.01232f;
     s->water_fresnel = 0.50000f;
     s->water_reflect_scene = 1;
+    s->water_reflect_every = 1.0f;
     s->water_natural = 0.90179f;
     s->water_dark = 0.30804f;
     s->water_wake = 0.03571f;
