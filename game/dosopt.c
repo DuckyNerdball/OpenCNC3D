@@ -99,7 +99,8 @@ static const char *const dopt_vis_elem[DOPT_VE_COUNT] = {
     "New explosions",
     "Ground patches",
     "Terrain relief",
-    "Green pointer"
+    "Green pointer",
+    "Reflection every 2nd frame"
 };
 typedef char dopt_vis_elem_count_check[(sizeof dopt_vis_elem / sizeof dopt_vis_elem[0]
                                         == DOPT_VE_COUNT) ? 1 : -1];
@@ -112,7 +113,7 @@ static const int dopt_rows_n64[] = {
 };
 static const int dopt_rows_enhanced[] = {
     DOPT_VE_UISCALE, DOPT_VE_PERSPECTIVE, DOPT_VE_SMOOTH, DOPT_VE_NEWHUD, DOPT_VE_BILINEAR,
-    DOPT_VE_WATER, DOPT_VE_TREES, DOPT_VE_TIB3D, DOPT_VE_TEXSET, DOPT_VE_INFSET,
+    DOPT_VE_WATER, DOPT_VE_REFLECT_HALF, DOPT_VE_TREES, DOPT_VE_TIB3D, DOPT_VE_TEXSET, DOPT_VE_INFSET,
     DOPT_VE_GAMMA, DOPT_VE_SUPERSAMPLE, DOPT_VE_SHADOWS, DOPT_VE_OCCLUSION, DOPT_VE_LIGHT,
     DOPT_VE_BLOOM, DOPT_VE_GRADE, DOPT_VE_CRT
 };
@@ -187,7 +188,8 @@ static const char *const dopt_infset_name[DOPT_INF_COUNT] = {
 static const char *const dopt_gp_row[DOPT_G_TOGGLES] = {
     "Swap mouse buttons",
     "Right button scrolls",
-    "Credit tick sound"
+    "Credit tick sound",
+    "Swap WASD and arrows"
 };
 
 const char *dopt_gp_label(int item)

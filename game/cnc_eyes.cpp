@@ -22826,6 +22826,7 @@ static void prof_from_rows(DOPT_Profile* p, const float* rows, int mode)
     for (k = 0; k < sizeof VIS_FXR / sizeof VIS_FXR[0]; k++)
         p->elem[VIS_FXR[k].elem] = r[VIS_FXR[k].fxr] >= 0.5f ? 1 : 0;
     p->elem[DOPT_VE_SUPERSAMPLE] = (r[FXR_SS] > 1.001f) ? 1 : 0;
+    p->elem[DOPT_VE_REFLECT_HALF] = (r[FXR_REFLECT_EVERY] >= 1.5f) ? 1 : 0;
     p->texset      = vis_clampi(r[FXR_TEXSET], 0, DOPT_TEX_COUNT - 1);
     p->infset      = vis_clampi(r[FXR_INFSET], 0, DOPT_INF_COUNT - 1);
     p->uiscale     = vis_clampi(r[FXR_UISCALE], 0, DOPT_UI_COUNT - 1);
@@ -22840,6 +22841,7 @@ static void rows_from_prof(float* r, const DOPT_Profile* p, float ss_was)
     size_t k;
     for (k = 0; k < sizeof VIS_FXR / sizeof VIS_FXR[0]; k++)
         r[VIS_FXR[k].fxr] = p->elem[VIS_FXR[k].elem] ? 1.0f : 0.0f;
+    r[FXR_REFLECT_EVERY] = p->elem[DOPT_VE_REFLECT_HALF] ? 2.0f : 1.0f;
     if (!p->elem[DOPT_VE_SUPERSAMPLE])     r[FXR_SS] = 1.0f;
     else if (ss_was > 1.001f)              r[FXR_SS] = ss_was;
     else r[FXR_SS] = g_visSSRemembered > 1.001f ? g_visSSRemembered : 2.0f;
@@ -22904,6 +22906,7 @@ static void gp_from_fx(DOPT_Gameplay* g)
     g->on[DOPT_G_SWAPBTN]  = g_fx.swap_buttons ? 1 : 0;
     g->on[DOPT_G_RPUSH]    = g_fx.right_drag_scroll ? 1 : 0;
     g->on[DOPT_G_CASHTICK] = g_fx.cash_tick ? 1 : 0;
+    g->on[DOPT_G_WASD]     = g_fx.wasd_scroll ? 1 : 0;
 }
 
 static void opt_apply_gameplay(void* user, const DOPT_Gameplay* g)
@@ -22913,6 +22916,7 @@ static void opt_apply_gameplay(void* user, const DOPT_Gameplay* g)
     g_fx.swap_buttons      = g->on[DOPT_G_SWAPBTN];
     g_fx.right_drag_scroll = g->on[DOPT_G_RPUSH];
     g_fx.cash_tick         = g->on[DOPT_G_CASHTICK];
+    g_fx.wasd_scroll       = g->on[DOPT_G_WASD];
 }
 
 /* Defined beside confine_automated, which this is a question to. */
@@ -40960,6 +40964,17 @@ int game_loop(SDL_Window* win, const GameOpts* o)
                          || e.key.keysym.scancode == SDL_SCANCODE_E)) {
                 /* flying */
             }
+            /* WASD SCROLL claims the same four letters the fly camera does, for the same
+               reason: the pan reads the polled keyboard further down, and this only keeps
+               the key from also firing its order. Ctrl or Cmd gives the key back. */
+            else if (g_fx.wasd_scroll && e.type == SDL_KEYDOWN
+                     && !(SDL_GetModState() & (KMOD_CTRL | KMOD_GUI))
+                     && (e.key.keysym.scancode == SDL_SCANCODE_W
+                         || e.key.keysym.scancode == SDL_SCANCODE_A
+                         || e.key.keysym.scancode == SDL_SCANCODE_S
+                         || e.key.keysym.scancode == SDL_SCANCODE_D)) {
+                /* panning */
+            }
             else if (e.type == SDL_KEYDOWN) {
                 /* CONTROL GROUPS COME FIRST, AND OFF THE SCANCODE RATHER THAN THE KEYSYM.
                    SDL_SCANCODE_1..9 then 0 are PHYSICAL top-row positions and are
@@ -41245,6 +41260,9 @@ int game_loop(SDL_Window* win, const GameOpts* o)
                    stop without also nudging the camera. */
                 /* S already means stop. In edit mode Ctrl+S saves the map, and a bare
                    S still stops whatever is selected, so neither meaning is lost. */
+                case SDLK_DOWN:
+                    if (!g_fx.wasd_scroll) break;
+                    /* fall through: the swap puts stop on the key under S */
                 case SDLK_s:
                     if (g_editOn && (SDL_GetModState() & (KMOD_CTRL | KMOD_GUI))) edit_save();
                     else ui_stop();
@@ -41264,6 +41282,9 @@ int game_loop(SDL_Window* win, const GameOpts* o)
                    (options.cpp:100), the multiplayer ally toggle, which this build has no
                    use for. Editor-gated like H and D: the verb arms an order against the
                    GAME's selection, which is not the editor's document. */
+                case SDLK_LEFT:
+                    if (!g_fx.wasd_scroll) break;
+                    /* fall through: attack-move on the key under A */
                 case SDLK_a:
                     if (!g_editOn) am_toggle();
                     break;
@@ -41283,6 +41304,9 @@ int game_loop(SDL_Window* win, const GameOpts* o)
                    build binds nothing to D at all. Editor-gated: it calls sb_start, and a
                    construction begun inside a frozen editor world is a change to the
                    mission that nothing on screen reports. */
+                case SDLK_RIGHT:
+                    if (!g_fx.wasd_scroll) break;
+                    /* fall through: rebuild on the key under D */
                 case SDLK_d:
                     if (!g_editOn) ui_rebuild_last();
                     break;
@@ -42543,10 +42567,18 @@ int game_loop(SDL_Window* win, const GameOpts* o)
         if (ks) {
         /* Arrows only: S is the stop order now (and G is guard), so WASD panning is
            gone rather than firing orders and camera moves off the same key. */
+        if (g_fx.wasd_scroll && !g_editOn && !g_freeCam
+            && !(SDL_GetModState() & (KMOD_CTRL | KMOD_GUI))) {
+            if (ks[SDL_SCANCODE_A]) dc -= 1.0f;
+            if (ks[SDL_SCANCODE_D]) dc += 1.0f;
+            if (ks[SDL_SCANCODE_W]) dr -= 1.0f;
+            if (ks[SDL_SCANCODE_S]) dr += 1.0f;
+        } else {
         if (ks[SDL_SCANCODE_LEFT])  dc -= 1.0f;
         if (ks[SDL_SCANCODE_RIGHT]) dc += 1.0f;
         if (ks[SDL_SCANCODE_UP])    dr -= 1.0f;
         if (ks[SDL_SCANCODE_DOWN])  dr += 1.0f;
+        }
         if (dc != 0.0f && dr != 0.0f) { dc *= 0.70710678f; dr *= 0.70710678f; }
         if (dc != 0.0f || dr != 0.0f)
             pan_screen_px(dc * KEY_SPEED * dt, dr * KEY_SPEED * dt, dw, dh);

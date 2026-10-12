@@ -843,6 +843,7 @@ typedef enum
     DOPT_VE_PATCHES,    /* mottle_on: the ground patches                            */
     DOPT_VE_RELIEF,     /* experimental_relief: the terrain displacement            */
     DOPT_VE_POINTER,    /* curgreen_on: the green pointer                           */
+    DOPT_VE_REFLECT_HALF, /* water_reflect_every 2: the water mirror on alternate frames */
     DOPT_VE_COUNT
 } DOPT_VisElem;
 
@@ -1113,6 +1114,9 @@ typedef enum
        readout still steps, silently. A sound rather than a picture, so it lives here and
        not on the Visuals page, for the reason the two above it do. */
     DOPT_G_CASHTICK,
+    /* ON, W A S D pan the map and the arrow keys take the orders by position: left
+       attack-move, down stop, right rebuild. OFF by default, the shipped binding. */
+    DOPT_G_WASD,
     DOPT_G_TOGGLES,
     DOPT_G_OK = DOPT_G_TOGGLES,
     DOPT_G_COUNT

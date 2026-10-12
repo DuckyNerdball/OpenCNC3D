@@ -70,7 +70,7 @@ enum {
     FXR_TREES, FXR_TIB3D, FXR_TEXSET, FXR_INFSET, FXR_GAMMA, FXR_SS, FXR_SHADOWS, FXR_AO,
     FXR_LIGHT, FXR_BLOOM, FXR_GRADE, FXR_CRT, FXR_GRASS, FXR_FOLIAGE, FXR_ROCKS,
     FXR_SOLDIERS, FXR_MODELS, FXR_UVFX, FXR_PATCHES, FXR_RELIEF, FXR_POINTER,
-    FXR_NEWAUDIO, FXR_COUNT
+    FXR_NEWAUDIO, FXR_REFLECT_EVERY, FXR_COUNT
 };
 
 struct FxState {
@@ -184,6 +184,7 @@ struct FxState {
           default. Like the one above it this is NOT under the master switch: CLASSIC
           governs the picture, and how the game is driven stays the player's. */
     int   right_drag_scroll;
+    int   wasd_scroll;                /* W A S D pan like the arrows; S, A, D orders want Ctrl */
 
     /* 0g. THE CREDIT TICK. The credits readout sounds a short tone on every step it takes
           toward the bank: TONE15 going up, TONE16 going down, the two clips the 1995 game
@@ -1188,6 +1189,7 @@ static const FxModeRow FX_MODE_ROWS[FXR_COUNT] = {
     { "experimental_relief", FXO(experimental_relief), 1 },
     { "curgreen_on",         FXO(curgreen_on),         1 },
     { "new_audio",           FXO(new_audio),           1 },
+    { "water_reflect_every", FXO(water_reflect_every), 0 },
 };
 
 /* The names the saved preset writes the modes under: `mode.enhanced.bloom_on 1`. */
@@ -1396,6 +1398,8 @@ static const FxParam FX_PARAMS[] = {
   "select/order moves to the right button; off is the shipped binding" },
 { FXP_BOOL,  "right_drag_scroll", "right button scrolls", FXO(right_drag_scroll), 0,1,0,
   "hold the right button and push: the view follows. off = the right button only cancels" },
+{ FXP_BOOL,  "wasd_scroll", "swap WASD and arrows", FXO(wasd_scroll), 0,1,0,
+  "W A S D pan the map and the arrows take the orders by position: left attack-move, down stop, right rebuild. off = the shipped binding" },
 { FXP_BOOL,  "cash_tick", "credit tick sound", FXO(cash_tick), 0,1,0,
   "the credits readout's step tone (TONE15 up, TONE16 down); off = the readout moves silently" },
 { FXP_BOOL,  "enabled", "post chain", FXO(enabled), 0,1,0,
@@ -2368,6 +2372,7 @@ static void fx_defaults(FxState* s)
        looking for it. Harmless to the gates because it arms only from a real
        right-button press that has travelled past the click threshold. */
     s->right_drag_scroll = 1;
+    s->wasd_scroll = 0;
 
     /* ON: it is what both source games did. Harmless to the picture gates, which are
        silent runs; the sound gates that measure a silent stretch turn it off by name. */
