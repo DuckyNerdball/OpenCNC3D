@@ -2001,6 +2001,7 @@ static bool water_fx_draw(void)
             else reflOn = 1;
         }
     }
+    fprof_mark("water: mirror");
     int sceneW = 1, sceneH = 1;
     water_scene_grab(&sceneW, &sceneH);
     fx_sun_dir();

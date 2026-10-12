@@ -150,6 +150,7 @@ static void cnc_screen_viewport(int w, int h)
 #include "remaster_tex.h" /* and reading its terrain art, at runtime, never shipped */
 #include "remaster_inf.h" /* and its infantry sprites, on the same footing */
 #include "dosinf_dotable.h" /* the engine's own (Frame, Count, Jump) per action */
+static void fprof_mark(const char* name);   /* the frame profiler; defined with draw_frame */
 #include "fx_post.h"
 #include "fx_panel.h"
 #include "fullscreen.h"
@@ -4998,8 +4999,10 @@ static void refresh_objects(void)
             g_vanished.erase(g_vanished.begin() + (long)k);
     }
 
+    fprof_mark("tick: brain + prep");
     if (!capture_brain_call(BrainDump))
         return;
+    fprof_mark("tick: dump write");
     char line[512];
     int frameno = g_engineFrame;
     while (fgets(line, sizeof(line), g_capture)) {
@@ -5407,6 +5410,7 @@ static void refresh_objects(void)
         }
         g_objects.push_back(o);
     }
+    fprof_mark("tick: dump parse");
 
     /* THE DESYNC ALARM'S INPUT: the same dump this loop just read, hashed, once per engine
        frame. Free, because the brain already printed the whole world for the renderer. */

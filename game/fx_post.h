@@ -1948,6 +1948,7 @@ static void fx_world_end(void)
         bakeOn = 1;
     }
 
+    fprof_mark("post: normals + bake");
     /* ---- 1. shadow, occlusion and light ---- */
     const FxRT* litSrc = &g_fxScene;
     if (fx_rt_init(&g_fxLit, rw, rh, FX_RT_COLOUR | fx_hdr_want(), GL_LINEAR)) {
@@ -2161,6 +2162,7 @@ static void fx_world_end(void)
 
     litSrc = atmosphere_apply(litSrc, rw, rh);
 
+    fprof_mark("post: light");
     /* ---- 2. bloom ---- */
     int bloomReady = 0;
     if (g_fx.bloom_on) {
@@ -2200,6 +2202,7 @@ static void fx_world_end(void)
         }
     }
 
+    fprof_mark("post: bloom");
     /* ---- 3. resolve to native ---- */
     /* 1 | 2 = COLOUR AND DEPTH, and the depth half is load-bearing rather than tidy.
        The HUD is drawn INTO this target (fx_rt_bind just below the resolve), and the
@@ -2264,6 +2267,7 @@ static void fx_world_end(void)
         glDisable(GL_TEXTURE_2D); glActiveTexture(GL_TEXTURE0);
     }
 
+    fprof_mark("post: resolve");
     /* ---- 3b. a layer the host lays over the finished view ----
        The Unity explosion (unityvfx_mod.h): after the grade and the gamma, because it
        brings its own tonemap and must not be graded twice, and before the CRT and the
