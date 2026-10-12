@@ -42,6 +42,27 @@ which is also how CI builds it.
 tools/win/setup-toolchain.sh          # once: fetches the two SDKs mingw-w64 lacks, into ~/.opencnc3d-winsdk
 ```
 
+**Windows binaries from Linux**: the same scripts run unchanged on Ubuntu 24.04 with the
+distribution's mingw-w64 packages. Two things the macOS path never meets: Ubuntu ships
+the i686 compiler in a `win32` and a `posix` thread flavour and defaults to `win32`, while
+Homebrew's mingw-w64, which the macOS path builds with, is `posix`, so point the
+alternatives at `posix` to build what they build; and `setup-toolchain.sh` checks for the
+x86_64 compiler as well, which the `mingw-w64` metapackage brings along.
+
+```
+sudo apt install -y build-essential cmake mingw-w64 g++-mingw-w64-i686 python3-pil python3-numpy
+sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix
+sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix
+i686-w64-mingw32-g++ --version | head -1     # must end in -posix, not -win32
+tools/win/setup-toolchain.sh
+tools/win/build-win.sh                        # binaries land in build/win/
+```
+
+`tools/win/make-build-win.sh` is not part of this path: it packages the Windows binaries
+with the data in `~/CNC3D/playable`, which only `game/make-build.sh` on macOS produces.
+On Linux, stop at `build-win.sh` and copy `build/win/*.exe` and `*.dll` over an unzipped
+release package to run them.
+
 **Both** need Python 3 with `pillow` and `numpy` for the extraction and baking tools.
 
 ## 3. The brain
