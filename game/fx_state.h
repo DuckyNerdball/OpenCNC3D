@@ -236,6 +236,7 @@ struct FxState {
     float shadow_ox, shadow_oz;       /* box centre offset from the view, in cells     */
     float shadow_res;                 /* shadow map edge, quantised to a power of two  */
     float shadow_every;               /* redraw the sun map every Nth frame; 1 is every */
+    float mesh_cache_mb;              /* the remastered buildings' GPU cache, in MB      */
     float shadow_r, shadow_g, shadow_b;/* what a shadowed pixel is multiplied BY       */
     int   shadow_terrain;             /* let the ground cast into itself (hills)       */
     float terrain_shadow_strength;   /* terrain casters only; object shadows retain their strength */
@@ -1472,6 +1473,8 @@ static const FxParam FX_PARAMS[] = {
 { FXP_FLOAT, "shadow_ox", "box east", FXO(shadow_ox), -24.0f, 24.0f, 0, "cells" },
 { FXP_FLOAT, "shadow_oz", "box south", FXO(shadow_oz), -24.0f, 24.0f, 0, "cells" },
 { FXP_STEP,  "shadow_res", "map size", FXO(shadow_res), 512.0f, 4096.0f, 512.0f, "" },
+{ FXP_STEP,  "mesh_cache_mb", "building cache MB", FXO(mesh_cache_mb), 128.0f, 4096.0f, 128.0f,
+  "video memory the remastered buildings may keep across frames; a base that outgrows it is rebuilt on the CPU every frame" },
 { FXP_STEP,  "shadow_every", "map every Nth frame", FXO(shadow_every), 1.0f, 4.0f, 1.0f,
   "the sun map is one more draw of the world; at 2 it is drawn on alternate frames, and always when the view moved" },
 { FXP_FLOAT, "shadow_r", "shadow red", FXO(shadow_r), 0.0f, 1.0f, 0, "" },
@@ -2449,6 +2452,7 @@ static void fx_defaults(FxState* s)
     s->shadow_ox = 11.57143f; s->shadow_oz = 7.71428f;
     s->shadow_res = 4096.0f;
     s->shadow_every = 1.0f;
+    s->mesh_cache_mb = 1024.0f;
     s->shadow_r = 0.49107f; s->shadow_g = 0.58000f; s->shadow_b = 0.68750f;
     s->shadow_terrain = 1;
     s->terrain_shadow_strength = 0.69643f;

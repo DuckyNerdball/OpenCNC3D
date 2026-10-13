@@ -36,8 +36,16 @@ static const MeshBatchEntry* mesh_batch_frame_find(const std::string& key) {
     auto it=g_meshFrameCache.find(key);
     return it==g_meshFrameCache.end()?NULL:&it->second;
 }
+/* THE CACHE'S CEILING, from the dial, in bytes; never under 128 MB so a preset that
+   zeroes it cannot turn the cache off by accident. */
+static size_t mesh_batch_cap(void) {
+    float mb = g_fx.mesh_cache_mb;
+    if (!(mb >= 128.0f)) mb = 128.0f;
+    if (mb > 8192.0f) mb = 8192.0f;
+    return (size_t)mb * 1024u * 1024u;
+}
 static GLuint mesh_batch_frame_store(size_t bytes) {
-    const size_t cap=64u*1024u*1024u;
+    const size_t cap=mesh_batch_cap()/2;
     if(g_meshFrameNext>=2048 || bytes>cap) return 0;
     if(g_meshFrameNext==g_meshFrameStores.size()) g_meshFrameStores.push_back({});
     auto& s=g_meshFrameStores[g_meshFrameNext];
@@ -334,7 +342,7 @@ struct MeshBatch {
         gr_glBindBuffer(GL_ARRAY_BUFFER,(GLuint)bound);
         if(frameStore && entry.vbo) g_meshFrameCache[key]=entry;
         if(keep && entry.vbo) {
-            const size_t cap=128u*1024u*1024u;
+            const size_t cap=mesh_batch_cap();
             while(!g_meshBatchCache.empty() && (g_meshBatchBytes+entry.bytes>cap || g_meshBatchCache.size()>=2048)) {
                 auto oldest=g_meshBatchCache.begin();
                 for(auto it=g_meshBatchCache.begin();it!=g_meshBatchCache.end();++it)
