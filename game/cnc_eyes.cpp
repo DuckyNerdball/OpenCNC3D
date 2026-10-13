@@ -151,6 +151,8 @@ static void cnc_screen_viewport(int w, int h)
 #include "remaster_inf.h" /* and its infantry sprites, on the same footing */
 #include "dosinf_dotable.h" /* the engine's own (Frame, Count, Jump) per action */
 static void fprof_mark(const char* name);   /* the frame profiler; defined with draw_frame */
+/* the caster function serves the sun map and the mirror: one mark name per pass */
+static void fprof_cast(const char* sun, const char* mirror);
 static bool object_off_box(const struct SimObject& o);   /* the per-pass object cull; with the caster boxes */
 #include "fx_post.h"
 #include "fx_panel.h"
@@ -27488,19 +27490,25 @@ static void fx_draw_terrain_normals(void)
     }
     draw_cliff_relief(true, false, 1, 1);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    fprof_mark("normals: ground");
     /* AND THE TREES, into the same buffer with the foliage state in their alpha. */
     tree3d_draw_normals();
+    fprof_mark("normals: trees");
     /* AND THE SCATTERED BUSHES AND CLUMPS, the same way (foliage3d_mod.h). */
     if (g_fx.tree3d_normals) foliage3d_draw(FOL_NRM, 0, 0.0f, 0.0f, 0.0f, 0.0f);
+    fprof_mark("normals: foliage");
     /* AND THE AUTHORED HULLS, with theirs. */
     m3_draw_object_normals();
+    fprof_mark("normals: models + soldiers");
     /* AND EVERY STRUCTURE'S CLASS, while the F5 panel's STRUCTURES group is in use, so
        the cartridge's buildings and walls can be told apart; the remasters then draw
        theirs over it */
     str_draw_class();
+    fprof_mark("normals: structure class");
     /* AND THE REMASTERED BUILDINGS AND WALLS, with theirs and a class of their own
        (ebld_mod.h), self-lit surfaces marked */
     ebld_draw_normals();
+    fprof_mark("normals: buildings");
     /* AND THE REMASTERED CRATES, FIELD OVERLAYS AND WRECK (ebld_terr.h) */
     eterr_draw_normals();
     /* AND THE OBELISK'S BEAM, last: the self-lit class over whatever its core crosses
@@ -27773,6 +27781,10 @@ static inline bool tree3d_cell_casts(int x, int y)
     return cell_in_box(x, y, g_treeCullPad, g_castX0, g_castX1, g_castZ0, g_castZ1);
 }
 
+static void fprof_cast(const char* sun, const char* mirror)
+{
+    fprof_mark(g_fxCasterPass == FXCAST_REFLECT ? mirror : sun);
+}
 static void fx_draw_shadow_casters(void)
 {
     /* First, because the object loop below asks it once per tree. */
@@ -27834,6 +27846,7 @@ static void fx_draw_shadow_casters(void)
         if (separateTerrain) fx_rt_bind(&g_fxShadow);
     }
 
+    fprof_cast("sun: terrain", "mirror: terrain");
     /* the sun map and the reflection are a pass each, so the first tree drawn in either
        sets the tree program's constants afresh (tree3d_pass_reset) */
     tree3d_pass_reset();
@@ -27907,6 +27920,8 @@ static void fx_draw_shadow_casters(void)
                 draw_mesh(rmi, r.wx, r.wz, draw_facing(r), mode,
                           turret_delta(r), rotor_spin(r), mesh_house(r), 1.0f, r.ylift);
         }
+        fprof_cast(pass ? "sun: objects cutout" : "sun: objects opaque",
+                   pass ? "mirror: objects cutout" : "mirror: objects opaque");
         /* THE REMASTERED BUILDINGS' PIECES cast and reflect too (ebld_mod.h): the old
            shatter's pieces never reached this loop, which is why they cast nothing. */
         ebld_draw(mode, false);
@@ -27918,9 +27933,11 @@ static void fx_draw_shadow_casters(void)
         }
         /* THE SCATTERED BUSHES AND CLUMPS cast like the trees, alpha-cut, and only
            within the box this pass draws into (foliage3d_mod.h). */
+        fprof_cast("sun: pieces walls fields", "mirror: pieces walls fields");
         if (pass && !skipTrees)
             foliage3d_draw(FOL_CAST, g_castCullOn ? 1 : 0,
                            g_castX0, g_castX1, g_castZ0, g_castZ1);
+        if (pass) fprof_cast("sun: foliage", "mirror: foliage");
     }
     tree3d_pass_reset();
     g_meshSunDepth = 0;
@@ -27946,6 +27963,7 @@ static void fx_draw_shadow_casters(void)
     }
     if (g_infantryDraw) m3inf_draw_corpses();
     g_spriteShadowPass = false;
+    fprof_cast("sun: infantry", "mirror: infantry");
 
     glDisable(GL_ALPHA_TEST);
     g_m3CasterDepth = 0;
@@ -28289,7 +28307,7 @@ static void terrain_range_refresh(void)
 static int    g_fpOn = -1;
 static Uint64 g_fpFrame0 = 0, g_fpLast = 0, g_fpWin0 = 0;
 struct FpSec { const char* name; double ms, sum; };
-static FpSec  g_fpSec[40];
+static FpSec  g_fpSec[64];
 static int    g_fpN = 0, g_fpFrames = 0;
 static double g_fpWinSum = 0.0, g_fpWinWorst = 0.0;
 static double fprof_now_ms(Uint64 a, Uint64 b)
@@ -28311,7 +28329,7 @@ static void fprof_mark(const char* name)
     int k = 0;
     while (k < g_fpN && g_fpSec[k].name != name) k++;
     if (k == g_fpN) {
-        if (g_fpN >= 40) return;
+        if (g_fpN >= 64) return;
         g_fpSec[k].name = name; g_fpSec[k].ms = 0.0; g_fpSec[k].sum = 0.0; g_fpN++;
     }
     g_fpSec[k].ms += fprof_now_ms(g_fpLast, t);
