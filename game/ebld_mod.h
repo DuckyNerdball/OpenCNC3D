@@ -5695,8 +5695,9 @@ static bool ebld_shroud_clear(const EbldBld& E)
    and keep drawing it. */
 static bool ebld_off_screen(const EbldBld& E, bool aux)
 {
-    if (aux || !g_cullValid || !g_cullOn) return false;
     const float r = 0.5f * (float)(E.fw > E.fh ? E.fw : E.fh) + 3.5f + 3.0f;
+    if (aux) return caster_box_off(E.wx, E.wz, r);   /* the sun's or the mirror's own box */
+    if (!g_cullValid || !g_cullOn) return false;
     return E.wx + r < g_cullX0 || E.wx - r > g_cullX1 || E.wz + r < g_cullZ0 || E.wz - r > g_cullZ1;
 }
 
@@ -6518,8 +6519,11 @@ static void ebld_draw_normals(void)
             if (o.kind != K_BUILDING || !visible(o)) continue;
             if (ebld_draw_object(mesh_for(o), o, pass)) g_ebldNrmDraws++;
         }
+        fprof_mark(pi ? "normals: buildings cutout" : "normals: buildings opaque");
         ebld_draw(pass, false);
+        fprof_mark("normals: pieces");
         draw_walls(pi ? WALLPASS_CUTOUT : WALLPASS_OPAQUE);
+        fprof_mark("normals: walls");
     }
     g_meshNrmOut = 0;
     g_m3NormalPass = was3;

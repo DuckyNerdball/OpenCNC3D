@@ -154,6 +154,7 @@ static void fprof_mark(const char* name);   /* the frame profiler; defined with 
 /* the caster function serves the sun map and the mirror: one mark name per pass */
 static void fprof_cast(const char* sun, const char* mirror);
 static bool object_off_box(const struct SimObject& o);   /* the per-pass object cull; with the caster boxes */
+static bool caster_box_off(float wx, float wz, float r); /* off the sun's or the mirror's box; with the caster boxes */
 #include "fx_post.h"
 #include "fx_panel.h"
 #include "fullscreen.h"
@@ -27688,6 +27689,15 @@ static float g_castX0 = 0.0f, g_castX1 = 0.0f, g_castZ0 = 0.0f, g_castZ1 = 0.0f;
    The room around the footprint is the same a remaster's thrown piece gets
    (ebld_off_screen): half the footprint, plus 6.5 cells for height and slop. A pass
    with no box on draws everything, as before. */
+/* A POINT WITH REACH r, AGAINST THE PASS'S CASTER BOX: true when the current sun or
+   mirror pass has a box and the circle lies wholly outside it. Outside a caster pass,
+   or with no box fitted, nothing is refused. */
+static bool caster_box_off(float wx, float wz, float r)
+{
+    if (!g_fx.cull_objects || !g_clip_to_map) return false;
+    if (!(g_m3CasterDepth || g_m3Mirrored) || !g_castCullOn) return false;
+    return wx + r < g_castX0 || wx - r > g_castX1 || wz + r < g_castZ0 || wz - r > g_castZ1;
+}
 static bool object_off_box(const SimObject& o)
 {
     if (!g_fx.cull_objects || !g_clip_to_map) return false;
@@ -27925,11 +27935,15 @@ static void fx_draw_shadow_casters(void)
         /* THE REMASTERED BUILDINGS' PIECES cast and reflect too (ebld_mod.h): the old
            shatter's pieces never reached this loop, which is why they cast nothing. */
         ebld_draw(mode, false);
+        fprof_cast("sun: pieces", "mirror: pieces");
         evhc_draw_wrecks(mode, false);
+        fprof_cast("sun: wrecks", "mirror: wrecks");
         draw_walls(pass ? WALLPASS_CUTOUT : WALLPASS_OPAQUE);
+        fprof_cast("sun: walls", "mirror: walls");
         if (!pass) {
             draw_fields(MODE_OPAQUE);   /* no cutout faces in any field mesh */
             eterr_draw_aux(MODE_OPAQUE, 0);   /* the remastered crates and wreck */
+            fprof_cast("sun: fields crates", "mirror: fields crates");
         }
         /* THE SCATTERED BUSHES AND CLUMPS cast like the trees, alpha-cut, and only
            within the box this pass draws into (foliage3d_mod.h). */
@@ -28355,6 +28369,13 @@ static void fprof_end(void)
         printf("FRAMEPROF|frames=%d|mean=%.2f|worst=%.1f", g_fpFrames, mean, g_fpWinWorst);
         for (int k = 0; k < g_fpN; k++)
             printf("|%s=%.2f", g_fpSec[k].name, g_fpSec[k].sum / (double)g_fpFrames);
+        {
+            /* the buildings' batch cache over this window: a rebuild is an upload */
+            static unsigned long lh = 0, lu = 0, lf = 0, ld = 0;
+            printf("|mesh: hits=%lu uploads=%lu frameHits=%lu draws=%lu",
+                   g_meshBatchHits - lh, g_meshBatchUploads - lu, g_meshFrameHits - lf, g_meshBatchDraws - ld);
+            lh = g_meshBatchHits; lu = g_meshBatchUploads; lf = g_meshFrameHits; ld = g_meshBatchDraws;
+        }
         printf("\n");
         fflush(stdout);
         for (int k = 0; k < g_fpN; k++) g_fpSec[k].sum = 0.0;
@@ -29554,6 +29575,7 @@ static void draw_frame(int fbw, int fbh)
        a building the player has selected and can see. BEFORE the sidebar block, so the
        panel paints over it -- the same ordering rule the health bars follow. */
     draw_primary_labels(fbw, fbh);
+    fprof_mark("hud: labels");
 
     /* 8b: the sidebar, plus the engine's placement verdict painted on the ground. The
        radar is no longer a separate pass: it is plotted into the sidebar's own 8-bit
@@ -29571,6 +29593,7 @@ static void draw_frame(int fbw, int fbh)
        that only happens while the page is open. Every frame, either way. */
     codex_audio_step((double)SDL_GetTicks());
     codex_draw(fbw, fbh);
+    fprof_mark("hud: codex");
 
     if (sb_enabled()) {
         begin_overlay(fbw, fbh);
@@ -29581,6 +29604,7 @@ static void draw_frame(int fbw, int fbh)
         sb_draw_tooltip(fbw, fbh);
         end_overlay();
     }
+    fprof_mark("hud: sidebar");
 
     draw_band(fbw, fbh);
     draw_marks(fbw, fbh);
@@ -29590,6 +29614,7 @@ static void draw_frame(int fbw, int fbh)
     if (!g_cxOpen && g_camHud) draw_cam_hud(fbw, fbh);
     draw_script_feed(fbw, fbh);
     draw_chat_feed(fbw, fbh);
+    fprof_mark("hud: band marks feeds");
 
     /* Do_Win / Do_Lose, the announcement half. THE CONSOLE DOES NOT PRINT TEXT: it
        covers the whole screen -- battlefield and sidebar alike -- with two BLACK.IMG
@@ -29647,8 +29672,10 @@ static void draw_frame(int fbw, int fbh)
        due or on screen: a pointer drawn before it would be frozen into the snapshot and
        then covered by it on the side the line has not reached. */
     const bool pointerLate = fxp_is_open() || gmw_holds_pointer();
+    fprof_mark("hud: verdict");
     if (pointerNow && !pointerLate)
         draw_cursor_top(fbw, fbh);
+    fprof_mark("hud: cursor");
 
     /* TIER 2. The finished picture goes onto the real framebuffer, through the CRT if
        that is covering the sidebar too. Then the graphics mode wipe, over the finished
