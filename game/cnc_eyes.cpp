@@ -12225,7 +12225,7 @@ static bool g_clumpTrees = true;
 
 static void tree3d_draw_normals(void)
 {
-    if (!g_fx.tree3d || !g_tree3dHave || g_tree3dModel.empty())
+    if (!g_fx.tree3d || !g_fx.tree3d_normals || !g_tree3dHave || g_tree3dModel.empty())
         return;
     const GLuint prog = tree3d_nrm_prog();
     if (!prog)
@@ -27368,7 +27368,7 @@ static void fx_draw_terrain_normals(void)
     /* AND THE TREES, into the same buffer with the foliage state in their alpha. */
     tree3d_draw_normals();
     /* AND THE SCATTERED BUSHES AND CLUMPS, the same way (foliage3d_mod.h). */
-    foliage3d_draw(FOL_NRM, 0, 0.0f, 0.0f, 0.0f, 0.0f);
+    if (g_fx.tree3d_normals) foliage3d_draw(FOL_NRM, 0, 0.0f, 0.0f, 0.0f, 0.0f);
     /* AND THE AUTHORED HULLS, with theirs. */
     m3_draw_object_normals();
     /* AND EVERY STRUCTURE'S CLASS, while the F5 panel's STRUCTURES group is in use, so
@@ -27633,6 +27633,10 @@ static void fx_draw_shadow_casters(void)
 {
     /* First, because the object loop below asks it once per tree. */
     caster_cull_bounds();
+    /* THE MIRROR WITHOUT ITS TREES, when asked (reflect_trees off): a canopy is the
+       densest geometry in the scene and the mirror is its second full draw. The sun
+       pass never skips them; a tree with no shadow is a bug the player can see. */
+    const bool skipTrees = g_fxCasterPass == FXCAST_REFLECT && !g_fx.reflect_trees;
     /* THE AUTHORED MODELS DRAW DEPTH ONLY INTO THE SUN'S BOX. The reflection pass is
        the other caller and it IS looking at colour, so the flag is the pass and not
        the function. Cleared at the end, never left on for the frame's own draw. */
@@ -27714,6 +27718,7 @@ static void fx_draw_shadow_casters(void)
                this pass is drawing into. visible() carries no frustum term, so
                without the test the whole map's trees are submitted twice more. */
             if (tree3d_claims(o)) {
+                if (skipTrees) continue;
                 const bool casts = tree3d_cell_casts(o.cx, o.cy);
                 if (mode == MODE_CUTOUT) {
                     /* counted per PASS, because the two boxes are different sizes for
@@ -27736,6 +27741,7 @@ static void fx_draw_shadow_casters(void)
                 for (int c = 0; cd && c < cd->n; c++) {
                     const int px = o.cx + cd->at[c].dx, py = o.cy + cd->at[c].dy;
                     if (!clump_cell_drawn(px, py)) continue;
+                    if (skipTrees) continue;                  /* a clump is all trees */
                     const SimObject part = clump_part(o, px, py);
                     if (eterr_tree_draw(part, mode)) continue;   /* a remastered tree */
                     if (tree3d_claims(part)) {
@@ -27768,7 +27774,7 @@ static void fx_draw_shadow_casters(void)
         }
         /* THE SCATTERED BUSHES AND CLUMPS cast like the trees, alpha-cut, and only
            within the box this pass draws into (foliage3d_mod.h). */
-        if (pass)
+        if (pass && !skipTrees)
             foliage3d_draw(FOL_CAST, g_castCullOn ? 1 : 0,
                            g_castX0, g_castX1, g_castZ0, g_castZ1);
     }

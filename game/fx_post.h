@@ -1761,14 +1761,40 @@ static void fx_dump_shadow_map(void)
    known, so the sun's box is fitted to the ground the player can actually see this
    frame rather than to last frame's. Renders the map, then puts the world's own
    target and state back exactly as it found them. */
+/* THE SUN MAP HELD OVER FROM THE LAST FRAME THAT DREW IT (shadow_every > 1). The map,
+   its matrix (g_fxSunVP) and the terrain map's flag all belong to that frame and are
+   kept together; the view box it was fitted to is kept so a scroll or a zoom redraws
+   at once rather than showing a map cut to the old view. Nothing is held across a
+   frame that did not draw shadows at all. The soldiers' map is cheap and moves every
+   frame, so it is not held. */
+static int   g_fxShadowHeld = 0;
+static int   g_fxShadowHeldTerrain = 0;
+static float g_fxShadowHeldView[4];
+static unsigned g_fxShadowSerial = 0;
 static void fx_shadow_stage(void)
 {
     g_fxInfLive = 0;
-    g_fxTerrainShadowLive = 0;
-    if (!g_fxActive || !g_fx.shadow_on) return;
+    if (!g_fxActive || !g_fx.shadow_on) { g_fxTerrainShadowLive = 0; g_fxShadowHeld = 0; return; }
     fx_render_inf_shadow_map();
-    fx_render_shadow_map();
-    fx_dump_shadow_map();
+    {
+        const int every = (int)(g_fx.shadow_every + 0.5f);
+        const int moved = !g_fxShadowHeld
+            || g_fxShadowHeldView[0] != g_fxViewX0 || g_fxShadowHeldView[1] != g_fxViewX1
+            || g_fxShadowHeldView[2] != g_fxViewZ0 || g_fxShadowHeldView[3] != g_fxViewZ1;
+        const int due = every <= 1 || moved || (g_fxShadowSerial % (unsigned)every) == 0;
+        g_fxShadowSerial++;
+        if (due) {
+            g_fxTerrainShadowLive = 0;
+            fx_render_shadow_map();
+            fx_dump_shadow_map();
+            g_fxShadowHeld = 1;
+            g_fxShadowHeldTerrain = g_fxTerrainShadowLive;
+            g_fxShadowHeldView[0] = g_fxViewX0; g_fxShadowHeldView[1] = g_fxViewX1;
+            g_fxShadowHeldView[2] = g_fxViewZ0; g_fxShadowHeldView[3] = g_fxViewZ1;
+        } else {
+            g_fxTerrainShadowLive = g_fxShadowHeldTerrain;
+        }
+    }
     fx_rt_bind(&g_fxScene);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
@@ -1911,6 +1937,7 @@ static void fx_world_end(void)
         glClearColor(clearc[0], clearc[1], clearc[2], clearc[3]);
         gnOn = 1;
     }
+    fprof_mark("post: normals");
 
     /* ---- THE BAKE TARGET: the console's own lighting, on its own ------------------
        The same arrangement as the normals above and for the same reasons: the scene's
@@ -1948,7 +1975,7 @@ static void fx_world_end(void)
         bakeOn = 1;
     }
 
-    fprof_mark("post: normals + bake");
+    fprof_mark("post: bake");
     /* ---- 1. shadow, occlusion and light ---- */
     const FxRT* litSrc = &g_fxScene;
     if (fx_rt_init(&g_fxLit, rw, rh, FX_RT_COLOUR | fx_hdr_want(), GL_LINEAR)) {

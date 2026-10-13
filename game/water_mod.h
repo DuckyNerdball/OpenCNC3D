@@ -333,6 +333,7 @@ static int water_reflection_render(float planeY)
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     if (water_src_ra()) ra3d_reflect_ground(); else draw_terrain();
+    fprof_mark("water: mirror ground");
     /* THE CASTER LIST IS NOT LOOKING AT THE SUN HERE. It is the camera's own projection
        with the modelview mirrored, so a caster cull that used the sun's box would throw
        away half the reflection. Named for the host, and put back afterwards so the sun
@@ -341,6 +342,7 @@ static int water_reflection_render(float planeY)
     g_fxCasterPlaneY = planeY;
     g_fxCasters();
     g_fxCasterPass = FXCAST_SUN;
+    fprof_mark("water: mirror casters");
     glDisable(GL_CLIP_PLANE0);
     glPopMatrix();
 

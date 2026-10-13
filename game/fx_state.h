@@ -234,6 +234,7 @@ struct FxState {
     float shadow_span;                /* ortho box size as a multiple of the view rect */
     float shadow_ox, shadow_oz;       /* box centre offset from the view, in cells     */
     float shadow_res;                 /* shadow map edge, quantised to a power of two  */
+    float shadow_every;               /* redraw the sun map every Nth frame; 1 is every */
     float shadow_r, shadow_g, shadow_b;/* what a shadowed pixel is multiplied BY       */
     int   shadow_terrain;             /* let the ground cast into itself (hills)       */
     float terrain_shadow_strength;   /* terrain casters only; object shadows retain their strength */
@@ -398,6 +399,7 @@ struct FxState {
     float water_refract;              /* how far the ripple bends what is under the water  */
     float water_fresnel;              /* reflection looking straight down; grazing is 1    */
     int   water_reflect_scene;        /* mirror the world into the water, not just a sky   */
+    int   reflect_trees;              /* trees and bushes drawn into the mirror too        */
     float water_reflect_every;        /* redraw the mirror every Nth frame; 1 is every frame */
     float water_natural;              /* eases the cobalt toward a greyer, greener water   */
     float water_dark;                 /* plainly darker water, on top of the tint          */
@@ -584,6 +586,7 @@ struct FxState {
          tree3d_burn       how far the engine's own damage takes a tree toward char
          tree3d_lean       how far a tree may lean off vertical, radians */
     int   tree3d;
+    int   tree3d_normals;             /* trees into the ground-normals pass; off = flat  */
     /* REMASTERED EFFECTS. efx_enh: draw the particle effects with the remastered art in
        efx_enh.pack (tools/art/remaster/fx) and add Enhanced mode's own emitters (muzzle
        flashes, the landing-zone flare, efx_enhanced.h). Off = the cartridge's art and
@@ -1445,6 +1448,8 @@ static const FxParam FX_PARAMS[] = {
 { FXP_FLOAT, "shadow_ox", "box east", FXO(shadow_ox), -24.0f, 24.0f, 0, "cells" },
 { FXP_FLOAT, "shadow_oz", "box south", FXO(shadow_oz), -24.0f, 24.0f, 0, "cells" },
 { FXP_STEP,  "shadow_res", "map size", FXO(shadow_res), 512.0f, 4096.0f, 512.0f, "" },
+{ FXP_STEP,  "shadow_every", "map every Nth frame", FXO(shadow_every), 1.0f, 4.0f, 1.0f,
+  "the sun map is one more draw of the world; at 2 it is drawn on alternate frames, and always when the view moved" },
 { FXP_FLOAT, "shadow_r", "shadow red", FXO(shadow_r), 0.0f, 1.0f, 0, "" },
 { FXP_FLOAT, "shadow_g", "shadow green", FXO(shadow_g), 0.0f, 1.0f, 0, "" },
 { FXP_FLOAT, "shadow_b", "shadow blue", FXO(shadow_b), 0.0f, 1.0f, 0, "" },
@@ -1575,6 +1580,8 @@ static const FxParam FX_PARAMS[] = {
   "how far the ripples bend the sea floor seen through the water, as a fraction of the screen" },
 { FXP_FLOAT, "water_fresnel", "reflection floor", FXO(water_fresnel), 0.0f, 0.5f, 0,
   "how reflective the water is looking straight down; grazing views are always fully reflective" },
+{ FXP_BOOL,  "reflect_trees", "trees in the mirror", FXO(reflect_trees), 0,1,0,
+  "the leafy trees and bushes drawn once more into the water mirror; off reflects the ground and buildings only" },
 { FXP_BOOL,  "water_reflect_scene", "mirror the world", FXO(water_reflect_scene), 0,1,0,
   "cliffs, buildings and units reflected in the water, drawn once more from under it each frame; off reflects a plain sky" },
 { FXP_STEP,  "water_reflect_every", "mirror every Nth frame", FXO(water_reflect_every), 1.0f, 4.0f, 1.0f,
@@ -1890,6 +1897,8 @@ static const FxParam FX_PARAMS[] = {
 /* LEAFY TREES. Imported art again, and the group name says so: the geometry is rebuilt
    from a CC0 scan, and the cartridge's own tree model is what Classic keeps drawing. */
 { FXP_GROUP, "",  "12c  LEAFY TREES  (imported)", 0,0,0,0, "" },
+{ FXP_BOOL,  "tree3d_normals", "tree normals", FXO(tree3d_normals), 0,1,0,
+  "the leafy trees drawn once more into the ground-normals pass so the light pass can shade the canopy; off saves the draw and lights the canopy flat" },
 { FXP_BOOL,  "tree3d", "leafy trees", FXO(tree3d), 0,1,0,
   "replace the cartridge's tree model with the rebuilt one; off = the console's tree, which is what Classic draws" },
 { FXP_FLOAT, "tree3d_size", "tree height", FXO(tree3d_size), 0.40f, 2.50f, 0,
@@ -2411,6 +2420,7 @@ static void fx_defaults(FxState* s)
     s->shadow_span = 1.41429f;
     s->shadow_ox = 11.57143f; s->shadow_oz = 7.71428f;
     s->shadow_res = 4096.0f;
+    s->shadow_every = 1.0f;
     s->shadow_r = 0.49107f; s->shadow_g = 0.58000f; s->shadow_b = 0.68750f;
     s->shadow_terrain = 1;
     s->terrain_shadow_strength = 0.69643f;
@@ -2498,6 +2508,7 @@ static void fx_defaults(FxState* s)
     s->water_refract = 0.01232f;
     s->water_fresnel = 0.50000f;
     s->water_reflect_scene = 1;
+    s->reflect_trees = 1;
     s->water_reflect_every = 1.0f;
     s->water_natural = 0.90179f;
     s->water_dark = 0.30804f;
@@ -2608,6 +2619,7 @@ static void fx_defaults(FxState* s)
             the way the crystals are. The wind is deliberately gentle: a tree that waves
             is a tree nobody stops noticing. */
     s->tree3d = 0;
+    s->tree3d_normals = 1;
     /* 12d. REMASTERED EFFECTS, ON under Enhanced. */
     s->efx_enh = 1;
     /* 12d. REMASTERED BUILDING APRONS, ON under Enhanced. */
