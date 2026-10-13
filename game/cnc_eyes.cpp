@@ -28178,8 +28178,14 @@ static double fprof_now_ms(Uint64 a, Uint64 b)
 }
 static void fprof_mark(const char* name)
 {
-    if (g_fpOn < 0) g_fpOn = getenv("OPENCNC3D_FRAMEPROF") ? 1 : 0;
+    if (g_fpOn < 0) {
+        const char* e = getenv("OPENCNC3D_FRAMEPROF");
+        g_fpOn = e ? (atoi(e) >= 2 ? 2 : 1) : 0;
+    }
     if (!g_fpOn) return;
+    /* =2: the GPU is drained at every mark, so a section's time is its own GPU work
+       too, instead of the whole frame's landing on the first call that waits */
+    if (g_fpOn == 2) glFinish();
     const Uint64 t = SDL_GetPerformanceCounter();
     if (!g_fpLast) { g_fpLast = g_fpFrame0 = g_fpWin0 = t; return; }
     int k = 0;
