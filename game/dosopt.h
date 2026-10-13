@@ -850,6 +850,7 @@ typedef enum
     DOPT_VE_TREE_NORMALS,  /* tree3d_normals: trees drawn into the ground-normals pass  */
     DOPT_VE_SHADOW_HALF,   /* shadow_every 2: the sun map on alternate frames           */
     DOPT_VE_SHADOW_SMALL,  /* shadow_res 2048: a quarter of the sun map's texels         */
+    DOPT_VE_MESH_SPLIT,    /* mesh_split: an animated remaster's still parts stay cached */
     DOPT_VE_COUNT
 } DOPT_VisElem;
 

@@ -71,7 +71,7 @@ enum {
     FXR_LIGHT, FXR_BLOOM, FXR_GRADE, FXR_CRT, FXR_GRASS, FXR_FOLIAGE, FXR_ROCKS,
     FXR_SOLDIERS, FXR_MODELS, FXR_UVFX, FXR_PATCHES, FXR_RELIEF, FXR_POINTER,
     FXR_NEWAUDIO, FXR_REFLECT_EVERY, FXR_CULL,
-    FXR_REFLECT_TREES, FXR_TREE_NORMALS, FXR_SHADOW_EVERY, FXR_SHADOW_RES, FXR_COUNT
+    FXR_REFLECT_TREES, FXR_TREE_NORMALS, FXR_SHADOW_EVERY, FXR_SHADOW_RES, FXR_MESH_SPLIT, FXR_COUNT
 };
 
 struct FxState {
@@ -588,6 +588,7 @@ struct FxState {
          tree3d_lean       how far a tree may lean off vertical, radians */
     int   tree3d;
     int   cull_objects;               /* objects outside a pass's box are not submitted */
+    int   mesh_split;                 /* an animated remaster: static tier cached, moving tier live */
     int   tree3d_normals;             /* trees into the ground-normals pass; off = flat  */
     /* REMASTERED EFFECTS. efx_enh: draw the particle effects with the remastered art in
        efx_enh.pack (tools/art/remaster/fx) and add Enhanced mode's own emitters (muzzle
@@ -1200,6 +1201,7 @@ static const FxModeRow FX_MODE_ROWS[FXR_COUNT] = {
     { "tree3d_normals",      FXO(tree3d_normals),      1 },
     { "shadow_every",        FXO(shadow_every),        0 },
     { "shadow_res",          FXO(shadow_res),          0 },
+    { "mesh_split",          FXO(mesh_split),          1 },
 };
 
 /* The names the saved preset writes the modes under: `mode.enhanced.bloom_on 1`. */
@@ -1265,6 +1267,7 @@ FX_STATE_MAYBE_UNUSED static void fx_mode_defaults(FxState* s)
             s->mode_row[modes[k]][FXR_TREE_NORMALS]  = 1.0f;
             s->mode_row[modes[k]][FXR_SHADOW_EVERY]  = 1.0f;
             s->mode_row[modes[k]][FXR_SHADOW_RES]    = 4096.0f;
+            s->mode_row[modes[k]][FXR_MESH_SPLIT]    = 1.0f;
         }
     }
 }
@@ -1920,6 +1923,8 @@ static const FxParam FX_PARAMS[] = {
 { FXP_GROUP, "",  "12c  LEAFY TREES  (imported)", 0,0,0,0, "" },
 { FXP_BOOL,  "tree3d_normals", "tree normals", FXO(tree3d_normals), 0,1,0,
   "the leafy trees drawn once more into the ground-normals pass so the light pass can shade the canopy; off saves the draw and lights the canopy flat" },
+{ FXP_BOOL,  "mesh_split", "cache static building parts", FXO(mesh_split), 0,1,0,
+  "a remastered building with a moving door, fan or flag keeps its still parts on the GPU and redraws only the moving ones; off rebuilds the whole building every frame, as before" },
 { FXP_BOOL,  "cull_objects", "cull off-screen objects", FXO(cull_objects), 0,1,0,
   "a building or vehicle outside the box a pass draws into is not submitted at all; off draws every revealed object on the map in every pass, as before" },
 { FXP_BOOL,  "tree3d", "leafy trees", FXO(tree3d), 0,1,0,
@@ -2643,6 +2648,7 @@ static void fx_defaults(FxState* s)
             is a tree nobody stops noticing. */
     s->tree3d = 0;
     s->cull_objects = 1;
+    s->mesh_split = 1;
     s->tree3d_normals = 1;
     /* 12d. REMASTERED EFFECTS, ON under Enhanced. */
     s->efx_enh = 1;

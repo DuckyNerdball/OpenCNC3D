@@ -1203,7 +1203,14 @@ struct PackMesh { char name[17]; std::vector<PackTri> tris; std::vector<PackPart
                   mutable int gpuHasTread = -1;
                   mutable unsigned gpuSpinRoles = 0;
                   bool gpuDeformed = false;
-                  unsigned gpuPoseRevision = 0; };
+                  unsigned gpuPoseRevision = 0;
+                  /* WHICH TRIANGLES MOVE FROM FRAME TO FRAME (mesh_dyn_classify): a
+                     part the clip moves, a rotor or turret, a sway weight, a running
+                     track, the fan texture. The rest is cached across frames as the
+                     static tier. Empty until the first split draw; the fan texture it
+                     was classified against is kept so a change reclassifies. */
+                  mutable std::vector<unsigned char> gpuDyn;
+                  mutable int gpuDynFanTex = -2; };
 /* gl_gdi is the GDI-house variant of the same texture (PK6): the cartridge keeps two
    resident house TLUTs (GDI sand at ROM 0x98F30, Nod/neutral blue-grey at 0x99130,
    selected per draw by a resident function at RAM 0x80055d08) and the pack bakes CI
@@ -13821,6 +13828,90 @@ static bool mesh_shroud_clear(const PackMesh& m, float cx, float cz)
     return true;
 }
 
+/* THE SHROUD UNDER THE FOOTPRINT, AS A NUMBER: the corner field a per-vertex shroud
+   sample can read, hashed, so a batch built against it can be KEYED on it instead of
+   refused. Zero is the answer every path that needs no shroud gives, so a clear
+   footprint and a shroud-off frame share one key. A footprint too wide to walk gets a
+   key that never repeats (the frame serial), which is the old behaviour: rebuilt. */
+static unsigned mesh_shroud_hash(const PackMesh& m, float cx, float cz)
+{
+    if (g_shroudEditorOff)
+        return 0;
+    if (!g_shroudRimOn && (!g_shroudOn || !g_shroudValid || g_shroudRevealed))
+        return 0;
+    const float r = mesh_xz_reach(m) * fabsf(MODEL_SCALE) + 0.01f;
+    const float x0f = cx - r, x1f = cx + r, z0f = cz - r, z1f = cz + r;
+    if (!(x0f > -4096.0f && x1f < 4096.0f && z0f > -4096.0f && z1f < 4096.0f))
+        return 0x80000000u | g_drawFrameSerial;
+    int x0 = (int)floorf(x0f), x1 = (int)floorf(x1f) + 1;
+    int z0 = (int)floorf(z0f), z1 = (int)floorf(z1f) + 1;
+    const int cw = g_shroudCornW - 1, ch = g_shroudCornH - 1;
+    if (x0 < 0) x0 = 0; else if (x0 > cw) x0 = cw;
+    if (x1 < 0) x1 = 0; else if (x1 > cw) x1 = cw;
+    if (z0 < 0) z0 = 0; else if (z0 > ch) z0 = ch;
+    if (z1 < 0) z1 = 0; else if (z1 > ch) z1 = ch;
+    if ((x1 - x0 + 1) * (z1 - z0 + 1) > 4096)
+        return 0x80000000u | g_drawFrameSerial;
+    shroud_corners_sync();
+    unsigned h = 2166136261u;
+    for (int z = z0; z <= z1; z++)
+        for (int x = x0; x <= x1; x++) {
+            const float a = shroud_corner_a(x, z);
+            unsigned u;
+            memcpy(&u, &a, sizeof u);
+            h = (h ^ u) * 16777619u;
+        }
+    return h ? h : 1u;
+}
+
+/* WHICH OF A MESH'S TRIANGLES CHANGE BETWEEN FRAMES, asked once per mesh. A part is
+   dynamic when its clip gives it a different matrix or visibility on any frame than
+   on the first, or when it spins (rotor, turret). A triangle is dynamic on its own
+   when it carries sway weights, a running track in its wrap byte, or the fan texture.
+   A clip whose every part sits still -- an idle loop that never moves -- comes out
+   all static, which is the case the old test got most wrong. */
+static void mesh_dyn_classify(const PackMesh& mesh, int fanTex)
+{
+    const size_t n = mesh.tris.size(), nparts = mesh.parts.size();
+    mesh.gpuDyn.assign(n, 0);
+    mesh.gpuDynFanTex = fanTex;
+    const bool clip = mesh.animFrames > 1 && nparts > 0
+                   && mesh.animMat.size() >= (size_t)mesh.animFrames * nparts * 12;
+    const bool vis = clip && mesh.animVis.size() >= (size_t)mesh.animFrames * nparts;
+    for (size_t pi = 0; pi < nparts; pi++) {
+        const PackPart& part = mesh.parts[pi];
+        bool moves = part.role == ROLE_ROTOR || part.role == ROLE_TURRET;
+        if (clip) {
+            const float* m0 = &mesh.animMat[pi * 12];
+            for (int f = 1; f < mesh.animFrames && !moves; f++) {
+                const float* mf = &mesh.animMat[((size_t)f * nparts + pi) * 12];
+                for (int q = 0; q < 12; q++)
+                    if (mf[q] != m0[q]) { moves = true; break; }
+                if (vis && mesh.animVis[(size_t)f * nparts + pi] != mesh.animVis[pi])
+                    moves = true;
+            }
+        }
+        if (!moves) continue;
+        const int t0 = part.tri0 < 0 ? 0 : part.tri0;
+        for (int i = t0; i < part.tri0 + part.ntris && (size_t)i < n; i++)
+            mesh.gpuDyn[(size_t)i] = 1;
+    }
+    for (size_t i = 0; i < n; i++) {
+        const PackTri& t = mesh.tris[i];
+        if (t.wrap >> 4) mesh.gpuDyn[i] = 1;
+        if (fanTex >= 0 && t.tex == fanTex) mesh.gpuDyn[i] = 1;
+        if (i * 6 + 5 < mesh.sway.size())
+            for (int k = 0; k < 6; k++)
+                if (mesh.sway[i * 6 + (size_t)k]) { mesh.gpuDyn[i] = 1; break; }
+    }
+}
+
+/* WHICH TIER THIS draw_mesh CALL IS: 0 the whole mesh (every caller), 1 the static
+   tier of a split draw (cached across frames, dynamic triangles skipped), 2 the
+   dynamic tier (immediate, static triangles skipped). Set only by draw_mesh itself
+   around its own two recursive calls. */
+static int g_meshTier = 0;
+
 #include "mesh_batch.h"
 
 static void draw_mesh(int mi, float cx, float cz, int face, int pass,
@@ -13832,6 +13923,7 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
 {
     if (mi < 0 || mi >= (int)g_pack.mesh.size())
         return;
+    const int miArg = mi;   /* as the caller gave it; the tiers below pass it on */
     if (build_frac <= 0.0f)
         return;   /* a sold building past its last piece: nothing left to draw */
     /* THE DEBUG PACK'S VERSION OF THIS MESH, when the panel asks for it. The whole draw
@@ -13963,7 +14055,7 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
         && mesh.nrm.size() == tris.size() * 9) {
         g_meshClassSkipped++; return;
     }
-    const bool batch = g_fx.enabled && !g_meshBatchEditor
+    const bool batch = g_fx.enabled && !g_meshBatchEditor && g_meshTier != 2
         && !strncmp(mesh.name, "ebld:", 5)
         && mesh_perf_switch("OPENCNC3D_MESH_GPU") && grass_buf_load();
     MeshBatch output;
@@ -13974,17 +14066,36 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
             mesh.gpuSpinRoles |= (part.role==ROLE_ROTOR ? 1u : part.role==ROLE_TURRET ? 2u : 0u);
         for (const auto& t : tris) if (t.wrap >> 4) { mesh.gpuHasTread=1; break; }
     }
-    const bool stable = batch && !g_meshFragmentCollect && !mesh.gpuDeformed && (!extraMat || g_meshBatchRestPose)
+    const unsigned shroudKey = (batch && g_objShroud && !g_meshNoShroud) ? mesh_shroud_hash(mesh, cx, cz) : 0u;
+    const bool stable = g_meshTier == 1 ||
+        (batch && !g_meshFragmentCollect && !mesh.gpuDeformed && (!extraMat || g_meshBatchRestPose)
         && !mesh.gpuHasTread && !anim && !wob
         && (!(mesh.gpuSpinRoles & 1) || rotor == 0)
         && swayLean <= -1.0e30f && g_fanTex < 0
-        && (!g_objShroud || g_meshNoShroud || mesh_shroud_clear(mesh,cx,cz));
+        && !(shroudKey & 0x80000000u));
+    /* THE SPLIT: an unstable mesh whose only instabilities are per-triangle ones is
+       drawn as its cached static tier and then its live dynamic tier. Anything that
+       moves the whole mesh (a tumble matrix, a wobble, a wreck collection) is not. */
+    if (g_meshTier == 0 && batch && !stable && g_fx.mesh_split
+        && !g_meshFragmentCollect && !mesh.gpuDeformed && !extraMat && !wob
+        && !(shroudKey & 0x80000000u)) {
+        if (mesh.gpuDyn.size() != tris.size() || mesh.gpuDynFanTex != g_fanTex)
+            mesh_dyn_classify(mesh, g_fanTex);
+        g_meshTier = 1;
+        draw_mesh(miArg, cx, cz, face, pass, turyaw, rotor, house, build_frac, ylift,
+                  whiten_packed, wobble, animT, extraMat, triFirst, triLast);
+        g_meshTier = 2;
+        draw_mesh(miArg, cx, cz, face, pass, turyaw, rotor, house, build_frac, ylift,
+                  whiten_packed, wobble, animT, extraMat, triFirst, triLast);
+        g_meshTier = 0;
+        return;
+    }
     const bool frameCache = batch && !g_meshFragmentCollect && !stable && mesh_perf_switch("OPENCNC3D_MESH_POSE");
     if (stable || frameCache) {
         const PackTri* geometry = tris.data();
         mesh_batch_key(batchKey, geometry); mesh_batch_key(batchKey, tris.size());
         mesh_batch_key(batchKey, mi); mesh_batch_key(batchKey, cx); mesh_batch_key(batchKey, cz);
-        if (mesh.gpuSpinRoles & 2) mesh_batch_key(batchKey,turyaw);
+        if ((mesh.gpuSpinRoles & 2) && g_meshTier != 1) mesh_batch_key(batchKey,turyaw);
         mesh_batch_key(batchKey, face); mesh_batch_key(batchKey, ground); mesh_batch_key(batchKey, pass);
         mesh_batch_key(batchKey, triFirst); mesh_batch_key(batchKey, tri_limit); mesh_batch_key(batchKey, ylift);
         mesh_batch_key(batchKey, whiten_packed); mesh_batch_key(batchKey, nrmOut); mesh_batch_key(batchKey, depthOnly);
@@ -13999,6 +14110,7 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
         mesh_batch_key(batchKey, g_groundGen); mesh_batch_key(batchKey, g_padEpoch);
         mesh_batch_key(batchKey, g_terrainBase); mesh_batch_key(batchKey, g_terrainMargin);
         mesh_batch_key(batchKey, g_clip_to_map);
+        mesh_batch_key(batchKey, g_meshTier); mesh_batch_key(batchKey, shroudKey);
         const float sx=shadow_nudge_x(), sz=shadow_nudge_z();
         if (pass == MODE_SHADOW) { mesh_batch_key(batchKey,sx); mesh_batch_key(batchKey,sz); }
         const bool extra=extraMat!=NULL; mesh_batch_key(batchKey,extra);
@@ -14038,6 +14150,8 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
         const PackTri& t = tris[i];
         if ((int)t.mode != pass)
             continue;
+        if (g_meshTier && i < mesh.gpuDyn.size() && (mesh.gpuDyn[i] != 0) != (g_meshTier == 2))
+            continue;                       /* the other tier's triangle */
         const PackPart* part = nparts ? &mesh.parts[pi] : NULL;
         float psn = 0.0f, pcs = 1.0f;
         bool spin = false;
@@ -22807,6 +22921,7 @@ static const struct { int elem; int fxr; } VIS_FXR[] = {
     { DOPT_VE_PATCHES,   FXR_PATCHES },  { DOPT_VE_RELIEF,    FXR_RELIEF },
     { DOPT_VE_POINTER,   FXR_POINTER },  { DOPT_VE_CULL,      FXR_CULL },
     { DOPT_VE_REFLECT_TREES, FXR_REFLECT_TREES }, { DOPT_VE_TREE_NORMALS, FXR_TREE_NORMALS },
+    { DOPT_VE_MESH_SPLIT, FXR_MESH_SPLIT },
 };
 
 static int vis_clampi(float v, int lo, int hi)

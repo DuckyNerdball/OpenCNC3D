@@ -106,7 +106,8 @@ static const char *const dopt_vis_elem[DOPT_VE_COUNT] = {
     "Trees in water reflections",
     "Tree lighting normals",
     "Sun shadows every 2nd frame",
-    "Half-size sun shadow map"
+    "Half-size sun shadow map",
+    "Cache static building parts"
 };
 typedef char dopt_vis_elem_count_check[(sizeof dopt_vis_elem / sizeof dopt_vis_elem[0]
                                         == DOPT_VE_COUNT) ? 1 : -1];
@@ -125,7 +126,7 @@ static const int dopt_rows_enhanced[] = {
     /* THE PERFORMANCE TWEAKS, under their own heading, last: every switch here trades
        a little of the picture for frame time, and none belongs among the looks */
     DOPT_VE_HEAD_PERF, DOPT_VE_REFLECT_HALF, DOPT_VE_REFLECT_TREES, DOPT_VE_TREE_NORMALS,
-    DOPT_VE_SHADOW_HALF, DOPT_VE_SHADOW_SMALL, DOPT_VE_CULL
+    DOPT_VE_SHADOW_HALF, DOPT_VE_SHADOW_SMALL, DOPT_VE_CULL, DOPT_VE_MESH_SPLIT
 };
 
 int dopt_vis_mode_rows(int mode, int *out)
