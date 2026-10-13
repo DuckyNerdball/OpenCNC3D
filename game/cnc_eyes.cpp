@@ -151,6 +151,7 @@ static void cnc_screen_viewport(int w, int h)
 #include "remaster_inf.h" /* and its infantry sprites, on the same footing */
 #include "dosinf_dotable.h" /* the engine's own (Frame, Count, Jump) per action */
 static void fprof_mark(const char* name);   /* the frame profiler; defined with draw_frame */
+static bool object_off_box(const struct SimObject& o);   /* the per-pass object cull; with the caster boxes */
 #include "fx_post.h"
 #include "fx_panel.h"
 #include "fullscreen.h"
@@ -26676,6 +26677,8 @@ static void draw_object_mesh(int mi, const SimObject& o, int pass)
        piece list, and letting it keep drawing under the shed's own shrinking prefix means
        it fades with the collapse instead of popping off on the death tick. */
     g_n64fixLast = false;
+    if (object_off_box(o))
+        return;
     if (pass != MODE_SHADOW && shatter_owns(o))
         return;
     /* THE DOCKED HARVESTER, REMASTERED (evhc_mod.h), for a refinery whose dock rig is
@@ -26940,7 +26943,7 @@ static void m3_draw_object_normals(void)
     g_m3NormalPass = 1;
     for (size_t i = 0; i < g_objects.size(); i++) {
         const SimObject& o = g_objects[i];
-        if (!visible(o))
+        if (!visible(o) || object_off_box(o))
             continue;
         /* A soldier is posed and placed by his own draw, which also knows which of his
            poses go back to the sprite; the vehicle placement would stand him in his
@@ -27547,6 +27550,27 @@ static void draw_terrain_depth(void)
  */
 static bool  g_castCullOn = false;
 static float g_castX0 = 0.0f, g_castX1 = 0.0f, g_castZ0 = 0.0f, g_castZ1 = 0.0f;
+
+/* OFF EVERY BOX THIS PASS DRAWS INTO, for a whole object. visible() has no frustum
+   term, so until now a revealed building anywhere on the map was submitted in every
+   pass; only the trees and the remasters' pieces asked where the camera was. The
+   colour, normal and bake passes ask the view box; the sun map and the mirror ask
+   the box caster_cull_bounds fitted to them, which is the sun's own box and not the
+   player's, so a plateau's worth of buildings off screen still casts into the frame.
+   The room around the footprint is the same a remaster's thrown piece gets
+   (ebld_off_screen): half the footprint, plus 6.5 cells for height and slop. A pass
+   with no box on draws everything, as before. */
+static bool object_off_box(const SimObject& o)
+{
+    if (!g_fx.cull_objects || !g_clip_to_map) return false;
+    const float r = 0.5f * (float)(o.fw > o.fh ? o.fw : o.fh) + 6.5f;
+    if (g_m3CasterDepth || g_m3Mirrored) {
+        if (!g_castCullOn) return false;
+        return o.wx + r < g_castX0 || o.wx - r > g_castX1 || o.wz + r < g_castZ0 || o.wz - r > g_castZ1;
+    }
+    if (!g_cullOn || !g_cullValid) return false;
+    return o.wx + r < g_cullX0 || o.wx - r > g_cullX1 || o.wz + r < g_cullZ0 || o.wz - r > g_cullZ1;
+}
 
 static void caster_cull_bounds(void)
 {

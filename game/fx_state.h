@@ -586,6 +586,7 @@ struct FxState {
          tree3d_burn       how far the engine's own damage takes a tree toward char
          tree3d_lean       how far a tree may lean off vertical, radians */
     int   tree3d;
+    int   cull_objects;               /* objects outside a pass's box are not submitted */
     int   tree3d_normals;             /* trees into the ground-normals pass; off = flat  */
     /* REMASTERED EFFECTS. efx_enh: draw the particle effects with the remastered art in
        efx_enh.pack (tools/art/remaster/fx) and add Enhanced mode's own emitters (muzzle
@@ -1899,6 +1900,8 @@ static const FxParam FX_PARAMS[] = {
 { FXP_GROUP, "",  "12c  LEAFY TREES  (imported)", 0,0,0,0, "" },
 { FXP_BOOL,  "tree3d_normals", "tree normals", FXO(tree3d_normals), 0,1,0,
   "the leafy trees drawn once more into the ground-normals pass so the light pass can shade the canopy; off saves the draw and lights the canopy flat" },
+{ FXP_BOOL,  "cull_objects", "cull off-screen objects", FXO(cull_objects), 0,1,0,
+  "a building or vehicle outside the box a pass draws into is not submitted at all; off draws every revealed object on the map in every pass, as before" },
 { FXP_BOOL,  "tree3d", "leafy trees", FXO(tree3d), 0,1,0,
   "replace the cartridge's tree model with the rebuilt one; off = the console's tree, which is what Classic draws" },
 { FXP_FLOAT, "tree3d_size", "tree height", FXO(tree3d_size), 0.40f, 2.50f, 0,
@@ -2619,6 +2622,7 @@ static void fx_defaults(FxState* s)
             the way the crystals are. The wind is deliberately gentle: a tree that waves
             is a tree nobody stops noticing. */
     s->tree3d = 0;
+    s->cull_objects = 1;
     s->tree3d_normals = 1;
     /* 12d. REMASTERED EFFECTS, ON under Enhanced. */
     s->efx_enh = 1;

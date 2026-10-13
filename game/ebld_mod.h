@@ -6220,6 +6220,7 @@ static void ebld_draw_glow(void)
 static bool ebld_draw_object(int mi, const SimObject& o, int pass)
 {
     if (g_raModule && !ebld_ra_ready(o)) return false;
+    if (object_off_box(o)) return true;      /* off this pass's box: handled, nothing drawn */
     /* (a terrain object, version 6: a remaster that stands whole, its idle loop playing) */
     if ((o.kind != K_BUILDING && o.kind != K_TERRAIN) || g_ebld.empty()) return false;
     const EbldBld* E = ebld_find(o);
