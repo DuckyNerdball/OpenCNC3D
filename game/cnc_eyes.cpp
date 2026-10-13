@@ -22806,6 +22806,7 @@ static const struct { int elem; int fxr; } VIS_FXR[] = {
     { DOPT_VE_MODELS,    FXR_MODELS },   { DOPT_VE_UVFX,      FXR_UVFX },
     { DOPT_VE_PATCHES,   FXR_PATCHES },  { DOPT_VE_RELIEF,    FXR_RELIEF },
     { DOPT_VE_POINTER,   FXR_POINTER },  { DOPT_VE_CULL,      FXR_CULL },
+    { DOPT_VE_REFLECT_TREES, FXR_REFLECT_TREES }, { DOPT_VE_TREE_NORMALS, FXR_TREE_NORMALS },
 };
 
 static int vis_clampi(float v, int lo, int hi)
@@ -22828,6 +22829,8 @@ static void prof_from_rows(DOPT_Profile* p, const float* rows, int mode)
         p->elem[VIS_FXR[k].elem] = r[VIS_FXR[k].fxr] >= 0.5f ? 1 : 0;
     p->elem[DOPT_VE_SUPERSAMPLE] = (r[FXR_SS] > 1.001f) ? 1 : 0;
     p->elem[DOPT_VE_REFLECT_HALF] = (r[FXR_REFLECT_EVERY] >= 1.5f) ? 1 : 0;
+    p->elem[DOPT_VE_SHADOW_HALF]  = (r[FXR_SHADOW_EVERY] >= 1.5f) ? 1 : 0;
+    p->elem[DOPT_VE_SHADOW_SMALL] = (r[FXR_SHADOW_RES] > 0.5f && r[FXR_SHADOW_RES] <= 2048.5f) ? 1 : 0;
     p->texset      = vis_clampi(r[FXR_TEXSET], 0, DOPT_TEX_COUNT - 1);
     p->infset      = vis_clampi(r[FXR_INFSET], 0, DOPT_INF_COUNT - 1);
     p->uiscale     = vis_clampi(r[FXR_UISCALE], 0, DOPT_UI_COUNT - 1);
@@ -22843,6 +22846,8 @@ static void rows_from_prof(float* r, const DOPT_Profile* p, float ss_was)
     for (k = 0; k < sizeof VIS_FXR / sizeof VIS_FXR[0]; k++)
         r[VIS_FXR[k].fxr] = p->elem[VIS_FXR[k].elem] ? 1.0f : 0.0f;
     r[FXR_REFLECT_EVERY] = p->elem[DOPT_VE_REFLECT_HALF] ? 2.0f : 1.0f;
+    r[FXR_SHADOW_EVERY]  = p->elem[DOPT_VE_SHADOW_HALF] ? 2.0f : 1.0f;
+    r[FXR_SHADOW_RES]    = p->elem[DOPT_VE_SHADOW_SMALL] ? 2048.0f : 4096.0f;
     if (!p->elem[DOPT_VE_SUPERSAMPLE])     r[FXR_SS] = 1.0f;
     else if (ss_was > 1.001f)              r[FXR_SS] = ss_was;
     else r[FXR_SS] = g_visSSRemembered > 1.001f ? g_visSSRemembered : 2.0f;

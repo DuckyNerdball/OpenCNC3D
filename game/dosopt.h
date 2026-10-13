@@ -845,6 +845,11 @@ typedef enum
     DOPT_VE_POINTER,    /* curgreen_on: the green pointer                           */
     DOPT_VE_REFLECT_HALF, /* water_reflect_every 2: the water mirror on alternate frames */
     DOPT_VE_CULL,       /* cull_objects: objects off a pass's box are not submitted     */
+    DOPT_VE_HEAD_PERF,  /* the PERFORMANCE TWEAKS heading: a label, never a box        */
+    DOPT_VE_REFLECT_TREES, /* reflect_trees: trees and bushes drawn into the mirror     */
+    DOPT_VE_TREE_NORMALS,  /* tree3d_normals: trees drawn into the ground-normals pass  */
+    DOPT_VE_SHADOW_HALF,   /* shadow_every 2: the sun map on alternate frames           */
+    DOPT_VE_SHADOW_SMALL,  /* shadow_res 2048: a quarter of the sun map's texels         */
     DOPT_VE_COUNT
 } DOPT_VisElem;
 

@@ -101,7 +101,12 @@ static const char *const dopt_vis_elem[DOPT_VE_COUNT] = {
     "Terrain relief",
     "Green pointer",
     "Reflection every 2nd frame",
-    "Cull off-screen objects"
+    "Cull off-screen objects",
+    "Performance tweaks",
+    "Trees in water reflections",
+    "Tree lighting normals",
+    "Sun shadows every 2nd frame",
+    "Half-size sun shadow map"
 };
 typedef char dopt_vis_elem_count_check[(sizeof dopt_vis_elem / sizeof dopt_vis_elem[0]
                                         == DOPT_VE_COUNT) ? 1 : -1];
@@ -114,9 +119,13 @@ static const int dopt_rows_n64[] = {
 };
 static const int dopt_rows_enhanced[] = {
     DOPT_VE_UISCALE, DOPT_VE_PERSPECTIVE, DOPT_VE_SMOOTH, DOPT_VE_NEWHUD, DOPT_VE_BILINEAR,
-    DOPT_VE_WATER, DOPT_VE_REFLECT_HALF, DOPT_VE_CULL, DOPT_VE_TREES, DOPT_VE_TIB3D, DOPT_VE_TEXSET, DOPT_VE_INFSET,
+    DOPT_VE_WATER, DOPT_VE_TREES, DOPT_VE_TIB3D, DOPT_VE_TEXSET, DOPT_VE_INFSET,
     DOPT_VE_GAMMA, DOPT_VE_SUPERSAMPLE, DOPT_VE_SHADOWS, DOPT_VE_OCCLUSION, DOPT_VE_LIGHT,
-    DOPT_VE_BLOOM, DOPT_VE_GRADE, DOPT_VE_CRT
+    DOPT_VE_BLOOM, DOPT_VE_GRADE, DOPT_VE_CRT,
+    /* THE PERFORMANCE TWEAKS, under their own heading, last: every switch here trades
+       a little of the picture for frame time, and none belongs among the looks */
+    DOPT_VE_HEAD_PERF, DOPT_VE_REFLECT_HALF, DOPT_VE_REFLECT_TREES, DOPT_VE_TREE_NORMALS,
+    DOPT_VE_SHADOW_HALF, DOPT_VE_SHADOW_SMALL, DOPT_VE_CULL
 };
 
 int dopt_vis_mode_rows(int mode, int *out)
@@ -308,6 +317,8 @@ int dopt_item_disabled(const DOPT_State *st, int item)
         return st->n64_unavailable && item == DOPT_V_N64;
     case DOPT_PAGE_ADVANCED:
         if (st->n64_unavailable && item == DOPT_A_TAB0 + DOPT_MODE_N64)
+            return 1;
+        if (item == DOPT_VE_HEAD_PERF)      /* a heading is not a control */
             return 1;
         /* A ROW THE TAB ON SCREEN DOES NOT LIST is disabled as well as having no
            rectangle, so the keyboard walk and the hit test both pass it by. */
@@ -3189,6 +3200,13 @@ static void dopt_draw_advanced(DB_Surface *s, const DB_Pack *p, const DOPT_State
         int on;
         if (!dopt_item_rect(st, i, &x, &y, &w, &h))
             continue;
+        if (i == DOPT_VE_HEAD_PERF) {
+            if (f) {
+                db_font_palette_grad(fp, DOPT_TEXT_MEDIUM, DB_TBLACK);
+                db_print(s, f, dopt_vis_elem[i], x, y - 1, fp, DB_FONT6_XSPACING);
+            }
+            continue;
+        }
         /* The display triple lights the one that is chosen. */
         if (i == DOPT_VE_FULLSCREEN)      on = (st->vis.dispmode == DOPT_DISP_FULLSCREEN);
         else if (i == DOPT_VE_WINDOWED)   on = (st->vis.dispmode == DOPT_DISP_WINDOWED);
