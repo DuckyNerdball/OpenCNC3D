@@ -844,6 +844,7 @@ typedef enum
     DOPT_VE_RELIEF,     /* experimental_relief: the terrain displacement            */
     DOPT_VE_POINTER,    /* curgreen_on: the green pointer                           */
     DOPT_VE_REFLECT_HALF, /* water_reflect_every 2: the water mirror on alternate frames */
+    DOPT_VE_CULL,       /* cull_objects: objects off a pass's box are not submitted     */
     DOPT_VE_COUNT
 } DOPT_VisElem;
 

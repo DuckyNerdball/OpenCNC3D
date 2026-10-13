@@ -22805,7 +22805,7 @@ static const struct { int elem; int fxr; } VIS_FXR[] = {
     { DOPT_VE_ROCKS,     FXR_ROCKS },    { DOPT_VE_SOLDIERS,  FXR_SOLDIERS },
     { DOPT_VE_MODELS,    FXR_MODELS },   { DOPT_VE_UVFX,      FXR_UVFX },
     { DOPT_VE_PATCHES,   FXR_PATCHES },  { DOPT_VE_RELIEF,    FXR_RELIEF },
-    { DOPT_VE_POINTER,   FXR_POINTER },
+    { DOPT_VE_POINTER,   FXR_POINTER },  { DOPT_VE_CULL,      FXR_CULL },
 };
 
 static int vis_clampi(float v, int lo, int hi)

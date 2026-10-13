@@ -100,7 +100,8 @@ static const char *const dopt_vis_elem[DOPT_VE_COUNT] = {
     "Ground patches",
     "Terrain relief",
     "Green pointer",
-    "Reflection every 2nd frame"
+    "Reflection every 2nd frame",
+    "Cull off-screen objects"
 };
 typedef char dopt_vis_elem_count_check[(sizeof dopt_vis_elem / sizeof dopt_vis_elem[0]
                                         == DOPT_VE_COUNT) ? 1 : -1];
@@ -113,7 +114,7 @@ static const int dopt_rows_n64[] = {
 };
 static const int dopt_rows_enhanced[] = {
     DOPT_VE_UISCALE, DOPT_VE_PERSPECTIVE, DOPT_VE_SMOOTH, DOPT_VE_NEWHUD, DOPT_VE_BILINEAR,
-    DOPT_VE_WATER, DOPT_VE_REFLECT_HALF, DOPT_VE_TREES, DOPT_VE_TIB3D, DOPT_VE_TEXSET, DOPT_VE_INFSET,
+    DOPT_VE_WATER, DOPT_VE_REFLECT_HALF, DOPT_VE_CULL, DOPT_VE_TREES, DOPT_VE_TIB3D, DOPT_VE_TEXSET, DOPT_VE_INFSET,
     DOPT_VE_GAMMA, DOPT_VE_SUPERSAMPLE, DOPT_VE_SHADOWS, DOPT_VE_OCCLUSION, DOPT_VE_LIGHT,
     DOPT_VE_BLOOM, DOPT_VE_GRADE, DOPT_VE_CRT
 };

@@ -70,7 +70,7 @@ enum {
     FXR_TREES, FXR_TIB3D, FXR_TEXSET, FXR_INFSET, FXR_GAMMA, FXR_SS, FXR_SHADOWS, FXR_AO,
     FXR_LIGHT, FXR_BLOOM, FXR_GRADE, FXR_CRT, FXR_GRASS, FXR_FOLIAGE, FXR_ROCKS,
     FXR_SOLDIERS, FXR_MODELS, FXR_UVFX, FXR_PATCHES, FXR_RELIEF, FXR_POINTER,
-    FXR_NEWAUDIO, FXR_REFLECT_EVERY, FXR_COUNT
+    FXR_NEWAUDIO, FXR_REFLECT_EVERY, FXR_CULL, FXR_COUNT
 };
 
 struct FxState {
@@ -1194,6 +1194,7 @@ static const FxModeRow FX_MODE_ROWS[FXR_COUNT] = {
     { "curgreen_on",         FXO(curgreen_on),         1 },
     { "new_audio",           FXO(new_audio),           1 },
     { "water_reflect_every", FXO(water_reflect_every), 0 },
+    { "cull_objects",        FXO(cull_objects),        1 },
 };
 
 /* The names the saved preset writes the modes under: `mode.enhanced.bloom_on 1`. */
@@ -1247,6 +1248,9 @@ FX_STATE_MAYBE_UNUSED static void fx_mode_defaults(FxState* s)
     s->mode_row[FX_MODE_N64][FXR_TEXSET]  = (float)FX_TEX_N64;
     s->mode_row[FX_MODE_N64][FXR_INFSET]  = (float)FX_INF_DOS;
     s->mode_row[FX_MODE_N64][FXR_SS]      = 1.0f;                 /* no supersampling */
+    /* the off-screen cull is correctness, not a look: on in every mode */
+    s->mode_row[FX_MODE_N64][FXR_CULL]     = 1.0f;
+    s->mode_row[FX_MODE_CLASSIC][FXR_CULL] = 1.0f;
 }
 
 /* THE TERRAIN ART SWITCH, kept here beside the preference it answers to rather than in
