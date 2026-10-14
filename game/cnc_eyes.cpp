@@ -13915,6 +13915,23 @@ static void mesh_dyn_classify(const PackMesh& mesh, int fanTex)
    around its own two recursive calls. */
 static int g_meshTier = 0;
 
+/* WHY A BATCH WAS BUILT THIS WINDOW, for the profiler line: which path, and what was
+   true of the mesh. The names table keeps the three heaviest offenders. */
+static unsigned long g_upStable = 0, g_upFrame = 0, g_upTier1 = 0, g_upTier2 = 0,
+                     g_upPiece = 0, g_upAnim = 0, g_upShroud = 0;
+static std::map<std::string, unsigned long> g_upNames;
+static void up_note(const char* name, bool stable, bool frame, bool piece, bool anim, bool shroud)
+{
+    if (g_meshTier == 1) g_upTier1++;
+    else if (g_meshTier == 2) g_upTier2++;
+    else if (stable) g_upStable++;
+    else if (frame) g_upFrame++;
+    if (piece) g_upPiece++;
+    if (anim) g_upAnim++;
+    if (shroud) g_upShroud++;
+    if (g_upNames.size() < 256) g_upNames[name]++;
+}
+
 #include "mesh_batch.h"
 
 static void draw_mesh(int mi, float cx, float cz, int face, int pass,
@@ -14474,7 +14491,11 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
         glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, 1.0f);
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, envWas);
     }
-    if (batch) output.finish(batchKey,*src,house,pass,depthOnly,nrmOut,frameCache);
+    if (batch) {
+        up_note(mesh.name, stable, frameCache, extraMat != NULL, anim,
+                g_objShroud && !g_meshNoShroud && !mesh_shroud_clear(mesh, cx, cz));
+        output.finish(batchKey,*src,house,pass,depthOnly,nrmOut,frameCache);
+    }
 }
 
 /* The shatter pool draws PIECES of a mesh through draw_mesh above, so it lands here,
@@ -28375,6 +28396,18 @@ static void fprof_end(void)
             printf("|mesh: hits=%lu uploads=%lu frameHits=%lu draws=%lu",
                    g_meshBatchHits - lh, g_meshBatchUploads - lu, g_meshFrameHits - lf, g_meshBatchDraws - ld);
             lh = g_meshBatchHits; lu = g_meshBatchUploads; lf = g_meshFrameHits; ld = g_meshBatchDraws;
+            printf("|up: stable=%lu frame=%lu tier1=%lu tier2=%lu piece=%lu anim=%lu shroud=%lu",
+                   g_upStable, g_upFrame, g_upTier1, g_upTier2, g_upPiece, g_upAnim, g_upShroud);
+            g_upStable = g_upFrame = g_upTier1 = g_upTier2 = g_upPiece = g_upAnim = g_upShroud = 0;
+            printf("|top:");
+            for (int t = 0; t < 3 && !g_upNames.empty(); t++) {
+                std::map<std::string, unsigned long>::iterator best = g_upNames.begin();
+                for (std::map<std::string, unsigned long>::iterator it = g_upNames.begin(); it != g_upNames.end(); ++it)
+                    if (it->second > best->second) best = it;
+                printf(" %s=%lu", best->first.c_str(), best->second);
+                g_upNames.erase(best);
+            }
+            g_upNames.clear();
         }
         printf("\n");
         fflush(stdout);
@@ -29598,8 +29631,11 @@ static void draw_frame(int fbw, int fbh)
     if (sb_enabled()) {
         begin_overlay(fbw, fbh);
         sb_draw_placement(fbw, fbh);
+        fprof_mark("sidebar: placement");
         sb_draw_panel(fbw, fbh);
+        fprof_mark("sidebar: panel");
         uc_draw(fbw, fbh);
+        fprof_mark("sidebar: unit cards");
         sb_draw_queue_digits(fbw, fbh);
         sb_draw_tooltip(fbw, fbh);
         end_overlay();
