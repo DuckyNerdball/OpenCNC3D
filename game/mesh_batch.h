@@ -370,7 +370,11 @@ struct MeshBatch {
         }
     }
 };
+/* where each field of the key being built starts, for the profiler's keydiff */
+static std::vector<size_t> g_meshKeyOff;
 template<class T> static void mesh_batch_key(std::string& key,const T& v) {
+    if (key.empty()) g_meshKeyOff.clear();
+    g_meshKeyOff.push_back(key.size());
     key.append((const char*)&v,sizeof v);
 }
 static void mesh_batch_dump(void) {

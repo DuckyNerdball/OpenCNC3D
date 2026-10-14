@@ -13936,6 +13936,8 @@ static unsigned long g_upStable = 0, g_upFrame = 0, g_upTier1 = 0, g_upTier2 = 0
                      g_upStabShadow = 0, g_upStabKeyed = 0;
 static std::map<std::string, unsigned long> g_upNames;
 static const char* g_upPath = "";          /* which draw path, for the names (ebld_mod.h) */
+static std::map<std::string, std::string> g_keyLast;   /* draw identity -> the key last built */
+static std::map<long, unsigned long> g_keyDiff;        /* -1 new, -2 same, else field<<16|byte */
 struct UpPathScope {
     const char* was;
     UpPathScope(const char* p) { was = g_upPath; g_upPath = p; }
@@ -14182,6 +14184,36 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
         if(found!=g_meshBatchCache.end()) {
             found->second.used=g_drawFrameSerial; g_meshBatchHits++;
             mesh_batch_draw(found->second,*src,house,pass,depthOnly,nrmOut); return;
+        }
+        static int keydiffOn = -1;
+        if (keydiffOn < 0) keydiffOn = getenv("OPENCNC3D_FRAMEPROF") ? 1 : 0;
+        if (stable && keydiffOn) {
+            /* the same draw as last time: mesh, run, pass flags, matrix; not the position,
+               so a drifting position shows as a differing field rather than a new draw */
+            std::string kid(mesh.name);
+            kid.append((const char*)&pass, sizeof pass);
+            kid.append((const char*)&triFirst, sizeof triFirst);
+            kid.append((const char*)&tri_limit, sizeof tri_limit);
+            kid.append((const char*)&nrmOut, sizeof nrmOut);
+            kid.append((const char*)&depthOnly, sizeof depthOnly);
+            kid.append((const char*)&g_meshBakePass, sizeof g_meshBakePass);
+            kid.append((const char*)&g_meshShadowPass, sizeof g_meshShadowPass);
+            if (extraMat) kid.append((const char*)extraMat, 12 * sizeof(float));
+            std::map<std::string, std::string>::iterator it = g_keyLast.find(kid);
+            if (it == g_keyLast.end()) g_keyDiff[-1]++;
+            else {
+                const std::string& old = it->second;
+                const size_t n = old.size() < batchKey.size() ? old.size() : batchKey.size();
+                size_t d = 0;
+                while (d < n && old[d] == batchKey[d]) d++;
+                if (d == n && old.size() == batchKey.size()) g_keyDiff[-2]++;
+                else {
+                    long f = -3;
+                    for (size_t i = 0; i < g_meshKeyOff.size(); i++) if (g_meshKeyOff[i] <= d) f = (long)i;
+                    g_keyDiff[(f << 16) | (long)(d & 0xFFFF)]++;
+                }
+            }
+            if (g_keyLast.size() < 50000) g_keyLast[kid] = batchKey;
         }
     }
     int shroudPerVertex = -1;
@@ -28427,6 +28459,17 @@ static void fprof_end(void)
             printf("|up: stable=%lu frame=%lu tier1=%lu tier2=%lu piece=%lu anim=%lu shroud=%lu",
                    g_upStable, g_upFrame, g_upTier1, g_upTier2, g_upPiece, g_upAnim, g_upShroud);
             printf("|stab: shadow=%lu shroudkey=%lu", g_upStabShadow, g_upStabKeyed);
+            printf("|keydiff:");
+            for (int t = 0; t < 5 && !g_keyDiff.empty(); t++) {
+                std::map<long, unsigned long>::iterator best = g_keyDiff.begin();
+                for (std::map<long, unsigned long>::iterator it = g_keyDiff.begin(); it != g_keyDiff.end(); ++it)
+                    if (it->second > best->second) best = it;
+                if (best->first == -1) printf(" new=%lu", best->second);
+                else if (best->first == -2) printf(" same=%lu", best->second);
+                else printf(" f%ld@%ld=%lu", best->first >> 16, best->first & 0xFFFF, best->second);
+                g_keyDiff.erase(best);
+            }
+            g_keyDiff.clear();
             g_upStable = g_upFrame = g_upTier1 = g_upTier2 = g_upPiece = g_upAnim = g_upShroud = 0;
             g_upStabShadow = g_upStabKeyed = 0;
             printf("|top:");
