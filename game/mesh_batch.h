@@ -306,7 +306,18 @@ struct MeshBatch {
         vertices.push_back(current);
     }
     void finish(const std::string& key, const Pack& src, int house,int pass,bool depth,bool normals,bool frame=false) {
-        if(vertices.empty()) return;
+        if(vertices.empty()) {
+            /* NOTHING OF THIS PASS IN THE RANGE. Remembered as an empty entry under the
+               same key, so the next frame's lookup hits and draws nothing instead of
+               walking, keying and missing again; before this a resting chip's every
+               run was rebuilt-to-nothing in every pass of every frame. */
+            if(!key.empty() && !g_meshFragmentCollect) {
+                MeshBatchEntry none; none.used=g_drawFrameSerial; none.name=entry.name;
+                if(frame) g_meshFrameCache[key]=none;
+                else if(g_meshBatchCache.size()<65536) g_meshBatchCache[key]=none;
+            }
+            return;
+        }
         entry.last=vertices.back(); entry.bytes=vertices.size()*sizeof(MeshBatchVertex);
         if (g_meshFragmentCollect) {
             /* Bound scratch storage. An unusually large asset drains in ordered chunks. */

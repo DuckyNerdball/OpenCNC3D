@@ -13932,7 +13932,7 @@ static int g_meshTier = 0;
 /* WHY A BATCH WAS BUILT THIS WINDOW, for the profiler line: which path, and what was
    true of the mesh. The names table keeps the three heaviest offenders. */
 static unsigned long g_upStable = 0, g_upFrame = 0, g_upTier1 = 0, g_upTier2 = 0,
-                     g_upPiece = 0, g_upAnim = 0, g_upShroud = 0,
+                     g_upPiece = 0, g_upAnim = 0, g_upShroud = 0, g_upEmpty = 0,
                      g_upStabShadow = 0, g_upStabKeyed = 0;
 static std::map<std::string, unsigned long> g_upNames;
 static const char* g_upPath = "";          /* which draw path, for the names (ebld_mod.h) */
@@ -13944,8 +13944,9 @@ struct UpPathScope {
     ~UpPathScope() { g_upPath = was; }
 };
 static void up_note(const char* name, bool stable, bool frame, bool piece, bool anim, bool shroud,
-                    bool shadow = false, bool keyed = false, bool rest = false)
+                    bool shadow = false, bool keyed = false, bool rest = false, bool empty = false)
 {
+    if (empty) { g_upEmpty++; return; }
     if (g_meshTier == 1) g_upTier1++;
     else if (g_meshTier == 2) g_upTier2++;
     else if (stable) { g_upStable++; if (shadow) g_upStabShadow++; if (keyed) g_upStabKeyed++; }
@@ -14555,7 +14556,7 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
         output.entry.name = mesh.name;
         up_note(mesh.name, stable, frameCache, extraMat != NULL, anim,
                 g_objShroud && !g_meshNoShroud && !mesh_shroud_clear(mesh, cx, cz),
-                pass == MODE_SHADOW, shroudKey != 0u, g_meshBatchRestPose);
+                pass == MODE_SHADOW, shroudKey != 0u, g_meshBatchRestPose, output.vertices.empty());
         output.finish(batchKey,*src,house,pass,depthOnly,nrmOut,frameCache);
     }
 }
@@ -28476,6 +28477,7 @@ static void fprof_end(void)
             }
             printf("|up: stable=%lu frame=%lu tier1=%lu tier2=%lu piece=%lu anim=%lu shroud=%lu",
                    g_upStable, g_upFrame, g_upTier1, g_upTier2, g_upPiece, g_upAnim, g_upShroud);
+            printf(" empty=%lu", g_upEmpty); g_upEmpty = 0;
             printf("|stab: shadow=%lu shroudkey=%lu", g_upStabShadow, g_upStabKeyed);
             printf("|keydiff:");
             for (int t = 0; t < 5 && !g_keyDiff.empty(); t++) {
