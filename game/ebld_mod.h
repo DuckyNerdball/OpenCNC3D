@@ -411,6 +411,23 @@ static int g_ebldPackSerial = 0;
 struct EbldPoseSeen { char type[16]; int id, kind; float value; };
 static std::map<std::pair<long long, int>, EbldPoseSeen> g_ebldPoseSeen;
 
+/* A MOVING PIECE THAT HAS NOT MOVED: its matrix this frame is last frame's, so its
+   batch may be kept across frames as a rest pose (draw_mesh keys the batch on the
+   matrix). A piece mid-motion gets a fresh key each frame, as it always did, and the
+   cache's eviction clears those. Answered once a frame per piece; the passes after
+   the first get the same answer. */
+struct EbldMxStill { float mx[12]; unsigned serial; bool still; };
+static std::map<std::pair<long long, int>, EbldMxStill> g_ebldMxStill;
+static bool ebld_mx_still(long long key, int k, const float* Mx)
+{
+    EbldMxStill& S = g_ebldMxStill[std::make_pair(key, k)];
+    if (S.serial == g_drawFrameSerial && S.serial != 0) return S.still;
+    S.still = memcmp(S.mx, Mx, sizeof S.mx) == 0;
+    memcpy(S.mx, Mx, sizeof S.mx);
+    S.serial = g_drawFrameSerial;
+    return S.still;
+}
+
 /* ---- one moving piece -------------------------------------------------------------- */
 struct EbldBody {
     float p[3], pp[3];                        /* world cells, this tick and the last */
@@ -5793,6 +5810,7 @@ static void ebld_draw_entry(const EbldBld& E, const EbldModel& M, int pass, bool
                 const bool two = (pass == MODE_XLU && M.hasTwo);
                 if (two) ebld_gl_sides(st, true);
                 /* the pieces still standing, merged into as few runs as possible */
+                UpPathScope ups("stand");
                 ebld_draw_standing(E, S, mi, rg, pass, st, [&](size_t k) {
                     return M.liqOf[k] < 0 && !ebld_stand_moves(E, M, (int)k);
                 });
@@ -5814,9 +5832,13 @@ static void ebld_draw_entry(const EbldBld& E, const EbldModel& M, int pass, bool
                     float Mx[12];
                     if (!ebld_stand_xf(E, M, (int)k, now, &X)) continue;
                     ebxf_mat(X, Mx);
+                    UpPathScope ups("move");
+                    const bool cacheWas = g_meshBatchRestPose;
+                    g_meshBatchRestPose = ebld_mx_still(((long long)E.id << 1) | 1, (int)k, Mx);
                     if (two) ebld_gl_sides(st, true);
                     ebld_draw_moving(E, M, mi, &rg[k * EBR], pass, S.piece[k], Mx, st, true);
                     if (two) ebld_gl_sides(st, false);
+                    g_meshBatchRestPose = cacheWas;
                 }
             }
             /* THE LIQUIDS, one run each with their own UVs: a body of water or a pool
@@ -5921,6 +5943,7 @@ static void ebld_draw_entry(const EbldBld& E, const EbldModel& M, int pass, bool
         if (!fading)
             for (size_t k = 0; k < S.piece.size(); k++) {
                 if (!E.cut[k].live) continue;
+                UpPathScope ups("chip");
                 ebld_wave_body(M, mk, &rg[k * EBR], E.cut[k]);
                 ebld_draw_body(E, M, mi, &rg[k * EBR], pass, S.piece[k], E.cut[k], false, 0.0f,
                                st);
@@ -6001,6 +6024,7 @@ static void ebld_draw_entry(const EbldBld& E, const EbldModel& M, int pass, bool
                 }
                 g_meshAlphaScale = (unsigned char)as;
                 {
+                    UpPathScope ups("wreck");
                     MeshFragmentScope fragments;
                     for (size_t k = 0; k < S.piece.size() && k < E.wreck.size(); k++) {
                         if (S.piece[k].flags & (EBF_WATER | EBF_WATERFALL)) continue;
@@ -6313,6 +6337,7 @@ static bool ebld_draw_object(int mi, const SimObject& o, int pass)
         return true;
     }
     if (pass == MODE_OPAQUE && !ebld_aux_pass()) g_ebld[m].drawn++;
+    UpPathScope ups("intact");
     /* the flag waves on the engine clock (version 5) */
     if (!M.wave.empty()) ebld_wave(g_ebld[m], EBM_INTACT, engine_time() / 15.0f);
     /* the blush covers the whole object, as the cartridge path brackets it */
@@ -6386,7 +6411,10 @@ static bool ebld_draw_object(int mi, const SimObject& o, int pass)
             }
             if (ebld_flipbook(M, tx)) ebld_uv_set(M, tx, -1.0f);
             g_meshFillY = fillY;
+            const bool cacheWas = g_meshBatchRestPose;
+            if (mx) g_meshBatchRestPose = ebld_mx_still((long long)smooth_key(o) << 1, (int)k, mx);
             D.run(r0, r1, mx);
+            g_meshBatchRestPose = cacheWas;
             g_meshFillY = 3.0e38f;
             ebld_uv_clear();
         }

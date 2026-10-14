@@ -13935,8 +13935,14 @@ static unsigned long g_upStable = 0, g_upFrame = 0, g_upTier1 = 0, g_upTier2 = 0
                      g_upPiece = 0, g_upAnim = 0, g_upShroud = 0,
                      g_upStabShadow = 0, g_upStabKeyed = 0;
 static std::map<std::string, unsigned long> g_upNames;
+static const char* g_upPath = "";          /* which draw path, for the names (ebld_mod.h) */
+struct UpPathScope {
+    const char* was;
+    UpPathScope(const char* p) { was = g_upPath; g_upPath = p; }
+    ~UpPathScope() { g_upPath = was; }
+};
 static void up_note(const char* name, bool stable, bool frame, bool piece, bool anim, bool shroud,
-                    bool shadow = false, bool keyed = false)
+                    bool shadow = false, bool keyed = false, bool rest = false)
 {
     if (g_meshTier == 1) g_upTier1++;
     else if (g_meshTier == 2) g_upTier2++;
@@ -13945,7 +13951,12 @@ static void up_note(const char* name, bool stable, bool frame, bool piece, bool 
     if (piece) g_upPiece++;
     if (anim) g_upAnim++;
     if (shroud) g_upShroud++;
-    if (g_upNames.size() < 256) g_upNames[name]++;
+    if (g_upNames.size() < 256) {
+        std::string n(name);
+        n += '/'; n += g_upPath;
+        if (piece) n += rest ? ".R" : ".L";
+        g_upNames[n]++;
+    }
 }
 
 #include "mesh_batch.h"
@@ -14511,7 +14522,7 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
     if (batch) {
         up_note(mesh.name, stable, frameCache, extraMat != NULL, anim,
                 g_objShroud && !g_meshNoShroud && !mesh_shroud_clear(mesh, cx, cz),
-                pass == MODE_SHADOW, shroudKey != 0u);
+                pass == MODE_SHADOW, shroudKey != 0u, g_meshBatchRestPose);
         output.finish(batchKey,*src,house,pass,depthOnly,nrmOut,frameCache);
     }
 }
