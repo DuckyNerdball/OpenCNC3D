@@ -5317,6 +5317,11 @@ static void ebld_wave(EbldModel& M, int mk, float t, int r0 = 0, int r1 = 0x7fff
     PackMesh& pm = g_pack.mesh[mi];
     pm.gpuDeformed = true; /* positions, normals and fold colours change in place */
     pm.gpuPoseRevision++;
+    if (pm.gpuDeformTris.empty()) {
+        for (size_t e = 0; e < M.waveMesh[mk].size(); e++)
+            pm.gpuDeformTris.push_back(M.waveMesh[mk][e].first);
+        std::sort(pm.gpuDeformTris.begin(), pm.gpuDeformTris.end());
+    }
     const int q = (mk == EBM_INTACT) ? 0 : 1;
     const bool colour = (mk == EBM_INTACT || mk == EBM_CUT || mk == EBM_CUTDMG);
     const bool nrm = pm.nrm.size() == pm.tris.size() * 9;
@@ -5538,6 +5543,14 @@ struct EbldRuns {
     void add(int a, int b)
     {
         if (b <= a) return;
+        /* A PIECE THE WAVE MOVES GOES ALONE, so the runs either side of it stay
+           cached across frames; merged, one flag made the whole run per-frame. */
+        if (mi >= 0 && mi < (int)g_pack.mesh.size()
+            && mesh_wave_hits(g_pack.mesh[mi], (size_t)a, (size_t)b)) {
+            flush();
+            ebld_draw_rest(*E, mi, a, b, pass, NULL);
+            return;
+        }
         if (r0 >= 0 && a != r1) flush();
         if (r0 < 0) r0 = a;
         r1 = b;
@@ -6322,6 +6335,13 @@ static bool ebld_draw_object(int mi, const SimObject& o, int pass)
             if (P.flags & EBF_WATERFALL) continue;       /* nothing pours from it intact */
             if (!(P.flags & EBF_WATER) && !ebld_flipbook(M, tx) && mv < 0) {
                 if (r1 <= r0) continue;
+                /* the piece the flag is on goes alone (EbldRuns::add) */
+                if (imi >= 0 && imi < (int)g_pack.mesh.size()
+                    && mesh_wave_hits(g_pack.mesh[imi], (size_t)r0, (size_t)r1)) {
+                    if (run0 >= 0) { D.run(run0, run1); run0 = -1; }
+                    D.run(r0, r1);
+                    continue;
+                }
                 if (run0 >= 0 && r0 != run1) { D.run(run0, run1); run0 = -1; }
                 if (run0 < 0) run0 = r0;
                 run1 = r1;

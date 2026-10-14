@@ -1207,6 +1207,10 @@ struct PackMesh { char name[17]; std::vector<PackTri> tris; std::vector<PackPart
                   mutable unsigned gpuSpinRoles = 0;
                   bool gpuDeformed = false;
                   unsigned gpuPoseRevision = 0;
+                  /* WHICH TRIANGLES THE WAVE MOVES (ebld_wave), sorted. A draw whose
+                     range holds none of them is as cacheable as an unwaved mesh;
+                     empty with gpuDeformed set means the whole mesh, as before. */
+                  std::vector<int> gpuDeformTris;
                   /* WHICH TRIANGLES MOVE FROM FRAME TO FRAME (mesh_dyn_classify): a
                      part the clip moves, a rotor or turret, a sway weight, a running
                      track, the fan texture. The rest is cached across frames as the
@@ -13798,6 +13802,16 @@ static float mesh_xz_reach(const PackMesh& m)
     return m.xzReach;
 }
 
+/* DOES THIS DRAW'S RANGE [a, b) HOLD A TRIANGLE THE WAVE MOVES. */
+static bool mesh_wave_hits(const PackMesh& m, size_t a, size_t b)
+{
+    if (!m.gpuDeformed) return false;
+    if (m.gpuDeformTris.empty()) return true;
+    std::vector<int>::const_iterator it =
+        std::lower_bound(m.gpuDeformTris.begin(), m.gpuDeformTris.end(), (int)a);
+    return it != m.gpuDeformTris.end() && (size_t)*it < b;
+}
+
 static bool mesh_shroud_clear(const PackMesh& m, float cx, float cz)
 {
     /* shroud_vis_at's own answers of full visibility, which it gives before it reads
@@ -13918,13 +13932,15 @@ static int g_meshTier = 0;
 /* WHY A BATCH WAS BUILT THIS WINDOW, for the profiler line: which path, and what was
    true of the mesh. The names table keeps the three heaviest offenders. */
 static unsigned long g_upStable = 0, g_upFrame = 0, g_upTier1 = 0, g_upTier2 = 0,
-                     g_upPiece = 0, g_upAnim = 0, g_upShroud = 0;
+                     g_upPiece = 0, g_upAnim = 0, g_upShroud = 0,
+                     g_upStabShadow = 0, g_upStabKeyed = 0;
 static std::map<std::string, unsigned long> g_upNames;
-static void up_note(const char* name, bool stable, bool frame, bool piece, bool anim, bool shroud)
+static void up_note(const char* name, bool stable, bool frame, bool piece, bool anim, bool shroud,
+                    bool shadow = false, bool keyed = false)
 {
     if (g_meshTier == 1) g_upTier1++;
     else if (g_meshTier == 2) g_upTier2++;
-    else if (stable) g_upStable++;
+    else if (stable) { g_upStable++; if (shadow) g_upStabShadow++; if (keyed) g_upStabKeyed++; }
     else if (frame) g_upFrame++;
     if (piece) g_upPiece++;
     if (anim) g_upAnim++;
@@ -14088,7 +14104,8 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
     }
     const unsigned shroudKey = (batch && g_objShroud && !g_meshNoShroud) ? mesh_shroud_hash(mesh, cx, cz) : 0u;
     const bool stable = g_meshTier == 1 ||
-        (batch && !g_meshFragmentCollect && !mesh.gpuDeformed && (!extraMat || g_meshBatchRestPose)
+        (batch && !g_meshFragmentCollect && !mesh_wave_hits(mesh, triFirst, tri_limit)
+        && (!extraMat || g_meshBatchRestPose)
         && !mesh.gpuHasTread && !anim && !wob
         && (!(mesh.gpuSpinRoles & 1) || rotor == 0)
         && swayLean <= -1.0e30f && g_fanTex < 0
@@ -14097,7 +14114,7 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
        drawn as its cached static tier and then its live dynamic tier. Anything that
        moves the whole mesh (a tumble matrix, a wobble, a wreck collection) is not. */
     if (g_meshTier == 0 && batch && !stable && g_fx.mesh_split
-        && !g_meshFragmentCollect && !mesh.gpuDeformed && !extraMat && !wob
+        && !g_meshFragmentCollect && !mesh_wave_hits(mesh, triFirst, tri_limit) && !extraMat && !wob
         && !(shroudKey & 0x80000000u)) {
         if (mesh.gpuDyn.size() != tris.size() || mesh.gpuDynFanTex != g_fanTex)
             mesh_dyn_classify(mesh, g_fanTex);
@@ -14493,7 +14510,8 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
     }
     if (batch) {
         up_note(mesh.name, stable, frameCache, extraMat != NULL, anim,
-                g_objShroud && !g_meshNoShroud && !mesh_shroud_clear(mesh, cx, cz));
+                g_objShroud && !g_meshNoShroud && !mesh_shroud_clear(mesh, cx, cz),
+                pass == MODE_SHADOW, shroudKey != 0u);
         output.finish(batchKey,*src,house,pass,depthOnly,nrmOut,frameCache);
     }
 }
@@ -28398,7 +28416,9 @@ static void fprof_end(void)
             lh = g_meshBatchHits; lu = g_meshBatchUploads; lf = g_meshFrameHits; ld = g_meshBatchDraws;
             printf("|up: stable=%lu frame=%lu tier1=%lu tier2=%lu piece=%lu anim=%lu shroud=%lu",
                    g_upStable, g_upFrame, g_upTier1, g_upTier2, g_upPiece, g_upAnim, g_upShroud);
+            printf("|stab: shadow=%lu shroudkey=%lu", g_upStabShadow, g_upStabKeyed);
             g_upStable = g_upFrame = g_upTier1 = g_upTier2 = g_upPiece = g_upAnim = g_upShroud = 0;
+            g_upStabShadow = g_upStabKeyed = 0;
             printf("|top:");
             for (int t = 0; t < 3 && !g_upNames.empty(); t++) {
                 std::map<std::string, unsigned long>::iterator best = g_upNames.begin();
