@@ -16,8 +16,10 @@ struct MeshBatchEntry {
     std::vector<MeshBatchRun> runs;
     MeshBatchVertex last;
     bool uv = false;
+    const char* name = "";       /* the pack mesh it was built from (profiler) */
 };
 static std::map<std::string, MeshBatchEntry> g_meshBatchCache;
+static unsigned long g_meshBatchEvicted = 0, g_meshBatchNotKept = 0;
 static size_t g_meshBatchBytes = 0;
 static GLuint g_meshBatchStream = 0;
 /* Animated output survives only for the current draw_frame. Recycle separate
@@ -344,29 +346,30 @@ struct MeshBatch {
         if(keep && entry.vbo) {
             const size_t cap=mesh_batch_cap();
             if(!g_meshBatchCache.empty() && (g_meshBatchBytes+entry.bytes>cap || g_meshBatchCache.size()>=65536)) {
-                /* OVER A CAP: drop the quarter used longest ago in one pass. A wrecked
-                   base is thousands of small entries, and finding the single oldest
-                   per eviction rescanned the whole map each time. */
+                /* OVER A CAP: drop what has NOT been drawn in the last two frames, oldest
+                   first, up to a quarter of the cache in one pass. Dropping a quarter by
+                   age alone took live entries with it when the cache was full in steady
+                   state, and the next frame rebuilt them: that was the thrash. What is
+                   still live is never evicted; if nothing stale can be found the new
+                   entry is simply not kept (below). */
                 std::vector<std::pair<unsigned,std::string> > age;
                 age.reserve(g_meshBatchCache.size());
                 for(auto it=g_meshBatchCache.begin();it!=g_meshBatchCache.end();++it)
-                    age.push_back(std::make_pair(it->second.used,it->first));
-                size_t drop=age.size()/4; if(drop<1) drop=1;
-                std::nth_element(age.begin(),age.begin()+(drop-1),age.end());
+                    if(it->second.used+2<g_drawFrameSerial)
+                        age.push_back(std::make_pair(it->second.used,it->first));
+                size_t drop=g_meshBatchCache.size()/4; if(drop<1) drop=1;
+                if(drop>age.size()) drop=age.size();
+                if(drop>0) std::nth_element(age.begin(),age.begin()+(drop-1),age.end());
                 for(size_t i=0;i<drop;i++) {
                     auto it=g_meshBatchCache.find(age[i].second);
                     if(it==g_meshBatchCache.end()) continue;
                     g_meshBatchBytes-=it->second.bytes;gr_glDeleteBuffers(1,&it->second.vbo);
-                    g_meshBatchCache.erase(it);
-                }
-                while(!g_meshBatchCache.empty() && g_meshBatchBytes+entry.bytes>cap) {
-                    auto it=g_meshBatchCache.begin();
-                    g_meshBatchBytes-=it->second.bytes;gr_glDeleteBuffers(1,&it->second.vbo);
-                    g_meshBatchCache.erase(it);
+                    g_meshBatchCache.erase(it); g_meshBatchEvicted++;
                 }
             }
-            if(entry.bytes<=cap) {entry.used=g_drawFrameSerial;g_meshBatchBytes+=entry.bytes;g_meshBatchCache[key]=entry;}
-            else gr_glDeleteBuffers(1,&entry.vbo);
+            if(entry.bytes<=cap && g_meshBatchBytes+entry.bytes<=cap && g_meshBatchCache.size()<65536) {
+                entry.used=g_drawFrameSerial;g_meshBatchBytes+=entry.bytes;g_meshBatchCache[key]=entry;
+            } else { gr_glDeleteBuffers(1,&entry.vbo); g_meshBatchNotKept++; }
         }
     }
 };

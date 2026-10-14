@@ -14552,6 +14552,7 @@ static void draw_mesh(int mi, float cx, float cz, int face, int pass,
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, envWas);
     }
     if (batch) {
+        output.entry.name = mesh.name;
         up_note(mesh.name, stable, frameCache, extraMat != NULL, anim,
                 g_objShroud && !g_meshNoShroud && !mesh_shroud_clear(mesh, cx, cz),
                 pass == MODE_SHADOW, shroudKey != 0u, g_meshBatchRestPose);
@@ -28456,6 +28457,23 @@ static void fprof_end(void)
             printf("|mesh: hits=%lu uploads=%lu frameHits=%lu draws=%lu",
                    g_meshBatchHits - lh, g_meshBatchUploads - lu, g_meshFrameHits - lf, g_meshBatchDraws - ld);
             lh = g_meshBatchHits; lu = g_meshBatchUploads; lf = g_meshFrameHits; ld = g_meshBatchDraws;
+            {
+                static unsigned long le = 0, lk = 0;
+                printf("|cache: entries=%u mb=%u evicted=%lu notkept=%lu", (unsigned)g_meshBatchCache.size(),
+                       (unsigned)(g_meshBatchBytes >> 20), g_meshBatchEvicted - le, g_meshBatchNotKept - lk);
+                le = g_meshBatchEvicted; lk = g_meshBatchNotKept;
+                std::map<std::string, size_t> by;
+                for (std::map<std::string, MeshBatchEntry>::const_iterator it = g_meshBatchCache.begin(); it != g_meshBatchCache.end(); ++it)
+                    by[it->second.name] += it->second.bytes;
+                printf("|big:");
+                for (int t = 0; t < 4 && !by.empty(); t++) {
+                    std::map<std::string, size_t>::iterator best = by.begin();
+                    for (std::map<std::string, size_t>::iterator it = by.begin(); it != by.end(); ++it)
+                        if (it->second > best->second) best = it;
+                    printf(" %s=%u", best->first.c_str(), (unsigned)(best->second >> 20));
+                    by.erase(best);
+                }
+            }
             printf("|up: stable=%lu frame=%lu tier1=%lu tier2=%lu piece=%lu anim=%lu shroud=%lu",
                    g_upStable, g_upFrame, g_upTier1, g_upTier2, g_upPiece, g_upAnim, g_upShroud);
             printf("|stab: shadow=%lu shroudkey=%lu", g_upStabShadow, g_upStabKeyed);
