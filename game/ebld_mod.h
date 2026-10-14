@@ -6190,6 +6190,10 @@ static void ebld_draw_glow(void)
         if (fl < 0.0f) fl = 0.0f;
         if (fl > 1.0f) fl = 1.0f;
         float k = 0.45f + 0.55f * fl;
+        /* SIXTEEN LEVELS, not 256: the alpha scale is part of the batch key, so every
+           distinct value is another cached copy of the glow's standing runs, built
+           on the CPU when first seen; the flicker is invisible at this step. */
+        k = floorf(k * 15.0f + 0.5f) / 15.0f;
         const bool ns = g_meshNoShroud;
         if (ebld_shroud_clear(E)) g_meshNoShroud = true;
         if (E.stage == EB_DAMAGED) {
