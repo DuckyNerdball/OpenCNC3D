@@ -46,7 +46,7 @@ static size_t mesh_batch_cap(void) {
 }
 static GLuint mesh_batch_frame_store(size_t bytes) {
     const size_t cap=mesh_batch_cap()/2;
-    if(g_meshFrameNext>=2048 || bytes>cap) return 0;
+    if(g_meshFrameNext>=65536 || bytes>cap) return 0;
     if(g_meshFrameNext==g_meshFrameStores.size()) g_meshFrameStores.push_back({});
     auto& s=g_meshFrameStores[g_meshFrameNext];
     if(g_meshFrameBytes-s.bytes+bytes>cap) return 0;
@@ -343,12 +343,27 @@ struct MeshBatch {
         if(frameStore && entry.vbo) g_meshFrameCache[key]=entry;
         if(keep && entry.vbo) {
             const size_t cap=mesh_batch_cap();
-            while(!g_meshBatchCache.empty() && (g_meshBatchBytes+entry.bytes>cap || g_meshBatchCache.size()>=2048)) {
-                auto oldest=g_meshBatchCache.begin();
+            if(!g_meshBatchCache.empty() && (g_meshBatchBytes+entry.bytes>cap || g_meshBatchCache.size()>=65536)) {
+                /* OVER A CAP: drop the quarter used longest ago in one pass. A wrecked
+                   base is thousands of small entries, and finding the single oldest
+                   per eviction rescanned the whole map each time. */
+                std::vector<std::pair<unsigned,std::string> > age;
+                age.reserve(g_meshBatchCache.size());
                 for(auto it=g_meshBatchCache.begin();it!=g_meshBatchCache.end();++it)
-                    if(it->second.used<oldest->second.used) oldest=it;
-                g_meshBatchBytes-=oldest->second.bytes;gr_glDeleteBuffers(1,&oldest->second.vbo);
-                g_meshBatchCache.erase(oldest);
+                    age.push_back(std::make_pair(it->second.used,it->first));
+                size_t drop=age.size()/4; if(drop<1) drop=1;
+                std::nth_element(age.begin(),age.begin()+(drop-1),age.end());
+                for(size_t i=0;i<drop;i++) {
+                    auto it=g_meshBatchCache.find(age[i].second);
+                    if(it==g_meshBatchCache.end()) continue;
+                    g_meshBatchBytes-=it->second.bytes;gr_glDeleteBuffers(1,&it->second.vbo);
+                    g_meshBatchCache.erase(it);
+                }
+                while(!g_meshBatchCache.empty() && g_meshBatchBytes+entry.bytes>cap) {
+                    auto it=g_meshBatchCache.begin();
+                    g_meshBatchBytes-=it->second.bytes;gr_glDeleteBuffers(1,&it->second.vbo);
+                    g_meshBatchCache.erase(it);
+                }
             }
             if(entry.bytes<=cap) {entry.used=g_drawFrameSerial;g_meshBatchBytes+=entry.bytes;g_meshBatchCache[key]=entry;}
             else gr_glDeleteBuffers(1,&entry.vbo);

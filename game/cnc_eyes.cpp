@@ -28321,7 +28321,7 @@ static void terrain_range_refresh(void)
 static int    g_fpOn = -1;
 static Uint64 g_fpFrame0 = 0, g_fpLast = 0, g_fpWin0 = 0;
 struct FpSec { const char* name; double ms, sum; };
-static FpSec  g_fpSec[64];
+static FpSec  g_fpSec[96];
 static int    g_fpN = 0, g_fpFrames = 0;
 static double g_fpWinSum = 0.0, g_fpWinWorst = 0.0;
 static double fprof_now_ms(Uint64 a, Uint64 b)
@@ -28343,7 +28343,7 @@ static void fprof_mark(const char* name)
     int k = 0;
     while (k < g_fpN && g_fpSec[k].name != name) k++;
     if (k == g_fpN) {
-        if (g_fpN >= 64) return;
+        if (g_fpN >= 96) return;
         g_fpSec[k].name = name; g_fpSec[k].ms = 0.0; g_fpSec[k].sum = 0.0; g_fpN++;
     }
     g_fpSec[k].ms += fprof_now_ms(g_fpLast, t);
