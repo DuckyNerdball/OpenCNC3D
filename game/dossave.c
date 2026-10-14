@@ -164,6 +164,7 @@ static void ds_pack(const DS_Slot *s, unsigned char *r)
     r[100] = s->camp_var;
     r[101] = s->build;
     r[102] = s->cam_mode;
+    r[103] = s->skirmish;
     wr32(r + 104, (unsigned int)s->camx_m);
     wr32(r + 108, (unsigned int)s->camz_m);
     wr32(r + 112, (unsigned int)s->dist_m);
@@ -192,6 +193,7 @@ static int ds_unpack(const unsigned char *r, DS_Slot *s)
     s->camp_var = r[100];
     s->build = r[101];
     s->cam_mode = r[102];
+    s->skirmish = r[103];
     s->camx_m = (int)rd32(r + 104);
     s->camz_m = (int)rd32(r + 108);
     s->dist_m = (int)rd32(r + 112);

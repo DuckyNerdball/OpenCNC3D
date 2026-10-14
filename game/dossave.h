@@ -52,6 +52,7 @@ typedef struct DS_Slot
     unsigned char camp_var;
     unsigned char build;         /* --build, the sidebar's build level */
     unsigned char cam_mode;
+    unsigned char skirmish;      /* 1: saved in a skirmish; loads only into one (fork) */
     int camx_m, camz_m;          /* camera, in thousandths of a cell */
     int dist_m, zoom_m;
     int music;                   /* ThemeType playing, or -1 */

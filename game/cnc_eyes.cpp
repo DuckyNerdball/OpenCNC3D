@@ -24595,10 +24595,9 @@ static void opt_show(const char* scenario)
     /* THE SLOT DIALOG's rows come from the index this file owns, and a new save's
        field opens on the mission and how far into it the player is, in minutes of
        engine time (15 ticks a second is the engine's own clock, TIMER_SECOND). The
-       player types over it. Saving a skirmish is refused by game_save_slot, and the
-       button is greyed here for the same reason so the refusal is seen before the
-       click. */
-    dopt_bind_slots(&g_optState, g_skirmishRunning ? NULL : opt_slot_rows);
+       player types over it. (Fork: a skirmish saves too; game_save_slot marks the
+       slot and game_load_slot loads it only into a skirmish.) */
+    dopt_bind_slots(&g_optState, opt_slot_rows);
     {
         char d[48];
         snprintf(d, sizeof d, "%s %d min", g_bootScen, g_engineFrame / (15 * 60));
@@ -37831,11 +37830,9 @@ int game_save_slot(int slot, const char* descr)
        player game: the computer opponent stops thinking, and the sidebar switches to a
        build list that was never filled. That fails silently, which is worse than not
        offering it. */
-    if (g_skirmishRunning) {
-        printf("SAVE|slot=%d|REFUSED a skirmish cannot be saved yet\n", slot);
-        fflush(stdout);
-        return 0;
-    }
+    /* FORK: a skirmish IS saved, and the slot records that it is one, so the load
+       below can hand the engine the mode it was saved in (GAME_GLYPHX_MULTIPLAYER,
+       which dllinterface.cpp accepts) instead of converting the match. */
     if (slot < 0 || slot >= DS_SLOTS || !ds_get_dir()[0]) {
         printf("SAVE|slot=%d|REFUSED no save directory\n", slot);
         fflush(stdout);
@@ -37860,6 +37857,7 @@ int game_save_slot(int slot, const char* descr)
     r.camp_var = g_campSave[4];
     r.build = (unsigned char)g_bootBuild;
     r.cam_mode = (unsigned char)g_camMode;
+    r.skirmish = g_skirmishRunning ? 1 : 0;
     r.camx_m = (int)(g_camX * 1000.0f);
     r.camz_m = (int)(g_camZ * 1000.0f);
     r.dist_m = (int)(g_dist * 1000.0f);
@@ -37897,11 +37895,6 @@ int game_load_slot(int slot)
     }
     /* And loading INTO a skirmish is refused for the same reason: the mode is an
        argument to the load, so this path would quietly convert the running match. */
-    if (g_skirmishRunning) {
-        printf("LOAD|slot=%d|REFUSED a skirmish cannot be loaded yet\n", slot);
-        fflush(stdout);
-        return 0;
-    }
     if (slot < 0 || slot >= DS_SLOTS) { printf("LOAD|slot=%d|REFUSED out of range\n", slot); fflush(stdout); return 0; }
     ds_read_index(tab);
     if (!tab[slot].used) {
@@ -37920,8 +37913,20 @@ int game_load_slot(int slot)
         fflush(stdout);
         return 0;
     }
-    if (!BrainSaveLoad(false, ds_payload_path(slot), "GAME_NORMAL")) {
-        /* The literal string is mandatory: dllinterface.cpp returns false for anything
+    /* FORK: A SLOT LOADS ONLY INTO THE KIND OF GAME IT WAS SAVED FROM. A skirmish slot
+       needs the skirmish's own houses, player ids and brain state under it, which only
+       a running skirmish on that map has; a mission slot loaded into a skirmish would
+       convert the match the other way. */
+    if ((tab[slot].skirmish != 0) != g_skirmishRunning) {
+        printf("LOAD|slot=%d|REFUSED %s\n", slot, tab[slot].skirmish
+               ? "a skirmish save: start a skirmish on the same map, then load it from the pause menu"
+               : "a mission save, and a skirmish is running");
+        fflush(stdout);
+        return 0;
+    }
+    if (!BrainSaveLoad(false, ds_payload_path(slot),
+                       tab[slot].skirmish ? "GAME_GLYPHX_MULTIPLAYER" : "GAME_NORMAL")) {
+        /* The literal strings are mandatory: dllinterface.cpp returns false for anything
            that is not "GAME_NORMAL" or the multiplayer name. */
         printf("LOAD|slot=%d|REFUSED the engine declined\n", slot);
         fflush(stdout);
@@ -38079,7 +38084,7 @@ static int opt_slot_rows(void* user, DOPT_SlotRow* out, int max)
         const DS_Slot* r = &tab[order[i]];
         out[i].slot = r->slot;
         snprintf(out[i].text, sizeof out[i].text, "(%s) %s",
-                 (r->scen[2] == 'B') ? "NOD" : "GDI", r->descr);
+                 r->skirmish ? "SKIRMISH" : (r->scen[2] == 'B') ? "NOD" : "GDI", r->descr);
     }
     return n;
 }
