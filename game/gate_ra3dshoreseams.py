@@ -48,7 +48,7 @@ EDGE_LIMIT = 14.0
 SNOW_LIMIT = 170.0
 STILL = ['gfx cloud_on 0', 'gfx water_pan 0', 'gfx water_wave_speed 0', 'gfx water_flow 0',
          'gfx water_flow_rate 0', 'gfx water_swash 0', 'gfx tree3d_wind 0', 'gfx tree3d_flutter 0',
-         'gfx grass_wind 0', 'gfx fol_wind 0', 'gfx fol_flutter 0']
+         'gfx grass_wind 0', 'gfx fol_wind 0', 'gfx fol_flutter 0', 'gfx snow_fx 0']
 POINTS = [(59, 59), (59, 61), (60, 62), (61, 62), (61, 63), (60, 63)]
 
 

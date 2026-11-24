@@ -112,22 +112,30 @@ static void fxp_font_init(void)
 
 static int   g_fxpOpen   = 0;
 static int   g_fxpScroll = 0;
-static int   g_fxpTab = 0; /* 0: Enhanced, 1: Weather */
+static int   g_fxpTab = 0; /* Enhanced, Weather, Lighting, Experimental */
+static int g_fxpTheaterOpen = 0;
 static int   g_fxpDrag   = -1;      /* index into FX_PARAMS being dragged, or -1 */
 static char  g_fxpStatus[192] = "F5 closes. Drag a slider, then SAVE.";
+static bool g_fxpEnhancedLocked = false;
 static char  g_fxpSavePath[512] = "opencnc3d-fx.cfg";
 
 /* Geometry, all in unscaled units; everything is multiplied by an integer scale so the
    panel stays legible on a 5K window without ever landing on a half pixel. */
 #define FXP_W      348
 #define FXP_ROWH    15
-#define FXP_TOP     80
+#define FXP_TOP     (g_fxpTab == 2 ? 108 : 80)
 #define FXP_LABX     8
 #define FXP_TRKX   176
 #define FXP_TRKW   112
 #define FXP_VALX   292
 
-static int fxp_scale(int fbh) { int s = fbh / 620; if (s < 1) s = 1; if (s > 3) s = 3; return s; }
+/* In window points times the whole pixels per point (g_fxHidpi), so the panel keeps its
+   physical size on a Retina window. */
+static int fxp_scale(int fbh)
+{
+    const int hp = g_fxHidpi > 1 ? g_fxHidpi : 1;
+    int s = (fbh / hp) / 620; if (s < 1) s = 1; if (s > 3) s = 3; return s * hp;
+}
 
 static void fxp_set_save_path(const char* p)
 {
@@ -231,8 +239,7 @@ static int fxp_walk(int fbh, int scale, FxpRowFn fn, void* ctx)
     const FxParam* group = NULL;
     for (const FxParam* p = FX_PARAMS; p->kind != FXP_END; p++, i++) {
         if (p->kind == FXP_GROUP) group = p;
-        if (fxp_group_tab(group) != g_fxpTab) continue;
-        if (p->kind == FXP_GROUP ? !fxp_group_visible(p,&g_fx) : !fxp_row_visible(p,group,&g_fx)) continue;
+        if (!fxp_on_tab(p,group,&g_fx,g_fxpTab)) continue;
         const int h = (p->kind == FXP_GROUP) ? FXP_ROWH + 7 : FXP_ROWH;
         if (fn && y * scale < fbh && (y + h) > 0)
             fn(p, i, y, ctx);
@@ -258,7 +265,7 @@ static int fxp_scroll_to(const char* key, int fbh)
     for (const FxParam* p = FX_PARAMS; p->kind != FXP_END; p++) {
         if (p->kind == FXP_GROUP) group = p;
         else if (!strcmp(p->key,key) && fxp_row_visible(p,group,&g_fx)) {
-            targetTab = fxp_group_tab(group); break;
+            targetTab = fxp_param_tab(p,group); break;
         }
     }
     if (targetTab < 0) return 0;
@@ -267,8 +274,7 @@ static int fxp_scroll_to(const char* key, int fbh)
     group = NULL;
     for (const FxParam* p = FX_PARAMS; p->kind != FXP_END; p++) {
         if (p->kind == FXP_GROUP) group = p;
-        if (fxp_group_tab(group) != g_fxpTab) continue;
-        if (p->kind == FXP_GROUP ? !fxp_group_visible(p,&g_fx) : !fxp_row_visible(p,group,&g_fx)) continue;
+        if (!fxp_on_tab(p,group,&g_fx,g_fxpTab)) continue;
         if (p->kind == FXP_GROUP) groupY = y;
         if (p->kind != FXP_GROUP && !strcmp(p->key,key)) { found = groupY; break; }
         y += (p->kind == FXP_GROUP) ? FXP_ROWH + 7 : FXP_ROWH;
@@ -291,7 +297,7 @@ struct FxpHit { int mx, my; int idx; int onTrack; };
 static void fxp_hit_row(const FxParam* p, int idx, int y, void* ctx)
 {
     FxpHit* h = (FxpHit*)ctx;
-    if (p->kind == FXP_GROUP) return;
+    if (p->kind == FXP_GROUP || !fxp_row_enabled(p,&g_fx)) return;
     if (h->my < y || h->my >= y + FXP_ROWH) return;
     h->idx = idx;
     h->onTrack = (p->kind != FXP_BOOL && h->mx >= FXP_TRKX && h->mx <= FXP_TRKX + FXP_TRKW);
@@ -299,9 +305,10 @@ static void fxp_hit_row(const FxParam* p, int idx, int y, void* ctx)
 
 static void fxp_set_from_x(const FxParam* p, int mx)
 {
+    if(!fxp_row_enabled(p,&g_fx))return;
     float t = (float)(mx - FXP_TRKX) / (float)FXP_TRKW;
     t = fx_clampf(t, 0.0f, 1.0f);
-    *fx_fptr(&g_fx, p) = fx_quant(p, p->lo + t * (p->hi - p->lo));
+    *fx_fptr(&g_fx, p) = fx_quant(p, fx_minimum(p) + t * (fx_maximum(p) - fx_minimum(p)));
 }
 
 /* ---- Buttons ---------------------------------------------------------------------- */
@@ -328,6 +335,10 @@ static void fxp_button(int which)
 {
     switch (which) {
     case FXPB_SAVE:
+        if (!g_fxpSavePath[0]) {
+            snprintf(g_fxpStatus, sizeof g_fxpStatus, "Save visuals outside Gun Game");
+            break;
+        }
         if (fx_save(&g_fx, g_fxpSavePath)) {
             snprintf(g_fxpStatus, sizeof g_fxpStatus, "saved: %s", g_fxpSavePath);
             fprintf(stderr, "FX|saved|%s\n", g_fxpSavePath);
@@ -337,6 +348,15 @@ static void fxp_button(int which)
         }
         break;
     case FXPB_DEFAULTS: {
+        if(g_fxpTab==2) {
+            fx_lighting_ensure(&g_fx);
+            int t=g_fx.lighting_active<0?0:g_fx.lighting_active;
+            FxState d;fx_defaults(&d);fx_lighting_ensure(&d);
+            memcpy(g_fx.lighting[t],d.lighting[t],sizeof g_fx.lighting[t]);
+            g_fx.lighting_active=t;fx_lighting_apply(&g_fx,t);
+            snprintf(g_fxpStatus,sizeof g_fxpStatus,"%s lighting reset to defaults",FX_LIGHT_NAME[t]);
+            break;
+        }
         const int wasOn = g_fx.enabled, wasBi = g_fx.bilinear;
         fx_defaults(&g_fx);
         /* Keep the two master switches where they were: somebody pressing DEFAULTS
@@ -347,6 +367,10 @@ static void fxp_button(int which)
         break;
     }
     case FXPB_ALLOFF:
+        if (g_fxpEnhancedLocked) {
+            snprintf(g_fxpStatus, sizeof g_fxpStatus, "Gun Game uses Enhanced graphics");
+            break;
+        }
         g_fx.enabled = 0;
         g_fx.bilinear = 0;
         fxp_apply_all_side_effects();
@@ -440,9 +464,22 @@ static int fxp_event(const SDL_Event* e, int fbw, int fbh, float mscaleX, float 
             return 1;
         }
         if (my >= 56 && my < 74) {
-            g_fxpTab = mx < 152 ? 0 : 1;
+            const int tab = fxp_tab_at(mx);
+            if (tab < 0) return 1;
+            g_fxpTab = tab; g_fxpTheaterOpen = 0;
             g_fxpScroll = 0; g_fxpDrag = -1;
             return 1;
+        }
+        if(g_fxpTab==2) {
+            if(g_fxpTheaterOpen) {
+                const int row=(my-100)/18;
+                if(mx>=104 && mx<340 && my>=100 && row<4) {
+                    fx_lighting_select(&g_fx,row);
+                    snprintf(g_fxpStatus,sizeof g_fxpStatus,"Editing %s lighting. SAVE keeps all theaters.",FX_LIGHT_NAME[row]);
+                }
+                g_fxpTheaterOpen=0;return 1;
+            }
+            if(my>=78 && my<98 && mx>=104 && mx<340) {g_fxpTheaterOpen=1;return 1;}
         }
         /* Above the first row's own area is the header, which the rows are clipped out
            of. A click there lands on nothing rather than on whatever has scrolled
@@ -531,6 +568,10 @@ static double g_statsWorst = 0.0, g_statsFps = 0.0, g_statsMs = 0.0, g_statsWors
 
 static void fxp_draw_stats(int fbw, int fbh)
 {
+    /* A scripted still's settle frames are not timed: the kept frame shows what the
+       counter showed before them, so a still with the counter on does not depend on how
+       busy the machine was while they ran. Never shown, so nothing to draw either. */
+    if (g_fxTaaSettling) return;
     const Uint64 now = SDL_GetPerformanceCounter();
     const double freq = (double)SDL_GetPerformanceFrequency();
     if (g_statsLast) {
@@ -598,11 +639,13 @@ static void fxp_draw_row(const FxParam* p, int idx, int y, void* ctx)
 
     if (p->kind == FXP_GROUP) {
         fxp_rect(0.0f, (y + 12) * sc, FXP_W * sc, 1.0f * sc, 0.35f, 0.55f, 0.35f, 0.85f);
-        fxp_text(FXP_LABX * sc, (y + 3) * sc, !strcmp(p->label,"EXPERIMENTAL") ? "ENHANCED EFFECTS" : p->label, sc, 0.62f, 0.95f, 0.62f, 1.0f);
+        const char* label = p->label;
+        fxp_text(FXP_LABX * sc, (y + 3) * sc, label, sc, 0.62f, 0.95f, 0.62f, 1.0f);
         return;
     }
 
-    const int on = (p->kind == FXP_BOOL) ? *(const int*)((const char*)&g_fx + p->off) : 1;
+    const int enabled=fxp_row_enabled(p,&g_fx);
+    const int on = enabled && ((p->kind == FXP_BOOL) ? *(const int*)((const char*)&g_fx + p->off) : 1);
     fxp_text(FXP_LABX * sc, (y + 3) * sc, p->label, sc,
              on ? 0.90f : 0.55f, on ? 0.90f : 0.55f, on ? 0.90f : 0.55f, 1.0f);
 
@@ -622,22 +665,22 @@ static void fxp_draw_row(const FxParam* p, int idx, int y, void* ctx)
     }
 
     const float v = *(const float*)((const char*)&g_fx + p->off);
-    float t = (p->hi > p->lo) ? (v - p->lo) / (p->hi - p->lo) : 0.0f;
+    float t = (fx_maximum(p) > fx_minimum(p)) ? (v - fx_minimum(p)) / (fx_maximum(p) - fx_minimum(p)) : 0.0f;
     t = fx_clampf(t, 0.0f, 1.0f);
 
     fxp_rect(FXP_TRKX * sc, (y + 6) * sc, FXP_TRKW * sc, 2.0f * sc,
              0.22f, 0.24f, 0.26f, 1.0f);
     fxp_rect(FXP_TRKX * sc, (y + 6) * sc, FXP_TRKW * t * sc, 2.0f * sc,
-             0.35f, 0.70f, 0.90f, 1.0f);
+             enabled?0.35f:0.25f, enabled?0.70f:0.28f, enabled?0.90f:0.30f, 1.0f);
     fxp_rect((FXP_TRKX + FXP_TRKW * t - 2) * sc, (y + 2) * sc, 4.0f * sc, 10.0f * sc,
-             0.80f, 0.88f, 0.95f, 1.0f);
+             enabled?0.80f:0.35f, enabled?0.88f:0.38f, enabled?0.95f:0.40f, 1.0f);
 
     char buf[32];
     if (p->step >= 1.0f)      snprintf(buf, sizeof buf, "%.0f", v);
     else if (p->step > 0.0f)  snprintf(buf, sizeof buf, "%.2f", v);
     else if (p->hi <= 0.05f)  snprintf(buf, sizeof buf, "%.4f", v);
     else                      snprintf(buf, sizeof buf, "%.3f", v);
-    fxp_text(FXP_VALX * sc, (y + 3) * sc, buf, sc, 0.80f, 0.85f, 0.90f, 1.0f);
+    fxp_text(FXP_VALX * sc, (y + 3) * sc, buf, sc, enabled?0.80f:0.45f, enabled?0.85f:0.45f, enabled?0.90f:0.45f, 1.0f);
 }
 
 static void fxp_draw(int fbw, int fbh)
@@ -694,14 +737,22 @@ static void fxp_draw(int fbw, int fbh)
     fxp_text((FXP_FC_X + 8) * sc, (FXP_FC_Y + 15) * sc, g_freeCam ? "ON" : "off", sc,
              g_freeCam ? 0.55f : 0.60f, g_freeCam ? 1.0f : 0.62f,
              g_freeCam ? 0.60f : 0.60f, 1.0f);
-    for (int tab = 0; tab < 2; tab++) {
-        const int x = tab ? 156 : 8, w = tab ? 130 : 140;
+    for (int tab = 0; tab < FXP_TAB_COUNT; tab++) {
+        const int x = FXP_TAB_X[tab], w = FXP_TAB_W;
         const int active = tab == g_fxpTab;
         fxp_rect(x * sc, 56 * sc, w * sc, 18 * sc,
                  active ? 0.22f : 0.12f, active ? 0.36f : 0.17f,
                  active ? 0.27f : 0.18f, 1.0f);
-        fxp_text((x + 8) * sc, 61 * sc, tab ? "WEATHER" : "ENHANCED", sc,
+        fxp_text((x + 4) * sc, 61 * sc, FXP_TAB_LABEL[tab], sc,
                  active ? 0.75f : 0.55f, active ? 1.0f : 0.62f, active ? 0.77f : 0.60f, 1.0f);
+    }
+
+    if(g_fxpTab==2) {
+        fxp_text(8*sc,84*sc,"THEATER",sc,0.7f,0.8f,0.8f,1);
+        fxp_rect(104*sc,78*sc,236*sc,20*sc,0.18f,0.25f,0.27f,1);
+        const int t=g_fx.lighting_active<0?0:g_fx.lighting_active;
+        fxp_text(112*sc,84*sc,FX_LIGHT_NAME[t],sc,0.85f,0.95f,0.9f,1);
+        fxp_text(324*sc,84*sc,"v",sc,0.85f,0.95f,0.9f,1);
     }
 
     /* THE ROWS ARE CLIPPED TO THEIR OWN AREA. The title, the state line and the button
@@ -727,6 +778,11 @@ static void fxp_draw(int fbw, int fbh)
         glScissor(oldBox[0], oldBox[1], oldBox[2], oldBox[3]);
         if (!hadScissor) glDisable(GL_SCISSOR_TEST);
     }
+    if(g_fxpTab==2 && g_fxpTheaterOpen)for(int t=0;t<4;t++) {
+        fxp_rect(104*sc,(100+t*18)*sc,236*sc,18*sc,0.19f,0.29f,0.26f,1);
+        fxp_text(112*sc,(105+t*18)*sc,FX_LIGHT_NAME[t],sc,0.85f,0.95f,0.9f,1);
+    }
+
 
     /* the status strip, pinned to the bottom so a long list cannot scroll it away */
     fxp_rect(0.0f, (float)fbh - 14 * sc, FXP_W * sc, 14 * sc, 0.10f, 0.12f, 0.14f, 0.96f);

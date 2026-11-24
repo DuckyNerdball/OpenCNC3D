@@ -23,7 +23,12 @@ static unsigned nm_now_ms(void) { return (unsigned)GetTickCount(); }
 static void nm_nap(int ms) { usleep((useconds_t)ms * 1000); }
 static unsigned nm_now_ms(void)
 {
+    struct timespec ts;
     struct timeval tv;
+    /* Match deadlines are elapsed time. A backwards wall-clock correction
+       makes the unsigned time since a live peer's last packet look enormous. */
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
+        return (unsigned)((unsigned long)ts.tv_sec * 1000ul + (unsigned long)ts.tv_nsec / 1000000ul);
     gettimeofday(&tv, NULL);
     return (unsigned)(tv.tv_sec * 1000u + tv.tv_usec / 1000u);
 }
@@ -78,7 +83,22 @@ static unsigned nm_now_ms(void)
    3 since the match became a star of up to eight: WELCOME now names the seat the host
    assigned, START carries the final roster once everyone is in, and SYNC names the seat
    it came from so a hash can be attributed. A v2 peer would take a seat nobody gave it. */
-#define NM_VERSION 14  /* 4: the tech level travels; 5: a per-seat mode does too;
+#define NM_VERSION 25  /* 25: the HELLO names the joiner's build and the host refuses a
+                              different one by name (nm_set_build); a goodbye says whether
+                              the seat went silent; Red Alert's rules files are part of
+                              the map fingerprint. A 24 cannot say which build it is, so
+                              it is refused as a different game version.
+                          24: a Rally room's laps travel in the setup (byte 31).
+                          23: Red Alert places each seat on the start it chose; an
+                              engine that ignored the choice starts a different match.
+                          22: resource regrowth rates and synchronized Dawn wall lines.
+                          21: Gun Game vehicle jump momentum and Tesla Tank targeting.
+                          20: Gun Game combat roster and Chrono Tank order.
+                          19: Gun Game aircraft and superweapon crates.
+                          18: Gun Game roll and jump orders.
+                          17: Gun Game hashes credited kills for the live scoreboard.
+                          16: Gun Game damage credit and valid speed index zero.
+                          4: the tech level travels; 5: a per-seat mode does too;
                           6: AI takeover and short game; 7: player names, so the
                           HELLO carries a handle and the setup carries eight;
                           8: the start waits for every seat's round trip.
@@ -246,6 +266,39 @@ void nm_set_player_name(const char* name)
 }
 const char* nm_player_name(void) { return s_my_name; }
 
+/* THIS MACHINE'S BUILD, as the HELLO carries it and a refusal names it. Printable bytes
+   only: it is a remote peer's string once it arrives, and it is drawn on a screen. */
+static char s_build[NM_BUILD_MAX] = "";
+static void nm_build_copy(char* dst, const char* src, int max)
+{
+    int i = 0;
+    if (src) {
+        for (; i < max && i < NM_BUILD_MAX - 1 && src[i]; i++) {
+            const unsigned char c = (unsigned char)src[i];
+            dst[i] = (c < 32 || c >= 127) ? '?' : (char)c;
+        }
+    }
+    dst[i] = '\0';
+}
+void nm_set_build(const char* build)
+{
+    const char* test = getenv("OPENCNC3D_NETTEST_BUILD_ID");
+    nm_build_copy(s_build, (test && *test) ? test : build, NM_BUILD_MAX - 1);
+    if (test && *test) {
+        printf("NET|test|build-id=%s\n", s_build);
+        fflush(stdout);
+    }
+}
+const char* nm_build(void) { return s_build; }
+unsigned nm_abi_with_build(unsigned engine_abi)
+{
+    unsigned h = engine_abi;
+    const char* p;
+    if (!engine_abi || !s_build[0]) return engine_abi;
+    for (p = s_build; *p; p++) { h ^= (unsigned char)*p; h *= 16777619u; }
+    return h ? h : 1u;
+}
+
 static void nm_chat_push(int seat, const char* text, int len)
 {
     char* dst = s_chat[s_chat_total % NM_CHAT_LOG];
@@ -346,6 +399,19 @@ static int s_left[NM_MAX_SEATS];
 #define LS_TURN_NONE 0xFFFFFFFFu
 static unsigned s_left_turn[NM_MAX_SEATS];
 static int s_left_done[NM_MAX_SEATS];
+/* WHICH DEPARTURES WERE SILENCE rather than a goodbye: the host's own silence timer, or
+   the host's goodbye for that seat saying so (its fourth word). Only the debrief reads it. */
+static int s_left_silent[NM_MAX_SEATS];
+/* THIS MACHINE'S OWN SILENCE: when nm_pump last ran, and whether the gap since the one
+   before ever passed the limit every other machine drops a seat at. */
+static unsigned s_last_pump_ms = 0;
+static int s_self_stalled = 0;
+static unsigned s_self_stall_ms = 0;   /* when the stall was noticed, for nm_self_stalled */
+/* HOW LONG A STALL STILL EXPLAINS WHAT HAPPENS NEXT. The break a stall causes is read
+   within moments of waking (the host's goodbye, or a peer's silence already timed out),
+   and at worst one more silence limit later. Past that, a stall that nobody acted on is
+   history, and a host who genuinely leaves twenty minutes on must still be named. */
+#define NM_SELF_STALL_RECENT_MS (2u * NM_SILENCE_MS)
 
 /* A SURRENDER IS NOT A GOODBYE, and it needs its own table for three reasons, each on its
    own sufficient. The seat that resigns applies it to ITSELF, so it cannot ride the
@@ -452,7 +518,7 @@ static unsigned s_gone_answer_said_ms = 0;
 #define NM_TEST_HOLD_MAX 64
 static int s_test_hold_seat = -1;
 static unsigned s_test_hold_ms = 0;
-static unsigned char s_test_held[NM_TEST_HOLD_MAX][12];
+static unsigned char s_test_held[NM_TEST_HOLD_MAX][16];
 static unsigned s_test_held_due[NM_TEST_HOLD_MAX];
 static int s_test_held_n = 0;
 /* THE SAME KIND OF INSTRUMENT FOR THE OTHER ORDER A LOOPBACK MATCH NEVER REACHES: a
@@ -506,7 +572,8 @@ static unsigned get_u32(const unsigned char* p)
 /* ---------------------------------------------------------------- setup on the wire -- */
 /* Fixed layout, little endian, one byte per roster field. 16 + 8*4 + 5*8 = 88 bytes, plus
    the tech level at 32 since version 4, plus the seat modes at 88..95 since version 5,
-   plus the engine, the seed and Red Alert's rules at 39..46 since version 13.
+   plus the engine, the seed and Red Alert's rules at 39..46 since version 13, plus a Rally
+   room's laps at 31 since version 24.
    The roster still starts at 48. */
 #define NM_SETUP_BYTES 200   /* 96 rules/roster + 96 names + 8 per-seat AI levels (v14) */
 
@@ -530,6 +597,9 @@ static int setup_pack(const NmSetup* s, unsigned char* p)
     p[44] = (unsigned char)s->ctf;
     p[45] = (unsigned char)s->ai_difficulty;
     p[46] = (unsigned char)s->game;
+    p[47] = s->gun_game ? 1 : 0;
+    /* v23, the last free byte before the tech level */
+    p[31] = (unsigned char)((s->rally_laps >= 0 && s->rally_laps <= 9) ? s->rally_laps : 0);
     put_u32(p + 24, (unsigned)s->unit_count);
     p[28] = (unsigned char)s->speed;
     p[29] = (unsigned char)s->seats;
@@ -555,7 +625,7 @@ static void setup_unpack(NmSetup* s, const unsigned char* p)
     memcpy(s->scenario, p, 15);
     s->scenario[15] = '\0';
     s->credits = (int)get_u32(p + 16);
-    s->tiberium = p[20];
+    s->tiberium = p[20] <= NM_MAX_REGROWTH ? p[20] : 1;
     s->crates = p[21];
     s->superweapons = p[22];
     s->bases = p[23];
@@ -567,8 +637,10 @@ static void setup_unpack(NmSetup* s, const unsigned char* p)
     s->ctf = p[44];
     s->ai_difficulty = p[45] <= 3 ? p[45] : 1;
     s->game = p[46];
+    s->gun_game = !s->game && p[47] == 1;
+    s->rally_laps = (!s->game && p[31] <= 9) ? p[31] : 0;   /* v23 */
     s->unit_count = (int)get_u32(p + 24);
-    s->speed = p[28];
+    s->speed = p[28] <= NM_MAX_SPEED ? p[28] : NM_DEFAULT_SPEED;
     s->seats = p[29];
     s->humans = p[30];
     s->build = (int)get_u32(p + 32);   /* v4 */
@@ -595,7 +667,9 @@ static const char* nm_refuse_text(unsigned reason)
 {
     switch (reason) {
     case 1u:
-        return "version";
+        /* The wire itself differs, which only ever happens between two builds. Said the
+           way a player would say it: they update, they do not go and read a protocol. */
+        return "different game version";
     case 2u:
         return "order-wire layout";
     case 3u:
@@ -608,9 +682,73 @@ static const char* nm_refuse_text(unsigned reason)
            here which end failed to read its brain, and guessing would send half of
            these players to look at the wrong machine. */
         return "one of us could not read its own engine";
+    case 6u:
+        /* The same wire and the same engine layout, but a different build, which can
+           still simulate differently. Followed by both builds' names wherever it is
+           shown (nm_refuse_say). */
+        return "different game version";
     default:
         return "unknown";
     }
+}
+
+/* WHERE THE BUILD SITS IN A HELLO: after the passcode word and the handle, so a HELLO
+   from a peer that carries none is simply shorter and reads as "unknown". */
+#define NM_HELLO_BUILD_AT (20 + NM_PLAYER_NAME_MAX)
+#define NM_HELLO_BYTES (NM_HELLO_BUILD_AT + NM_BUILD_MAX)
+/* A REFUSAL CARRIES THE HOST'S BUILD after its three words, for the same reason a HELLO
+   carries the joiner's: "different game version" with no versions in it sends a player
+   to find out which, and the host's is the one they cannot see. */
+#define NM_REFUSE_BYTES (12 + NM_BUILD_MAX)
+
+static void nm_hello_build(const unsigned char* in, int n, char* out)
+{
+    out[0] = '\0';
+    if (n >= NM_HELLO_BYTES)
+        nm_build_copy(out, (const char*)in + NM_HELLO_BUILD_AT, NM_BUILD_MAX - 1);
+}
+
+/* THE REFUSAL, sent and logged the same way by both doors. `theirs`/`mine` are the
+   numbers that differed; for a build refusal the log line names the two builds instead. */
+static void nm_refuse_send(const NetAddr* to, unsigned reason, unsigned word,
+                           unsigned theirs, unsigned mine, const char* their_build)
+{
+    unsigned char no[NM_REFUSE_BYTES];
+    char txt[64];
+    memset(no, 0, sizeof no);
+    put_u32(no, NM_REFUSE);
+    put_u32(no + 4, reason);
+    put_u32(no + 8, word);
+    memcpy(no + 12, s_build, strlen(s_build));
+    net_send(s_sock, to, no, (int)sizeof no);
+    net_addr_text(to, txt, (int)sizeof txt);
+    if (reason == 1u || reason == 6u)
+        printf("NET|refused|peer=%s|reason=%s|theirs=%s|mine=%s|wire=%u/%u\n", txt,
+               nm_refuse_text(reason), (their_build && their_build[0]) ? their_build : "unknown",
+               s_build[0] ? s_build : "unknown", reason == 1u ? theirs : (unsigned)NM_VERSION,
+               (unsigned)NM_VERSION);
+    else
+        printf("NET|refused|peer=%s|reason=%s|theirs=%08X|mine=%08X\n", txt,
+               nm_refuse_text(reason), theirs, mine);
+    fflush(stdout);
+}
+
+/* WHAT A JOINER SAYS WHEN IT IS REFUSED, in one place for both doors. A version refusal
+   names the host's build and this one's, because "different game version" alone is a
+   sentence the player then has to go and investigate. A host from before builds were
+   named sends none, which by construction means an older wire. */
+static void nm_refuse_say(const unsigned char* in, int n, char* out, int outn)
+{
+    const unsigned reason = get_u32(in + 4);
+    char host_build[NM_BUILD_MAX];
+    host_build[0] = '\0';
+    if (n >= NM_REFUSE_BYTES) nm_build_copy(host_build, (const char*)in + 12, NM_BUILD_MAX - 1);
+    if (reason == 1u || reason == 6u)
+        snprintf(out, (size_t)outn, "the host refused: %s (host %s, you %s)",
+                 nm_refuse_text(reason), host_build[0] ? host_build : "an older build",
+                 s_build[0] ? s_build : "unknown");
+    else
+        snprintf(out, (size_t)outn, "the host refused: %s", nm_refuse_text(reason));
 }
 
 /* WHAT A PLAYER IS SAYING YES TO WHEN THEY PRESS READY: the map and the rules. Not the
@@ -628,6 +766,8 @@ static int lobby_offer_changed(const NmSetup* a, const NmSetup* b)
         || a->crates       != b->crates
         || a->aitake       != b->aitake
         || a->shortgame    != b->shortgame
+        || a->gun_game     != b->gun_game
+        || a->rally_laps   != b->rally_laps
         || a->superweapons != b->superweapons
         || a->bases        != b->bases
         || a->unit_count   != b->unit_count
@@ -651,6 +791,14 @@ void nm_set_map_hasher(NmMapHashFn fn, void* user)
 }
 
 int nm_host_gone(void) { return s_host_gone; }
+int nm_seat_left_silent(int seat)
+{
+    return (seat >= 0 && seat < NM_MAX_SEATS) ? s_left_silent[seat] : 0;
+}
+int nm_self_stalled(void)
+{
+    return s_self_stalled && nm_now_ms() - s_self_stall_ms <= NM_SELF_STALL_RECENT_MS;
+}
 unsigned nm_abi(void)  { return s_abi; }
 unsigned nm_scen(void) { return s_scen; }
 
@@ -822,6 +970,9 @@ static void nm_reset_match(int seat, int seats)
     s_fatal = 0;
     s_desynced = 0;
     s_host_gone = 0;
+    s_last_pump_ms = 0;
+    s_self_stalled = 0;
+    s_self_stall_ms = 0;
     s_desync_frame = 0;
     s_synced_frames = 0;
     s_turns_asked = 0;
@@ -894,6 +1045,7 @@ static void nm_reset_match(int seat, int seats)
         s_left[i] = 0;
         s_left_turn[i] = LS_TURN_NONE;
         s_left_done[i] = 0;
+        s_left_silent[i] = 0;
         s_surr_turn[i] = LS_TURN_NONE;
         s_surr_done[i] = 0;
     }
@@ -1371,6 +1523,18 @@ static void lobby_try_start(void)
        slowest link and there is no such thing as one peer being late on its own. */
     worst = nm_lobby_worst_rtt();
     s_setup.ahead = (unmeasured > 0) ? LS_AHEAD_MAX : nm_ahead_for_rtt(worst);
+    /* OPENCNC3D_NETTEST_AHEAD=N: a test run on one machine seats the room at the lookahead
+       of a far or relayed link (clamped to the band), which a loopback round trip never
+       reaches; the number travels in the START like any other. Nothing in play sets it. */
+    {
+        const char* force = getenv("OPENCNC3D_NETTEST_AHEAD");
+        if (force && atoi(force) > 0) {
+            int a = atoi(force);
+            if (a < LS_AHEAD_MIN) a = LS_AHEAD_MIN;
+            if (a > LS_AHEAD_MAX) a = LS_AHEAD_MAX;
+            s_setup.ahead = a;
+        }
+    }
     printf("NET|ahead|turns=%d|worst-rtt=%dms|cover=%dms|unmeasured=%d|waited=%ums\n",
            s_setup.ahead, worst, s_setup.ahead * 200 / 3, unmeasured, waited);
     s_start_began_ms = nm_now_ms();
@@ -1596,25 +1760,28 @@ static void nm_lobby_poll_host(void)
                Refused on its own reason now, ahead of the mismatch arm so that a peer
                which cannot read its engine is never described as having a different one. */
             int abi_unknown = (abi == 0u || s_abi == 0u);
-            if (ver != NM_VERSION || abi_unknown || abi != s_abi || scen_bad || pass_bad) {
+            /* A DIFFERENT BUILD IS REFUSED AHEAD OF THE ENGINE TESTS, because it is the
+               cause: two builds can differ in their engines, and saying "order-wire
+               layout" to a player whose friend simply has the newer release sends them
+               looking at the wrong thing. Unknown on either side is not compared. */
+            char their_build[NM_BUILD_MAX];
+            int build_bad;
+            nm_hello_build(in, n, their_build);
+            build_bad = (their_build[0] && s_build[0] && strcmp(their_build, s_build) != 0);
+            if (ver != NM_VERSION || build_bad || abi_unknown || abi != s_abi || scen_bad
+                || pass_bad) {
                 unsigned reason = (ver != NM_VERSION) ? 1u
+                                : build_bad ? 6u
                                 : (abi_unknown ? 5u
                                 : (abi != s_abi ? 2u : (scen_bad ? 3u : 4u)));
-                unsigned char no[12];
-                put_u32(no, NM_REFUSE);
-                put_u32(no + 4, reason);
-                put_u32(no + 8, reason == 3u ? s_scen : s_abi);
-                net_send(s_sock, &from, no, 12);
-                net_addr_text(&from, txt, (int)sizeof txt);
                 /* Both values on the line, as the blocking path's line has always had
                    them: a refusal with no numbers cannot be read off a log. Never the
                    passcode hashes. */
-                printf("NET|refused|peer=%s|reason=%s|theirs=%08X|mine=%08X\n", txt,
-                       nm_refuse_text(reason),
-                       reason == 1u ? ver : reason == 3u ? scn : reason == 4u ? 0u : abi,
-                       reason == 1u ? (unsigned)NM_VERSION : reason == 3u ? s_scen
-                                    : reason == 4u ? 0u : s_abi);
-                fflush(stdout);
+                nm_refuse_send(&from, reason, reason == 3u ? s_scen : s_abi,
+                               reason == 1u ? ver : reason == 3u ? scn : reason == 4u ? 0u : abi,
+                               reason == 1u ? (unsigned)NM_VERSION : reason == 3u ? s_scen
+                                            : reason == 4u ? 0u : s_abi,
+                               their_build);
                 continue;
             }
             if (seat < 0) {
@@ -1907,7 +2074,7 @@ static void nm_lobby_poll_join(void)
     }
     if (s_seat < 0 && (s_last_hello_ms == 0 || nm_now_ms() - s_last_hello_ms > 250)) {
         /* THE HANDLE RIDES THE JOIN REQUEST, which is where 1995 puts it too. */
-        unsigned char hello[20 + NM_PLAYER_NAME_MAX];
+        unsigned char hello[NM_HELLO_BYTES];
         memset(hello, 0, sizeof hello);
         put_u32(hello, NM_HELLO);
         put_u32(hello + 4, NM_VERSION);
@@ -1915,6 +2082,7 @@ static void nm_lobby_poll_join(void)
         put_u32(hello + 12, s_scen);
         put_u32(hello + 16, s_pass);
         memcpy(hello + 20, s_my_name, NM_PLAYER_NAME_MAX);
+        memcpy(hello + NM_HELLO_BUILD_AT, s_build, strlen(s_build));
         nm_send_seat(0, hello, (int)sizeof hello);
         s_last_hello_ms = nm_now_ms();
     }
@@ -2017,8 +2185,12 @@ static void nm_lobby_poll_join(void)
                 s_scen = mine;
             }
             if (host_scen != 0 && s_scen != 0 && host_scen != s_scen) {
-                nm_lobby_fail(NM_LOBBY_REFUSED,
-                              "that game is on a different copy of the map");
+                /* A Red Alert room's fingerprint also covers the engine's loose rules
+                   files, which are as much the match's starting point as the map is. */
+                nm_lobby_fail(NM_LOBBY_REFUSED, offered.game == 1
+                              ? "that game is on a different copy of the map or of the "
+                                "rules files (RULES.INI, AFTRMATH.INI)"
+                              : "that game is on a different copy of the map");
                 return;
             }
             /* A CHANGED OFFER UNLIGHTS THIS PEER'S OWN READY. The host clears the room's
@@ -2125,9 +2297,8 @@ static void nm_lobby_poll_join(void)
                 fflush(stdout);
             }
         } else if (magic == NM_REFUSE && n >= 12) {
-            unsigned reason = get_u32(in + 4);
             char msg[160];
-            snprintf(msg, sizeof msg, "the host refused: %s", nm_refuse_text(reason));
+            nm_refuse_say(in, n, msg, (int)sizeof msg);
             nm_lobby_fail(NM_LOBBY_REFUSED, msg);
             return;
         }
@@ -2205,7 +2376,11 @@ int nm_lobby_all_ready(void)
        plus the computers, is the match. A seat nobody took is not a late player, and
        nm_lobby_start closes it. */
     for (i = 0; i < room; i++) {
-        if (s_setup.mode[i] == NM_SEAT_BOT) { playing++; continue; }
+        if (s_setup.mode[i] == NM_SEAT_BOT) {
+            if (s_setup.gun_game) return 0;
+            playing++;
+            continue;
+        }
         if (s_setup.mode[i] != NM_SEAT_HUMAN) continue;   /* OPEN or BLOCK: nobody is in it */
         playing++;
         if (!s_ready[i]) return 0;
@@ -2213,7 +2388,7 @@ int nm_lobby_all_ready(void)
     /* ONE SEAT IS NOT A MATCH, whoever is in it. Two people, or a person and a computer:
        the host tab cannot open a room narrower than two, and a room of one person and
        seven blocked seats would otherwise start a game with nobody to play. */
-    return playing >= 2;
+    return playing >= 2 && (!s_setup.gun_game || (!s_setup.game && !nm_is_relayed()));
 }
 void nm_chat_say(const char* text)
 {
@@ -2525,24 +2700,22 @@ int nm_host(unsigned short port, const NmSetup* setup, unsigned abi_hash, unsign
             unsigned scn = get_u32(in + 12);
             int seat = nm_seat_of(&from);
             int scen_bad = (scn != 0 && scen_hash != 0 && scn != scen_hash);
+            char their_build[NM_BUILD_MAX];
+            int build_bad;
             /* The same rule as the lobby path above, and here for the same reason: this
                is the door the gates and the .bat launchers come through, so a rule that
                held on only one of the two doors would be proved green by a suite that
                never used the other one. */
             int abi_unknown = (abi == 0u || abi_hash == 0u);
-            if (ver != NM_VERSION || abi_unknown || abi != abi_hash || scen_bad) {
+            nm_hello_build(in, n, their_build);
+            build_bad = (their_build[0] && s_build[0] && strcmp(their_build, s_build) != 0);
+            if (ver != NM_VERSION || build_bad || abi_unknown || abi != abi_hash || scen_bad) {
                 unsigned reason = (ver != NM_VERSION) ? 1u
+                                : build_bad ? 6u
                                 : (abi_unknown ? 5u : (abi != abi_hash ? 2u : 3u));
-                unsigned char no[12];
-                put_u32(no, NM_REFUSE);
-                put_u32(no + 4, reason);
-                put_u32(no + 8, reason == 3u ? scen_hash : abi_hash);
-                net_send(s_sock, &from, no, 12);
-                net_addr_text(&from, txt, (int)sizeof txt);
-                printf("NET|refused|peer=%s|reason=%s|theirs=%08X|mine=%08X\n", txt,
-                       nm_refuse_text(reason), reason == 3u ? scn : abi,
-                       reason == 3u ? scen_hash : abi_hash);
-                fflush(stdout);
+                nm_refuse_send(&from, reason, reason == 3u ? scen_hash : abi_hash,
+                               reason == 1u ? ver : reason == 3u ? scn : abi,
+                               reason == 3u ? scen_hash : abi_hash, their_build);
                 continue;
             }
             if (seat < 0) {
@@ -2660,7 +2833,7 @@ int nm_join(const char* addr, unsigned short port, NmSetup* setup, unsigned abi_
             unsigned scen_hash, int timeout_s)
 {
     unsigned char in[LS_PACKET_MAX];
-    unsigned char hello[16];
+    unsigned char hello[NM_HELLO_BYTES];
     NetAddr from;
     time_t deadline;
     int have_setup = 0, have_start = 0, n, k, my_seat = -1, humans = 0;
@@ -2696,14 +2869,18 @@ int nm_join(const char* addr, unsigned short port, NmSetup* setup, unsigned abi_
     net_addr_text(&s_peers[0], txt, (int)sizeof txt);
     printf("NET|joining|peer=%s|waiting=%ds\n", txt, timeout_s);
     fflush(stdout);
+    /* THE LOBBY'S HELLO, passcode word and handle left empty, because the build sits
+       after them: the command line has a build to name exactly as a screen does. */
+    memset(hello, 0, sizeof hello);
     put_u32(hello, NM_HELLO);
     put_u32(hello + 4, NM_VERSION);
     put_u32(hello + 8, abi_hash);
     put_u32(hello + 12, scen_hash);
+    memcpy(hello + NM_HELLO_BUILD_AT, s_build, strlen(s_build));
     deadline = time(0) + timeout_s;
     while (!have_start && time(0) < deadline) {
         if (!have_setup && (last_hello == 0 || nm_now_ms() - last_hello > 250)) {
-            nm_send_seat(0, hello, 16);
+            nm_send_seat(0, hello, (int)sizeof hello);
             last_hello = nm_now_ms();
         }
         n = net_recv(s_sock, &from, in, (int)sizeof in);
@@ -2767,9 +2944,14 @@ int nm_join(const char* addr, unsigned short port, NmSetup* setup, unsigned abi_
                 have_start = 1;
             } else if (magic == NM_REFUSE && n >= 12) {
                 unsigned reason = get_u32(in + 4);
+                char say[160];
                 printf("NET|refused-by-host|reason=%s|host-%s=%08X|mine=%08X\n",
                        nm_refuse_text(reason), reason == 3u ? "scen" : "abi", get_u32(in + 8),
                        reason == 3u ? scen_hash : abi_hash);
+                /* AND THE SENTENCE A PLAYER WOULD BE SHOWN, which for a version names
+                   both builds. */
+                nm_refuse_say(in, n, say, (int)sizeof say);
+                printf("NET|refused-say|%s\n", say);
                 fflush(stdout);
                 net_close(s_sock);
                 s_sock = NULL;
@@ -2895,10 +3077,14 @@ static int nm_need_gone_may_answer(int who)
    hold them. */
 static void nm_bye_to(int seat, int who, unsigned turn)
 {
-    unsigned char bye[12];
+    /* THE FOURTH WORD SAYS WHETHER THE SEAT WENT SILENT, so a joiner's debrief can say a
+       player stopped answering rather than that they left. A peer reading only twelve
+       bytes never sees it. */
+    unsigned char bye[16];
     put_u32(bye, NM_BYE);
     put_u32(bye + 4, (unsigned)who);
     put_u32(bye + 8, turn);
+    put_u32(bye + 12, (who >= 0 && who < NM_MAX_SEATS && s_left_silent[who]) ? 1u : 0u);
     if (seat == s_test_hold_seat && s_test_hold_ms > 0) {
         if (s_test_held_n < NM_TEST_HOLD_MAX) {
             memcpy(s_test_held[s_test_held_n], bye, sizeof bye);
@@ -2916,9 +3102,9 @@ static void nm_test_release_held(void)
     const unsigned now = nm_now_ms();
     while (k < s_test_held_n) {
         if ((int)(now - s_test_held_due[k]) >= 0) {
-            nm_send_seat(s_test_hold_seat, s_test_held[k], 12);
+            nm_send_seat(s_test_hold_seat, s_test_held[k], 16);
             for (j = k + 1; j < s_test_held_n; j++) {
-                memcpy(s_test_held[j - 1], s_test_held[j], 12);
+                memcpy(s_test_held[j - 1], s_test_held[j], 16);
                 s_test_held_due[j - 1] = s_test_held_due[j];
             }
             s_test_held_n--;
@@ -3031,6 +3217,24 @@ static void nm_pump(void)
     NetAddr from;
     int n;
     if (!s_sock) return;
+    /* THIS MACHINE'S OWN SILENCE, measured where it would show: the gap between two
+       services of the match. Only once a turn has run, so a long load before the first
+       turn is not counted. Said for every such gap, and each one restarts the clock
+       nm_self_stalled reads, so a second stall late in a match is not hidden behind an
+       early one that has stopped counting. Every other machine's silence timer runs on the
+       same limit, so a gap this long means they have already dropped this seat. */
+    {
+        const unsigned now = nm_now_ms();
+        if (s_active && s_last_pump_ms && ls_exec_turn(&s_ls) > 0
+            && now - s_last_pump_ms > NM_SILENCE_MS) {
+            s_self_stalled = 1;
+            s_self_stall_ms = now;
+            printf("NET|self-stalled|seconds=%u|turn=%u\n", (now - s_last_pump_ms) / 1000u,
+                   ls_exec_turn(&s_ls));
+            fflush(stdout);
+        }
+        s_last_pump_ms = now;
+    }
     if (s_test_held_n > 0) nm_test_release_held();
     if (s_test_delay_n > 0) nm_test_release_delayed();
     /* A goodbye OPENCNC3D_NETTEST_LATE_BYE held is read first, once it is due. Outside that
@@ -3150,6 +3354,7 @@ static void nm_pump(void)
             } else if (n >= 12) {
                 const unsigned t = get_u32(in + 8);
                 if (t != LS_TURN_NONE) s_left_turn[who] = t;
+                if (n >= 16 && get_u32(in + 12) == 1u) s_left_silent[who] = 1;
             }
             /* AND THE SCHEDULER IS TOLD WHEN, NOT JUST WHO, AND ONLY IN THE HOST'S WORDS.
                Marking the seat absent the instant the goodbye was read is the same
@@ -3361,6 +3566,12 @@ static void nm_pump(void)
                        NM_SILENCE_MS / 1000, ls_exec_turn(&s_ls));
                 fflush(stdout);
                 s_left[i] = 1;
+                s_left_silent[i] = 1;
+                /* A SILENT HOST IS A GONE HOST, exactly as one that said goodbye: see
+                   s_host_gone. Without this a joiner whose host froze or lost its
+                   connection marked seat 0 quiet and played on alone against a house
+                   that would never move again, and its debrief gave no reason. */
+                if (i == 0 && !s_is_host) s_host_gone = 1;
                 if (s_is_host && s_left_turn[i] == LS_TURN_NONE)
                     s_left_turn[i] = ls_seat_first_missing(&s_ls, i);
                 nm_seat_absent_at(i, s_left_turn[i] != LS_TURN_NONE
@@ -3700,9 +3911,16 @@ int nm_desynced(void) { return s_desynced; }
 unsigned nm_desync_frame(void) { return s_desync_frame; }
 int nm_peer_left(void) { return nm_any_left(); }
 unsigned nm_turns_run(void) { return ls_exec_turn(&s_ls); }
+int nm_ahead(void) { return s_active ? ls_ahead(&s_ls) : 0; }
 
 void nm_shutdown(void)
 {
+    /* THE STALL BELONGS TO THE MATCH IT HAPPENED IN. Cleared here as well as when the next
+       network match starts, so nothing read between the two (a local skirmish's debrief,
+       say) can find it standing. Before the guard: it costs nothing when no match ran. */
+    s_self_stalled = 0;
+    s_self_stall_ms = 0;
+    s_last_pump_ms = 0;
     if (!s_active) return;
     if (s_sock) {
         unsigned char bye[8];
@@ -3749,16 +3967,10 @@ static unsigned nm_probe_ms(void)
                       + ((now.QuadPart % freq.QuadPart) * 1000) / freq.QuadPart);
 }
 #else
-/* ON macOS AND LINUX, THE MONOTONIC CLOCK, not the wall clock the rest of this file reads.
-   The wall clock steps whenever the system sets it, on a time sync or a wake from sleep.
-   Timed on it, a step of 200 ms back inside a 40 ms round trip works out as minus 160 ms,
-   one of three seconds forward as 999 MS, and a step back holds the next probe until the
-   clock has made the time up again. The monotonic clock does not step. */
+/* On macOS and Linux the match's monotonic clock already has millisecond resolution. */
 static unsigned nm_probe_ms(void)
 {
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return nm_now_ms();
-    return (unsigned)((unsigned long)ts.tv_sec * 1000ul + (unsigned long)ts.tv_nsec / 1000000ul);
+    return nm_now_ms();
 }
 #endif
 

@@ -255,7 +255,14 @@ def cell_updates(bank,kind):
                 elif bank in ['TEMPERAT','RATEMP']:
                     # Match the rock colour on both sides of a strip; alpha remains
                     # the explicit authored feature matte, never inferred from hue.
-                    im=temperate_stone(im,im.getchannel('A'))
+                    # A waterfall's strip also carries river bank, which keeps its
+                    # earth colour: its saved stone matte says where the rock is.
+                    stone=im.getchannel('A')
+                    if 'stone_file' in s:
+                        q=SOURCE/s['stone_file']
+                        if hashlib.sha256(q.read_bytes()).hexdigest()!=s['stone_sha256']:raise ValueError('Daylight join source changed: '+str(q))
+                        stone=Image.open(q).convert('L')
+                    im=temperate_stone(im,stone)
                 elif bank=='DESERT':
                     if material is not r:
                         im=shared_stone(im,im.getchannel('A'))

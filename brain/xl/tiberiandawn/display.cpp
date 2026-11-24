@@ -1,3 +1,4 @@
+// MODIFIED for OpenCNC3D. A random cell of the tactical view is drawn column then row in two statements, so every compiler deals it alike.
 //
 // Copyright 2020 Electronic Arts Inc.
 //
@@ -3052,8 +3053,19 @@ CELL DisplayClass::Calculated_Cell(SourceType dir, HousesType house)
                                    "Reinforcement waypoint with an air transport (SOURCE_AIR).");
                 return (0);
             }
-            cell = XY_Cell(Coord_XCell(TacticalCoord) + Random_Pick(0, Lepton_To_Cell(TacLeptonWidth) - 1),
-                           Coord_YCell(TacticalCoord) + Random_Pick(0, Lepton_To_Cell(TacLeptonHeight) - 1));
+            /*
+            **	OpenCNC3D: the two draws are taken one statement at a time. As two arguments of
+            **	one call their order is unspecified in C++, and the macOS and Windows compilers
+            **	take them in opposite orders, so the two builds picked different cells from the same
+            **	random state. A network match never reaches this line (refused above); the order is
+            **	fixed so the macOS and Windows builds agree everywhere. Column first, the order the
+            **	macOS build always used.
+            */
+            {
+                int opencnc3d_col = Random_Pick(0, Lepton_To_Cell(TacLeptonWidth) - 1);
+                int opencnc3d_row = Random_Pick(0, Lepton_To_Cell(TacLeptonHeight) - 1);
+                cell = XY_Cell(Coord_XCell(TacticalCoord) + opencnc3d_col, Coord_YCell(TacticalCoord) + opencnc3d_row);
+            }
             if (house == PlayerPtr->Class->House && !In_Radar(cell)) {
                 cell = 0;
             }

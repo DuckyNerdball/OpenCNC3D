@@ -82,7 +82,8 @@ static void stone_mesh_normal_bind(GLuint tex)
     } else {
         fx_set1i(g_stoneMeshNormalProgram,"uStoneMap",1);fx_set1i(g_stoneMeshNormalProgram,"uStoneMapOn",tex?1:0);
     }
-    glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,tex);glActiveTexture(GL_TEXTURE0);
+    /* unit 1, then unit 0 selected again; nothing is sent when unit 1 already holds it */
+    gls_bind_texture_on(GL_TEXTURE1,tex,GL_TEXTURE0);
 }
 /* Derivative TBN follows the existing UVs, including mirrored islands. Keep the
    geometric normal when a triangle has a degenerate UV Jacobian. */

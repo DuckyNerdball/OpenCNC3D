@@ -12,6 +12,16 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D in November 2026. This is not EA's original file.
+// In a Rally match (rally.h) CellClass::Goodie_Check hands a crate to the Rally
+// module, which turns it into a race item, instead of opening it, and
+// CellClass::Reduce_Wall leaves every wall standing, because the walls are the edges
+// of the course. Outside a Rally match nothing changes. In a Rally match it DOES
+// change the game simulation.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\cell.cpv   2.18   16 Oct 1995 16:49:20   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -73,11 +83,14 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "../common/fire_visibility.h"
 
 /*
 ** New sidebar for GlyphX multiplayer. ST - 3/26/2019 12:24PM
 */
 #include "sidebarglyphx.h"
+#include "rally.h"
 
 #define FIXUP 0
 
@@ -1541,6 +1554,14 @@ int CellClass::Reduce_Tiberium(int levels)
 int CellClass::Reduce_Wall(int damage)
 {
     Validate();
+
+    /*
+    **	OpenCNC3D Rally: the walls are the edges of the course, and a wall shot away would
+    **	open a gap in the track, so no wall takes damage in a race.
+    */
+    if (Rally_Active()) {
+        return (false);
+    }
     if (Overlay != OVERLAY_NONE) {
         bool destroyed = false;
         OverlayTypeClass const& wall = OverlayTypeClass::As_Reference(Overlay);
@@ -2024,7 +2045,27 @@ bool CellClass::Goodie_Check(FootClass* object, bool check_steel)
 
     if (object && Overlay != OVERLAY_NONE && OverlayTypeClass::As_Reference(Overlay).IsCrate) {
         bool steel = (Overlay == OVERLAY_STEEL_CRATE);
+        if (Gun_Game_Active()) {
+            if (check_steel == steel && Gun_Game_Collect_Crate(object, Cell_Number())) {
+                Redraw_Objects();
+                Overlay = OVERLAY_NONE;
+                OverlayData = 0;
+            }
+            return true;
+        }
         COORDINATE coord; // Temporary working coordinate value.
+
+        /*
+        **	OpenCNC3D Rally: every crate on a course belongs to the race. A racer that
+        **	enters one gets an item (the Rally module removes the crate); nothing else
+        **	opens it.
+        */
+        if (Rally_Active()) {
+            if (!check_steel && !steel) {
+                Rally_Crate(object, Cell_Number());
+            }
+            return (true);
+        }
 
         if (check_steel && steel) {
 
@@ -2577,6 +2618,7 @@ ObjectClass* CellClass::Cell_Occupier(void) const
  *=============================================================================================*/
 void CellClass::Set_Mapped(HousesType house, bool set)
 {
+    g_cncFireVisibility.touch(Cell_Number(),(int)house,Is_Mapped(house),Is_Visible(house),Frame);
     int shift = (int)house;
     if (set) {
         IsMappedByPlayerMask |= (1 << shift);
@@ -2639,6 +2681,7 @@ bool CellClass::Is_Mapped(HouseClass* player) const
  *=============================================================================================*/
 void CellClass::Set_Visible(HousesType house, bool set)
 {
+    g_cncFireVisibility.touch(Cell_Number(),(int)house,Is_Mapped(house),Is_Visible(house),Frame);
     int shift = (int)house;
     if (set) {
         IsVisibleByPlayerMask |= (1 << shift);

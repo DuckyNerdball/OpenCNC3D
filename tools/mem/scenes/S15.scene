@@ -1,0 +1,7 @@
+# S15 S1 with the remastered soldiers off (--noeinf, and einf_on 0 after the frozen
+# settings, which would otherwise turn them back on): Enhanced then draws its soldiers
+# without them, which is where the experimental models step the soldiers.
+like: S1
+modes: enh
+flags: --noeinf
+extra: gfx einf_on 0

@@ -59,6 +59,13 @@ static const EH_Catalog eh_catalog[] = {
     {"FTNK",1,2,800,4,"AFLD,HQ"},
     {"STNK",1,2,900,5,"AFLD,HQ"},
     {"ARTY",1,2,450,6,"AFLD"},
+    /* The Nod S.S.M. Launcher (ini name MLRS, udata.cpp UnitSAM): level 7, a match-only
+       unit (scenario 98) whose one prerequisite is the Advanced Guard Tower bit, which the
+       Obelisk meets. Written in the engine's own terms so a captured Guard Tower or
+       Weapons Factory counts; a Nod player reads "Airstrip, Obelisk" (cnc_sidebar.h).
+       Without this row it had no grey slot and appeared only once buildable, after
+       every other vehicle. */
+    {"MLRS",1,2,750,7,"WEAP,ATWR"},
     {"HARV",1,2,1400,2,"AFLD,PROC"},
     {"MCV",1,2,5000,7,"AFLD,TMPL"},
     {"HELI",1,3,1200,6,"HPAD"},

@@ -1,6 +1,7 @@
 /* Enhanced menu v06. Accepted native artwork, original font, existing controllers.
    No Lab room/save fixtures and no replacement network or save implementation. */
 #include "enhanced_menu.h"
+#include "map_import_ui.h"
 #include "enhanced_menu_font.h"
 extern "C" {
 #include "pngwrite.h"
@@ -28,20 +29,26 @@ extern "C" {
 #include <string>
 #include <vector>
 #include "enhanced_menu_cursor.h"
+#include "fx_input.h"
 
 namespace {
-struct Art { int w=0,h=0; std::vector<unsigned char> pixels; };
+/* fixed: one of the kit's own pictures, loaded once and never changed after; a picture
+   built for one frame (a map preview) is not, and is told apart by its content. */
+struct Art { int w=0,h=0; std::vector<unsigned char> pixels; bool fixed=false; };
 struct Seat {
  int item=0,action=0,arg=0,x=0,y=0,w=0,h=0,lx=0,ly=0,lw=0,lh=0,kind=0;
  int value=0,min=0,max=1,step=1,badge=-1; bool disabled=false,active=false;
- std::string label,icon;
+ /* drawn greyed like a disabled seat, but still pressed and selected: a saved game this
+    build cannot load, which the player may still pick to be told why, save over or delete */
+ bool muted=false;
+ std::string label,sourceLabel,icon;
 };
 /* PLATE: a faction emblem on its steel tile (Red Alert's details plates), never pressed. */
-enum {BUTTON, CHECK, RANGE, FIELD, ROW, COLOUR, PLATE};
-enum {OPT=1,MAIN,OPS,LOBBY,BROWSER,DATABASE,CHOICE,SIDE,DEBRIEF};
+enum {BUTTON, CHECK, RANGE, FIELD, ROW, COLOUR, PLATE, ICON};
+enum {OPT=1,MAIN,OPS,LOBBY,BROWSER,DATABASE,CHOICE,SIDE,DEBRIEF,IMPORTMAP};
 enum {TAB=1,RESET,BACK,RANGESET,DROP,DROPCHOICE,MODE,DISP,OPSTOP,OPSFILTER,
  MAPROW,SEATDONE,SEND,MPSETUP,MPHANDLE,OPTROW,SKRANGE,OPTITEM,SKITEM,SKRANDOM,SKCOUNTRY,RARANGE,RACHECK,
- SETRANGE,GPCHECK,LANGDROP,LANGPICK,LANGGO,LANGCANCEL,LANGCLOSE};
+ SETRANGE,GPCHECK,LANGDROP,LANGPICK,LANGGO,LANGCANCEL,LANGCLOSE,SKMODE,KEYCAP,KEYDRAG,GPSCHEME};
 struct View {
  int kind=0,w=0,h=0,scale=1,x=0,y=0,fbw=0,fbh=0,mousex=-1000,mousey=-1000;
  int held=-1,drag=-1,section=0,sksection=0,opsfilter=-1,opstop=0,drop=-1;
@@ -52,9 +59,15 @@ struct View {
  int langBox=-1; bool langStarted=false;
  std::vector<Seat> seats; std::vector<unsigned char> rgba;
  std::string frame,popupHint;
+ /* the drawing rgba holds: its key, and the panel writes counter when it was made */
+ unsigned long long rasterKey=0,rasterWrites=0; bool rasterValid=false;
 } v;
 bool option_title=false;
 const EM_LangHooks *langhooks=nullptr;   /* the language row's answers (em_set_language_hooks) */
+const EM_KeyHooks *keyhooks=nullptr;     /* the Key Bindings page's answers (em_set_key_hooks) */
+/* THE KEY BINDINGS PAGE'S OWN STATE: the command whose box is waiting for a key (-1 none),
+   and the line its header shows, which says what the last key press did. */
+int kbcap=-1;std::string kbmsg;
 std::map<std::string,Art> arts;
 int loadstate=0; GLuint texture=0,bgtexture=0,logotexture=0,legaltexture=0;
 const DB_Pack *menu_pack=nullptr;
@@ -85,6 +98,7 @@ void theme_colours(){
  for(int i=0;i<16&&i<it->second.w;i++){const unsigned char *p=&it->second.pixels[i*4];theme.slot[i]=(p[0]<<16)|(p[1]<<8)|p[2];}
  TEXT=theme.slot[S_TEXT];MUTED=theme.slot[S_MUTED];ACCENT=theme.slot[S_ACCENT];
 }
+unsigned art_gen=0;   /* moves each time the kit is loaded, so a reloaded picture is a new one */
 unsigned read32(FILE *f){unsigned char b[4];if(fread(b,1,4,f)!=4)return 0;return b[0]|unsigned(b[1])<<8|unsigned(b[2])<<16|unsigned(b[3])<<24;}
 bool load(){
  if(loadstate)return loadstate>0; loadstate=-1;
@@ -105,9 +119,41 @@ bool load(){
   pack_advance.assign(ad->second.w,0);for(int i=0;i<ad->second.w;i++)pack_advance[i]=ad->second.pixels[i*4];
   advance=pack_advance.data();glyphs=ad->second.w;
  }
- arts.swap(loaded);loadstate=1;fprintf(stderr,"ENMENU|loaded|%s|assets=%zu\n",theme.ra?"red-alert-v01":"v06",arts.size());return true;
+ for(auto &kv:loaded)kv.second.fixed=true;
+ arts.swap(loaded);loadstate=1;art_gen++;fprintf(stderr,"ENMENU|loaded|%s|assets=%zu\n",theme.ra?"red-alert-v01":"v06",arts.size());return true;
 }
-void pixel(int x,int y,unsigned col,int alpha=255){
+/* REDRAW ON CHANGE. The panel is painted in software, the whole frame art and every
+   button, and it was painted afresh on every pass of the menu loop and sent to the card
+   again, twice per pass on the main menu, whether anything had changed or not; on an idle
+   main menu that was most of the time a pass took that was not spent asleep.
+
+   Every drawing call below now does two things: it folds its own arguments into a running
+   key (rhash), and, unless this is a layout pass (recording), it draws. A screen builder is
+   run once as a layout pass, which places every seat (so hover and clicks hit the current
+   screen) and works out the key of what it would draw, and only when that key differs from
+   the key of the picture already in rgba is it run again to draw. The key is built from
+   the drawing calls themselves, not from a list of the inputs a builder happens to read,
+   so a hover, a held button, the caret's blink, a translated label or a new map preview
+   changes the key exactly when it changes a pixel, and nothing has to be remembered to
+   keep it honest. The kit's own pictures are keyed by identity (they never change after
+   loading, and art_gen moves when they are reloaded); a picture built for the frame is
+   keyed by its content.
+
+   writes counts every drawing call that reaches the panel, from anything, so a screen not
+   drawn this way (the pause dialog's options, the database) invalidates the stored
+   picture just by drawing, and em_draw sends the panel to the card only when it has
+   changed since the last time. */
+bool recording=false;          /* a layout pass: place seats and key the drawing, draw nothing */
+bool layout_only=false;        /* em_layout_pass: the next builder places seats and stops */
+unsigned long long rhash=0,writes=0,uploaded_writes=~0ULL;
+unsigned em_rasters_n=0,em_uploads_n=0;
+void mix(unsigned long long x){rhash^=x+0x9e3779b97f4a7c15ULL+(rhash<<6)+(rhash>>2);}
+void mixbytes(const void *data,size_t n){
+ const unsigned char *b=(const unsigned char*)data;unsigned long long h=1469598103934665603ULL;
+ for(size_t i=0;i<n;i++){h^=b[i];h*=1099511628211ULL;}mix(h);mix(n);
+}
+void mixart(const Art &a){if(a.fixed){mix((unsigned long long)(uintptr_t)&a);mix(art_gen);}else{mix(a.w);mix(a.h);mixbytes(a.pixels.data(),a.pixels.size());}}
+void pixel_(int x,int y,unsigned col,int alpha){
  if(x<0||y<0||x>=v.w||y>=v.h)return;
  unsigned char *d=&v.rgba[(y*v.w+x)*4];unsigned r=(col>>16)&255,g=(col>>8)&255,b=col&255;
  if(alpha==255){d[0]=r;d[1]=g;d[2]=b;d[3]=255;return;}
@@ -116,22 +162,28 @@ void pixel(int x,int y,unsigned col,int alpha=255){
  d[1]=(g*alpha+d[1]*a*(255-alpha)/255)/out;
  d[2]=(b*alpha+d[2]*a*(255-alpha)/255)/out;d[3]=out;
 }
-void rect(int x,int y,int w,int h,unsigned col,int alpha=255){for(int yy=y;yy<y+h;yy++)for(int xx=x;xx<x+w;xx++)pixel(xx,yy,col,alpha);}
+void rect_(int x,int y,int w,int h,unsigned col,int alpha){for(int yy=y;yy<y+h;yy++)for(int xx=x;xx<x+w;xx++)pixel_(xx,yy,col,alpha);}
+void pixel(int x,int y,unsigned col,int alpha=255){mix(1);mix(x);mix(y);mix(col);mix(alpha);if(recording)return;writes++;pixel_(x,y,col,alpha);}
+void rect(int x,int y,int w,int h,unsigned col,int alpha=255){mix(2);mix(x);mix(y);mix(w);mix(h);mix(col);mix(alpha);if(recording)return;writes++;rect_(x,y,w,h,col,alpha);}
 void blit(const Art &a,int x,int y,int scale=1){
+ mix(3);mixart(a);mix(x);mix(y);mix(scale);if(recording)return;writes++;
  for(int yy=0;yy<a.h;yy++)for(int xx=0;xx<a.w;xx++){
   const unsigned char *p=&a.pixels[(yy*a.w+xx)*4];if(!p[3])continue;
-  rect(x+xx*scale,y+yy*scale,scale,scale,(p[0]<<16)|(p[1]<<8)|p[2],p[3]);
+  rect_(x+xx*scale,y+yy*scale,scale,scale,(p[0]<<16)|(p[1]<<8)|p[2],p[3]);
  }
 }
 void image(const std::string &id,int x,int y){auto it=arts.find(id);if(it!=arts.end())blit(it->second,x,y);}
-int textwidth(const std::string &s){int w=0;for(unsigned char c:s)if(c<glyphs)w+=std::max(0,advance[c])*2;return w;}
+std::string localized(const std::string& s){return langhooks&&langhooks->translate?langhooks->translate(s.c_str()):s;}
+int textwidth(const std::string &s){int w=0;for(unsigned char c:localized(s))if(c<glyphs)w+=std::max(0,advance[c])*2;return w;}
 std::string fitted(std::string s,int w){if(textwidth(s)<=w)return s;while(!s.empty()&&textwidth(s+"..")>w)s.pop_back();return s+"..";}
-void text(const std::string &s,int x,int y,unsigned col=TEXT,bool center=false){
+void text(const std::string &source,int x,int y,unsigned col=TEXT,bool center=false){
+ const std::string s=localized(source);
+ mix(4);mixbytes(s.data(),s.size());mix(x);mix(y);mix(col);mix(center);if(recording)return;writes++;
  if(center)x-=textwidth(s)/2;const Art &a=arts.at("font_menu");
  for(unsigned char c:s){if(c>=glyphs)continue;
   for(int yy=0;yy<8;yy++)for(int xx=0;xx<8;xx++){
    const unsigned char *p=&a.pixels[(yy*a.w+c*8+xx)*4];if(!p[3])continue;
-   bool shadow=p[0]<64&&p[1]<64&&p[2]<64;rect(x+xx*2,y+yy*2,2,2,shadow?0:col,p[3]);
+   bool shadow=p[0]<64&&p[1]<64&&p[2]<64;rect_(x+xx*2,y+yy*2,2,2,shadow?0:col,p[3]);
   }
   x+=std::max(0,advance[c])*2;
  }
@@ -154,8 +206,9 @@ void note(const std::string &s,int x,int y,int width,int maxlines=99,unsigned co
    a popup's well is solid so the list it carries reads over whatever it covers. */
 void ra_well(const char *title,int x,int y,int w,int h,bool overlay){
  const unsigned dark=0x060202,lit=theme.slot[S_WELLLIT];
+ mix(5);mix(x);mix(y);mix(w);mix(h);mix(overlay);
  if(overlay)rect(x,y,w,h,theme.slot[S_OVERLAY]);
- else for(int yy=std::max(0,y);yy<std::min(v.h,y+h);yy++)for(int xx=std::max(0,x);xx<std::min(v.w,x+w);xx++){
+ else if(!recording&&++writes)for(int yy=std::max(0,y);yy<std::min(v.h,y+h);yy++)for(int xx=std::max(0,x);xx<std::min(v.w,x+w);xx++){
   unsigned char *d=&v.rgba[(yy*v.w+xx)*4];for(int c=0;c<3;c++)d[c]=(unsigned char)(d[c]*.36f);}
  rect(x+4,y,w-8,2,dark);rect(x,y+4,2,h-8,dark);rect(x+w-2,y+4,2,h-8,dark);rect(x+4,y+h-2,w-8,2,dark);
  for(int i=0;i<4;i++){pixel(x+3-i,y+i,dark);pixel(x+w-4+i,y+i,dark);pixel(x+3-i,y+h-1-i,dark);pixel(x+w-4+i,y+h-1-i,dark);}
@@ -180,16 +233,22 @@ void begin(int kind,const void *owner,const char *frame,const std::string &title
  /* Red Alert's small boxes (a confirmation, a notice) keep their own size at the title and
     stand in the middle of the screen, as its exit box does. */
  if(theme.ra&&kind==OPT&&!strcmp(frame,"confirm-frame"))v.title=false;
- v.compact=kind==OPT&&v.title;
+ /* A confirmation or notice box keeps its own height at the title in Tiberian Dawn too:
+    stretched to the main menu's height, three lines of text sat at the top of a frame that
+    ran most of the way down the screen. The wordmark above it stays. */
+ v.compact=kind==OPT&&v.title&&strcmp(frame,"confirm-frame")!=0;
  /* In a mission: the pause dialog and everything it opens, and the Database tab. */
  theme.blue=theme.ra&&((kind==OPT&&!option_title)||kind==DATABASE);theme_colours();
  /* Red Alert bakes its title dialogs at the main menu's height rather than stretching rows,
     so its grid stays whole. */
  const std::string id=theme.ra&&v.compact?std::string(frame)+"-compact-red":art_id(frame);
  const Art &a=arts.at(id);v.w=a.w;v.h=v.compact?arts.at(art_id("main-frame")).h:a.h;
- v.rgba.assign(v.w*v.h*4,0);v.seats.clear();v.popupFirst=v.popupOwner=-1;v.popupHint.clear();
+ v.seats.clear();v.popupFirst=v.popupOwner=-1;v.popupHint.clear();
+ mix(7);mixbytes(id.data(),id.size());mix(v.w);mix(v.h);mix(art_gen);
+ /* a layout pass leaves the last picture alone: it may be the one still wanted */
+ if(!recording){v.rgba.assign(v.w*v.h*4,0);writes++;}
  if(v.h==a.h)image(id,0,0);
- else for(int row=0;row<v.h;row++){
+ else if(!recording)for(int row=0;row<v.h;row++){
   int sourceRow=row;
   if(v.h<a.h){if(row>=v.h/2)sourceRow+=a.h-v.h;}
   else if(row>=a.h/2)sourceRow=row<a.h/2+v.h-a.h?a.h/2+(row-a.h/2)%64:row-v.h+a.h;
@@ -200,7 +259,7 @@ void begin(int kind,const void *owner,const char *frame,const std::string &title
 void popup(int owner,int left,int top,int width,int height){v.popupFirst=int(v.seats.size());v.popupOwner=owner;v.popupX=left;v.popupY=top;v.popupW=width;v.popupH=height;}
 bool popup_contains(int pointX,int pointY){return pointX>=v.popupX&&pointY>=v.popupY&&pointX<v.popupX+v.popupW&&pointY<v.popupY+v.popupH;}
 Seat &add(int item,const std::string &label,int x,int y,int w,int h=40,int kind=BUTTON,int action=0,int arg=0){
- Seat q;q.item=item;q.label=label;q.x=x;q.y=y;q.w=w;q.h=h;q.kind=kind;q.action=action;q.arg=arg;
+ Seat q;q.item=item;q.sourceLabel=label;q.label=localized(label);q.x=x;q.y=y;q.w=w;q.h=h;q.kind=kind;q.action=action;q.arg=arg;
  v.seats.push_back(q);return v.seats.back();
 }
 void legacy(Seat &q,int x,int y,int w,int h){q.lx=x;q.ly=y;q.lw=w;q.lh=h;}
@@ -238,11 +297,25 @@ bool paint_ra(const Seat &q,bool hover,bool down,unsigned col){
   image(art_id(std::string("button-28-28-")+(down?"pressed":hover?"hover":"normal")),q.x+fill,q.y+4);return true;}
  return false;
 }
+/* A mode tile's picture on a dark well. A disabled tile is drawn in grey; a missing
+   picture leaves the well with the mode's name, so a kit without the art still reads. */
+void paint_icon(const Seat &q,bool hover,bool down){
+ rect(q.x-4,q.y-4,q.w+8,q.h+8,0x080a09);rect(q.x-3,q.y-3,q.w+6,q.h+6,theme.ra?0x2a1c1a:0x1a1d19);
+ auto it=arts.find(art_id(q.icon));if(it==arts.end())it=arts.find(q.icon);
+ if(it!=arts.end()){const Art &a=it->second;const int ox=q.x+(q.w-a.w)/2,oy=q.y+(q.h-a.h)/2+(down?1:0);
+  mix(6);mixart(a);mix(ox);mix(oy);mix(q.disabled);
+  if(!recording&&++writes)for(int yy=0;yy<a.h;yy++)for(int xx=0;xx<a.w;xx++){const unsigned char *p=&a.pixels[(yy*a.w+xx)*4];if(!p[3])continue;
+   unsigned r=p[0],g=p[1],b=p[2];if(q.disabled){unsigned l=(r*30+g*59+b*11)/100;r=g=b=l*3/5;}
+   pixel_(ox+xx,oy+yy,(r<<16)|(g<<8)|b,p[3]);}}
+ else text(fitted(q.sourceLabel,q.w-12),q.x+q.w/2,q.y+q.h/2-8,MUTED,true);
+ if(hover||q.active){const unsigned c=q.disabled?MUTED:ACCENT;rect(q.x-4,q.y-4,q.w+8,2,c);rect(q.x-4,q.y+q.h+2,q.w+8,2,c);rect(q.x-4,q.y-4,2,q.h+8,c);rect(q.x+q.w+2,q.y-4,2,q.h+8,c);}
+}
 void paint(){
  for(int n=0;n<int(v.seats.size());n++){
   if(n==v.popupFirst)well("",v.popupX,v.popupY,v.popupW,v.popupH,true);
   const Seat &q=v.seats[n];bool hover=(v.popupFirst<0||n>=v.popupFirst||n==v.popupOwner)&&v.mousex>=q.x&&v.mousey>=q.y&&v.mousex<q.x+q.w&&v.mousey<q.y+q.h;
-  bool down=v.held==n;unsigned col=q.disabled?MUTED:TEXT;
+  bool down=v.held==n;unsigned col=q.disabled||q.muted?MUTED:TEXT;
+  if(q.kind==ICON){paint_icon(q,hover&&!q.disabled,down);continue;}
   if(theme.ra&&paint_ra(q,hover,down,col))continue;
   if(q.kind==FIELD){rect(q.x,q.y,q.w,q.h,0x080a09);rect(q.x,q.y,q.w,1,q.active?0xb19a63:0x606255);rect(q.x,q.y,1,q.h,0x606255);rect(q.x,q.y+q.h-1,q.w,1,0x353b30);rect(q.x+q.w-1,q.y,1,q.h,0x353b30);text(fitted(q.label,q.w-24),q.x+12,q.y+12,col);if(q.active&&SDL_GetTicks()%800<400)rect(std::min(q.x+12+textwidth(q.label),q.x+q.w-14),q.y+10,1,19,0xb5cf91);continue;}
   if(q.kind==ROW){if(q.active||hover){rect(q.x,q.y,q.w,q.h,q.active?0x273521:0x30342b);rect(q.x,q.y,2,q.h,0x637450);}text(fitted(q.label,q.w-(q.badge<0?24:56)),q.x+(q.badge<0?12:44),q.y+(q.h-16)/2,col);continue;}
@@ -271,6 +344,17 @@ int hit(int x,int y){
  }
  return -1;
 }
+/* One screen builder, drawn only when its key has changed (see REDRAW ON CHANGE). The
+   builders this wraps are safe to run twice in a row: dms_draw already ran each of them
+   twice per pass, once to place the seats for the pointer and once to draw. */
+template<class F> void memo(F &&build){
+ const bool seatsOnly=layout_only;
+ recording=true;rhash=0x5eedULL;build();recording=false;
+ if(seatsOnly)return;
+ if(v.rasterValid&&rhash==v.rasterKey&&v.rasterWrites==writes&&v.rgba.size()==size_t(v.w)*v.h*4)return;
+ rhash=0x5eedULL;build();
+ v.rasterKey=rhash;v.rasterWrites=writes;v.rasterValid=true;em_rasters_n++;
+}
 int legal_scale(int w,int h){return std::max(1,std::min(w/DM_LEGAL_W,h/480));}
 void layout(int w,int h){v.fbw=w;v.fbh=h;v.scale=std::max(1,h/693);const int titleWidth=v.title?std::max(v.w,arts.at(theme.ra?"visuals-frame-red":"visuals-frame").w):v.w;while(v.scale>1&&(titleWidth*v.scale>w-40||v.h*v.scale>h-20))v.scale--;v.x=(w-v.w*v.scale)/2;v.y=(h-v.h*v.scale)/2+(v.title?52*v.scale:0);if(v.title)v.y=std::min(v.y,h-v.h*v.scale-DM_LEGAL_H*legal_scale(w,h));}
 int virtualseat(int x){int n=-20000-x;return x<=-20000&&n>=0&&n<int(v.seats.size())?n:-1;}
@@ -285,12 +369,104 @@ GLuint bgtexture_lo=0,logotexture_lo=0;
    (Red Alert at 1920x1080: 1280x800 to 1920x1200) and closing it shrank it again. Every
    screen fits it, as the title does, in both games. */
 void backdrop(int w,int h){const bool lo=theme.ra&&std::min(w/640,h/400)<2;const Art &a=arts.at(lo?"title-backdrop-lo":"title-backdrop");arttexture(lo?bgtexture_lo:bgtexture,a);GLuint tex=lo?bgtexture_lo:bgtexture;int s=std::max(1,std::min(w/a.w,h/a.h)),pw=1,ph=1;while(pw<a.w)pw*=2;while(ph<a.h)ph*=2;glquad(tex,(w-a.w*s)/2,(h-a.h*s)/2,a.w*s,a.h*s,float(a.w)/pw,float(a.h)/ph);}
+unsigned player_colour(int i);
+/* RED ALERT'S MAP FRAME. Its previews are baked by tools/ra3d/bake-ra-map-previews.py into
+   a 120 pixel square with the map's playable rectangle fitted inside, aspect kept and
+   centred; start k is drawn on the frame pixel its cell's centre falls on. This is that
+   fit, in the same arithmetic (a double scale, the size rounded half to even as Python
+   rounds, the position truncated), so a start computed here lands on the pixel the baker
+   marked. Answers false for a map whose size is not known. */
+const int RA_PREVIEW_FRAME=120;
+bool ra_preview_fit(const SK_Map &m,double &s,int &ox,int &oy,int &iw,int &ih){
+ if(m.w<=0||m.h<=0)return false;
+ s=std::min(double(RA_PREVIEW_FRAME)/m.w,double(RA_PREVIEW_FRAME)/m.h);
+ iw=std::max(1,int(std::nearbyint(m.w*s)));ih=std::max(1,int(std::nearbyint(m.h*s)));
+ ox=(RA_PREVIEW_FRAME-iw)/2;oy=(RA_PREVIEW_FRAME-ih)/2;return true;
+}
+/* WHETHER A RED ALERT START IS COLOURED BY THE SEAT THAT PICKED IT. On: the Red Alert
+   engine places each seat on the start it picked (Read_Scenario_INI reads the map's start
+   waypoints before GlyphX_Assign_Houses counts them; until it did, every pick was dropped
+   and the starts were dealt as though every seat had asked for Random). A variable rather
+   than a constant so the menu gate can draw the idle case on the same map. */
+bool ra_start_holders=true;
+/* RED ALERT'S START MARKERS, over the map picture, so a spot on the map can be matched to
+   its start number. bx, by is the frame's top left on the canvas and each frame pixel is
+   k x k there. A marker is the baker's own diamond (filled out to two steps from the
+   centre, a black rim at three), so it covers the white one baked into the picture
+   exactly. Its fill is the idle grey, or, with ra_start_holders on, the colour of the seat
+   holding the start (the same colour as that seat's square in the roster); a start nobody
+   holds, and every start of a map that is only a candidate in the picker, stays idle.
+   Idle diamonds are drawn first and held ones over them, so a held start is never covered
+   by an idle one on the same or a neighbouring cell (some maps put two starts on one cell).
+   The number is one based, in the menu's own font at the same k, and sits beside its
+   diamond: right, else left, else above, else below, the first place inside the frame
+   that covers no diamond and no number already placed. Numbers are drawn after every
+   diamond so none is covered. */
+void ra_start_markers(const SK_State *st,int ix,int bx,int by,int k){
+ const SK_Map &m=st->maps[ix];double s;int ox,oy,iw,ih;if(!ra_preview_fit(m,s,ox,oy,iw,ih))return;
+ const int n=std::min<int>(std::min<int>(m.start_cells,8),m.starts>0?m.starts:8),F=RA_PREVIEW_FRAME;
+ const unsigned idle=0x545454,rim=0x000000;
+ auto put=[&](int fx,int fy,unsigned col,int alpha){if(fx>=0&&fy>=0&&fx<F&&fy<F)rect(bx+fx*k,by+fy*k,k,k,col,alpha);};
+ int cx[8],cy[8],holder[8];
+ for(int i=0;i<n;i++){
+  cx[i]=ox+int((m.start_x[i]-m.x+0.5)*s);cy[i]=oy+int((m.start_y[i]-m.y+0.5)*s);
+  holder[i]=ra_start_holders&&ix==st->sel?sk_start_holder(st,i):-1;
+ }
+ for(int pass=0;pass<2;pass++)for(int i=0;i<n;i++){
+  if((holder[i]>=0)!=(pass==1))continue;
+  const unsigned fill=holder[i]>=0?player_colour(sk_row_colour(st,holder[i])):idle;
+  for(int dy=-3;dy<=3;dy++)for(int dx=-3;dx<=3;dx++){const int d=std::abs(dx)+std::abs(dy);if(d<=3)put(cx[i]+dx,cy[i]+dy,d==3?rim:fill,255);}
+ }
+ const Art &font=arts.at("font_menu");const int gh=8;int labx[8],laby[8],labw[8];
+ for(int i=0;i<n;i++){
+  const std::string num=std::to_string(i+1);int nw=1;for(unsigned char c:num)if(c<glyphs)nw+=std::max(0,advance[c]);
+  int nx=0,ny=0;
+  for(int t=0;t<4;t++){
+   nx=t==0?cx[i]+4:t==1?cx[i]-4-nw:cx[i]-nw/2;ny=t==2?cy[i]-4-gh:t==3?cy[i]+4:cy[i]-gh/2;
+   nx=std::max(0,std::min(nx,F-nw));ny=std::max(0,std::min(ny,F-gh));
+   bool clash=false;
+   for(int j=0;j<n&&!clash;j++)clash=nx<cx[j]+4&&cx[j]-3<nx+nw&&ny<cy[j]+4&&cy[j]-3<ny+gh;
+   for(int j=0;j<i&&!clash;j++)clash=nx<labx[j]+labw[j]&&labx[j]<nx+nw&&ny<laby[j]+gh&&laby[j]<ny+gh;
+   if(!clash)break;
+  }
+  labx[i]=nx;laby[i]=ny;labw[i]=nw;
+  for(unsigned char c:num){if(c>=glyphs)continue;
+   for(int yy=0;yy<8;yy++)for(int xx=0;xx<8;xx++){const unsigned char *g=&font.pixels[(yy*font.w+c*8+xx)*4];if(!g[3])continue;
+    const bool shadow=g[0]<64&&g[1]<64&&g[2]<64;put(nx+xx,ny+yy,shadow?0:TEXT,g[3]);}
+   nx+=std::max(0,advance[c]);}
+ }
+}
+/* A map with no baked picture in the fitted rectangle (ra_preview_fit) of a frame at bx,by
+   scaled k: its own imported picture when it has one, else a plain plate. */
+void preview_plate(const SK_Map &m,int bx,int by,int k,int ox,int oy,int iw,int ih){
+ if(m.pic&&m.pic_w>0&&m.pic_h>0){Art a;a.w=iw;a.h=ih;a.pixels.resize((size_t)iw*ih*4);
+  for(int yy=0;yy<ih;yy++)for(int xx=0;xx<iw;xx++){const int sx=std::min(m.pic_w-1,xx*m.pic_w/iw),sy=std::min(m.pic_h-1,yy*m.pic_h/ih);
+   memcpy(&a.pixels[((size_t)yy*iw+xx)*4],m.pic+((size_t)sy*m.pic_w+sx)*4,4);}
+  blit(a,bx+ox*k,by+oy*k,k);return;}
+ rect(bx+ox*k,by+oy*k,iw*k,ih*k,0x5c5c5c);rect(bx+(ox+1)*k,by+(oy+1)*k,(iw-2)*k,(ih-2)*k,0x1c1c1c);
+}
 void preview(const SK_State *st,const DB_Pack *p,int ix,int x,int y,int size){
  /* Red Alert's map pictures are in its kit (preview-SCMnnEA, baked from ra3d/previews),
-    drawn at whole multiples of their size */
- if(theme.ra&&ix>=0&&ix<st->count&&st->maps[ix].scen){auto it=arts.find(std::string("preview-")+st->maps[ix].scen);
-  if(it!=arts.end()){const Art &a=it->second;const int k=std::max(1,size/std::max(1,a.w));blit(a,x+(size-a.w*k)/2,y+(size-a.h*k)/2,k);return;}}
- Art a;a.w=a.h=size;a.pixels.resize(size*size*4);if(sk_preview_rgba(st,p,ix,a.pixels.data(),size,size))blit(a,x,y);else note("No preview available",x,y+size/2,size,2);}
+    drawn at whole multiples of their size, with the start markers over them. A map with no
+    picture (an imported one) is its fitted rectangle on a plain plate under the same
+    markers. Never Tiberian Dawn's preview pack: the two games share the names SCM01EA and
+    up, so it would show the other game's map. */
+ if(theme.ra&&ix>=0&&ix<st->count&&st->maps[ix].scen){
+  const SK_Map &m=st->maps[ix];const int F=RA_PREVIEW_FRAME,k=std::max(1,size/F),bx=x+(size-F*k)/2,by=y+(size-F*k)/2;
+  auto it=arts.find(std::string("preview-")+m.scen);
+  if(it!=arts.end()&&(it->second.w!=F||it->second.h!=F)){const Art &a=it->second;const int ak=std::max(1,size/std::max(1,a.w));blit(a,x+(size-a.w*ak)/2,y+(size-a.h*ak)/2,ak);return;}
+  if(it!=arts.end())blit(it->second,bx,by,k);
+  else{double s;int ox,oy,iw,ih;if((!m.start_cells&&!m.pic)||!ra_preview_fit(m,s,ox,oy,iw,ih)){note("No preview available",x,y+size/2,size,2);return;}
+   preview_plate(m,bx,by,k,ox,oy,iw,ih);}
+  ra_start_markers(st,ix,bx,by,k);return;}
+ Art a;a.w=a.h=size;a.pixels.resize(size*size*4);if(sk_preview_rgba(st,p,ix,a.pixels.data(),size,size)){blit(a,x,y);return;}
+ /* A TIBERIAN DAWN MAP WITH NO BAKED PICTURE (a user map): its fitted rectangle on a plain
+    plate, numbered at its starts, as Red Alert draws one, so a start can still be picked by
+    where it is. With no starts known it says so. A race course is never numbered: its
+    starts are the grid's own cells and a race deals them at random (sk_draw_preview_at). */
+ if(ix>=0&&ix<st->count){const SK_Map &m=st->maps[ix];const int F=RA_PREVIEW_FRAME,k=std::max(1,size/F),bx=x+(size-F*k)/2,by=y+(size-F*k)/2;double s;int ox,oy,iw,ih;
+  if((m.start_cells||m.pic)&&ra_preview_fit(m,s,ox,oy,iw,ih)){preview_plate(m,bx,by,k,ox,oy,iw,ih);if(m.course==SK_COURSE_NONE)ra_start_markers(st,ix,bx,by,k);return;}}
+ note("No preview available",x,y+size/2,size,2);}
 void footer(const char *primary,int item,int backitem,DOPT_State *st){opt(st,backitem,"Back",38,v.h-86,192);opt(st,item,primary,v.w-258,v.h-86,220);}
 } // namespace
 
@@ -314,25 +490,42 @@ extern "C" void em_sound_event(const SDL_Event *e,SDL_Window *window){
 extern "C" void em_menu_overlay(const DB_Pack *pack,int x,int y){menu_pack=pack;pointerx=x;pointery=y;}
 extern "C" void em_title_mode(int enabled){option_title=enabled!=0;}
 extern "C" void em_set_language_hooks(const EM_LangHooks *hooks){langhooks=hooks;}
+extern "C" void em_set_key_hooks(const EM_KeyHooks *hooks){keyhooks=hooks;kbcap=-1;}
+extern "C" int em_keys_capturing(void){return kbcap>=0&&keyhooks&&v.kind==OPT;}
+/* The key a waiting box was given. Escape (SDL's keycode 27) leaves the binding alone. */
+extern "C" void em_keys_capture(int keycode,int scancode){
+ if(kbcap<0||!keyhooks)return;const int cmd=kbcap;kbcap=-1;
+ if(keycode==27){kbmsg=std::string(FX_KEYS[cmd].label)+": unchanged";return;}
+ char msg[160]="";keyhooks->assign(cmd,keycode,scancode,msg,sizeof msg);kbmsg=msg;
+ game_enhanced_menu_sound(1);
+}
 extern "C" int em_density(void){return v.scale;}
 extern "C" int em_available(void){return load();}
 namespace {
 const int main_order[]={DM_START,DM_SPECIAL,DM_USERMAPS,DM_LOAD,DM_MULTIPLAYER,DM_SKIRMISH,DM_VISUALS,DM_INTRO,DM_EXIT};
 const int main_y[]={64,108,152,196,260,304,368,412,456};
 }
+extern "C" int em_ra_speaker_rect(int* x,int* y,int* w,int* h){
+ if(!theme.ra||!load())return 0;
+ const bool lo=std::min(v.fbw/640,v.fbh/400)<2;
+ const Art& a=arts.at(lo?"title-backdrop-lo":"title-backdrop");
+ const int k=std::max(1,std::min(v.fbw/a.w,v.fbh/a.h));
+ *x=(v.fbw-a.w*k)/2+260*a.w*k/320;*y=(v.fbh-a.h*k)/2;
+ *w=60*a.w*k/320;*h=50*a.h*k/200;return 1;
+}
 extern "C" int em_main_next(const DM_State *st,int item,int delta){
  int at=0;for(int i=0;i<DM_ITEM_COUNT;i++)if(main_order[i]==item)at=i;
  for(int i=0;i<DM_ITEM_COUNT;i++){at=(at+(delta<0?DM_ITEM_COUNT-1:1))%DM_ITEM_COUNT;if(!dm_state_item_disabled(st,main_order[at]))return main_order[at];}
  return item;
 }
-extern "C" void em_main(const DM_State *st){
+extern "C" void em_main(const DM_State *st){memo([&]{
  if(!load())return;begin(MAIN,st,"main-frame","MAIN MENU");
- for(int n=0;n<DM_ITEM_COUNT;n++){int i=main_order[n];const char *label=i==DM_SPECIAL?(theme.ra?"Special Ops":"Special Ops / Covert Ops"):i==DM_VISUALS?"Settings":dm_item_label(i);Seat &q=add(i,label,36,main_y[n],500);q.disabled=dm_state_item_disabled(st,i);q.active=st->selected==i;int x,y,w,h;if(dm_item_rect(st,i,&x,&y,&w,&h))legacy(q,x,y,w,h);}
+ for(int n=0;n<DM_ITEM_COUNT;n++){int i=main_order[n];const char *label=i==DM_SPECIAL?(theme.ra?"Mission Disks":"Special Ops / Covert Ops"):i==DM_VISUALS?"Settings":dm_item_label(i);Seat &q=add(i,label,36,main_y[n],500);q.disabled=dm_state_item_disabled(st,i);q.active=st->selected==i;int x,y,w,h;if(dm_item_rect(st,i,&x,&y,&w,&h))legacy(q,x,y,w,h);}
  if(theme.ra)for(int y:{246,354}){rect(38,y,496,2,0x060202);rect(38,y+2,496,1,theme.slot[S_WELLLIT]);rect(38,y+3,496,1,0x140402);}
  else for(int y:{246,354}){rect(38,y,496,2,0x070908);rect(38,y+2,496,1,0x43453d);rect(38,y+3,496,1,0x181b17);}
  /* Red Alert's own menu state carries the 1996 menu's "RA3D" line; Enhanced names the build. */
  text(std::string("ENHANCED / ")+(theme.ra?theme.version.c_str():st->version?st->version:""),v.w/2,516,ACCENT,true);paint();
-}
+});}
 extern "C" void em_to_legacy(int fx,int fy,int *x,int *y){
  v.mousex=(fx-v.x)/v.scale;v.mousey=(fy-v.y)/v.scale;
  if(fx<v.x||fy<v.y){v.mousex=v.mousey=-1000;}
@@ -349,7 +542,7 @@ extern "C" void em_viewport(int width,int height){layout(width,height);}
    scripted click that takes the pointer's own path. */
 extern "C" int em_seat_point(const char *label,int *x,int *y){
  auto same=[](const std::string &a,const char *b){size_t i=0;for(;i<a.size()&&b[i];i++)if(tolower((unsigned char)a[i])!=tolower((unsigned char)b[i]))return false;return i==a.size()&&!b[i];};
- for(const Seat &q:v.seats)if(!q.disabled&&label&&same(q.label,label)){*x=v.x+(q.x+q.w/2)*v.scale;*y=v.y+(q.y+q.h/2)*v.scale;return 1;}
+ for(const Seat &q:v.seats)if(!q.disabled&&label&&(same(q.label,label)||same(q.sourceLabel,label))){*x=v.x+(q.x+q.w/2)*v.scale;*y=v.y+(q.y+q.h/2)*v.scale;return 1;}
  return 0;
 }
 namespace {
@@ -417,9 +610,15 @@ extern "C" void em_draw(int width,int height,int clear){
  if(clear&&v.title&&theme.ra){const bool even=v.scale%2==0;const Art &a=arts.at(even?"wordmark":"wordmark-lo");GLuint &t=even?logotexture:logotexture_lo;arttexture(t,a);
   const int k=even?v.scale/2:v.scale;int pw=1,ph=1;while(pw<a.w)pw*=2;while(ph<a.h)ph*=2;
   glquad(t,(width-a.w*k)/2,std::max(0,v.y-a.h*k-16*v.scale),a.w*k,a.h*k,float(a.w)/pw,float(a.h)/ph);}
- if(!texture){glGenTextures(1,&texture);glBindTexture(GL_TEXTURE_2D,texture);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,2048,1024,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);}
- glBindTexture(GL_TEXTURE_2D,texture);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,v.w,v.h,GL_RGBA,GL_UNSIGNED_BYTE,v.rgba.data());
- glquad(texture,v.x,v.y,v.w*v.scale,v.h*v.scale,float(v.w)/2048,float(v.h)/1024);
+ if(!texture){glGenTextures(1,&texture);glBindTexture(GL_TEXTURE_2D,texture);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,2048,1024,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);uploaded_writes=~0ULL;}
+ /* The panel goes to the card only when something has been drawn into it since it last
+    went; an idle menu sends nothing. A panel whose picture does not match its size (a layout
+    pass changed screens and nothing has drawn the new one yet) is not shown at all. */
+ if(v.rgba.size()==size_t(v.w)*v.h*4){
+  glBindTexture(GL_TEXTURE_2D,texture);
+  if(uploaded_writes!=writes){glTexSubImage2D(GL_TEXTURE_2D,0,0,0,v.w,v.h,GL_RGBA,GL_UNSIGNED_BYTE,v.rgba.data());uploaded_writes=writes;em_uploads_n++;}
+  glquad(texture,v.x,v.y,v.w*v.scale,v.h*v.scale,float(v.w)/2048,float(v.h)/1024);
+ }
  if(v.kind==DATABASE||v.kind==MAIN||(v.kind==OPS&&((const DO_State*)v.owner)->grouped))faction_badges();
  else if(theme.ra&&std::any_of(v.seats.begin(),v.seats.end(),[](const Seat &q){return q.badge>=0;}))faction_badges();
  /* The original live legal notice belongs below the title panel. Its original
@@ -464,6 +663,9 @@ extern "C" int em_write_shot(const char *path,int width,int height){
  if(!load()||!v.w)return 0;em_draw(width,height,1);std::vector<unsigned char> data(width*height*4),top(data.size());glReadBuffer(GL_BACK);glReadPixels(0,0,width,height,GL_RGBA,GL_UNSIGNED_BYTE,data.data());for(int y=0;y<height;y++)memcpy(&top[y*width*4],&data[(height-1-y)*width*4],width*4);return png_write_rgba(path,top.data(),width,height);
 }
 extern "C" void em_reset(void){v=View();option_title=false;sound_hover.clear();}
+extern "C" void em_layout_pass(int on){layout_only=on!=0;}
+extern "C" unsigned em_raster_count(void){return em_rasters_n;}
+extern "C" unsigned em_upload_count(void){return em_uploads_n;}
 /* Red Alert's kit for this process, before the first screen asks for the pack: the version
    line and the legal notice its screens print. */
 extern "C" void em_set_red_alert(const char *version,const char *legal){
@@ -511,9 +713,12 @@ void optreset(){Seat &q=add(-1,"Reset to Defaults",38,v.h-86,292);q.action=RESET
 /* A slider of the Settings screen's Gameplay and Audio tabs (dopt_enh_setting). Their seats
    are numbered EM_SETTING_SEAT - which and EM_GAMEPLAY_SEAT - toggle, so the gate can find
    them by number (em_item_rect) as it finds every other seat. */
+/* The three scroll speeds read "Normal" at their default (index 3) and a step number
+   elsewhere, 1 slowest to 10 fastest. */
+bool scrollsetting(int which){return which==DOPT_ES_SCROLL||which==DOPT_ES_SCROLLPUSH||which==DOPT_ES_SCROLLGRAB;}
 void setrange(DOPT_State *st,int which,const char *label,int x,int y,int w,bool percent){
  const int value=dopt_enh_setting_value(st,which),max=dopt_enh_setting_max(which);
- text(label,x,y-28);std::string val=percent?std::to_string(value*100/max)+"%":which==DOPT_ES_SPEED?dopt_speed_name(value):value==4?"Normal":std::to_string(value+1);
+ text(label,x,y-28);std::string val=percent?std::to_string(value*100/max)+"%":which==DOPT_ES_SPEED?dopt_speed_name(value):scrollsetting(which)?(value==3?"Normal":std::to_string(value+1)):value==4?"Normal":std::to_string(value+1);
  text(val,x+w-textwidth(val),y-28,ACCENT);Seat &q=add(EM_SETTING_SEAT-which,label,x,y,w,36,RANGE);q.action=SETRANGE;q.arg=which;q.value=value;q.max=max;q.active=false;
 }
 /* THE LANGUAGE ROW AND ITS BOX (EM_LangHooks, answered by the game). Picking a language
@@ -555,6 +760,53 @@ void langbox(){
  Seat &no=add(EM_LANG_SEAT-21,"Close",292,v.compact?370:400,220);no.action=LANGCLOSE;
 }
 
+/* THE MOUSE SCHEME, three buttons under their label: Classic (the 1995 scheme), Left-handed
+   (its buttons exchanged) and Modern (left selects, right orders). The same row on the
+   Settings screen's Gameplay tab and on the pause menu's Gameplay page. */
+void schemerow(DOPT_State *st,int x,int y){
+ /* "Left hand" rather than fx_input.h's "Left-handed": the longer word does not fit the
+    140 wide button art both kits carry, and three of those are what the well holds */
+ static const char *const names[FX_MOUSE_COUNT]={"Classic","Left hand","Modern"};
+ text("Mouse scheme",x,y);
+ for(int i=0;i<FX_MOUSE_COUNT;i++){Seat &q=add(EM_SCHEME_SEAT-i,names[i],x+i*144,y+22,140);q.action=GPSCHEME;q.arg=i;q.active=st->gp.on[DOPT_G_MOUSE]==i;}
+}
+/* THE KEY BINDINGS PAGE. Every command key in two columns, a box per key; a press on a box
+   makes it wait for the next key, which the game checks (a key the game reserves is
+   refused, a key another command holds swaps with it) and the header says what happened.
+   Under it, the mouse button that drags the map. The rows are fx_input.h's commands, the
+   two guard keys and the four camera bookmarks each sharing a row. Buttons are sizes both
+   kits carry art for (154 x 40). */
+struct KeyRow{const char *label;int cmd[4];int n;};
+const KeyRow keyrows[]={
+ {"Stop",{FXK_STOP},1},{"Scatter",{FXK_SCATTER},1},{"Guard",{FXK_GUARD,FXK_GUARD2},2},
+ {"Attack-move",{FXK_ATTACKMOVE},1},{"Go to base",{FXK_BASE},1},{"Rebuild last",{FXK_REBUILD},1},
+ {"Radar on or off",{FXK_RADAR},1},{"Camera view",{FXK_CAMERA},1},
+ {"Next graphics mode",{FXK_NEXTMODE},1},{"Next unit",{FXK_NEXT},1},{"Previous unit",{FXK_PREV},1},
+ {"Select all on screen",{FXK_SELECTVIEW},1},{"Repair mode",{FXK_REPAIR},1},{"Sell mode",{FXK_SELL},1},
+ {"Centre on selection",{FXK_CENTRE},1},{"Bookmarks",{FXK_VIEW1,FXK_VIEW2,FXK_VIEW3,FXK_VIEW4},4}};
+void keyspage(){
+ const int nrows=int(sizeof keyrows/sizeof keyrows[0]),half=(nrows+1)/2;
+ const int dragh=56,dragy=v.h-106-dragh,keyh=dragy-8-140;
+ const int pitch=v.compact?25:32,boxh=pitch-4,top=140+44;
+ well("COMMAND KEYS",38,140,940,keyh);
+ std::string head=kbcap>=0?std::string("Press the new key for ")+FX_KEYS[kbcap].label+". Escape cancels."
+                 :!kbmsg.empty()?kbmsg:"Click a box, then a key. Ctrl + bookmark key stores the view.";
+ head=fitted(head,960-(56+textwidth("COMMAND KEYS")+24));text(head,960-textwidth(head),154,kbcap>=0?ACCENT:MUTED);
+ for(int r=0;r<nrows;r++){
+  const KeyRow &k=keyrows[r];const int x=r<half?56:516,y=top+(r%half)*pitch,colw=444;
+  const int bw=k.n==1?150:k.n==2?100:66,gap=6,bx0=x+colw-(k.n*bw+(k.n-1)*gap);
+  text(fitted(k.label,bx0-x-12),x,y+(boxh-16)/2);
+  for(int j=0;j<k.n;j++){const int c=k.cmd[j],bx=bx0+j*(bw+gap);
+   rect(bx,y,bw,boxh,theme.ra?0x060303:0x080a09);rect(bx,y,bw,1,theme.ra?0x807870:0x606255);rect(bx,y+boxh-1,bw,1,theme.ra?0x342826:0x353b30);
+   const char *name=keyhooks->key(c);Seat &q=add(EM_KEYS_SEAT-c,kbcap==c?"?":(name&&*name?name:"-"),bx,y,bw,boxh,ROW);
+   q.sourceLabel=std::string("Key: ")+FX_KEYS[c].label;q.action=KEYCAP;q.arg=c;q.active=kbcap==c;}
+ }
+ well("",38,dragy,940,dragh);
+ text("Drag the map with",56,dragy+(dragh-16)/2);
+ const int g=keyhooks->grab();
+ for(int b=0;b<FX_GRAB_COUNT;b++){Seat &q=add(EM_KEYS_DRAG-b,FX_GRAB_NAME[b],326+b*160,dragy+(dragh-40)/2,154);q.action=KEYDRAG;q.arg=b;q.active=g==b;}
+}
+
 /* SETTINGS, ONE SCREEN FOR EVERYTHING. The title's Settings opened the visuals alone; game
    speed, scrolling, the mouse and every volume were only in the pause menu, so a player
    could not set them before a mission. The tab row now runs Display, World, Effects and
@@ -567,7 +819,9 @@ void visuals(DOPT_State *st){
  static const int tabs[]={0,1,2,3,5,6};
  const int shrink=v.compact?72:0;
  // More retains source settings absent from the review fixture, without dropping them.
- for(int i=0;i<6;i++){Seat &q=add(-1,cats[tabs[i]],38+i*158,86,148);q.action=TAB;q.arg=tabs[i];q.active=v.section==tabs[i];}
+ for(int i=0;i<6;i++){Seat &q=add(-1,cats[tabs[i]],38+i*158,86,148);q.action=TAB;q.arg=tabs[i];q.active=v.section==tabs[i]||(v.section==7&&tabs[i]==5);}
+ /* a box left waiting for a key stops waiting when the page it is on goes */
+ if(v.section!=7)kbcap=-1;
  const char *modes[]={"Classic","N64","Enhanced"};
  if(v.section==0){
   well("DISPLAY",38,160,460,358-shrink);well("GRAPHICS MODE",518,160,460,180);well("OUTPUT",518,360,460,158-shrink);
@@ -601,12 +855,19 @@ void visuals(DOPT_State *st){
   langbox();
  }else if(v.section==5){
   well("GAME",38,160,460,358-shrink);well("INPUT",518,160,460,358-shrink);
-  setrange(st,DOPT_ES_SPEED,"Game speed",56,v.compact?238:252,424,false);
-  text("Slower",56,v.compact?286:300,MUTED);text("Faster",414,v.compact?286:300,MUTED);
-  setrange(st,DOPT_ES_SCROLL,"Scroll rate",56,v.compact?362:390,424,false);
-  text("Slower",56,v.compact?410:438,MUTED);text("Faster",414,v.compact?410:438,MUTED);
-  for(int i=0;i<DOPT_G_TOGGLES;i++){Seat &q=add(EM_GAMEPLAY_SEAT-i,dopt_gp_label(i),536,210+i*52,424,36,CHECK);q.action=GPCHECK;q.arg=i;q.value=st->gp.on[i];q.active=false;}
+  /* the game speed and the three scroll speeds, one per way of moving the view */
+  /* (four rows below the well's title: at the title screen's shorter frame they sit
+     closer, and neither size has room left for the Slower and Faster captions) */
+  const int y0=v.compact?234:252,dy=v.compact?58:74;
+  setrange(st,DOPT_ES_SPEED,"Game speed",56,y0,424,false);
+  setrange(st,DOPT_ES_SCROLL,"Screen edge and arrow keys",56,y0+dy,424,false);
+  setrange(st,DOPT_ES_SCROLLPUSH,"Right-button drag",56,y0+2*dy,424,false);
+  setrange(st,DOPT_ES_SCROLLGRAB,"Middle-button drag",56,y0+3*dy,424,false);
+  schemerow(st,536,v.compact?210:214);
+  for(int i=1;i<DOPT_G_TOGGLES;i++){Seat &q=add(EM_GAMEPLAY_SEAT-i,dopt_gp_label(i),536,v.compact?238+i*46:244+i*52,424,36,CHECK);q.action=GPCHECK;q.arg=i;q.value=st->gp.on[i];q.active=false;}
   langrow(536,v.compact?400:430);
+ }else if(v.section==7&&keyhooks){
+  keyspage();
  }else{
   well("VOLUME",38,160,460,358-shrink);well("VOICES AND WORLD",518,160,460,358-shrink);
   setrange(st,DOPT_ES_MUSIC,"Music",56,v.compact?238:252,424,true);
@@ -616,6 +877,7 @@ void visuals(DOPT_State *st){
   setrange(st,DOPT_ES_AMBIENCE,"Ambience",536,v.compact?362:390,424,true);
  }
  if(v.section<4){Seat &q=add(-1,"More Settings",342,v.h-86,192);q.action=TAB;q.arg=4;}
+ if(v.section==5&&v.langBox<0&&keyhooks){Seat &q=add(EM_KEYS_OPEN,"Key Bindings",342,v.h-86,192);q.action=TAB;q.arg=7;}
  optreset();optback(st);opt(st,DOPT_A_OK,"OK",758,v.h-86,220);
  if(v.drop>=0){
   int owner=-1;for(int i=0;i<int(v.seats.size());i++)if(v.seats[i].action==DROP&&v.seats[i].arg==v.drop)owner=i;
@@ -654,12 +916,19 @@ extern "C" void em_options(DOPT_State *st){
  }else if(st->page==DOPT_PAGE_CONTROLS){
   /* (the volumes and the jukebox are the pause menu's Audio page) */
   well("GAMEPLAY",38,110,940,v.h-228);
-  optrange(st,DOPT_C_SPEED,"Game speed",56,v.compact?188:216,904,st->set.speed,6,false);optrange(st,DOPT_C_SCROLL,"Scroll rate",56,v.compact?310:354,904,st->set.scrollrate,6,false);
-  text("Slower",56,v.compact?236:264,MUTED);text("Faster",894,v.compact?236:264,MUTED);text("Slower",56,v.compact?358:402,MUTED);text("Faster",894,v.compact?358:402,MUTED);
+  /* THE THREE SCROLL SPEEDS are the Settings screen's own sliders (setrange): one block
+     of settings, two pages that show it. The game speed keeps the 1995 slider. */
+  const int y0=v.compact?168:192,dy=v.compact?64:76;
+  optrange(st,DOPT_C_SPEED,"Game speed",56,y0,904,st->set.speed,6,false);
+  setrange(st,DOPT_ES_SCROLL,"Screen edge and arrow keys",56,y0+dy,904,false);
+  setrange(st,DOPT_ES_SCROLLPUSH,"Right-button drag",56,y0+2*dy,904,false);
+  setrange(st,DOPT_ES_SCROLLGRAB,"Middle-button drag",56,y0+3*dy,904,false);
+  if(!v.compact){text("Slower",56,y0+3*dy+44,MUTED);text("Faster",894,y0+3*dy+44,MUTED);}
   optreset();optback(st);opt(st,DOPT_C_OK,"OK",758,v.h-86,220);
  }else if(st->page==DOPT_PAGE_GAMEPLAY){
   well("INPUT",38,110,460,v.h-228);well("FEEDBACK",518,110,460,v.h-228);
-  for(int i=0;i<DOPT_G_TOGGLES;i++){Seat &q=opt(st,i,dopt_gp_label(i),i==2?536:56,i==1?266:202,424,36,CHECK);q.value=st->gp.on[i];q.active=false;}
+  schemerow(st,56,170);
+  for(int i=1;i<DOPT_G_TOGGLES;i++){Seat &q=opt(st,i,dopt_gp_label(i),i==2?536:56,i==1?266:202,424,36,CHECK);q.value=st->gp.on[i];q.active=false;}
   optback(st,38);opt(st,DOPT_G_OK,"OK",758,v.h-86,220);
  }else if(st->page==DOPT_PAGE_ADVANCED){visuals(st);
  }else if(st->page==DOPT_PAGE_SLOTS){
@@ -668,9 +937,11 @@ extern "C" void em_options(DOPT_State *st){
   int start=std::max(0,std::min(st->sl.top,std::max(0,st->sl.nrows-rows)));
   /* An empty list has no selection (-1), which is never a row index. */
   if(st->sl.sel>=0&&st->sl.sel<start)start=st->sl.sel;if(st->sl.sel>=start+rows)start=st->sl.sel-rows+1;
-  for(int i=0;i<rows&&start+i<st->sl.nrows;i++){Seat &q=add(DOPT_SL_LIST,dopt_slot_row_text(st,start+i),56,164+i*(v.compact?24:32),564,v.compact?24:32,ROW,OPTROW,start+i);q.active=st->sl.sel==start+i;}
+  for(int i=0;i<rows&&start+i<st->sl.nrows;i++){Seat &q=add(DOPT_SL_LIST,dopt_slot_row_text(st,start+i),56,164+i*(v.compact?24:32),564,v.compact?24:32,ROW,OPTROW,start+i);q.active=st->sl.sel==start+i;q.muted=st->sl.mode==DOPT_SL_LOAD&&st->sl.rows[start+i].disabled;}
   if(!st->sl.nrows)text("No saved missions",56,178,MUTED);
-  note(st->sl.descr,676,186,284,6,TEXT);
+  /* Every slot taken: Save names no row until the player picks the one to replace. */
+  if(st->sl.mode==DOPT_SL_SAVE&&st->sl.sel<0)note("Every save slot is in use. Choose a saved mission to replace.",676,186,284,6,MUTED);
+  else note(st->sl.descr,676,186,284,6,TEXT);
   if(st->sl.mode==DOPT_SL_SAVE){text("Mission name",676,374);Seat &q=opt(st,DOPT_SL_EDIT,st->sl.descr,676,398,284,40,FIELD);q.active=st->selected==DOPT_SL_EDIT;}
   footer(st->sl.mode==DOPT_SL_SAVE?"Save":st->sl.mode==DOPT_SL_DELETE?"Delete":"Load",DOPT_SL_OK,DOPT_SL_CANCEL,st);
  }else if(st->page==DOPT_PAGE_CONFIRM){
@@ -683,11 +954,14 @@ extern "C" void em_options(DOPT_State *st){
      side of the mission being played, as the 1996 Restate_Mission does), at 62% under the
      text. */
   if(theme.ra){auto it=arts.find(theme.soviet?"paper-soviet":"paper-allied");
-   if(it!=arts.end()){const Art &a=it->second;for(int yy=44;yy<std::min(a.h,v.h-234)-4;yy++)memcpy(&v.rgba[((110+yy)*v.w+38+4)*4],&a.pixels[(yy*a.w+4)*4],(std::min(a.w,600)-8)*4);}}
+   if(it!=arts.end()&&!recording&&++writes){const Art &a=it->second;for(int yy=44;yy<std::min(a.h,v.h-234)-4;yy++)memcpy(&v.rgba[((110+yy)*v.w+38+4)*4],&a.pixels[(yy*a.w+4)*4],(std::min(a.w,600)-8)*4);}}
   note(st->brief,56,178,564,10,TEXT);
   if(st->rvideo)opt(st,DOPT_R_LEFT,"Video",38,v.h-86,192);opt(st,st->rvideo?DOPT_R_RIGHT:DOPT_R_LEFT,"Back",446,v.h-86,192);
  }else if(st->page==DOPT_PAGE_NOTICE){
-  note(st->brief,98,112,480,4,TEXT);opt(st,0,"OK",228,238,220);
+  /* Four lines at the usual pitch; a longer text (a file's path to send) closes the
+     pitch to fit six above the button rather than losing its end. */
+  if(wrapped(st->brief,480).size()<=4)note(st->brief,98,112,480,4,TEXT);else note(st->brief,98,108,480,6,TEXT,20);
+  opt(st,0,"OK",228,238,220);
  }else if(st->page==DOPT_PAGE_SOUND){
   well("JUKEBOX",38,110,600,v.h-228);well("VOLUME",658,110,320,v.h-228);
   for(int i=0;i<9&&st->trkTop+i<st->ntracks;i++){int ix=st->trkTop+i;Seat &q=add(DOPT_S_LIST,st->tracks[ix].fullname?st->tracks[ix].fullname:st->tracks[ix].base,56,164+i*(v.compact?24:32),564,v.compact?24:32,ROW,OPTROW,ix);q.active=st->trkSel==ix;}
@@ -722,8 +996,13 @@ extern "C" int em_opt_motion(DOPT_State *st,int x,int y){
 }
 extern "C" int em_opt_release(DOPT_State *st,int x,int y){
  int n=virtualseat(x),held=v.held;v.held=v.drag=-1;
+ /* any other press ends a box's wait for a key */
+ if(kbcap>=0&&(n<0||v.seats[n].action!=KEYCAP)){kbmsg=std::string(FX_KEYS[kbcap].label)+": unchanged";kbcap=-1;}
  if(n<0)return v.popupFirst>=0?0:dopt_release(st,x,y);if(n!=held)return 0;Seat q=v.seats[n];
  switch(q.action){
+ case KEYCAP:kbcap=kbcap==q.arg?-1:q.arg;kbmsg.clear();return 0;
+ case KEYDRAG:if(keyhooks)keyhooks->set_grab(q.arg);return 0;
+ case GPSCHEME:dopt_enh_gameplay_set(st,DOPT_G_MOUSE,q.arg);return 0;
  case RANGESET:case SETRANGE:return 0;
  case GPCHECK:dopt_enh_gameplay_toggle(st,q.arg);return 0;
  case LANGDROP:v.drop=v.drop==EM_LANG_DROP?-1:EM_LANG_DROP;return 0;
@@ -734,13 +1013,14 @@ extern "C" int em_opt_release(DOPT_State *st,int x,int y){
  case OPTITEM:if(st->page==DOPT_PAGE_OPTIONS&&q.item==DOPT_EXIT){dopt_enh_confirm_exit(st);return 0;}
   if(saves_blocked(st,q.item)){st->selected=q.item;dopt_open_page_notice(st,"NOTICE",em_route_notice(EM_ROUTE_SAVES));return 0;}
   return dopt_enh_action(st,q.item);
- case TAB:v.section=q.arg;v.drop=-1;return 0;
+ case TAB:v.section=q.arg;v.drop=-1;if(q.arg!=7)kbcap=-1;kbmsg.clear();return 0;
  case BACK:st->texdrop=-1;v.drop=-1;return em_opt_key(st,DOPT_KEY_ESC);
- case RESET:if(st->page==DOPT_PAGE_CONTROLS){DOPT_Settings d;dopt_settings_init(&d);st->set.speed=d.speed;st->set.scrollrate=d.scrollrate;if(st->bind.apply)st->bind.apply(st->bind.user,&st->set);}
+ case RESET:if(st->page==DOPT_PAGE_CONTROLS){DOPT_Settings d;dopt_settings_init(&d);st->set.speed=d.speed;st->set.scrollrate=d.scrollrate;st->set.scrollpush=d.scrollpush;st->set.scrollgrab=d.scrollgrab;if(st->bind.apply)st->bind.apply(st->bind.user,&st->set);}
   /* (the Gameplay and Audio tabs reset their own settings, never the picture's) */
+  else if(st->page==DOPT_PAGE_ADVANCED&&v.section==7){if(keyhooks){keyhooks->reset();kbcap=-1;kbmsg="Every key and the drag button are back to their defaults";}}
   else if(st->page==DOPT_PAGE_ADVANCED&&v.section>=5){DOPT_State d=*st;dopt_settings_init(&d.set);
-   const int game[]={DOPT_ES_SPEED,DOPT_ES_SCROLL},sound[]={DOPT_ES_MUSIC,DOPT_ES_SOUND,DOPT_ES_VOICES,DOPT_ES_AMBIENCE};
-   const int *w=v.section==5?game:sound,n=v.section==5?2:4;for(int k=0;k<n;k++)dopt_enh_setting(st,w[k],dopt_enh_setting_value(&d,w[k]));}
+   const int game[]={DOPT_ES_SPEED,DOPT_ES_SCROLL,DOPT_ES_SCROLLPUSH,DOPT_ES_SCROLLGRAB},sound[]={DOPT_ES_MUSIC,DOPT_ES_SOUND,DOPT_ES_VOICES,DOPT_ES_AMBIENCE};
+   const int *w=v.section==5?game:sound,n=4;for(int k=0;k<n;k++)dopt_enh_setting(st,w[k],dopt_enh_setting_value(&d,w[k]));}
   else dopt_enh_action(st,DOPT_A_RESET);return 0;
  case MODE:dopt_enh_mode(st,q.arg);v.drop=-1;return 0;
  case DROP:v.drop=v.drop==q.arg?-1:q.arg;v.popupChoice=-1;st->texdrop=v.drop;st->restop=0;return 0;
@@ -767,9 +1047,29 @@ unsigned player_colour(int i);
    as on the 1996 skirmish dialog, its value named rather than numbered. */
 Seat &rarule(const SK_State *st,int rule,const char *label,int x,int y,int w,int h,int kind){Seat &q=add(-50-rule,label,x,y,w,h,kind);q.action=kind==RANGE?RARANGE:RACHECK;q.arg=rule;q.value=sk_ra_rule(st,rule);q.disabled=sk_ra_rule_disabled(st)!=0;q.active=false;return q;}
 void radifficulty(const SK_State *st,int x,int y){const int d=std::max(0,std::min(3,sk_ra_rule(st,SK_RA_DIFFICULTY)));text("New AI default",x,y-28);text(sk_level_name(d),x+424-textwidth(sk_level_name(d)),y-28,ACCENT);Seat &q=rarule(st,SK_RA_DIFFICULTY,"New AI default",x,y,424,36,RANGE);q.min=0;q.max=3;q.step=1;}
-void skrange(const SK_State *st,int item,const char *label,int x,int y,int value,int lo,int hi,int step){text(label,x,y-28);std::string val=std::to_string(value);text(val,x+424-textwidth(val),y-28,ACCENT);Seat &q=skbutton(st,item,label,x,y,424,36,RANGE);q.action=SKRANGE;q.value=value;q.min=lo;q.max=hi;q.step=step;q.active=false;}
-const unsigned int colours[]={0xdfb54b,0xdb4540,0x56baca,0xdd9138,0x58a354,0x6381c6,0xb778c5,0xbcb9ad};
+void skrange(const SK_State *st,int item,const char *label,int x,int y,int value,int lo,int hi,int step){text(label,x,y-28);std::string val=item==SK_I_SPEED?dopt_speed_name(value):std::to_string(value);text(val,x+424-textwidth(val),y-28,ACCENT);Seat &q=skbutton(st,item,label,x,y,424,36,RANGE);q.action=SKRANGE;q.value=value;q.min=lo;q.max=hi;q.step=step;q.active=false;}
+/* Tiberian Dawn's eight player colours by PlayerColorType, the number a square hands the
+   engine: gold, light blue, red, green, orange, blue, grey, brown. Each square is the colour
+   that player's army is painted: step 2 of the colour's remap ramp (TEMPERAT.PAL entry
+   Remap<colour>[178], widened << 2), the renderer's LIVERY_BAND[colour][2], which is the
+   body tone of every graphics mode's units and buildings and the entry the 1995-style
+   lobby fills its own square from. The game's light blue is a pale blue-grey and its blue
+   a blue-green, and the squares say so. */
+const unsigned int colours[]={0xc4a85c,0xc0c0d0,0xc42814,0xa0e01c,0xd47810,0x648088,0xa0a0a0,0xa8704c};
 unsigned player_colour(int i){i&=7;if(theme.ra){auto it=arts.find("remap-colours");if(it!=arts.end()&&it->second.w>i){const unsigned char *p=&it->second.pixels[i*4];return (p[0]<<16)|(p[1]<<8)|p[2];}}return colours[i];}
+/* THE ROSTER'S SIDE COLUMN on Players & Map: its heading and each seat's line. Red Alert's
+   network column keeps side and team; its start lives in Player Setup, since "Random"
+   would be cut short in the 176 pixel column. A race has no teams and deals its grid at
+   random (Player Setup shows both as not offered), so a Rally's roster prints the side
+   alone rather than a team and a start the race never reads. */
+static bool roster_race(const SK_State *st){return st->rally&&!st->countries;}
+std::string roster_heading(const SK_State *st){return roster_race(st)?"Side":st->net?"Side / Team":"Side / Team / Start";}
+std::string roster_summary(const SK_State *st,int i){
+ const int mode=sk_row_mode(st,i),start=sk_row_start(st,i);
+ if(mode==SK_SEAT_OPEN||mode==SK_SEAT_BLOCK)return "";
+ if(roster_race(st))return seat_side(st,i);
+ return seat_side(st,i)+" / "+std::to_string(sk_row_team(st,i)+1)+(st->net?std::string():" / "+(start<0?std::string("Random"):std::to_string(start+1)));
+}
 void skseat(const SK_State *st){
  int seat=st->popup;begin(LOBBY,st,"settings-frame","PLAYER SETUP");well(("PLAYER "+std::to_string(seat+1)).c_str(),38,102,600,356);
  auto dropdown=[&](int id,const char *label,const std::string &value,int x,int y,int w){text(label,x,y-24);Seat &q=add(id,value,x,y,w);q.action=DROP;q.arg=id;q.active=v.drop==id;};
@@ -778,8 +1078,12 @@ void skseat(const SK_State *st){
  dropdown(-14,"Difficulty",mode==SK_SEAT_BOT?sk_level_name(sk_row_level(st,seat)):"-",352,178,268);v.seats.back().disabled=mode!=SK_SEAT_BOT||st->net==2;
  dropdown(-11,sk_row_country(st,seat)>=0?"Country":theme.ra?"Side":"Faction",seat_side(st,seat),56,270,268);text("Player colour",352,246);
  for(int i=0;i<8;i++){Seat &q=skbutton(st,SK_I_POP_C1+i,"",352+i*32,270,28,28,COLOUR);q.active=colour==i;q.value=player_colour(i);}
- dropdown(-12,"Team",std::to_string(team+1),56,364,268);dropdown(-13,"Start position",start<0?"Random":std::to_string(start+1),352,364,268);
- Seat &done=add(-1,"Done",446,498,192);done.action=SEATDONE;Seat &back=add(-1,"Back",38,498,192);back.action=SEATDONE;
+ /* a race has no teams and draws its grid at random: both are shown as the race has them and
+    are not offered */
+ const bool race=st->rally&&!st->countries;
+ dropdown(-12,"Team",race?"-":std::to_string(team+1),56,364,268);v.seats.back().disabled=v.seats.back().disabled||race;
+ dropdown(-13,"Start position",race||start<0?"Random":std::to_string(start+1),352,364,268);v.seats.back().disabled=v.seats.back().disabled||race;
+ Seat &done=add(EM_SK_DONE,"Done",446,498,192);done.action=SEATDONE;done.arg=1;Seat &back=add(EM_SK_BACK,"Back",38,498,192);back.action=SEATDONE;back.arg=0;
  int drop=v.drop;if(drop<=-10&&drop>=-14){
   std::vector<std::pair<std::string,int>> options;
   if(drop==-10){if(mode==SK_SEAT_HUMAN)options.push_back({"Player",-1});else{options.push_back({"Computer",SK_I_POP_BOT});options.push_back({"Empty",SK_I_POP_OPEN});options.push_back({"Blocked",SK_I_POP_BLOCK});}}
@@ -799,7 +1103,33 @@ void skseat(const SK_State *st){
  if(st->status&&v.drop==-1)note(st->status,56,432,564,1,ACCENT);
 }
 }
-extern "C" void em_lobby(const SK_State *st,const DB_Pack *p){
+/* THE GAME MODE DROPDOWN, at the right end of the lobby's tab row in every host lobby (a
+   skirmish and a network room) and shown to a joiner as the host has it, greyed. A lobby
+   opens in Free for All; a change refilters the map list and switches Match Rules at once
+   (sk_set_mode). Its button is added with the tab row, its list last so it draws on top. */
+const char *const em_mode_names[SK_MODE_COUNT]={"Free for All","Gun Game","Rally"};
+void modebutton(const SK_State *st){
+ text("Game Mode",v.w-258,62);
+ Seat &q=add(EM_SK_MODE_DROP,em_mode_names[sk_mode(st)],v.w-258,86,220);q.action=DROP;q.arg=EM_SK_MODE_DROP;
+ q.active=v.drop==EM_SK_MODE_DROP;q.disabled=sk_mode_locked(st);
+ if(q.disabled&&v.drop==EM_SK_MODE_DROP)v.drop=-1;
+}
+void modelist(const SK_State *st){
+ if(v.drop!=EM_SK_MODE_DROP)return;
+ int owner=-1;for(int i=0;i<int(v.seats.size());i++)if(v.seats[i].action==DROP&&v.seats[i].arg==EM_SK_MODE_DROP)owner=i;
+ if(owner<0){v.drop=-1;return;}
+ const std::string hint=st->countries?"Dawn3D only for now"
+  :!sk_mode_offered(st,SK_MODE_GUN_GAME)?"Gun Game: LAN only"
+  :!sk_mode_offered(st,SK_MODE_RALLY)?"Rally: no course":"";
+ /* the list hangs under the button, its right edge on the button's, and is the seat
+    dropdowns' 268 wide when its foot line needs the room (buttons come in the baked widths) */
+ const int w=hint.empty()?220:268,x=v.w-38-w,y=130,h=SK_MODE_COUNT*42+8+(hint.empty()?0:30);
+ popup(owner,x-4,y-4,w+8,h);
+ for(int m=0;m<SK_MODE_COUNT;m++){Seat &e=add(EM_SK_MODE_BASE+m,em_mode_names[m],x,y+m*42,w);e.action=SKMODE;e.arg=m;
+  e.active=sk_mode(st)==m;e.disabled=!sk_mode_offered(st,m);}
+ if(!hint.empty())v.popupHint=hint;
+}
+extern "C" void em_lobby(const SK_State *st,const DB_Pack *p){memo([&]{
  if(!load())return;
  if(st->popup>=0){skseat(st);return;}
  bool net=st->net!=0,rules=v.kind==LOBBY&&v.owner==st&&v.sksection==1;
@@ -808,7 +1138,8 @@ extern "C" void em_lobby(const SK_State *st,const DB_Pack *p){
  if(picker){
   skbutton(st,SK_I_PICK_TAB0,"Official",38,86,230).active=st->tab==0;skbutton(st,SK_I_PICK_TAB1,"User Maps",276,86,230).active=st->tab==1;
   well("MAPS",38,150,600,368);well("DETAILS",658,150,320,368);
-  std::vector<int> maps;for(int i=0;i<st->count;i++)if(st->maps[i].user==st->tab)maps.push_back(i);
+  /* the tab's maps that this lobby's mode lists (a Rally's courses, or every other map) */
+  std::vector<int> maps;for(int i=0;i<st->count;i++)if(st->maps[i].user==st->tab&&sk_map_offered(st,i))maps.push_back(i);
   v.opstop=std::max(0,std::min(v.opstop,std::max(0,int(maps.size())-8)));
   for(int i=0;i<8&&v.opstop+i<int(maps.size());i++){int ix=maps[v.opstop+i];Seat &q=add(SK_I_PICK_LIST,st->maps[ix].name?st->maps[ix].name:st->maps[ix].scen,56,198+i*34,564,32,ROW,MAPROW,ix);q.active=st->pick_sel==ix;}
   text(std::to_string(maps.size())+" maps",56,490,MUTED);
@@ -818,35 +1149,79 @@ extern "C" void em_lobby(const SK_State *st,const DB_Pack *p){
  }
  for(int i=0;i<2;i++){Seat &q=add(-1,i?"Match Rules":"Players & Map",38+i*238,86,230);q.action=TAB;q.arg=i;q.active=v.sksection==i;}
  if(net)skbutton(st,SK_I_CHANGEMAP,"Change Map",514,86,230);
+ modebutton(st);
  if(rules){
-  well("STARTING CONDITIONS",38,150,460,368);well("MATCH RULES",518,150,460,368);
+  const bool rally=st->rally&&!st->countries;
+  well(rally?"THE RACE":"STARTING CONDITIONS",38,150,460,368);well("MATCH RULES",518,150,460,368);
   if(st->countries){
    /* RED ALERT'S RULES, as its 1996 dialog and the approved design have them: the three
-      sliders and the computers' difficulty, then Bases, Ore Regenerates, Crates, Shroud
+      sliders and the computers' difficulty, then Bases, Ore Regrowth Rate, Crates, Shroud
       Regrows, Capture The Flag and AI Takeover. Superweapons and Short Game keep the
       room's defaults (on and off). */
-   skrange(st,SK_I_BUILD,"Tech Level",56,232,st->build,1,10,1);skrange(st,SK_I_CREDITS,"Credits",56,314,st->credits,0,10000,500);skrange(st,SK_I_UNITS,"Unit Count",56,396,st->units,0,10,1);radifficulty(st,56,478);
-   const int ids[]={SK_I_BASES,SK_I_TIBERIUM,SK_I_CRATES};const char *names[]={"Bases","Ore Regenerates","Crates"};const int vals[]={1,1,st->crates};
-   for(int i=0;i<3;i++){Seat &q=skbutton(st,ids[i],names[i],536,202+i*48,424,36,CHECK);q.value=vals[i];q.active=false;}
-   rarule(st,SK_RA_SHROUD,"Shroud Regrows",536,346,424,36,CHECK);rarule(st,SK_RA_CTF,"Capture The Flag",536,394,424,36,CHECK);
-   Seat &ai=skbutton(st,SK_I_AITAKE,"AI Takeover",536,442,424,36,CHECK);ai.value=st->aitake;ai.active=false;
+   skrange(st,SK_I_BUILD,"Tech Level",56,net?225:232,st->build,1,10,1);
+   skrange(st,SK_I_CREDITS,"Credits",56,net?305:314,st->credits,0,10000,500);
+   skrange(st,SK_I_UNITS,"Unit Count",56,net?385:396,st->units,0,10,1);
+   radifficulty(st,net?536:56,net?476:478);
+   const int first=net?198:202,pitch=net?42:48;
+   Seat &bases=skbutton(st,SK_I_BASES,"Bases",536,first,424,36,CHECK);bases.value=1;bases.active=false;
+   skbutton(st,SK_I_TIBERIUM,std::string("Ore Regrowth Rate   ")+sk_regrowth_rate_name(st->tiberium),536,first+pitch-2,424,40);
+   Seat &crates=skbutton(st,SK_I_CRATES,"Crates",536,first+2*pitch,424,36,CHECK);crates.value=st->crates;crates.active=false;
+   rarule(st,SK_RA_SHROUD,"Shroud Regrows",536,first+3*pitch,424,36,CHECK);rarule(st,SK_RA_CTF,"Capture The Flag",536,first+4*pitch,424,36,CHECK);
+   Seat &ai=skbutton(st,SK_I_AITAKE,"AI Takeover",536,first+5*pitch,424,36,CHECK);ai.value=st->aitake;ai.active=false;
+  }else if(rally){
+   /* A RALLY: what a race is, and only the rules a race reads. The laps (a point-to-point
+      course is one run whatever they say), the computer taking a seat that leaves (a
+      network room's), and the speed below; the economy, the bases, the crates and the
+      tech level mean nothing to a race and are not offered. */
+   const char* lines[] = {"Rally: a race on this course.", "Choose a vehicle, then race.",
+                          "W A S D drive, Shift drifts.", "Mouse aims, left button fires.",
+                          "Space or right button: item.", "R puts you back on the course.",
+                          "First across the line wins."};
+   /* a little closer than Gun Game's lines, so a room's Game Speed below has its gap */
+   for (size_t i = 0; i < sizeof lines / sizeof lines[0]; ++i)
+       text(lines[i],56,206+i*30,TEXT);
+   const bool run=st->sel>=0&&st->sel<st->count&&st->maps[st->sel].course==SK_COURSE_RUN;
+   skrange(st,SK_I_LAPS,"Laps",536,232,run?1:st->laps,SK_LAPS_MIN,SK_LAPS_MAX,1);
+   note(run?"This course is one run from the start to the finish.":"The start line is the finish line.",536,284,424,2,MUTED);
+   if(net){Seat &ai=skbutton(st,SK_I_AITAKE,"AI Takeover",536,330,424,36,CHECK);ai.value=st->aitake;ai.active=false;
+    note("A computer driver takes the seat of a player who leaves.",536,372,424,2,MUTED);}
   }else{
-  skrange(st,SK_I_BUILD,"Tech Level",56,242,st->build,1,theme.ra?10:7,1);skrange(st,SK_I_CREDITS,"Credits",56,344,st->credits,0,10000,500);skrange(st,SK_I_UNITS,"Unit Count",56,446,st->units,0,10,1);
-  int ids[]={SK_I_BASES,SK_I_TIBERIUM,SK_I_SUPER,SK_I_CRATES,SK_I_AITAKE,SK_I_SHORTGAME};const char *names[]={"Bases",theme.ra?"Ore Regenerates":"Tiberium Regrows","Superweapons","Crates","AI Takeover","Short Game"};int vals[]={1,1,st->super,st->crates,st->aitake,st->shortgame};
-  for(int i=0;i<6;i++){Seat &q=skbutton(st,ids[i],names[i],536,202+i*48,424,36,CHECK);q.value=vals[i];q.active=false;}
+   if (st->gun_game) {
+    const char* lines[] = {"Gun Game: every player alone.", "Start as a Minigunner.",
+                           "Hold to choose your next unit.", "Respawn as your current unit.",
+                           "Press Z or C to roll or jump.",
+                           "Win with a Mammoth Tank kill.", "Enhanced graphics only."};
+    for (size_t i = 0; i < sizeof lines / sizeof lines[0]; ++i)
+        text(lines[i],56,208+i*34,TEXT);
+   } else {
+    skrange(st,SK_I_BUILD,"Tech Level",56,net?225:242,st->build,1,7,1);
+    skrange(st,SK_I_CREDITS,"Credits",56,net?305:344,st->credits,0,10000,500);
+    skrange(st,SK_I_UNITS,"Unit Count",56,net?385:446,st->units,0,10,1);
+   }
+   const int ids[] = {SK_I_BASES,SK_I_TIBERIUM,SK_I_SUPER,SK_I_CRATES,SK_I_AITAKE,SK_I_SHORTGAME};
+   const char* names[] = {"Bases","Tiberium Regrowth Rate","Superweapons","Crates","AI Takeover","Short Game"};
+   const int vals[] = {1,1,st->super,st->crates,st->aitake,st->shortgame};
+   for (int i = 0; i < 6; ++i) {
+    const bool regrowth = ids[i] == SK_I_TIBERIUM;
+    const std::string label = regrowth
+        ? std::string(names[i]) + "   " + sk_regrowth_rate_name(st->gun_game ? 0 : st->tiberium)
+        : names[i];
+    Seat& q = skbutton(st,ids[i],label,536,202+i*48-(regrowth?2:0),424,regrowth?40:36,regrowth?BUTTON:CHECK);
+    q.value = st->gun_game ? ids[i] == SK_I_SUPER || ids[i] == SK_I_CRATES : vals[i];
+    q.active = false;
+   }
   }
-  Seat &a=add(-1,"Back",38,550,192);a.action=TAB;a.arg=0;Seat &b=add(-1,"Done",758,550,220);b.action=TAB;b.arg=0;
+  if(net)skrange(st,SK_I_SPEED,"Game Speed",56,465,st->speed,0,DOPT_MAX_SPEED-1,1);
+  Seat &a=add(-1,"Back",38,550,192);a.action=TAB;a.arg=-1;Seat &b=add(-1,"Done",758,550,220);b.action=TAB;b.arg=0;
  }else{
   well("PLAYERS",38,150,net?508:600,368);well("MAP",net?566:658,150,net?188:320,368);
-  text("Player",56,194,MUTED);text(net?"Side / Team":"Side / Team / Start",net?246:238,194,MUTED);text("Difficulty",net?408:500,194,MUTED);
+  text("Player",56,194,MUTED);text(roster_heading(st),net?246:238,194,MUTED);text("Difficulty",net?408:500,194,MUTED);
   int seats=sk_players(st);std::vector<std::string> summaries;std::vector<int> rowcol;
   for(int i=0;i<std::min(8,seats);i++){
-   char name[40];sk_seat_name(st,i,name,sizeof name);int mode=sk_row_mode(st,i),start=sk_row_start(st,i);
+   char name[40];sk_seat_name(st,i,name,sizeof name);int mode=sk_row_mode(st,i);
    Seat &q=skbutton(st,SK_I_ROW0+i,fitted(name,net?132:186),56,222+i*32,net?348:440,30,ROW);q.label="  "+q.label;q.active=false;
    Seat &level=skbutton(st,SK_I_LEVEL0+i,mode==SK_SEAT_BOT?sk_level_name(sk_row_level(st,i)):"-",net?408:500,222+i*32,120,30,ROW);level.active=false;
-   /* Red Alert's network column keeps side and team; its start lives in Player Setup, since
-      "Random" would be cut short in the 176 pixel column. */
-   summaries.push_back(mode==SK_SEAT_OPEN||mode==SK_SEAT_BLOCK?"":seat_side(st,i)+" / "+std::to_string(sk_row_team(st,i)+1)+(net?std::string():" / "+(start<0?std::string("Random"):std::to_string(start+1))));
+   summaries.push_back(roster_summary(st,i));
    rowcol.push_back(sk_row_colour(st,i));
   }
   int ix=st->sel;if(ix>=0&&ix<st->count){const SK_Map &m=st->maps[ix];
@@ -866,14 +1241,17 @@ extern "C" void em_lobby(const SK_State *st,const DB_Pack *p){
   }else skbutton(st,SK_I_CHANGEMAP,"Change Map",550,550,192);
   skbutton(st,SK_I_CANCEL,net?"Leave":"Back",38,550,192);
   skbutton(st,SK_I_PLAY,net?sk_item_label(st,SK_I_PLAY):"Play",net?958:758,550,220);
-  paint();
+  modelist(st);paint();
   for(int i=0;i<int(summaries.size());i++){rect(64,231+i*32,12,12,player_colour(rowcol[i]));text(fitted(summaries[i],net?154:264),net?246:230,229+i*32,MUTED);}
   if(st->status)note(st->status,net?774:242,528,net?404:496,1,ACCENT);
-  if(net&&st->net_join[0])text(fitted(st->net_join,414),v.w-38-textwidth(fitted(st->net_join,414)),62,ACCENT);
+  /* how others join this room, on the left of the title row: the right end is Game Mode's */
+  if(net&&st->net_join[0])text(fitted(st->net_join,414),38,62,ACCENT);
   return;
  }
- paint();if(st->status)note(st->status,242,528,496,1,ACCENT);
-}
+ modelist(st);paint();if(st->status)note(st->status,242,528,496,1,ACCENT);
+});}
+extern "C" int em_sk_drop_open(void){return v.kind==LOBBY&&v.drop!=-1;}
+extern "C" void em_sk_drop_close(void){v.drop=-1;}
 extern "C" int em_sk_press(SK_State *st,int x,int y){
  int n=virtualseat(x);
  if(v.popupFirst>=0&&(n<0||v.seats[n].disabled)){v.held=v.drag=-1;if(!popup_contains(v.mousex,v.mousey))v.drop=-1;return 0;}
@@ -888,16 +1266,39 @@ extern "C" int em_sk_motion(SK_State *st,int x,int y){
   if(q.action==RARANGE){sk_enh_ra_rule(st,q.arg,q.min+((q.max-q.min)*std::max(0,std::min(1000,y))+500)/1000);return 0;}
   int val=q.min+(q.max-q.min)*std::max(0,std::min(1000,y))/1000;val=q.min+((val-q.min+q.step/2)/q.step)*q.step;sk_enh_control(st,q.item,val);}return 0;}return v.popupFirst>=0?0:sk_motion(st,x,y);
 }
+/* MATCH RULES' BACK UNDOES WHAT WAS CHANGED THERE, as Back does on a player's own screen
+   (sk_seat_edit_finish): the rules are copied when the tab opens and Back puts them back;
+   Done, and the tab strip, keep them. Offline only, as the seat editor's snapshot is: a
+   network room's edits are live on every peer as they are made. */
+namespace {
+struct SkRulesSnap{bool valid=false;SK_State *owner=nullptr;int build,credits,units,tiberium,super,crates,aitake,shortgame,laps,speed,shroud,ctf,ai_difficulty;};
+SkRulesSnap g_skRules;
+void sk_rules_open(SK_State *st){
+ g_skRules.valid=st&&!st->net;if(!g_skRules.valid)return;g_skRules.owner=st;
+ g_skRules.build=st->build;g_skRules.credits=st->credits;g_skRules.units=st->units;g_skRules.tiberium=st->tiberium;
+ g_skRules.super=st->super;g_skRules.crates=st->crates;g_skRules.aitake=st->aitake;g_skRules.shortgame=st->shortgame;
+ g_skRules.laps=st->laps;g_skRules.speed=st->speed;g_skRules.shroud=st->shroud;g_skRules.ctf=st->ctf;g_skRules.ai_difficulty=st->ai_difficulty;
+}
+void sk_rules_back(SK_State *st){
+ if(!g_skRules.valid||g_skRules.owner!=st||st->net){g_skRules.valid=false;return;}
+ st->build=g_skRules.build;st->credits=g_skRules.credits;st->units=g_skRules.units;st->tiberium=g_skRules.tiberium;
+ st->super=g_skRules.super;st->crates=g_skRules.crates;st->aitake=g_skRules.aitake;st->shortgame=g_skRules.shortgame;
+ st->laps=g_skRules.laps;st->speed=g_skRules.speed;st->shroud=g_skRules.shroud;st->ctf=g_skRules.ctf;st->ai_difficulty=g_skRules.ai_difficulty;
+ g_skRules.valid=false;
+}
+}
 extern "C" int em_sk_release(SK_State *st,int x,int y){
  int n=virtualseat(x),held=v.held;v.held=v.drag=-1;if(n<0)return v.popupFirst>=0?0:sk_release(st,x,y);if(n!=held)return 0;const Seat &q=v.seats[n];
- switch(q.action){case SKRANGE:return 0;case TAB:v.sksection=q.arg;v.drop=-1;return 0;
+ switch(q.action){case SKRANGE:return 0;
+ case TAB:if(q.arg<0){sk_rules_back(st);v.sksection=0;}else{if(q.arg==1&&v.sksection!=1)sk_rules_open(st);if(q.arg!=1)g_skRules.valid=false;v.sksection=q.arg;}v.drop=-1;return 0;
  case SKITEM:{int act=sk_enh_action(st,q.item);if(SK_IS_PICK(q.item)||SK_IS_POP(q.item))v.drop=-1;return act;}
  case MAPROW:sk_enh_pick_row(st,q.arg);return 0;
  case OPSTOP:v.opstop=std::max(0,v.opstop+q.arg);return 0;
- case SEATDONE:st->popup=-1;v.drop=-1;return 0;
+ case SEATDONE:sk_seat_edit_finish(st,q.arg);v.drop=-1;return 0;
  case DROP:v.drop=v.drop==q.arg?-1:q.arg;return 0;
  case SKRANDOM:sk_enh_random_start(st);v.drop=-1;return 0;
  case SKCOUNTRY:sk_enh_set_country(st,st->popup,q.arg);v.drop=-1;return 0;
+ case SKMODE:sk_set_mode(st,q.arg);v.drop=-1;return 0;
  case RACHECK:sk_enh_ra_rule(st,q.arg,!sk_ra_rule(st,q.arg));return 0;
  case RARANGE:return 0;
  case SEND:st->chat_focus=1;return sk_key(st,SK_KEY_ENTER);
@@ -909,9 +1310,19 @@ int ops_category(const DO_State *st,int row){
  if(!st->grouped)return 0;int cat=-1;
  for(int i=0;i<=row&&i<st->count;i++)if(st->list[i].header){std::string h=st->list[i].name?st->list[i].name:"";
   if(theme.ra)cat=h.find("COUNTERSTRIKE")!=std::string::npos?0:h.find("AFTERMATH")!=std::string::npos?1:-1;
-  else cat=h.find("COVERT")!=std::string::npos?0:h.find("SPECIAL")!=std::string::npos?1:-1;}
+  else cat=h.find("COVERT")!=std::string::npos?0:h.find("SPECIAL")!=std::string::npos?1:h.find("FUNPARK")!=std::string::npos?2:-1;}
  return cat;
 }
+/* THE TABS THIS LIST HAS: Covert Ops and Special Ops (Counterstrike and Aftermath in Red
+   Alert) always, and a third, Funpark, only where the list carries the Funpark section,
+   so a folder without the dinosaur missions keeps two tabs and Red Alert never has three. */
+int ops_tabs(const DO_State *st){
+ if(!st->grouped||theme.ra)return 2;
+ for(int i=0;i<st->count;i++)if(st->list[i].header&&st->list[i].name&&std::string(st->list[i].name).find("FUNPARK")!=std::string::npos)return 3;
+ return 2;
+}
+/* A Funpark row is played as either side, picked on the side plate when it starts. */
+bool ops_funpark(const DO_Mission &m){return m.scen&&strlen(m.scen)>2&&m.scen[2]=='J';}
 std::vector<int> ops_rows(const DO_State *st,int cat){std::vector<int> rows;
  for(int i=0;i<st->count;i++)if(do_row_playable(st,i)&&(!st->grouped||ops_category(st,i)==cat))rows.push_back(i);
  if(st->grouped)std::stable_sort(rows.begin(),rows.end(),[st](int a,int b){return st->list[a].nod<st->list[b].nod;});return rows;
@@ -924,13 +1335,17 @@ extern "C" void em_ops_move(DO_State *st,int delta){
  ix=std::max(0,std::min(int(rows.size())-1,ix+delta));st->selected=rows[ix];
 }
 extern "C" void em_ops_filter(DO_State *st,int category){
- if(!st->grouped)return;v.opsfilter=std::max(0,std::min(1,category));v.opstop=0;
+ if(!st->grouped)return;v.opsfilter=std::max(0,std::min(ops_tabs(st)-1,category));v.opstop=0;
  auto rows=ops_rows(st,v.opsfilter);st->selected=rows.empty()?-1:rows.front();
 }
-extern "C" void em_ops(DO_State *st){
- if(!load())return;begin(OPS,st,"visuals-frame",st->grouped?"SPECIAL OPS":"USER MAPS");
+/* LEFT and RIGHT: one tab along, stopping at either end. */
+extern "C" void em_ops_step(DO_State *st,int delta){
+ if(!st->grouped)return;em_ops_filter(st,std::max(0,v.opsfilter)+delta);
+}
+extern "C" void em_ops(DO_State *st){memo([&]{
+ if(!load())return;begin(OPS,st,"visuals-frame",st->ants?"ANT MISSIONS":st->grouped?(theme.ra?"MISSION DISKS":"SPECIAL OPS"):"USER MAPS");
  if(v.opsfilter<0)v.opsfilter=std::max(0,ops_category(st,st->selected));
- if(st->grouped){const char *tabs[]={theme.ra?"Counterstrike":"Covert Ops",theme.ra?"Aftermath":"Special Ops"};for(int i=0;i<2;i++){Seat &q=add(-1,tabs[i],38+i*238,86,230);q.action=OPSFILTER;q.arg=i;q.active=v.opsfilter==i;}}
+ if(st->grouped){const char *tabs[]={theme.ra?"Counterstrike":"Covert Ops",theme.ra?"Aftermath":"Special Ops","Funpark"};for(int i=0;i<ops_tabs(st);i++){Seat &q=add(-1,tabs[i],38+i*238,86,230);q.action=OPSFILTER;q.arg=i;q.active=v.opsfilter==i;}}
  auto rows=ops_rows(st,v.opsfilter);
  auto it=std::find(rows.begin(),rows.end(),st->selected);
  if(it==rows.end()&&!rows.empty()){st->selected=rows.front();it=rows.begin();}
@@ -938,19 +1353,21 @@ extern "C" void em_ops(DO_State *st){
  int y=st->grouped?150:110,h=st->grouped?368:408;well("MISSIONS",38,y,600,h);well("DETAILS",658,y,320,h);
  if(st->selected!=v.lastselected){if(index>=0&&index<v.opstop)v.opstop=index;if(index>=v.opstop+8)v.opstop=index-7;v.lastselected=st->selected;}
  v.opstop=std::max(0,std::min(v.opstop,std::max(0,int(rows.size())-8)));
- for(int i=0;i<8&&v.opstop+i<int(rows.size());i++){int ix=rows[v.opstop+i];const DO_Mission &m=st->list[ix];Seat &q=add(ix,m.name?m.name:m.scen,56,y+48+i*34,564,32,ROW,OPTROW,ix);q.active=ix==st->selected;if(st->grouped)q.badge=m.nod?1:0;}
+ for(int i=0;i<8&&v.opstop+i<int(rows.size());i++){int ix=rows[v.opstop+i];const DO_Mission &m=st->list[ix];Seat &q=add(ix,m.name?m.name:m.scen,56,y+48+i*34,564,32,ROW,OPTROW,ix);q.active=ix==st->selected;if(st->grouped&&!ops_funpark(m))q.badge=m.nod?1:0;}
  text(std::to_string(rows.size())+" missions",56,490,MUTED);
  if(rows.size()>8){Seat &a=add(-1,"Previous",346,474,132,32);a.action=OPSTOP;a.arg=-8;a.disabled=v.opstop==0;Seat &b=add(-1,"Next",488,474,132,32);b.action=OPSTOP;b.arg=8;b.disabled=v.opstop+8>=int(rows.size());}
  if(index>=0&&theme.ra){const DO_Mission &m=st->list[st->selected];Seat &p=add(-1,"",742,212,136,120,PLATE);p.badge=m.nod?1:0;p.disabled=true;text(m.nod?"Soviet":"Allied",676,370,MUTED);text(m.scen?m.scen:"",676,404,MUTED);note(m.name?m.name:"",676,438,284,2);}
+ else if(index>=0&&ops_funpark(st->list[st->selected])){const DO_Mission &m=st->list[st->selected];text("Funpark",676,370,MUTED);text(m.scen?m.scen:"",676,404,MUTED);note("Played as GDI or Nod, picked when it starts.",676,438,284,2);}
  else if(index>=0){const DO_Mission &m=st->list[st->selected];image(m.nod?"faction-Nod":"faction-GDI",742,212);text(m.nod?"Nod":"GDI",676,370,MUTED);text(m.scen?m.scen:"",676,404,MUTED);note(m.name?m.name:"",676,438,284,2);}
  /* Red Alert ships with no expansion missions and no user maps: the empty screen says why,
     and where user maps go. */
- if(index<0&&theme.ra){
-  note(st->grouped?"No Counterstrike or Aftermath missions are installed. The 1996 freeware discs carry the base game only; the main menu greys this button until expansion missions are found.":"No user maps installed. Red Alert scenario files (.INI or .MPR) placed in the user maps folder appear here.",56,y+64,564,6);
+ if(index<0&&(theme.ra||st->user_maps)){
+  note(st->grouped?"No Counterstrike or Aftermath missions are installed. The 1996 freeware discs carry the base game only; the main menu greys this button until expansion missions are found.":"No singleplayer maps installed. Choose Import Map to browse your computer. Multiplayer maps appear in Skirmish and Multiplayer.",56,y+64,564,6);
   note("Nothing to play yet",676,y+64,284,2);}
- Seat &a=add(DO_HIT_CANCEL,"Back",38,550,192);legacy(a,DO_CANCEL_X,DO_BTN_Y,DO_CANCEL_W,DO_BTN_H);
- Seat &b=add(DO_HIT_PLAY,"Play",758,550,220);legacy(b,DO_PLAY_X,DO_BTN_Y,DO_PLAY_W,DO_BTN_H);b.disabled=index<0;paint();
-}
+ Seat &a=add(DO_HIT_CANCEL,"Back",38,550,192);legacy(a,st->user_maps?24:DO_CANCEL_X,DO_BTN_Y,DO_CANCEL_W,DO_BTN_H);
+ if(st->user_maps){Seat &import=add(DO_HIT_IMPORT,"Import Map",398,550,220);legacy(import,DO_IMPORT_X,DO_BTN_Y,DO_IMPORT_W,DO_BTN_H);}
+ Seat &b=add(DO_HIT_PLAY,"Play",758,550,220);legacy(b,st->user_maps?220:DO_PLAY_X,DO_BTN_Y,DO_PLAY_W,DO_BTN_H);b.disabled=index<0;paint();
+});}
 extern "C" int em_ops_hit(const DO_State *st,int x,int y){int n=virtualseat(x);if(n<0)return do_hit_test(st,x,y);const Seat &q=v.seats[n];return q.action==OPTROW?q.arg:-1000-n;}
 extern "C" void em_ops_action(DO_State *st,int code){
  int n=-1000-code;if(n<0||n>=int(v.seats.size()))return;Seat q=v.seats[n];
@@ -958,7 +1375,49 @@ extern "C" void em_ops_action(DO_State *st,int code){
  if(q.action==OPSTOP){em_ops_move(st,q.arg);v.opstop=std::max(0,v.opstop+q.arg);}
 }
 
-extern "C" void em_browser(const MP_State *st){
+extern "C" void em_import_map(const DMS_MapImportState *st){memo([&]{
+ if(!st||!load())return;
+ begin(IMPORTMAP,st,"visuals-frame",st->completed?"MAP IMPORTED":"IMPORT MAP");
+ auto control=[&](int id,const std::string &label,int x,int y,int w,int h=40,int kind=BUTTON)->Seat&{
+  Seat &q=add(id,label,x,y,w,h,kind);q.disabled=st->busy||(st->completed&&id!=MI_BACK);
+  if(st->pressed==id)v.held=int(v.seats.size())-1;
+  return q;
+ };
+ v.held=-1;
+ control(MI_HOME,"Home",38,86,132);control(MI_PARENT,"Up",182,86,132);
+ note(st->message,338,87,640,2,MUTED,20);
+ Seat &location=control(MI_LOCATION,st->location,38,138,788,40,FIELD);location.active=st->focus!=0;
+ control(MI_GO,"Go",838,138,140);
+ well("FOLDERS AND MAPS",38,194,600,304);well("MAP PREVIEW",658,194,320,304);
+ for(int i=0;i<st->row_count;i++){
+  Seat &row=control(MI_ROW_BASE+i,std::string(st->row_directory[i]?"> ":"  ")+st->rows[i],56,242+i*26,564,24,ROW);
+  row.active=i==st->selected_row;
+ }
+ if(!st->row_count)note("No supported maps in this folder. Choose another folder or enter a path above.",56,250,564,3);
+ const int pw=st->info.preview_w,ph=st->info.preview_h;
+ if(pw>0&&ph>0&&pw<=128&&ph<=128){
+  const int zoom=std::max(1,std::min(276/pw,132/ph));
+  Art a;a.w=pw;a.h=ph;a.pixels.assign(st->info.preview,st->info.preview+pw*ph*4);
+  blit(a,680+(276-pw*zoom)/2,244+(132-ph*zoom)/2,zoom);
+ }else note(st->busy?"Reading map...":"Select a map to inspect its terrain and game type.",680,270,276,3);
+ if(st->info.name[0])text(fitted(st->info.name,276),680,382,TEXT);
+ if(st->info.game[0])text(fitted(st->info.game,276),680,406,ACCENT);
+ if(st->info.kind[0])text(fitted(st->info.kind,276),680,430,ACCENT);
+ if(st->info.width>0){text(std::to_string(st->info.width)+" x "+std::to_string(st->info.height)+" / "+std::to_string(st->info.starts)+" starts",680,454,MUTED);text(fitted(st->info.theater,276),680,478,MUTED);}
+ Seat &previous=control(MI_PREVIOUS,"Previous",346,506,132,32);previous.disabled|=st->top<=0;
+ Seat &next=control(MI_NEXT,"Next",488,506,132,32);next.disabled|=st->top+st->row_count>=st->total;
+ text(std::to_string(st->total)+" items",56,514,MUTED);
+ control(MI_BACK,st->completed?"Done":"Back",38,550,192);
+ Seat &import=control(MI_IMPORT,"Import",758,550,220);import.disabled|=!st->ready||st->completed;
+ if(st->importing||st->completed){
+  const int amount=std::max(0,std::min(100,st->progress));
+  rect(250,550,488,18,0x080a09);rect(252,552,484*amount/100,14,theme.ra?theme.slot[S_RAMP0+4]:0x527d35);
+  rect(252,552,484*amount/100,1,ACCENT);text(std::to_string(amount)+"%",494,578,ACCENT,true);
+ }else text("Auto Heightmap is included",494,566,MUTED,true);
+ paint();
+});}
+
+extern "C" void em_browser(const MP_State *st){memo([&]{
  if(!load())return;
  if(st->prompt){begin(BROWSER,st,"settings-frame","PLAYER NAME");well("YOUR NAME",38,110,600,350);text("Player name",56,202);Seat &q=mp(st,MP_I_HANDLE,st->handle,56,238,564,40,FIELD);q.active=true;mp(st,MP_I_HANDLE_OK,"OK",446,498,192);paint();return;}
  if(st->page==MP_PAGE_WAIT){begin(BROWSER,st,"settings-frame","MULTIPLAYER LOBBY");well("ROOM",38,110,600,350);note(st->name,56,178,564,2,TEXT);note(st->myaddr,56,246,564,2,ACCENT);note(st->status,56,314,564,3);mp(st,MP_I_LEAVE,"Leave",38,498,192);mp(st,st->wait_ishost?MP_I_START:MP_I_READY,st->wait_ishost?"Start Game":"Ready",446,498,192);paint();return;}
@@ -990,7 +1449,7 @@ extern "C" void em_browser(const MP_State *st){
  }
  if(st->status[0])note(st->status,242,528,496,1,ACCENT);paint();
  if(!host)for(int i=0;i<3&&v.opstop+i<st->rowcount;i++){const MP_Row &r=st->rows[v.opstop+i];text(fitted(r.map,208),302,254+i*48,MUTED);text(std::to_string(r.players_now)+" / "+std::to_string(r.players_max),534,254+i*48,MUTED);}
-}
+});}
 extern "C" int em_mp_press(MP_State *st,int x,int y){
  int n=virtualseat(x);if(n<0)return mp_press(st,x,y);v.held=n;const Seat &q=v.seats[n];
  if(q.action==MPSETUP)return -3;
@@ -999,17 +1458,17 @@ extern "C" int em_mp_press(MP_State *st,int x,int y){
 }
 extern "C" void em_mp_motion(MP_State *st,int x,int y){if(virtualseat(x)<0)mp_motion(st,x,y);}
 
-extern "C" void em_choice(int which,int selected,int pressed){
+extern "C" void em_choice(int which,int selected,int pressed){memo([&]{
  if(!load())return;begin(CHOICE,nullptr,which==0?"confirm-frame":"settings-frame",which==0?"EXIT GAME":which==1?"INTRO & SNEAK PEEK":"CHOOSE YOUR SIDE");
  if(which==0){text(theme.ra?"Exit Red Alert 3D?":"Exit OpenCNC3D?",338,136,TEXT,true);add(0,"Cancel",98,238,220).active=selected==0;add(1,"Exit Game",358,238,220).active=selected==1;}
  else if(which==1){well("MOVIES",38,110,600,350);image("intro-frame",178,174);add(1,"Play Intro",56,382,564).active=selected==1;add(0,"Back",38,498,192).active=selected==0;}
  else {well("CAMPAIGN",38,110,600,350);image("faction-GDI",120,196);image("faction-Nod",420,196);add(1,"GDI",56,356,268).active=selected==1;add(2,"Nod",352,356,268).active=selected==2;add(0,"Back",38,498,192).active=selected==0;}
  v.held=-1;for(int i=0;i<int(v.seats.size());i++)if(v.seats[i].item==pressed)v.held=i;paint();
-}
+});}
 /* Red Alert's side choice, which the 1996 game asks as a plain message box after a
    difficulty slider: both emblems on their plates, the two sides, the difficulty, Back and
    Start, on one screen. side 0 Allies / 1 Soviet, difficulty 0..2. */
-extern "C" void em_side_choice(int side,int difficulty,int pressed){
+extern "C" void em_side_choice(int side,int difficulty,int pressed){memo([&]{
  if(!load())return;begin(SIDE,nullptr,"settings-frame","CHOOSE YOUR SIDE");
  well("CAMPAIGN",38,110,600,350);
  for(int f=0;f<2;f++){Seat &p=add(-1,"",f?434:106,166,136,120,PLATE);p.badge=f;p.disabled=true;}
@@ -1019,35 +1478,163 @@ extern "C" void em_side_choice(int side,int difficulty,int pressed){
  for(int k=0;k<3;k++)add(EM_SIDE_EASY+k,names[k],56+k*192,398,180).active=difficulty==k;
  add(EM_SIDE_BACK,"Back",38,498,192);add(EM_SIDE_START,"Start",446,498,192).active=true;
  v.held=-1;for(int i=0;i<int(v.seats.size());i++)if(v.seats[i].item==pressed&&!v.seats[i].disabled)v.held=i;paint();
+});}
+extern "C" int em_match_debrief_result(const EM_Debrief *d,char *buf,int buflen){
+ if(!buf||buflen<=0)return 2;buf[0]=0;if(!d)return 2;
+ if(d->ended[0]){snprintf(buf,size_t(buflen),"%s",d->ended);return 0;}
+ if(d->place<=0){snprintf(buf,size_t(buflen),"%s","Final standings");return 2;}
+ const int p=d->place,t=p%100,o=p%10;const char *suf=(t>=11&&t<=13)?"th":o==1?"st":o==2?"nd":o==3?"rd":"th";
+ snprintf(buf,size_t(buflen),"Your score: %d - %d%s of %d",d->score,p,suf,d->places);return 1;
 }
-extern "C" void em_ra_debrief(const EM_Debrief *d,int pressed){
+/* THE MATCH DEBRIEF, ONE LAYOUT FOR BOTH GAMES. Tiberian Dawn's 1995 multiplayer score and
+   Red Alert's 1996 one are the same screen (score.cpp, Multi_Score_Presentation: MLTIPLYR.WSA
+   behind each commander's name in their colour, battles won this session and kills in each
+   of the last games), so one builder draws it, in whichever game's kit is loaded: that kit's
+   frame art, inks, player colours, buttons and selected-row fill. What differs is only what
+   the words name: a seat played a country in Red Alert and a side in Tiberian Dawn, and the
+   harvest is ore in one and tiberium in the other.
+
+   It has pages, a row of tabs under the title like the Options screen's: SUMMARY is that
+   1995 and 1996 table; SCORE gives every commander's score as a bar against the leader with
+   the single-player screen's two ratings, leadership and efficiency; UNITS and STRUCTURES
+   what each built, destroyed and lost; ECONOMY the money; GRAPH the match drawn over time.
+   The result lines and Continue stay under every page. */
+namespace {
+const char *const debrief_tabs[EM_PAGES]={"Summary","Score","Units","Structures","Economy","Graph"};
+const char *const debrief_series_td[EM_SERIES]={"Score","Army","Structures","Tiberium","Credits","Kills"};
+const char *const debrief_series_ra[EM_SERIES]={"Score","Army","Structures","Ore","Credits","Kills"};
+const char *debrief_series_name(int k){k=std::max(0,std::min(EM_SERIES-1,k));return theme.ra?debrief_series_ra[k]:debrief_series_td[k];}
+/* A right-aligned figure, the way every column of numbers on these pages lines up. */
+void figure(long long n,int right,int y,unsigned col){const std::string t=std::to_string(n);text(t,right-textwidth(t),y,col);}
+/* One commander's name and what they played, at the left of a page's row, as on SUMMARY. */
+void debrief_who(const EM_DebriefRow &row,int y){
+ const unsigned own=player_colour(row.colour&7);
+ rect(56,y+2,12,12,own);text(fitted(row.name,140),76,y,own);
+ const std::string country=theme.ra?ra_country[row.country&7]:side_name(row.country&1);text(country,320-textwidth(country),y,MUTED);
+}
+/* A line of `t` pixels from (x0,y0) to (x1,y1), Bresenham's, each step a t x t square. */
+void line(int x0,int y0,int x1,int y1,unsigned col,int t){
+ const int dx=std::abs(x1-x0),dy=-std::abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1;int err=dx+dy;
+ for(;;){rect(x0-t/2,y0-t/2,t,t,col);if(x0==x1&&y0==y1)break;const int e2=2*err;if(e2>=dy){err+=dy;x0+=sx;}if(e2<=dx){err+=dx;y0+=sy;}}
+}
+/* The graph's top value: the smallest of 1, 2 or 5 times a power of ten that holds the
+   largest sample, so the four grid lines fall on round numbers. */
+long long nice_top(long long m){if(m<4)return 4;long long p=1;while(p*10<=m)p*=10;for(long long f:{1LL,2LL,5LL,10LL})if(f*p>=m&&(f*p)%4==0)return f*p;return 10*p;}
+std::string clock_text(long long seconds){char b[32];snprintf(b,sizeof b,"%lld:%02lld",seconds/60,seconds%60);return b;}
+}
+/* Which colour the graph draws a row's line in, for a gate to find it: its player colour. */
+extern "C" unsigned em_debrief_row_colour(int colour){return player_colour(colour&7);}
+extern "C" void em_match_debrief(const EM_Debrief *d,int pressed){memo([&]{
  if(!load()||!d)return;begin(DEBRIEF,d,"visuals-frame","TOP SCORES");
- /* the result and the match, above the table */
+ const int page=std::max(0,std::min(EM_PAGES-1,d->page));
+ /* the result and the match, between the title and the tabs */
  const char *result=d->win?"Victory":d->decided?"Defeat":"Match Ended";
- text(result,56,96,ACCENT);
+ text(result,56,60,ACCENT);
  char facts[160];snprintf(facts,sizeof facts,"%s / %s / %d:%02d",d->mapname[0]?d->mapname:"",d->net?"Network":"Skirmish",d->seconds/60,d->seconds%60);
- const std::string f=fitted(facts,600);text(f,960-textwidth(f),96,MUTED);
- /* the 1996 screen's three panels: commander, battles won, kills one column a game */
- well("COMMANDER",38,130,300,388);well("BATTLES WON",358,130,300,388);well("KILLS",678,130,300,388);
- const int games=std::max(1,std::min(4,d->games));
- text("Game",696,182,MUTED);for(int k=0;k<games;k++){const std::string g=std::to_string(k+1);text(g,800+k*53-textwidth(g),182,k==games-1?ACCENT:MUTED);}
+ const std::string f=fitted(facts,600);text(f,960-textwidth(f),60,MUTED);
+ /* the pages, as the Options screen lays its tabs out */
+ for(int i=0;i<EM_PAGES;i++)add(EM_DEBRIEF_TAB+i,debrief_tabs[i],38+i*158,86,148).active=i==page;
+ /* this machine's row is filled as a selected list row is in this kit: Red Alert's pack
+    names the colour, Tiberian Dawn's rows use their own dark green */
+ const unsigned on=theme.ra?theme.slot[S_ROWON]:0x273521u;
  const int rows=std::max(0,std::min(8,d->nrows));
- for(int r=0;r<rows;r++){const EM_DebriefRow &row=d->row[r];const int y=210+r*36;
-  if(row.is_local){const unsigned on=theme.slot[S_ROWON];rect(46,y-6,284,30,on);rect(366,y-6,284,30,on);rect(686,y-6,284,30,on);}
-  const unsigned own=player_colour(row.colour&7),ink=row.defeated?MUTED:TEXT;
-  rect(56,y+2,12,12,own);text(fitted(row.name,140),76,y,own);
-  const std::string country=ra_country[row.country&7];text(country,320-textwidth(country),y,MUTED);
-  const std::string won=std::to_string(row.wins);text(won,508-textwidth(won)/2,y,ink);
-  for(int k=0;k<games;k++){const std::string n=row.kills[k]<0?"-":std::to_string(row.kills[k]);text(n,800+k*53-textwidth(n),y,k==games-1?ink:MUTED);}
+ const int games=std::max(1,std::min(4,d->games));
+ if(page==EM_PAGE_SUMMARY){
+  /* the 1995 and 1996 screen's three panels: commander, battles won, kills one column a game */
+  well("COMMANDER",38,130,300,388);well("BATTLES WON",358,130,300,388);well("KILLS",678,130,300,388);
+  text("Game",696,182,MUTED);for(int k=0;k<games;k++){const std::string g=std::to_string(k+1);text(g,800+k*53-textwidth(g),182,k==games-1?ACCENT:MUTED);}
+  for(int r=0;r<rows;r++){const EM_DebriefRow &row=d->row[r];const int y=210+r*36;
+   if(row.is_local){rect(46,y-6,284,30,on);rect(366,y-6,284,30,on);rect(686,y-6,284,30,on);}
+   const unsigned ink=row.defeated?MUTED:TEXT;
+   debrief_who(row,y);
+   const std::string won=std::to_string(row.wins);text(won,508-textwidth(won)/2,y,ink);
+   for(int k=0;k<games;k++){const std::string n=row.kills[k]<0?"-":std::to_string(row.kills[k]);text(n,800+k*53-textwidth(n),y,k==games-1?ink:MUTED);}
+  }
+ }else if(page!=EM_PAGE_GRAPH){
+  /* a table page: one wide panel, the commander at the left as on SUMMARY, then four
+     columns of figures right-aligned under their headings */
+  struct Col{const char *head;int right;};
+  const char *harvest=theme.ra?"Ore":"Tiberium";
+  Col cols[4];int ncol=4;const char *title="";
+  switch(page){
+   case EM_PAGE_SCORE:title="SCORE";cols[0]={"Score",700};cols[1]={"Leadership",830};cols[2]={"Efficiency",960};ncol=3;break;
+   case EM_PAGE_UNITS:title="UNITS";cols[0]={"Built",560};cols[1]={"Destroyed",690};cols[2]={"Lost",800};cols[3]={"Peak army",960};break;
+   case EM_PAGE_STRUCTURES:title="STRUCTURES";cols[0]={"Built",560};cols[1]={"Destroyed",690};cols[2]={"Lost",800};cols[3]={"Standing",960};break;
+   default:title="ECONOMY";cols[0]={"Start",560};cols[1]={harvest,690};cols[2]={"Spent",800};cols[3]={"Held",960};break;
+  }
+  well(title,38,130,940,388);
+  text("Commander",56,182,MUTED);
+  for(int c=0;c<ncol;c++)text(cols[c].head,cols[c].right-textwidth(cols[c].head),182,MUTED);
+  int best=1;for(int r=0;r<rows;r++)best=std::max(best,int(d->row[r].score));
+  for(int r=0;r<rows;r++){const EM_DebriefRow &row=d->row[r];const int y=210+r*36;
+   if(row.is_local)rect(46,y-6,924,30,on);
+   const unsigned ink=row.defeated?MUTED:TEXT;
+   debrief_who(row,y);
+   long long v[4]={0,0,0,0};
+   switch(page){
+    case EM_PAGE_SCORE:{
+     /* the score as a bar against whoever leads, the old match plate's idiom */
+     const int len=int(280LL*std::max(0,int(row.score))/best);
+     if(len>0)rect(340,y+4,len,10,player_colour(row.colour&7));
+     v[0]=row.score;
+     const std::string l=std::to_string(row.leadership)+"%",e=std::to_string(row.efficiency)+"%";
+     text(std::to_string(row.score),700-textwidth(std::to_string(row.score)),y,ink);
+     text(l,830-textwidth(l),y,ink);text(e,960-textwidth(e),y,ink);
+     continue;}
+    case EM_PAGE_UNITS:v[0]=row.units_built;v[1]=row.killed;v[2]=row.units_lost;v[3]=row.army_peak;break;
+    case EM_PAGE_STRUCTURES:v[0]=row.structures_built;v[1]=row.razed;v[2]=row.structures_lost;v[3]=row.structures_end;break;
+    default:v[0]=row.credits_start;v[1]=row.harvested;v[2]=row.spent;v[3]=row.credits_end;break;
+   }
+   for(int c=0;c<ncol;c++)figure(v[c],cols[c].right,y,ink);
+  }
+ }else{
+  /* THE GRAPH: one line per commander over the match, in their colour, the commander at
+     this machine drawn last and thickest. The series is picked with the buttons above
+     the plot, or the up and down keys. Time runs along the bottom in minutes and
+     seconds, the series' value up the side on four round grid lines. */
+  const int series=std::max(0,std::min(EM_SERIES-1,d->series));
+  char head[64];snprintf(head,sizeof head,"%s OVER TIME",debrief_series_name(series));
+  std::string upper=head;for(char &c:upper)c=char(toupper((unsigned char)c));
+  well(upper.c_str(),38,130,940,388);
+  for(int k=0;k<EM_SERIES;k++)add(EM_DEBRIEF_SERIES+k,debrief_series_name(k),56+k*150,176,148).active=k==series;
+  const int px0=128,px1=952,py0=240,py1=462;
+  const int n=std::max(0,std::min(EM_SAMPLES,d->samples));
+  if(n<2){
+   const std::string none="Not enough of the match was recorded to draw";
+   text(none,(px0+px1)/2-textwidth(none)/2,(py0+py1)/2-8,MUTED);
+  }else{
+   long long top=0;for(int r=0;r<rows;r++)for(int k=0;k<n;k++)top=std::max<long long>(top,d->timeline[r][series][k]);
+   top=nice_top(top);
+   const unsigned grid=theme.ra?theme.slot[S_ROWHOVER]:0x30342bu;
+   for(int g=0;g<=4;g++){const int y=py1-(py1-py0)*g/4;rect(px0,y,px1-px0+1,1,g?grid:MUTED);
+    const std::string lab=std::to_string(top*g/4);text(lab,px0-10-textwidth(lab),y-8,MUTED);}
+   rect(px0,py0,1,py1-py0+1,MUTED);
+   const long long span=(long long)(n-1)*std::max(1,d->sample_ticks)/15;
+   for(int g=0;g<=4;g++){const int x=px0+(px1-px0)*g/4;rect(x,py1+1,1,5,MUTED);
+    const std::string lab=clock_text(span*g/4);text(lab,g==4?x-textwidth(lab):g?x-textwidth(lab)/2:x,py1+10,MUTED);}
+   auto at=[&](int r,int k,int &x,int &y){x=px0+(px1-px0)*k/(n-1);
+    y=py1-int((long long)(py1-py0)*std::max<long long>(0,d->timeline[r][series][k])/top);};
+   for(int pass=0;pass<2;pass++)for(int r=0;r<rows;r++){
+    if((d->row[r].is_local!=0)!=(pass==1))continue;
+    const unsigned col=player_colour(d->row[r].colour&7);const int t=pass?4:2;
+    int x0,y0;at(r,0,x0,y0);for(int k=1;k<n;k++){int x1,y1;at(r,k,x1,y1);line(x0,y0,x1,y1,col,t);x0=x1;y0=y1;}
+   }
+  }
  }
- /* this machine's own match, and why it ended when it broke */
- char own[160];snprintf(own,sizeof own,"Destroyed: %d units, %d structures   Lost: %d",d->killed,d->razed,d->lost);
- text(fitted(own,700),38,536,MUTED);
- if(d->ended[0])text(fitted(d->ended,700),38,562,ACCENT);
- else{snprintf(own,sizeof own,"Ore harvested: %d",d->harvested);text(own,38,562,MUTED);}
+ /* this machine's own result first: its score and where that put it, the number a player
+    looks for on a screen titled TOP SCORES. Why the match ended takes the line when it
+    broke. Under it what this machine's commander did, and under that how the score is
+    added up, when there is a score to explain: inside the frame, in the muted ink, as one
+    more line of the result rather than a note beside the button. */
+ const char *harvest=theme.ra?"Ore":"Tiberium";
+ char own[160];
+ const int kind=em_match_debrief_result(d,own,sizeof own);text(fitted(own,700),38,536,kind==0?ACCENT:TEXT);
+ snprintf(own,sizeof own,"Destroyed: %d units, %d structures   Lost: %d   %s: %d",d->killed,d->razed,d->lost,harvest,d->harvested);
+ text(fitted(own,700),38,562,MUTED);
+ if(!d->ended[0]&&d->place>0){const std::string how=std::string("Score = units x2 + structures x5 + ")+(theme.ra?"ore":"tiberium")+"/10";if(textwidth(how)<=700)text(how,38,588,MUTED);}
  add(EM_DEBRIEF_CONTINUE,"Continue",758,550,220).active=true;
  v.held=-1;for(int i=0;i<int(v.seats.size());i++)if(v.seats[i].item==pressed)v.held=i;paint();
-}
+});}
 extern "C" int em_pick(int fx,int fy){int x,y;em_to_legacy(fx,fy,&x,&y);int n=hit(v.mousex,v.mousey);return n<0?-1:v.seats[n].item;}
 
 extern "C" int em_mp_row_at(const MP_State *st,int x,int y){int n=virtualseat(x);return n>=0&&v.seats[n].action==MAPROW?v.seats[n].arg:mp_row_at(st,x,y);}
@@ -1141,4 +1728,7 @@ extern "C" void em_database(const EM_Database *st){
 }
 extern "C" int em_database_view(int *x,int *y,int *w,int *h){
  if(v.kind!=DATABASE)return 0;*x=v.x+388*v.scale;*y=v.y+202*v.scale;*w=332*v.scale;*h=296*v.scale;return 1;
+}
+extern "C" int em_panel_rect(int *x,int *y,int *w,int *h){
+ if(!v.w||!v.h||!v.fbw)return 0;*x=v.x;*y=v.y;*w=v.w*v.scale;*h=v.h*v.scale;return 1;
 }

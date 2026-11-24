@@ -4,6 +4,7 @@
 class HouseClass;
 class TechnoClass;
 class FileClass;
+class BuildingTypeClass;
 void TD_Fair_AI_Reset();
 void TD_Fair_AI_Set_Levels(const unsigned char*, int);
 void TD_Fair_AI_Assign(HouseClass*, int);
@@ -13,4 +14,5 @@ bool TD_Fair_AI_Save(FileClass&);
 bool TD_Fair_AI_Load(FileClass&);
 unsigned int TD_Fair_AI_Hash();
 int TD_Fair_AI_Diagnostics(char*, int);
+bool TD_Fair_AI_Keeps_Paths(HouseClass const*, BuildingTypeClass const*, int);
 #endif

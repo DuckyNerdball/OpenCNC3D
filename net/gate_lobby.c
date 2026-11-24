@@ -163,7 +163,7 @@ static void fill_setup(NmSetup *s, const char *scen)
 #define GL_SEATPREF 0x54414553u
 #define GL_NEED     0x4445454Eu
 #define GL_LS       0x33434E50u   /* a turn packet, which is what an answer looks like */
-#define GL_VERSION  14   /* NM_VERSION in netmatch.c: the fake peer speaks the host's wire */
+#define GL_VERSION  25   /* NM_VERSION in netmatch.c: the fake peer speaks the host's wire */
 #define GL_REFUSE   0x4D455052u   /* NM_REFUSE: the host saying why not, reason word first */
 #define GL_SETUP_BYTES 200
 #define GL_START_BYTES (16 + GL_SETUP_BYTES)

@@ -1,5 +1,10 @@
 OpenCNC3D Windows performance diagnostic
 
+HISTORICAL. This diagnostic belongs to the 32-bit v0.8.4 game. It recognises only the
+libraries v0.8.4 shipped, and its packager accepts only 32-bit (i386, PE32) programs.
+Windows builds are now 64-bit only, so it cannot be made for, or run against, a newer
+game until it is rebaselined on a 64-bit release.
+
 This is diagnostic launcher revision 3 for the v0.8.4 game. It is not a numbered release.
 It retains the fresh-install DLL validation fix and includes corrections for
 native fullscreen and saved display mode, Repair/Sell tooltips, settings pointer

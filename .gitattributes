@@ -86,3 +86,6 @@ brain/patches/vanilla-opencnc3d.patch text eol=lf whitespace=-blank-at-eol
 *.wav binary
 
 *.flac binary
+
+# Original expansion mission bytes are hash-verified source inputs.
+data/ra3d/expansions/missions/*.INI -text -diff

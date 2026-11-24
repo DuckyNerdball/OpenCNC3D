@@ -67,6 +67,10 @@ def bake(data: Path, out: Path) -> None:
     if rules is None:
         raise ValueError("LOCAL.MIX is missing the original RULES.INI art aliases")
     aliases = image_aliases(rules)
+    expansions = tuple(RaMix(data / name) for name in ("EXPAND2.MIX", "EXPAND.MIX") if (data / name).is_file())
+    for archive in expansions:
+        extra_rules = archive.read("AFTRMATH.INI")
+        if extra_rules: aliases.update(image_aliases(extra_rules))
     # The DLL interface renames the ore mine (terrain type MINE) to OREMINE for its
     # draw records; its art is still MINE's.
     aliases["OREMINE"] = "MINE"
@@ -103,7 +107,7 @@ def bake(data: Path, out: Path) -> None:
     for name in wanted:
         graphic = aliases.get(name, name)
         for prefix, extension, sources in (
-            ("", "SHP", (lores, conquer)),
+            ("", "SHP", expansions + (lores, conquer)),
             ("S/", "SNO", (snow,)),
             ("T/", "TEM", (temperat,)),
             ("I/", "INT", (interior,)),

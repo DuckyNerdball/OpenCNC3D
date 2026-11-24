@@ -35,7 +35,7 @@ corresponds to is pinned in `brain/patches/UPSTREAM.txt`.
 **This program contains modified versions of EA's GPL source.** There are TWO
 modified copies in this repository and both are covered here.
 
-**1. `brain/vanilla/`, the source used by the standard brain builds.** The following 80 upstream files are modified:
+**1. `brain/vanilla/`, the source used by the standard brain builds.** The following 87 upstream files are modified:
 
     common/CMakeLists.txt
     common/load.cpp
@@ -51,6 +51,7 @@ modified copies in this repository and both are covered here.
     redalert/display.h
     redalert/dllinterface.cpp
     redalert/dllinterface.h
+    redalert/dllinterfaceversion.h
     redalert/event.cpp
     redalert/event.h
     redalert/externs.h
@@ -84,6 +85,8 @@ modified copies in this repository and both are covered here.
     tiberiandawn/building.h
     tiberiandawn/bullet.cpp
     tiberiandawn/bullet.h
+    tiberiandawn/cell.cpp
+    tiberiandawn/combat.cpp
     tiberiandawn/const.cpp
     tiberiandawn/defines.h
     tiberiandawn/dialog.cpp
@@ -91,7 +94,9 @@ modified copies in this repository and both are covered here.
     tiberiandawn/display.h
     tiberiandawn/dllinterface.cpp
     tiberiandawn/dllinterface.h
+    tiberiandawn/dllinterfaceversion.h
     tiberiandawn/drive.cpp
+    tiberiandawn/drive.h
     tiberiandawn/event.cpp
     tiberiandawn/event.h
     tiberiandawn/externs.h
@@ -110,7 +115,9 @@ modified copies in this repository and both are covered here.
     tiberiandawn/object.h
     tiberiandawn/saveload.cpp
     tiberiandawn/scenario.cpp
+    tiberiandawn/scenarioini.cpp
     tiberiandawn/session.h
+    tiberiandawn/sidebar.cpp
     tiberiandawn/special.h
     tiberiandawn/startup.cpp
     tiberiandawn/techno.cpp
@@ -124,11 +131,17 @@ portability, multiplayer and simulation work. The 19 October 2026 fair-skirmish
 blocks identify per-house skill selection, ordinary economic/production rules,
 computer exploration and observed-target filtering, and save/network state.
 These changes DO affect multiplayer simulation. Campaigns retain their existing
-AI and difficulty paths.
+AI and difficulty paths. The November 2026 blocks identify the hooks of the Rally race
+mode; each is inert unless a Rally match is running, and in one it DOES change the
+simulation.
 
 Project-authored additions within this tree are `common/wwkeyboard_null.cpp`,
 `tiberiandawn/opencnc3d_compat.h`, `tiberiandawn/fair_ai_td.h`,
-`tiberiandawn/fair_ai_td.inc`, `redalert/fair_ai_ra.h` and `redalert/fair_ai_ra.cpp`.
+`tiberiandawn/fair_ai_td.inc`, `tiberiandawn/film_isolation.h`, `redalert/fair_ai_ra.h`,
+`redalert/fair_ai_ra.cpp`, and the Rally race mode: `tiberiandawn/rally.cpp`,
+`tiberiandawn/rally.h`, `tiberiandawn/rally_internal.h`, `tiberiandawn/rally_ai.cpp`,
+`tiberiandawn/rally_items.cpp`, `tiberiandawn/rally_physics.cpp` and
+`tiberiandawn/rally_trig.h`.
 They are excluded from the modified-upstream count. `brain/fair_ai.h`, the host
 probes in `brain/host/`, the synthetic fixtures in `brain/tests/ra3d/` and the
 project's gate scripts are also project-authored. `RA3DBOOT.mpr` contains no

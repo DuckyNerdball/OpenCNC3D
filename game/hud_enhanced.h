@@ -37,6 +37,9 @@ typedef struct {
 int hud_enhanced_ok(const H6_Pack *p);
 int hud_enhanced_height(int rows);
 void hud_enhanced_bar(unsigned char *dst, const H6_Pack *p, const EH_State *s);
+/* The minimap rectangle of a bar hud_enhanced_bar composed from the same state except the
+   radar's pixels: columns 72..231, rows 31..174, composed again on their own. */
+void hud_enhanced_map_region(unsigned char *dst, const H6_Pack *p, const EH_State *s);
 void hud_enhanced_tab(unsigned char *dst, const H6_Pack *p, const char *label,
                        int value, int frame, int wide);
 void hud_enhanced_clock(unsigned char *rgba, float progress, int busy, int nod, float time);

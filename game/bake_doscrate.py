@@ -126,10 +126,10 @@ def load_shapes(mixpath, pal8):
     return out
 
 
-def main():
+def main(mixpath=None, barpack=None, out=None):
     root = os.path.normpath(os.path.join(HERE, ".."))
-    mixpath = os.path.join(root, "playable", "dosdata", "CONQUER.MIX")
-    barpack = os.path.join(root, "playable", "dossidebar.pack")
+    mixpath = mixpath or os.path.join(root, "playable", "dosdata", "CONQUER.MIX")
+    barpack = barpack or os.path.join(root, "playable", "dossidebar.pack")
     for p in (mixpath, barpack):
         if not os.path.isfile(p):
             raise SystemExit("missing %s" % p)
@@ -137,7 +137,7 @@ def main():
     pal8 = load_palette(barpack)
     shapes = load_shapes(mixpath, pal8)
 
-    out = os.path.join(HERE, "doscrate.pack")
+    out = out or os.path.join(HERE, "doscrate.pack")
     with open(out, "wb") as fh:
         fh.write(MAGIC)
         fh.write(struct.pack("<2I", VERSION, len(shapes)))

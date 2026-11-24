@@ -10,10 +10,12 @@
 #include <windows.h>
 #define LMOD_PLATFORM "windows"
 #define LMOD_MKDIR(p) _mkdir(p)
+#define LMOD_RMDIR(p) _rmdir(p)
 #else
 #include <unistd.h>
 #define LMOD_PLATFORM "macos"
 #define LMOD_MKDIR(p) mkdir(p,0755)
+#define LMOD_RMDIR(p) rmdir(p)
 #endif
 #define LMOD_CAP (4*1024*1024)
 #define LMOD_FILES 20000
@@ -44,6 +46,50 @@ static const LJ_Value *lmod_asset(const LJ_Value *release,const char *name)
         const char *n=lj_str(a,"name");if(n&&!strcmp(n,name)){if(found)return NULL;found=a;}
     }
     return found;
+}
+/* Approved feed entries only. A newer preview or another platform's catalog
+ * cannot hide the most recent complete module release for this platform. */
+static int lmod_stable_version(const char *s,int out[3])
+{
+    int i;const char *p=lmod_version(s);if(!p)return 0;
+    for(i=0;i<3;i++){
+        int n=0,digits=0;
+        while(*p>='0'&&*p<='9'){if(n>1000000)return 0;n=n*10+*p++-'0';digits++;}
+        if(!digits)return 0;out[i]=n;
+        if(i<2){if(*p++!='.')return 0;}else if(*p)return 0;
+    }
+    return 1;
+}
+static int lmod_version_order(const char *a,const char *b)
+{
+    int x[3],y[3],i;
+    if(!lmod_stable_version(a,x)||!lmod_stable_version(b,y))return 0;
+    for(i=0;i<3;i++)if(x[i]!=y[i])return x[i]>y[i]?1:-1;
+    return 0;
+}
+static int lmod_release_has_modules(const LJ_Value *release)
+{
+    const char *tag=lj_str(release,"tag");const LJ_Value *asset;char name[256];int v[3],i;
+    const char *channel=lj_str(release,"channel");
+    if(!lmod_stable_version(tag,v)||lj_bool(release,"draft",0))return 0;
+    /* The production feed explicitly approves numeric Alpha releases on its
+     * experimental channel, even when GitHub marks them prerelease. */
+    if(lj_bool(release,"prerelease",0)&&(!channel||strcmp(channel,"experimental")))return 0;
+    snprintf(name,sizeof name,"OpenCNC3D-v%s-modules.txt",lmod_version(tag));
+    asset=lmod_asset(release,name);if(lj_num(asset,"id",0)<=0||lj_num(asset,"size",0)<=0)return 0;
+    for(i=0;i<2;i++){
+        snprintf(name,sizeof name,"OpenCNC3D-module-%s-%s-v%s.zip",i?"ra":"td",LMOD_PLATFORM,lmod_version(tag));
+        asset=lmod_asset(release,name);if(lj_num(asset,"id",0)>0&&lj_num(asset,"size",0)>0)return 1;
+    }
+    return 0;
+}
+static const LJ_Value *lmod_latest_release(const LJ_Value *root)
+{
+    const LJ_Value *best=NULL,*p=lj_get(root,"latest");
+    if(lmod_release_has_modules(p))best=p;
+    for(p=lj_first(lj_get(root,"releases"));p;p=lj_next(p))
+        if(lmod_release_has_modules(p)&&(!best||lmod_version_order(lj_str(p,"tag"),lj_str(best,"tag"))>0))best=p;
+    return best;
 }
 int lmod_catalog_read(const char *build,const char *json,const char *catalog,LMOD_Catalog *out,char *err,int len)
 {
@@ -78,7 +124,7 @@ int lmod_catalog_read(const char *build,const char *json,const char *catalog,LMO
     if(header!=1||version!=1||!count)goto bad;
     *out=result;return 1;
 parsebad:free(copy);lj_free(root);
-bad:snprintf(err,(size_t)len,"No complete, verified module catalog matches this launcher build.");return 0;
+bad:snprintf(err,(size_t)len,"No complete, verified module catalog matches the selected release.");return 0;
 }
 static int lmod_site_ok(const char *site)
 { return site&&(!strncmp(site,"https://",8)||!strncmp(site,"http://127.0.0.1:",17)||!strncmp(site,"http://localhost:",17)); }
@@ -91,7 +137,10 @@ int lmod_catalog_fetch_at(const char *site,const char *build,LMOD_Catalog *out,c
     memset(out,0,sizeof *out);err[0]=0;if(!lmod_site_ok(site))goto done;
     snprintf(url,sizeof url,"%s/api/builds",site);json=ln_get_text(url,LCFG_KEY,LMOD_CAP,err,len);
     if(!json||strlen(json)>=LMOD_CAP)goto done;
-    root=lj_parse(json,err,len);if(!root)goto done;release=lmod_release(root,build);
+    root=lj_parse(json,err,len);if(!root||!lj_bool(root,"ok",1))goto done;
+    release=build&&*build?lmod_release(root,build):lmod_latest_release(root);
+    if(!release){snprintf(err,(size_t)len,"No compatible public module release is available yet.");goto done;}
+    build=lmod_version(lj_str(release,"tag"));
     snprintf(name,sizeof name,"OpenCNC3D-v%s-modules.txt",lmod_version(build));asset=lmod_asset(release,name);
     id=lj_num(asset,"id",0);size=lj_num(asset,"size",-1);
     if(id<=0||size<=0||size>=LMOD_CAP){snprintf(err,(size_t)len,"This build has no public module catalog yet.");goto done;}
@@ -142,6 +191,7 @@ static int lmod_runtime_name(int target,const char *name)
         for(i=0;dirs[i];i++)if(!strncmp(p,dirs[i],strlen(dirs[i])))return 1;
         return 0;
     }
+    if(ra_local&&(!strcmp(p,"expansions.txt")||!strcmp(p,"ants.txt")||!strcmp(p,"expansions-manifest.json")))return 1;
     if(!strchr(p,'/')){
         for(i=0;root[i];i++)if(!strcmp(p,root[i]))return target?strncmp(p,"TiberianDawn",12)!=0:strncmp(p,"RedAlert",8)!=0;
         if(ra_local)for(i=0;ra_local_packs[i];i++)if(!strcmp(p,ra_local_packs[i]))return 1;
@@ -209,6 +259,11 @@ static int lmod_install_public(const char *dir,int target,const char *build,cons
      * must never become permission to remove a player's existing file later. */
     ok=lz_install_owned_extra(dir,zip,(const char *const *)files.owned,
                               (const char *const *)files.owned,files.count,last,extra,cb,user,err,len);
+#ifdef _WIN32
+    /* A module of 64-bit programs over an install that held 32-bit ones leaves their
+     * SDL2.dll behind, since unpacking only writes; lsdl_tidy.h says when it may go. */
+    if(ok)lsdl_tidy(dir);
+#endif
     lmod_files_free(&files);return ok;
 }
 static int lmod_removable(int target,const char *name)
@@ -222,26 +277,86 @@ static int lmod_removable(int target,const char *name)
     for(i=0;lmod_td_files[i];i++)if(!strcmp(name,lmod_td_files[i]))return 1;
     return 0;
 }
-static const char *const *lmod_owned_files(const char *dir,int target)
+/* A module's ownership list as the folder holds it: the copy a removal has staged
+ * aside first, then the live one. 1 parsed into `out`, 0 when the folder has neither
+ * (an install older than the lists, which the legacy names stand for), -1 when one is
+ * there and cannot be read or trusted. */
+static int lmod_manifest_read(const char *dir,int target,LMOD_Files *out)
 {
-    static LMOD_Files memory[2];char rel[100],path[1400],err[256];char *text;FILE *f;long n;
+    char rel[100],path[1400],err[256];char *text;FILE *f;long n;int ok;
+    memset(out,0,sizeof *out);
     snprintf(rel,sizeof rel,"opencnc3d-module-%s.txt.module-removing",target?"ra":"td");
-    if(!lz_inside(dir,rel,path,sizeof path)||lz_is_symlink(path))return NULL;
+    if(!lz_inside(dir,rel,path,sizeof path)||lz_is_symlink(path))return -1;
     f=fopen(path,"rb");if(!f){
         snprintf(rel,sizeof rel,"opencnc3d-module-%s.txt",target?"ra":"td");
-        if(!lz_inside(dir,rel,path,sizeof path)||lz_is_symlink(path))return NULL;
+        if(!lz_inside(dir,rel,path,sizeof path)||lz_is_symlink(path))return -1;
         f=fopen(path,"rb");
     }
-    if(!f)return target?lmod_ra_files:lmod_td_files;
-    if(fseek(f,0,SEEK_END)||(n=ftell(f))<=0||n>=LMOD_CAP||fseek(f,0,SEEK_SET)){fclose(f);return NULL;}
-    text=(char *)malloc((size_t)n+1);if(!text){fclose(f);return NULL;}
-    if(fread(text,1,(size_t)n,f)!=(size_t)n||memchr(text,0,(size_t)n)){fclose(f);free(text);return NULL;}fclose(f);text[n]=0;
+    if(!f)return 0;
+    if(fseek(f,0,SEEK_END)||(n=ftell(f))<=0||n>=LMOD_CAP||fseek(f,0,SEEK_SET)){fclose(f);return -1;}
+    text=(char *)malloc((size_t)n+1);if(!text){fclose(f);return -1;}
+    if(fread(text,1,(size_t)n,f)!=(size_t)n||memchr(text,0,(size_t)n)){fclose(f);free(text);return -1;}fclose(f);text[n]=0;
+    ok=lmod_files_parse(text,target,NULL,out,err,sizeof err);free(text);
+    return ok?1:-1;
+}
+static const char *const *lmod_owned_files(const char *dir,int target)
+{
+    static LMOD_Files memory[2];int rc;
     lmod_files_free(&memory[target]);
-    if(!lmod_files_parse(text,target,NULL,&memory[target],err,sizeof err)){free(text);return NULL;}free(text);
+    rc=lmod_manifest_read(dir,target,&memory[target]);
+    if(rc<0)return NULL;
+    if(rc==0)return target?lmod_ra_files:lmod_td_files;
     {int i,nout=0;LMOD_Files *m=&memory[target];for(i=0;i<m->count;i++){
         if(lmod_removable(target,m->owned[i]))m->owned[nout++]=m->owned[i];else free(m->owned[i]);
     }m->count=nout;m->owned[nout]=NULL;}
     return (const char *const *)memory[target].owned;
+}
+
+/* EVERYTHING EITHER GAME OWNS, for taking the whole installation out. The single
+ * game Remove keeps what the other game shares (lmod_removable); this list does not
+ * filter, because nothing is left to share with. It is the union of both ownership
+ * lists exactly as parsed (lmod_files_parse has already refused any name that is not
+ * an immutable runtime file, so saves, settings, maps and media cannot be in it),
+ * or each game's legacy names where the folder holds no list for it. The two lists
+ * themselves come last, so a cleanup that stops part way keeps them and can be
+ * rebuilt. Left out: the SDL library the running launcher itself may have loaded,
+ * which the uninstaller deletes once the launcher has exited. */
+static int lmod_all_add(LMOD_Files *all,int *cap,const char *name)
+{
+    int i;
+    if(lmod_equal(name,"SDL2.dll")||!strcmp(name,"libSDL2-2.0.0.dylib"))return 1;
+    for(i=0;i<all->count;i++)if(lmod_equal(all->owned[i],name))return 1;
+    if(all->count+2>*cap){
+        int grow=*cap?*cap*2:1024;char **more=(char **)realloc(all->owned,(size_t)grow*sizeof(char *));
+        if(!more)return 0;
+        all->owned=more;*cap=grow;
+    }
+    all->owned[all->count]=strdup(name);if(!all->owned[all->count])return 0;
+    all->count++;all->owned[all->count]=NULL;return 1;
+}
+static const char *const *lmod_all_files(const char *dir)
+{
+    static LMOD_Files all;LMOD_Files one;int cap=0,t,i,rc,listed[2]={0,0};
+    lmod_files_free(&all);
+    for(t=0;t<2;t++){
+        rc=lmod_manifest_read(dir,t,&one);
+        if(rc<0){lmod_files_free(&all);return NULL;}
+        if(rc==0){
+            const char *const *legacy=t?lmod_ra_files:lmod_td_files;
+            for(i=0;legacy[i];i++)if(!lmod_all_add(&all,&cap,legacy[i])){lmod_files_free(&all);return NULL;}
+            continue;
+        }
+        listed[t]=1;
+        for(i=0;i<one.count;i++)
+            if(strncmp(one.owned[i],"opencnc3d-module-",17)&&!lmod_all_add(&all,&cap,one.owned[i])){
+                lmod_files_free(&one);lmod_files_free(&all);return NULL;
+            }
+        lmod_files_free(&one);
+    }
+    for(t=0;t<2;t++)if(listed[t]&&!lmod_all_add(&all,&cap,t?"opencnc3d-module-ra.txt":"opencnc3d-module-td.txt")){
+        lmod_files_free(&all);return NULL;
+    }
+    return (const char *const *)all.owned;
 }
 
 int lmod_install_file(const char *dir,int target,const char *build,const char *zip,const char *expected,
@@ -253,21 +368,71 @@ int lmod_install_file(const char *dir,int target,const char *build,const char *z
     if(!lz_sha256_file(zip,sha,err,len))return 0;
     if(strcmp(sha,expected)){snprintf(err,(size_t)len,"The module failed its checksum. No game files were changed.");return 0;}
     if(!lz_held_here(dir)){if(lz_lock_new(dir,&lock)!=1){snprintf(err,(size_t)len,"Another launcher is using this installation.");return 0;}own=1;}
-    ok=lmod_install_public(dir,target,build,zip,cb,user,err,len);if(own)lz_unlock(&lock);return ok;
+    ok=lmod_install_public(dir,target,build,zip,cb,user,err,len);
+    /* A Mac installer package delivers its game as the download folder's package; once
+     * that is installed it goes like any other (lmod_package_done). */
+    if(ok&&lmod_is_cache_package(dir,target,zip))lmod_package_done(dir,target);
+    if(own)lz_unlock(&lock);return ok;
 }
 
-/* A module-owned record is authoritative. Legacy TD full packages may use their
- * global record; legacy RA has no verified release identity and offers Update. */
-int lmod_module_current(const char *dir,int target,const char *build)
+/* Whole TD updates precede modules. Their fingerprinted global record may
+ * advance while an older module ownership list stays behind. Bootstrap records
+ * never prove that TD bytes were replaced; RA always keeps its own identity. */
+static int lmod_record_version(const char *dir,const char *rel,char value[100],int *full)
 {
-    char rel[100],path[1400],line[1200],value[100],extra;FILE *f;int current=0;
+    char path[1400],line[1200],data[100],extra;FILE *f;int found=0,hashed=0,bootstrap=0;
+    value[0]=0;if(full)*full=0;
+    if(!lz_inside(dir,rel,path,sizeof path)||lz_is_symlink(path))return -1;
+    f=fopen(path,"rb");if(!f)return 0;
+    while(fgets(line,sizeof line,f)){
+        if(!found&&sscanf(line,"version %99s %c",value,&extra)==1){found=1;if(!full)break;}
+        if(sscanf(line,"data_id %99s %c",data,&extra)==1&&lmod_hex(data))hashed=1;
+        if(!strncmp(line,"module_install ",15))bootstrap=1;
+    }
+    fclose(f);if(full)*full=found&&hashed&&!bootstrap;return found;
+}
+static int lmod_record_order(const char *a,const char *b)
+{
+    char x[100],y[100];char *p;int v[3];
+    snprintf(x,sizeof x,"%s",lmod_version(a));snprintf(y,sizeof y,"%s",lmod_version(b));
+    p=strpbrk(x,"+-");if(p)*p=0;p=strpbrk(y,"+-");if(p)*p=0;
+    if(!lmod_stable_version(x,v))return -1;
+    if(!lmod_stable_version(y,v))return 1;
+    return lmod_version_order(x,y);
+}
+static int lmod_installed_version(const char *dir,int target,char value[100])
+{
+    char rel[100],legacy[100];int found,old,full=0;
     snprintf(rel,sizeof rel,"opencnc3d-module-%s.txt",target?"ra":"td");
-    if(!lz_inside(dir,rel,path,sizeof path)||lz_is_symlink(path))return 0;
-    f=fopen(path,"rb");
-    if(!f&&!target){if(!lz_inside(dir,"opencnc3d-install.txt",path,sizeof path)||lz_is_symlink(path))return 0;f=fopen(path,"rb");}
-    if(!f)return 0;
-    while(fgets(line,sizeof line,f))if(sscanf(line,"version %99s %c",value,&extra)==1){current=!strcmp(lmod_version(build),lmod_version(value));break;}
-    fclose(f);return current;
+    found=lmod_record_version(dir,rel,value,NULL);if(found<0)return 0;
+    if(target)return found;
+    old=lmod_record_version(dir,"opencnc3d-install.txt",legacy,&full);
+    if(old>0&&(!found||(full&&lmod_record_order(legacy,value)>=0))){
+        snprintf(value,100,"%s",legacy);return 1;
+    }
+    return found;
+}
+int lmod_module_version(const char *dir,int target,char *version,int len)
+{
+    char value[100];
+    if(!version||len<=0)return 0;version[0]=0;
+    if(target<0||target>1||!lmod_installed_version(dir,target,value))return 0;
+    snprintf(version,(size_t)len,"%s",lmod_version(value));return 1;
+}
+int lmod_module_current(const char *dir,int target,const char *build)
+{char value[100];return build&&lmod_installed_version(dir,target,value)&&!strcmp(lmod_version(build),lmod_version(value));}
+int lmod_module_update_available(const char *dir,int target,const char *build)
+{
+    char value[100],wanted[100],*suffix;int v[3],w[3];
+    if(!build||!*build)return 0;
+    if(!lmod_installed_version(dir,target,value))return 1;
+    if(!strcmp(lmod_version(value),lmod_version(build)))return 0;
+    snprintf(wanted,sizeof wanted,"%s",lmod_version(build));
+    suffix=strchr(value,'+');if(suffix)*suffix=0;
+    suffix=strchr(wanted,'+');if(suffix)*suffix=0;
+    /* A current/newer module must never be replaced by an older feed entry. */
+    if(lmod_stable_version(value,v)&&lmod_stable_version(wanted,w))return lmod_version_order(wanted,value)>0;
+    return 1; /* legacy installation without a comparable release identity */
 }
 
 /* The asset identity in the part name prevents a different release/hash ever
@@ -307,6 +472,10 @@ int lmod_install_remote(const char *dir,int target,const char *build,const LMOD_
     if(LMOD_MKDIR(cache)&&errno!=EEXIST)goto done;
     snprintf(rel,sizeof rel,".opencnc3d-modules/%s-%lld-%.64s.ocpart",target?"ra":"td",asset->id,asset->sha);
     if(!lz_inside(dir,rel,part,sizeof part)||lz_is_symlink(part)||!lmod_cache_path(dir,target,"",zip))goto done;
+    /* A piece of this game's package from another release or another upload can never be
+     * resumed (the name carries the asset's id and checksum), so it goes before the
+     * download starts; the piece this download continues stays. */
+    lmod_cache_drop(dir,target,rel+sizeof ".opencnc3d-modules/"-1,0);
     progress.cb=cb;progress.user=user;
     if(!lz_sha256_file(zip,sha,err,len)||strcmp(sha,asset->sha)||ln_file_size(zip)!=asset->size){
         lmod_asset_url(catalog->site,asset->id,url,sizeof url);
@@ -321,6 +490,7 @@ int lmod_install_remote(const char *dir,int target,const char *build,const LMOD_
     snprintf(side,sizeof side,"%s\n",catalog->version);if(!lmod_write_side(dir,target,".version",side,err,len))goto done;
     if(cb&&!cb(user,700,1000))goto done;
     ok=lmod_install_public(dir,target,build,zip,lmod_extract_progress,&progress,err,len);
+    if(ok)lmod_package_done(dir,target);
 done:if(!ok&&!err[0])snprintf(err,(size_t)len,"The module installation stopped before completion. No partial game was installed.");if(own)lz_unlock(&lock);return ok;
 invalid:snprintf(err,(size_t)len,"A verified public package is not available for this launcher build.");return 0;
 }

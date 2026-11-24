@@ -24,6 +24,15 @@
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
+// MODIFIED for OpenCNC3D. A player's MEGAMISSION order that
+// gives a soldier a destination clears his path-planning cooldown, so he walks off
+// at once instead of standing still for up to Rule.PathDelay. Re-plans the engine
+// makes on its own, and queued waypoints, keep the original throttle.
+// It DOES change the game simulation.
+// MODIFIED for OpenCNC3D. A guard-area order given to a unit already
+// on guard area resets that mission's state value, so FootClass::Mission_Guard_Area judges
+// afresh whether it is an attack-move. It DOES change the game simulation.
+//
 
 /* $Header: /CounterStrike/EVENT.CPP 1     3/03/97 10:24a Joe_bostic $ */
 /***********************************************************************************************
@@ -761,6 +770,17 @@ void EventClass::Execute(void)
                 techno->Assign_Target(TARGET_NONE);
                 techno->Assign_Destination(Data.MegaMission.Target.As_TARGET());
                 techno->ArchiveTarget = Data.MegaMission.Target.As_TARGET();
+
+                /*
+                **	OpenCNC3D: FootClass::Mission_Guard_Area decides once, when the mission
+                **	starts, whether a player's guard-area order is an attack-move, and keeps
+                **	that in the mission's state value. Starting the mission resets it; an
+                **	order given to a unit already on guard area starts nothing, so reset it
+                **	here, and a new attack-move or G key is judged afresh.
+                */
+                if (techno->Mission == MISSION_GUARD_AREA) {
+                    techno->Status = 0;
+                }
             } else if (Data.MegaMission.Mission == MISSION_ENTER && object != NULL
                        && object->What_Am_I() == RTTI_BUILDING && *((BuildingClass*)object) == STRUCT_REFINERY) {
                 techno->Transmit_Message(RADIO_HELLO, (BuildingClass*)object);
@@ -775,6 +795,21 @@ void EventClass::Execute(void)
                     techno->Assign_Target(Data.MegaMission.Target.As_TARGET());
                     techno->Assign_Destination(Data.MegaMission.Destination.As_TARGET());
                 }
+            }
+
+            /*
+            **	OpenCNC3D: a player's order that gives a soldier somewhere to go is
+            **	acted on at once. Every Basic_Path call starts the Rule.PathDelay
+            **	cooldown (a fraction of a second) meant to throttle re-planning for a soldier
+            **	who is blocked, but it also held back a fresh order given soon after the
+            **	previous one, so the soldier stood still before walking off. Only this
+            **	order clears it, and not a queued waypoint that leaves the current leg
+            **	alone; engine-internal re-plans keep the original throttle. MEGAMISSION
+            **	comes only from player input and runs on every peer on the same frame,
+            **	so lockstep play stays in step.
+            */
+            if (!q && techno->What_Am_I() == RTTI_INFANTRY && Target_Legal(((FootClass*)techno)->NavCom)) {
+                ((FootClass*)techno)->PathDelay = 0;
             }
 
             //
@@ -823,8 +858,10 @@ void EventClass::Execute(void)
     */
     case IDLE:
         techno = Data.Target.Whom.As_Techno();
+        /* Armed defenses use the same Stop event to clear a forced target.
+           Production buildings keep their original refusal. */
         if (techno != NULL && techno->IsActive && !techno->IsInLimbo && !techno->IsTethered
-            && techno->What_Am_I() != RTTI_BUILDING) {
+            && (techno->What_Am_I() != RTTI_BUILDING || techno->Can_Player_Fire())) {
             techno->Transmit_Message(RADIO_OVER_OUT);
             techno->Assign_Destination(TARGET_NONE);
             techno->Assign_Target(TARGET_NONE);

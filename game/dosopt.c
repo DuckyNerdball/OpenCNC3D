@@ -182,12 +182,13 @@ static const char *const dopt_infset_name[DOPT_INF_COUNT] = {
     "N64 Sprites", "DOS Sprites", "", "Enhanced 3D"
 };
 
-/* The Gameplay page's labels. All three are ours. Measured against GRAD6FNT: 104, 116
-   and 98 pixels, printed from DOPT_A_LABEL_X, so they end well inside the box inner edge.
+/* The Gameplay page's labels. All three are ours. Measured against GRAD6FNT: the widest
+   is 116 pixels, printed from DOPT_A_LABEL_X, so they end well inside the box inner edge.
+   The mouse scheme row's check is drawn on for either scheme that is not Classic.
    db_print clips to the surface and not to the button, so this measurement is the only
    thing between a long label and ink on the next control. */
 static const char *const dopt_gp_row[DOPT_G_TOGGLES] = {
-    "Swap mouse buttons",
+    "Mouse scheme",
     "Right button scrolls",
     "Credit tick sound"
 };
@@ -416,6 +417,8 @@ void dopt_settings_init(DOPT_Settings *s)
      * the bar (DOPT_VOL_TOP, 239). The engine stores a volume as fixed point 0..255. */
     s->speed = DOPT_DEFAULT_SPEED;
     s->scrollrate = 3;
+    s->scrollpush = 3;
+    s->scrollgrab = 3;
     s->music = DOPT_VOL_TOP;
     s->sound = DOPT_VOL_TOP;
     s->speech = DOPT_VOL_TOP;
@@ -512,18 +515,20 @@ static void dopt_sl_take_descr(DOPT_State *st)
 }
 
 /* Ask the host for the rows, and in SAVE mode put the empty slot first with the
-   lowest file number no row is using (loaddlg.cpp:661-680). Sixteen slots are all the
-   index holds, so with all sixteen taken there is no empty row and a save overwrites. */
+   lowest file number no row is using (loaddlg.cpp:661-680). DOPT_SL_SLOTS is all the
+   index holds, so with every one taken there is no empty row, and a save can only go
+   over a row the player picks (dopt_sl_open). */
 static void dopt_sl_fill(DOPT_State *st)
 {
     DOPT_SlotRow got[DOPT_SL_ROWS_MAX];
     int n = 0, i, k = 0;
+    memset(got, 0, sizeof got);   /* a host that never heard of `disabled` leaves it 0 */
     if (st->bind.slots)
         n = st->bind.slots(st->bind.user, got, DOPT_SL_ROWS_MAX - 1);
     if (n < 0) n = 0;
     if (n > DOPT_SL_ROWS_MAX - 1) n = DOPT_SL_ROWS_MAX - 1;
     st->sl.have = n;
-    if (st->sl.mode == DOPT_SL_SAVE && n < 16) {
+    if (st->sl.mode == DOPT_SL_SAVE && n < DOPT_SL_SLOTS) {
         int num = 0, again = 1;
         while (again) {
             again = 0;
@@ -532,6 +537,7 @@ static void dopt_sl_fill(DOPT_State *st)
         }
         st->sl.rows[k].slot = num;
         snprintf(st->sl.rows[k].text, sizeof st->sl.rows[k].text, "%s", DOPT_SL_EMPTY_S);
+        st->sl.rows[k].disabled = 0;
         k++;
     }
     for (i = 0; i < n && k < DOPT_SL_ROWS_MAX; i++) st->sl.rows[k++] = got[i];
@@ -551,6 +557,16 @@ static void dopt_sl_open(DOPT_State *st, int mode, int from_menu)
     st->sl.pick = -1;
     st->sl.descr[0] = 0;
     dopt_sl_fill(st);
+    /* NO EMPTY ROW, NO ROW CHOSEN. 1995 never runs out of numbers, so its SAVE list always
+       opens on the empty slot and a save never replaces anything unless a row is clicked.
+       With every slot taken here the first row is the newest save, and opening on it would
+       make Save write over it unasked. So nothing is chosen, the field holds the default
+       description, and Save stays grey (dopt_item_disabled) until a row is picked. */
+    if (mode == DOPT_SL_SAVE && (st->sl.nrows <= 0
+                                 || strcmp(st->sl.rows[0].text, DOPT_SL_EMPTY_S) != 0)) {
+        st->sl.sel = -1;
+        snprintf(st->sl.descr, sizeof st->sl.descr, "%s", st->sl.deflt);
+    }
     if (mode == DOPT_SL_SAVE) dopt_sl_take_descr(st);
     st->page = DOPT_PAGE_SLOTS;
     /* loaddlg.cpp:247-249: the edit field takes the focus in SAVE mode; the list has
@@ -580,6 +596,7 @@ void dopt_bind_slots(DOPT_State *st, int (*slots)(void *, DOPT_SlotRow *, int))
        so the count is taken now rather than on the first click. */
     {
         DOPT_SlotRow got[DOPT_SL_ROWS_MAX];
+        memset(got, 0, sizeof got);
         st->sl.have = slots ? slots(st->bind.user, got, DOPT_SL_ROWS_MAX - 1) : 0;
         if (st->sl.have < 0) st->sl.have = 0;
     }
@@ -788,9 +805,12 @@ void dopt_open_page_notice(DOPT_State *st, const char *caption, const char *text
 {
     if (!st) return;
     st->nprev = st->selected;
+    st->npage = st->page;
     memcpy(st->nbrief, st->brief, sizeof st->nbrief);
     st->nvideo = st->rvideo;
     dopt_set_briefing(st, text, 0);
+    /* measured now, with the font the last layout kept, so the 1995 box fits its text */
+    if (st->font) dopt_restate_layout(st, st->font);
     snprintf(st->ncaption, sizeof st->ncaption, "%s", caption ? caption : "");
     st->nback = 1;
     st->page = DOPT_PAGE_NOTICE;
@@ -1910,7 +1930,8 @@ static int dopt_activate(DOPT_State *st, int item)
         if (st->nback) {
             st->nback = 0;
             dopt_set_briefing(st, st->nbrief, st->nvideo);
-            st->page = DOPT_PAGE_OPTIONS;
+            if (st->font) dopt_restate_layout(st, st->font);   /* the objective's box again */
+            st->page = st->npage == DOPT_PAGE_SLOTS ? DOPT_PAGE_SLOTS : DOPT_PAGE_OPTIONS;
             st->selected = st->nprev;
             return DOPT_ACT_NONE;
         }
@@ -2131,7 +2152,11 @@ static int dopt_activate(DOPT_State *st, int item)
             return DOPT_ACT_NONE;
         }
         if (item >= 0 && item < DOPT_G_TOGGLES) {
-            st->gp.on[item] = !st->gp.on[item];
+            /* the mouse scheme steps through its three values; the rest are yes/no */
+            if (item == DOPT_G_MOUSE)
+                st->gp.on[item] = (st->gp.on[item] + 1) % DOPT_G_MOUSE_COUNT;
+            else
+                st->gp.on[item] = !st->gp.on[item];
             if (st->bind.applygp)
                 st->bind.applygp(st->bind.user, &st->gp);
         }
@@ -2243,7 +2268,7 @@ static int dopt_activate(DOPT_State *st, int item)
         return DOPT_ACT_NONE;
     case DOPT_GAMEPLAY:
         st->page = DOPT_PAGE_GAMEPLAY;
-        st->selected = DOPT_G_SWAPBTN;
+        st->selected = DOPT_G_MOUSE;
         st->pressed = -1;
         return DOPT_ACT_NONE;
     case DOPT_AUDIO:
@@ -3282,8 +3307,8 @@ static void dopt_draw_advanced(DB_Surface *s, const DB_Pack *p, const DOPT_State
 void dopt_gameplay_defaults(DOPT_Gameplay *g)
 {
     if (!g) return;
-    /* OFF: nobody who does not come looking for it gets a different set of buttons. */
-    g->on[DOPT_G_SWAPBTN] = 0;
+    /* CLASSIC: nobody who does not come looking for it gets a different set of buttons. */
+    g->on[DOPT_G_MOUSE] = 0;
     /* ON: the gesture was asked for, and a player should not have to go looking for it. */
     g->on[DOPT_G_RPUSH] = 1;
     /* ON: both source games sounded it; the switch exists for the player who tires of it. */
@@ -3538,8 +3563,10 @@ static void dopt_draw_slots(DB_Surface *s, const DB_Pack *p, const DOPT_State *s
     shown = dopt_sl_rows_shown(st);
     dopt_style_greenbox(s, DOPT_SL_LIST_X, DOPT_SL_LIST_Y, DOPT_SL_LIST_W, lh);
     if (f) {
+        unsigned char fpoff[16];
         db_font_palette_grad(fp, DOPT_TEXT_MEDIUM, DB_TBLACK);
         db_font_palette_grad(fpsel, DOPT_TEXT_BRIGHT, DB_TBLACK);
+        db_font_palette_grad(fpoff, DOPT_TEXT_DISABLED, DB_TBLACK);
         for (row = 0; row < shown; row++) {
             i = st->sl.top + row;
             if (i >= st->sl.nrows) break;
@@ -3547,8 +3574,11 @@ static void dopt_draw_slots(DB_Surface *s, const DB_Pack *p, const DOPT_State *s
             if (i == st->sl.sel)
                 db_fill_rect(s, DOPT_SL_LIST_X + 1, y, DOPT_SL_LIST_X + DOPT_SL_LIST_W - 2,
                              y + DOPT_SL_ROW_H - 1, DOPT_GREEN_BKGD);
+            /* a slot this build cannot load takes the disabled text colour in Load Mission,
+               highlighted or not (gold in the 1996 palette; the Enhanced list greys it) */
             db_print(s, f, st->sl.rows[i].text, DOPT_SL_LIST_X + 4, y,
-                     i == st->sl.sel ? fpsel : fp, DB_FONT6_XSPACING);
+                     (st->sl.mode == DOPT_SL_LOAD && st->sl.rows[i].disabled) ? fpoff
+                     : i == st->sl.sel ? fpsel : fp, DB_FONT6_XSPACING);
         }
         if (st->sl.nrows <= 0) {
             /* loaddlg.cpp:237-241 raises TXT_NO_SAVES (648) in a box of its own and
@@ -3791,13 +3821,16 @@ static int *dopt_enh_setting_slot(DOPT_State *st, int which)
     case DOPT_ES_SOUND:    return &st->set.sound;
     case DOPT_ES_VOICES:   return &st->set.speech;
     case DOPT_ES_AMBIENCE: return &st->set.ambience;
+    case DOPT_ES_SCROLLPUSH: return &st->set.scrollpush;
+    case DOPT_ES_SCROLLGRAB: return &st->set.scrollgrab;
     default:               return 0;
     }
 }
 int dopt_enh_setting_max(int which)
 {
     if (which == DOPT_ES_SPEED) return DOPT_MAX_SPEED - 1;
-    if (which == DOPT_ES_SCROLL) return DOPT_MAX_SCROLL - 1;
+    if (which == DOPT_ES_SCROLL || which == DOPT_ES_SCROLLPUSH || which == DOPT_ES_SCROLLGRAB)
+        return DOPT_MAX_SCROLL_EXT - 1;
     return DOPT_VOL_TOP;
 }
 int dopt_enh_setting_value(DOPT_State *st, int which)
@@ -3820,7 +3853,23 @@ void dopt_enh_setting(DOPT_State *st, int which, int value)
 void dopt_enh_gameplay_toggle(DOPT_State *st, int which)
 {
     if (!st || which < 0 || which >= DOPT_G_TOGGLES) return;
-    st->gp.on[which] = !st->gp.on[which];
+    if (which == DOPT_G_MOUSE)
+        st->gp.on[which] = (st->gp.on[which] + 1) % DOPT_G_MOUSE_COUNT;
+    else
+        st->gp.on[which] = !st->gp.on[which];
+    if (st->bind.applygp)
+        st->bind.applygp(st->bind.user, &st->gp);
+}
+void dopt_enh_gameplay_set(DOPT_State *st, int which, int value)
+{
+    if (!st || which < 0 || which >= DOPT_G_TOGGLES) return;
+    if (which == DOPT_G_MOUSE) {
+        if (value < 0 || value >= DOPT_G_MOUSE_COUNT) return;
+    } else {
+        value = value ? 1 : 0;
+    }
+    if (st->gp.on[which] == value) return;
+    st->gp.on[which] = value;
     if (st->bind.applygp)
         st->bind.applygp(st->bind.user, &st->gp);
 }

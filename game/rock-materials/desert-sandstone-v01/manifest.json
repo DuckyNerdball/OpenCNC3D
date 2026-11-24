@@ -1,0 +1,651 @@
+{
+  "material_sha256": "c2a8ebbb2eef2cdb885ad5222540330dfb8d79aaf0e086ab2aafb15b5fd8d4cf",
+  "contract": "Existing meshes/UVs preserved; shared approved cliff albedo, no baked directional shade; explicit black player masks.",
+  "scatter": {
+    "models": 45,
+    "triangles": 2913,
+    "geometry_uv_mapping_sha256": "59e00c4d48ebcdb2af5dd9af4cc55240c1bcd97e0ebc8783768b313ca9ace7b3",
+    "geometry_uv_bytes_unchanged": true,
+    "source_sha256": "c19c62d181647fafd7df4e28c07144f555a8658f4c03f215cb3dcb81645ba9fb",
+    "output_sha256": "cfb7b3a9302b5393c0567c90263ca51290087f1e2f32f869b9db1fac21f8574c",
+    "textures": [
+      {
+        "albedo": "RK01A.png",
+        "player_colour_mask": "RK01A_player_mask.png",
+        "albedo_sha256": "f9249c71665b43a4390e384626af15d2696134cab0ec185d5f6b5c9b35b23749",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK01B.png",
+        "player_colour_mask": "RK01B_player_mask.png",
+        "albedo_sha256": "37813a78ea99538612b8fadc6ede71b4a80a39a527344b1fbeb6c386a3f04c2a",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK01C.png",
+        "player_colour_mask": "RK01C_player_mask.png",
+        "albedo_sha256": "2a3d6e49f4e4a9788e3c65fe21d97d3d8b220d5bc9afec4d8d56ebb7fdb8a486",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK02A.png",
+        "player_colour_mask": "RK02A_player_mask.png",
+        "albedo_sha256": "3567e84411512ad117e213187bd62cd2bd7383a1aa7b59b991129289534e9fcd",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK02B.png",
+        "player_colour_mask": "RK02B_player_mask.png",
+        "albedo_sha256": "a5bbf52790151d1e93f7b14901b4f2db6e13fa92a49c9162f5e46dc5ecfdcd33",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK02C.png",
+        "player_colour_mask": "RK02C_player_mask.png",
+        "albedo_sha256": "9c6c6b61f3b487b088b91595eb4c936ca6816ef7678c6d517f9cb849be210bde",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK03A.png",
+        "player_colour_mask": "RK03A_player_mask.png",
+        "albedo_sha256": "ba892941733031a2c39e4c110914d4cf0c64745fbb1218770dd02a15b5ecf675",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK03B.png",
+        "player_colour_mask": "RK03B_player_mask.png",
+        "albedo_sha256": "9bf5b4e455c7ed86052c90a0067ae12d9de08ef385f063e31669a139cadd1c40",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK03C.png",
+        "player_colour_mask": "RK03C_player_mask.png",
+        "albedo_sha256": "732031f414d1c892e6e6f0524a26695e985294cbbe0c24da309bc5ac19c73fa2",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK04A.png",
+        "player_colour_mask": "RK04A_player_mask.png",
+        "albedo_sha256": "20a9a3c79ede9f1f79b0fee5b7ae3193c72471350bf370de5c10f7fe248c2eae",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK04B.png",
+        "player_colour_mask": "RK04B_player_mask.png",
+        "albedo_sha256": "066f45cb06590c7645d9acb0dd1669fd106f62e30e65b70c27adcc2541daf42d",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK04C.png",
+        "player_colour_mask": "RK04C_player_mask.png",
+        "albedo_sha256": "2e33c32bc94849c9e258504127eb43830e26000fc036171100580c3e0b34376d",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK05A.png",
+        "player_colour_mask": "RK05A_player_mask.png",
+        "albedo_sha256": "c40d4665ade25aaa388217610a72c11ac0f6463ed2d6265d8eee98427e47bb8b",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK05B.png",
+        "player_colour_mask": "RK05B_player_mask.png",
+        "albedo_sha256": "0a04db84ec579a67988aba6cf4550f33a4655369e1d56409eb924ba412aeb7ea",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK05C.png",
+        "player_colour_mask": "RK05C_player_mask.png",
+        "albedo_sha256": "b10150e7ca77d37c69a88473e767fcd1af145e46d07faeea5dc2b027a3b06940",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK06A.png",
+        "player_colour_mask": "RK06A_player_mask.png",
+        "albedo_sha256": "e55a60877241483d4984e44843a7846650fe8a3ec35120b0e6c989ce94c771a4",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK06B.png",
+        "player_colour_mask": "RK06B_player_mask.png",
+        "albedo_sha256": "f12d861d8e4feea38f9ea7234073bddfa300900345c7b4fd8a13fe468105a99e",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK06C.png",
+        "player_colour_mask": "RK06C_player_mask.png",
+        "albedo_sha256": "f22cf56ab19bc22c0974100b7f8539b8efb3956cc3fef666016a4202f97e526b",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK07A.png",
+        "player_colour_mask": "RK07A_player_mask.png",
+        "albedo_sha256": "68a73c93ef481e54374707f80a221a0b44c9cedaa1877fb45b2c640d9674526c",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK07B.png",
+        "player_colour_mask": "RK07B_player_mask.png",
+        "albedo_sha256": "69b6e57972f37fe1d60e0d34bccc9a967d438d5b182ea0a20b7e0e5c8bff19ab",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK07C.png",
+        "player_colour_mask": "RK07C_player_mask.png",
+        "albedo_sha256": "ae1848af1b8affcbb92f7dca4ee7414831cdfd0c4aa804070cfb0658550be2fe",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK08A.png",
+        "player_colour_mask": "RK08A_player_mask.png",
+        "albedo_sha256": "50d5b69d60f1ca8908e4cc55322ece33956e1824add07660e5eda01ad53187e0",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK08B.png",
+        "player_colour_mask": "RK08B_player_mask.png",
+        "albedo_sha256": "c5081be2fb0d05de7f48c4f3918d0b3481da45f799ba8e6dbca839e5f24f98b2",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK08C.png",
+        "player_colour_mask": "RK08C_player_mask.png",
+        "albedo_sha256": "a4d34b8a4b143136008a876d956ea0f92253c6f51a797cf49b2beffc14c0b5e0",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK09A.png",
+        "player_colour_mask": "RK09A_player_mask.png",
+        "albedo_sha256": "24649f6eddd50542acbd1209611cc0c89224e657d34c17a29aa8e5720fdc87e8",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK09B.png",
+        "player_colour_mask": "RK09B_player_mask.png",
+        "albedo_sha256": "fbc336fc630b461db80176fff3cafee8eac25c6c407a3d2b06646075e7703c0d",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK09C.png",
+        "player_colour_mask": "RK09C_player_mask.png",
+        "albedo_sha256": "813508dd959bdb642c90184c4aa57353f702b74e2669d39de21eeb0a3dbbbcf8",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK10A.png",
+        "player_colour_mask": "RK10A_player_mask.png",
+        "albedo_sha256": "534b4e765997e91086252245a02ac5244f292793753fb5a16b22e1b8e09e7722",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK10B.png",
+        "player_colour_mask": "RK10B_player_mask.png",
+        "albedo_sha256": "123d748045696bed1024d90d33132018d7dd939d93822848c3ad035870657fec",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK10C.png",
+        "player_colour_mask": "RK10C_player_mask.png",
+        "albedo_sha256": "bcac383301518a6a4714635dfdede73b933f0e649d09ab7b694d36fc6c0c2da5",
+        "mask_sha256": "5933d4c44ed2bc2f431e2698b41923a18d056b24b450540bb109e7592a547060",
+        "recolourable": false,
+        "dimensions": [
+          256,
+          256
+        ]
+      },
+      {
+        "albedo": "RK11A.png",
+        "player_colour_mask": "RK11A_player_mask.png",
+        "albedo_sha256": "883d1f910077fd41e3eeee2d3949f3ecf90179b8a3e23e7f0eefbd504600da30",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK11B.png",
+        "player_colour_mask": "RK11B_player_mask.png",
+        "albedo_sha256": "9ac23d5b5da18e202f822363d861c3fc5ea6cdd35ef4b83015851c1458c02a24",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK11C.png",
+        "player_colour_mask": "RK11C_player_mask.png",
+        "albedo_sha256": "0708c7b1a0d1da24d8c7333f170e434a3636426adc5cfc607d78e5639848ef6b",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK12A.png",
+        "player_colour_mask": "RK12A_player_mask.png",
+        "albedo_sha256": "c94b0903b5a2ce62559271425e98a8b982aa2a8399db1f98cbb8937e6e82defc",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK12B.png",
+        "player_colour_mask": "RK12B_player_mask.png",
+        "albedo_sha256": "b194e4b5b8bf7a3e014d9fb46cdcf03e1e73dd265344960fc847b1cb72441bd8",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK12C.png",
+        "player_colour_mask": "RK12C_player_mask.png",
+        "albedo_sha256": "3d155d3d3ee67ff20c65e42736c1c0f7e753c86281d414ce74a550aab05690fa",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK13A.png",
+        "player_colour_mask": "RK13A_player_mask.png",
+        "albedo_sha256": "28d0f1d26239e3d3c30a507e6e7d03e5dcf9ec0cd80cf8137ccc463a2e19b329",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK13B.png",
+        "player_colour_mask": "RK13B_player_mask.png",
+        "albedo_sha256": "fb4b35ad46ce553b09ba27e54b4dbd612729e8d2e45f93733effb544901139c4",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK13C.png",
+        "player_colour_mask": "RK13C_player_mask.png",
+        "albedo_sha256": "e8da57730e5ef50b3458226f165ee3485ea537558b81e2a20c3549e8f8c57168",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK14A.png",
+        "player_colour_mask": "RK14A_player_mask.png",
+        "albedo_sha256": "e5bd40854f87c3d808f83f488aa9cdc835821723f1ee175fbe383b52febe8d9b",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK14B.png",
+        "player_colour_mask": "RK14B_player_mask.png",
+        "albedo_sha256": "b751fd8617602e46b1d2944135ff692e183559fbf63756984c8292820c0a1158",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK14C.png",
+        "player_colour_mask": "RK14C_player_mask.png",
+        "albedo_sha256": "ba70c6a0252417120a9cb8ac964cc6cb8dae8eda41e9bab004598fc564f71a07",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK15A.png",
+        "player_colour_mask": "RK15A_player_mask.png",
+        "albedo_sha256": "e1fd342d4dfc6d49aef244d680b5ee6a1f0f87c1841325dbe2fd70520f26db11",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK15B.png",
+        "player_colour_mask": "RK15B_player_mask.png",
+        "albedo_sha256": "7c2cbc6ef26f16424ba6328d8313f71be4befbb988fd83946468580b849a498b",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      },
+      {
+        "albedo": "RK15C.png",
+        "player_colour_mask": "RK15C_player_mask.png",
+        "albedo_sha256": "9c8f52097c2a04afb8a3d56c2e5c2a6f755830840415e73dd86f879fc61be623",
+        "mask_sha256": "99ff0b3aac9b9f3f257ac04938f62d1817c6fdadd2c6a4040830dc3965598968",
+        "recolourable": false,
+        "dimensions": [
+          128,
+          128
+        ]
+      }
+    ]
+  },
+  "placed": {
+    "ROCK1": {
+      "source_sha256": "af950c310ffe899c4c577e6bb2fdff8ec76f929b7fddfaccbe366db6b4cb473e",
+      "output_sha256": "e3587606ae8c65d246181a5729abef77fd9b5eaef1f6b8b3cfb0a293ed913b36",
+      "geometry_uv_physics_sha256": "020d5526a65a899e79f3dc26650261894eb1bede0c5df68a62c48db63d7ee561",
+      "geometry_uv_bytes_unchanged": true,
+      "triangles": 1153,
+      "textures": [
+        {
+          "albedo": "ROCK1_DES_0.png",
+          "player_colour_mask": "ROCK1_DES_0_player_mask.png",
+          "albedo_sha256": "2e04c170f0e29a53801b84a3e57d60d7996a2086d75a8590341218a05ea3b0c0",
+          "mask_sha256": "0f4b1668d119f77ceb6b86645573f088ab2341d7b284314d5df0be7226ea5d91",
+          "recolourable": false,
+          "dimensions": [
+            1024,
+            1024
+          ]
+        }
+      ]
+    },
+    "ROCK2": {
+      "source_sha256": "96850d24b1cdd471c3f0584a5bc62b806e78aa1c62a57d9a56573323dcff24a1",
+      "output_sha256": "ed89b6a81205a11cab67167e183e5a33fb6676d0fa8614f5c0b399d90f3f01e1",
+      "geometry_uv_physics_sha256": "cf11224a6932bc2f7b815bfa632ef8d5fb95c4238338212bbe0ad9ec0fa17ab1",
+      "geometry_uv_bytes_unchanged": true,
+      "triangles": 1114,
+      "textures": [
+        {
+          "albedo": "ROCK2_DES_0.png",
+          "player_colour_mask": "ROCK2_DES_0_player_mask.png",
+          "albedo_sha256": "6146eebf5996fda1e8189d730844afcb87848f0fff31fc03ac07ce5a583de262",
+          "mask_sha256": "0f4b1668d119f77ceb6b86645573f088ab2341d7b284314d5df0be7226ea5d91",
+          "recolourable": false,
+          "dimensions": [
+            1024,
+            1024
+          ]
+        }
+      ]
+    },
+    "ROCK3": {
+      "source_sha256": "be41a1c24ef5c339cdd1c6484ff650e9580c9bdeac1db77395c281a3b9a45f7f",
+      "output_sha256": "09d4a4f75f4c3266afe0c5a2106c5467791c0229a6f12a924c126190f3739668",
+      "geometry_uv_physics_sha256": "c3986bceeefe2e2111e211b56ce7e717449164104b86b54f5e907f076a4c647b",
+      "geometry_uv_bytes_unchanged": true,
+      "triangles": 1349,
+      "textures": [
+        {
+          "albedo": "ROCK3_DES_0.png",
+          "player_colour_mask": "ROCK3_DES_0_player_mask.png",
+          "albedo_sha256": "7a3e67ce9b844164c21001a05bd857bd21b0a178b3996a5e0977aafc543df96b",
+          "mask_sha256": "0f4b1668d119f77ceb6b86645573f088ab2341d7b284314d5df0be7226ea5d91",
+          "recolourable": false,
+          "dimensions": [
+            1024,
+            1024
+          ]
+        }
+      ]
+    },
+    "ROCK4": {
+      "source_sha256": "68e0a942858d90b7c7ee9c8ebee2121aa89f6f52eda59bda7f94bd0eb5272d64",
+      "output_sha256": "d99074501b0b83f8266fd2eeb83ee0ce2657c1e775fed1a4edae1190d3f6aad7",
+      "geometry_uv_physics_sha256": "a0af6af6ec33299639ad1b866d1f4fb2207c519e22883e1e0d7787dc851fae8e",
+      "geometry_uv_bytes_unchanged": true,
+      "triangles": 426,
+      "textures": [
+        {
+          "albedo": "ROCK4_DES_0.png",
+          "player_colour_mask": "ROCK4_DES_0_player_mask.png",
+          "albedo_sha256": "53db4a213f5e24c05a3b50d1dd63028ea203c44c1a3371986f4d11b2a90953cd",
+          "mask_sha256": "65795a5b91030a2a433dae510d1edf494082a9cfa1153cd94f3797759f68f257",
+          "recolourable": false,
+          "dimensions": [
+            512,
+            512
+          ]
+        }
+      ]
+    },
+    "ROCK5": {
+      "source_sha256": "2a311d08257953a5ed629858720a5b4ce462c88773b45ae16e36ce0e15042d0d",
+      "output_sha256": "88de10b48e30430ab671b5cad3a3769c1ef3dd0d1850acf204dfdb5aedcd798a",
+      "geometry_uv_physics_sha256": "b9923cd6dd77a7560fa0003cc7bcc8cc821902e0672a9851c129a8cb5a2433a6",
+      "geometry_uv_bytes_unchanged": true,
+      "triangles": 328,
+      "textures": [
+        {
+          "albedo": "ROCK5_DES_0.png",
+          "player_colour_mask": "ROCK5_DES_0_player_mask.png",
+          "albedo_sha256": "ce73f89831a8678eeee22d40fd7fc87dcc78deb6f284e0c088513d5d50cee384",
+          "mask_sha256": "65795a5b91030a2a433dae510d1edf494082a9cfa1153cd94f3797759f68f257",
+          "recolourable": false,
+          "dimensions": [
+            512,
+            512
+          ]
+        }
+      ]
+    },
+    "ROCK6": {
+      "source_sha256": "cbb0c0022cddd06f4dc519fea5a3316f75856efa0f242268e1d150e36b27bbdb",
+      "output_sha256": "0e9894eec2bf1ad4eece0ef2cab92de0a0114f7e52e90969776f270b5f8e208a",
+      "geometry_uv_physics_sha256": "7447ea486905218c8e5d4bade3f060369c04214f584789720fad75ab5ccd0e78",
+      "geometry_uv_bytes_unchanged": true,
+      "triangles": 1876,
+      "textures": [
+        {
+          "albedo": "ROCK6_DES_0.png",
+          "player_colour_mask": "ROCK6_DES_0_player_mask.png",
+          "albedo_sha256": "30daee25f3e098561b02ceb4c9f6c0b82a1f7f752bf28f18cca16f4992ebef44",
+          "mask_sha256": "0f4b1668d119f77ceb6b86645573f088ab2341d7b284314d5df0be7226ea5d91",
+          "recolourable": false,
+          "dimensions": [
+            1024,
+            1024
+          ]
+        }
+      ]
+    },
+    "ROCK7": {
+      "source_sha256": "4a5ede6900ba7b3f2fd99bb63570889f10205a1046d089d60c087bcd94195077",
+      "output_sha256": "9b80d6ed6df87b1bd405e1e735165ecd815849ce505691aa558d1bddbf2518a0",
+      "geometry_uv_physics_sha256": "9e7013fce762bb8dc17680a699207337fc1a442566e53645e785d89c3a816a2c",
+      "geometry_uv_bytes_unchanged": true,
+      "triangles": 1995,
+      "textures": [
+        {
+          "albedo": "ROCK7_DES_0.png",
+          "player_colour_mask": "ROCK7_DES_0_player_mask.png",
+          "albedo_sha256": "9f062bb77a1eea1917333abb4f9b80ba46963d0672daff3d726e88f1e08b12ac",
+          "mask_sha256": "0f4b1668d119f77ceb6b86645573f088ab2341d7b284314d5df0be7226ea5d91",
+          "recolourable": false,
+          "dimensions": [
+            1024,
+            1024
+          ]
+        }
+      ]
+    }
+  }
+}

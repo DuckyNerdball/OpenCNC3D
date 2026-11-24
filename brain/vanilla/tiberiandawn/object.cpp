@@ -25,6 +25,10 @@
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
+// MODIFIED for OpenCNC3D in November 2026. In a Rally match (rally.h) a racer can be
+// damaged even when its type is immune to combat damage (the hovercraft). Outside a
+// Rally match nothing changes. In a Rally match it DOES change the game simulation.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\object.cpv   2.17   16 Oct 1995 16:49:22   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -89,6 +93,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "rally.h"
 
 /*
 **	Selected objects have a special marking box around them. This is the shapes that are
@@ -1462,7 +1467,7 @@ ResultType ObjectClass::Take_Damage(int& damage, int distance, WarheadType warhe
     **	BuildingClass and UnitClass's own overrides) all treat RESULT_NONE as "nothing
     **	happened", which is the truth here.
     */
-    if (oldstrength && damage && !Class_Of().IsImmune && !OpenCNC3D_Is_Invincible()) {
+    if (oldstrength && damage && (!Class_Of().IsImmune || Rally_Mortal(this)) && !OpenCNC3D_Is_Invincible()) {
         int maxstrength = Class_Of().MaxStrength;
 
         /*

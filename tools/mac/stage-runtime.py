@@ -31,21 +31,56 @@ for name in targets:
     if target.is_symlink():
         raise SystemExit('Runtime executable must be a regular file: ' + str(target))
     shutil.copy2(binary, target)
-# A normal launch must find the ground used by preview and verification runs.
-for asset in ['bibenh.pack','clearblend_TEMPERAT.pack','clearblend_DESERT.pack','groundmask_DESERT.pack','clearblend_RA_SNOW.pack','groundmask_RA_SNOW.pack','grassmask_TEMPERAT.pack','waterbase_RA_TEMPERAT.pack','coastmask_TEMPERAT.pack','coastmask_DESERT.pack','coastmask_WINTER.pack','coastmask_SNOW.pack','waterbase_WINTER.pack','waterbase_SNOW.pack']:
-    ground = Path(__file__).resolve().parents[2] / 'game' / asset
-    if ground.is_file():
-        with tempfile.NamedTemporaryFile(dir=runtime, prefix='.clear-ground-', delete=False) as f:
-            temporary = Path(f.name)
-        shutil.copy2(ground, temporary)
-        os.replace(temporary, runtime / ground.name)
-# Keep source-placed scenery and its removal mattes inseparable on a code-only update.
-mineral_installed = (runtime / 'stone-materials/v01/MANIFEST.json').is_file() or (runtime / 'stonematerials.pack').is_file()
-subprocess.run([sys.executable,str(Path(__file__).resolve().parents[2]/'tools/art/terrain/stage_desert_details.py'),str(runtime)],check=True)
-# Scenery staging restores raw rock albedo packs. Existing mapped installations
-# must receive their paired mineral normals/specular data after that final copy.
-if mineral_installed:
-    subprocess.run([sys.executable,str(Path(__file__).resolve().parents[2]/'tools/art/rocks/stage_stone_materials.py'),str(runtime)],check=True)
+# A map importer is incomplete without its paired archive reader. Stage only
+# these verified dependencies here; no broad terrain/art rebake is involved.
+if b'MAPIMPORT|item|' in binary.read_bytes():
+    import hashlib
+    import json
+    dependency = binary.parent / 'libmaparchive.dylib'
+    manifest = binary.parent / 'map-archive.json'
+    notices = binary.parent / 'map-archive-LICENSE.txt'
+    assert dependency.is_file() and manifest.is_file() and notices.is_file(), 'Missing paired map archive reader/notices'
+    record = json.loads(manifest.read_text())
+    assert hashlib.sha256(dependency.read_bytes()).hexdigest() == record['sha256'], 'Map archive dependency hash mismatch'
+    for folder in [runtime] + ([runtime / 'ra3d'] if (runtime / 'ra3d').is_dir() else []):
+        for source in [dependency, manifest, notices]:
+            target = folder / source.name
+            assert not target.is_symlink(), target
+            shutil.copy2(source, target)
+# Code-only integration preserves the installation's independently authored artwork.
+if os.environ.get('OPENCNC3D_CODE_ONLY') != '1':
+    # A normal launch must find the ground used by preview and verification runs.
+    for asset in ['bibenh.pack','clearblend_TEMPERAT.pack','clearblend_DESERT.pack','groundmask_DESERT.pack','clearblend_RA_SNOW.pack','groundmask_RA_SNOW.pack','grassmask_TEMPERAT.pack','waterbase_RA_TEMPERAT.pack','coastmask_TEMPERAT.pack','coastmask_DESERT.pack','coastmask_WINTER.pack','coastmask_SNOW.pack','waterbase_WINTER.pack','waterbase_SNOW.pack']:
+        ground = Path(__file__).resolve().parents[2] / 'game' / asset
+        if ground.is_file():
+            with tempfile.NamedTemporaryFile(dir=runtime, prefix='.clear-ground-', delete=False) as f:
+                temporary = Path(f.name)
+            shutil.copy2(ground, temporary)
+            os.replace(temporary, runtime / ground.name)
+    # Keep source-placed scenery and its removal mattes inseparable on a code-only update.
+    mineral_installed = (runtime / 'stone-materials/v01/MANIFEST.json').is_file() or (runtime / 'stonematerials.pack').is_file()
+    subprocess.run([sys.executable,str(Path(__file__).resolve().parents[2]/'tools/art/terrain/stage_desert_details.py'),str(runtime)],check=True)
+    # Scenery staging restores raw rock albedo packs. Existing mapped installations
+    # must receive their paired mineral normals/specular data after that final copy.
+    if mineral_installed:
+        subprocess.run([sys.executable,str(Path(__file__).resolve().parents[2]/'tools/art/rocks/stage_stone_materials.py'),str(runtime)],check=True)
+    # Experimental Minigunner pixels are a runtime asset, not a browser dependency.
+    sprites = Path(__file__).resolve().parents[2] / 'game/sprites'
+    if sprites.is_dir():
+        (runtime / 'sprites').mkdir(exist_ok=True)
+        for name in ('e1-v15.pack', 'e1-v15-player-mask.png', 'manifest.json'):
+            shutil.copy2(sprites / name, runtime / 'sprites' / name)
+# Approved native skinned Ant and its separate mask/provenance package.
+ant = Path(__file__).resolve().parents[2] / 'game/ant_ra'
+if ant.is_dir() and (runtime / 'ra3d').is_dir():
+    destination = runtime / 'ra3d/3d/ant'
+    destination.mkdir(parents=True, exist_ok=True)
+    for source in ant.iterdir():
+        if source.is_file():
+            target = destination / source.name
+            if target.is_symlink():
+                raise SystemExit('Refusing Ant asset symlink: ' + str(target))
+            shutil.copy2(source, target)
 record = '# Local source build; no verified release asset data ID.\nversion ' + version + '\ndata_id unknown\n'
 if not os.environ.get('OPENCNC3D_COOKED'):
     record += 'private_developer 1\n'

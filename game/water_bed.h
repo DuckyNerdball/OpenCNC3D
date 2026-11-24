@@ -11,7 +11,7 @@ static bool water_bed_draw(bool normalPass=false)
     const auto& cells=water_cells();
     const GLuint dirt=g_pack.seabedTex>=0 && g_pack.seabedTex<(int)g_pack.tex.size()?g_pack.tex[g_pack.seabedTex].gl:0;
     GLint prior=0;glGetIntegerv(GL_CURRENT_PROGRAM,&prior);
-    glPushAttrib(GL_ENABLE_BIT|GL_TEXTURE_BIT|GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT|GL_CURRENT_BIT);
+    glPushAttrib(GL_ENABLE_BIT|GL_TEXTURE_BIT|GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT|GL_CURRENT_BIT|GL_POLYGON_BIT);
     glDisable(GL_ALPHA_TEST);glDisable(GL_BLEND);glDisable(GL_CULL_FACE);glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(GL_TRUE);
     static const int dx[6]={0,0,1,1,0,1},dz[6]={0,1,0,0,1,1};
     if(const char* path=getenv("OPENCNC3D_WATER_PLANE_DUMP"))if(*path)if(FILE* f=fopen(path,"wb")) {
@@ -34,6 +34,17 @@ static bool water_bed_draw(bool normalPass=false)
             glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
             const float repeats=painted?water_base_repeats():1.0f;
             const bool oneSun=fx_unified_lighting() || (g_fxActive && g_fx.sun_lambert && g_fx.terrain_normals);
+            // THE FLOOR IS A BACKGROUND, never a coplanar competitor to the ground drawn
+            // over it. Under the geometric rock relief a falls cell's ground is the
+            // subdivided surface, and wherever that surface's relief is zero it lies in
+            // the very plane of these two triangles: a different tessellation of one
+            // plane, so the depth test picked between them pixel by pixel and the pale
+            // gravel showed on the falls' rock in striped patches that crawled as the
+            // camera moved. Pushed back by the same bias the cartridge path's floor
+            // takes against that surface (draw_seabed), it loses every tie, and still
+            // shows wherever the ground is cut away to let it.
+            const bool lowerBed=terrain_surface_bed_bias();
+            if(lowerBed){glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(1.0f,2.0f);}
             glBegin(GL_TRIANGLES);
             for(const auto& c:cells)if(!water_plane_covers(c) && water_cell_wet(c) && cell_shown(c.x,c.y) && cell_in_view(c.x,c.y)) {
                 for(int k=0;k<6;k++) {

@@ -1,0 +1,17 @@
+# G475, the joiner: it only watches. Its last dump must hold the host's two Minigunners
+# and Grenadier, built from the host's queued starts alone.
+tick 5
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 250
+tick 300
+tick 30
+tick 300
+tick 60
+tick 3
+tick 1200
+tick 4
+objdump
+tick 3000
+objdump
+quit

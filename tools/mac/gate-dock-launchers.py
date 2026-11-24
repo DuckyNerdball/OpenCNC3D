@@ -6,6 +6,19 @@ import json
 import os
 from pathlib import Path
 import plistlib
+from urllib.parse import unquote, urlparse
+
+
+def current_dock_bundles():
+    """Read actual pinned entries; a similarly named app elsewhere is not proof."""
+    preferences = Path.home() / 'Library/Preferences/com.apple.dock.plist'
+    result = []
+    for entry in plistlib.loads(preferences.read_bytes()).get('persistent-apps', []):
+        url = entry.get('tile-data', {}).get('file-data', {}).get('_CFURLString', '')
+        path = Path(unquote(urlparse(url).path))
+        if path.name in ('C&C3D.app', 'OpenCNC3D.app'):
+            result.append(path.resolve())
+    return result
 
 
 def check(runtime, repair=False):
@@ -36,6 +49,11 @@ if __name__=='__main__':
     p.add_argument('runtime',type=Path)
     p.add_argument('--repair',action='store_true',help='Restore execute bits; preserve every byte')
     p.add_argument('--output',type=Path)
+    p.add_argument('--actual-dock', action='store_true', help='Require this runtime to be the actual pinned game target')
     a=p.parse_args(); result=check(a.runtime.resolve(),a.repair)
+    if a.actual_dock:
+        bundles=current_dock_bundles()
+        assert any(b.parent == a.runtime.resolve() for b in bundles), 'Runtime differs from the actual Dock target: '+str(bundles)
+        result['actual_dock_bundles']=[str(b) for b in bundles]
     if a.output:a.output.write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result,indent=2))

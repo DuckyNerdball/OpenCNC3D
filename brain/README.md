@@ -26,8 +26,8 @@ Phase 2 is **IN PROGRESS**. The current implementation contains:
 - Windows and macOS build-driver work that builds `RedAlert` beside `TiberianDawn` while
   keeping the temporary Red Alert bootstrap library out of the shipped module package.
 
-The local 32-bit MinGW Windows build produced `RedAlert.dll` and `ra_bootstrap.exe`, and
-the two-run gate passed. Its canonical report records API 258, requested seed input
+The local 32-bit (i686) MinGW Windows build, before Windows went 64-bit only, produced
+`RedAlert.dll` and `ra_bootstrap.exe`, and the two-run gate passed. Its canonical report records API 258, requested seed input
 19005, `RA3DBOOT`,
 Temperate theater 2, rectangle `20,20,24,24`, and a live mission timer decreasing from 20
 at tick 0 to 16 at tick 60. A macOS runtime result and byte-for-byte comparison of the two
@@ -80,7 +80,8 @@ python3 tools/ra3d/compare-bootstrap-reports.py \
   build/ra3d/ra-bootstrap-windows.txt
 ```
 
-The equivalent gate passed locally against a 32-bit MinGW Windows build. The macOS command
+The equivalent gate passed locally against a 32-bit (i686) MinGW Windows build, before
+Windows went 64-bit only; it has not been run against an x86_64 build yet. The macOS command
 and final comparison are wired into CI but have not yet supplied the two-platform Phase 2
 exit proof.
 
@@ -140,10 +141,11 @@ stay true: `tools/check-brain-checkout.sh` fetches upstream at the commit pinned
 byte for byte. CI runs it on every push. So if you edit the checkout, regenerate the patch
 in the same commit; if you move upstream, re-pin `UPSTREAM.txt` in the same commit.
 
-## The four portability patches (and why each is Win98-safe)
+## The four portability patches
 
-The Win98 + Voodoo2 target is the reason the brain must stay dependency-free. Every patch
-is additive and disappears or still applies on a 32-bit Windows build.
+The brain was kept dependency-free for a Windows 98 + Voodoo2 target that has since been
+dropped, and it stays dependency-free. Every patch is additive and applies unchanged to the
+Windows build, which is 64-bit (x86_64) only.
 
 1. **`wwkeyboard_null.cpp`**: `COMMONR_SRC` was already headless (`soundio_null`,
    `video_null`) but hardcoded `wwkeyboard_win32.cpp`, the sole reason the target refused

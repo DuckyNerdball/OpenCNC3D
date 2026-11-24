@@ -73,6 +73,7 @@ static bool g_fxPresetNamed=false,g_fxDisplayPresetLoaded=false,g_optOpen=false,
 static bool opt_run_is_automated(){return automated;}
 static int shell_automated(){return automated?1:0;}
 static int fxp_is_open(){return panel;}
+static void game_diagnostics_configuration(){}
 static void opt_visuals_adopt(){g_visOnDisk=g_fx;}
 static void res_desktop(int*dw,int*dh,int*uw,int*uh){*dw=1920;*dh=1080;*uw=1920;*uh=1040;}
 @FUNCTIONS@
@@ -81,7 +82,7 @@ static std::string readall(const std::string& path){std::ifstream f(path,std::io
 static std::string currentline;
 static const int MUTED=0;
 static void text(const std::string&s,int,int,int){currentline=s;}
-static void current_status(DOPT_State*st){@STATUS@}
+static void current_status(DOPT_State*st){struct { bool compact; } v = {false}; @STATUS@}
 static void capture_drawable(int fbw,int fbh){@ASSIGNMENTS@}
 static int failures=0;
 static void check(bool v,const char*n){printf("DISPLAYTEST|%s|%s\n",v?"pass":"FAIL",n);if(!v)failures++;}
@@ -108,10 +109,10 @@ int main(int argc,char**argv){
  reset();g_fxPresetNamed=true;g_fxDisplayPresetLoaded=false;check(!game_display_wanted(path.c_str(),&mode,&rw,&rh),"missing named gfx is not a restored display preset");
  reset();snprintf(g_visCfgPath,sizeof g_visCfgPath,"%s",(path+"-missing").c_str());g_fxDisplayPresetLoaded=false;check(!game_display_wanted(path.c_str(),&mode,&rw,&rh),"missing visualscfg is not a restored borderless preference");
  reset();game_display_started(0,1280,720);snprintf(g_visCfgPath,sizeof g_visCfgPath,"%s",path.c_str());fx_save(&g_fx,path.c_str());auto before=readall(path);fullfail=1;fs_handle_event(&e);check((int)g_fx.display_mode==0&&readall(path)==before,"failed keyboard mode switch does not persist a false mode");
- reset();DOPT_Visuals v={};v.dispmode=2;v.nres=1;g_fx.display_mode=0;g_fx.res_w=1280;g_fx.res_h=720;modefail=1;opt_apply_display(&v);check((int)g_fx.display_mode==0&&g_fx.res_w==1280,"failed Visuals mode application does not commit requested dial");
- reset();fs_apply_mode(&window,2,1280,720);game_display_started(2,1280,720);v={};v.dispmode=2;v.nres=1;modefail=1;opt_apply_display(&v);check(fs_window_mode(&window)==2&&window.w==1280&&window.h==720&&(int)g_fx.display_mode==2&&g_fx.res_w==1280,"rejected preferred mode rolls back prior exclusive mode and dial");
- reset();fs_apply_mode(&window,2,1280,720);game_display_started(2,1280,720);fullcalls=0;fail_full_calls={2};v={};v.dispmode=2;v.nres=1;opt_apply_display(&v);check(fs_window_mode(&window)==2&&window.w==1280&&window.h==720&&g_fx.res_w==1280,"rejected exclusive entry rolls back previous preferred mode and flags");
- reset();fs_apply_mode(&window,2,1280,720);game_display_started(2,1280,720);fullcalls=0;fail_full_calls={2,4};v={};v.dispmode=2;v.nres=1;g_optOpen=true;opt_apply_display(&v);check(fs_window_mode(&window)==0&&(int)g_fx.display_mode==0&&g_fx.res_w==1280&&g_optState.vis.dispmode==0,"rollback rejection reconciles live windowed mode and modal selector");
+ reset();DOPT_Visuals v={};v.dispmode=2;v.nres=1;v.resolution_changed=1;g_fx.display_mode=0;g_fx.res_w=1280;g_fx.res_h=720;modefail=1;opt_apply_display(&v);check((int)g_fx.display_mode==0&&g_fx.res_w==1280,"failed Visuals mode application does not commit requested dial");
+ reset();fs_apply_mode(&window,2,1280,720);game_display_started(2,1280,720);v={};v.dispmode=2;v.nres=1;v.resolution_changed=1;modefail=1;opt_apply_display(&v);check(fs_window_mode(&window)==2&&window.w==1280&&window.h==720&&(int)g_fx.display_mode==2&&g_fx.res_w==1280,"rejected preferred mode rolls back prior exclusive mode and dial");
+ reset();fs_apply_mode(&window,2,1280,720);game_display_started(2,1280,720);fullcalls=0;fail_full_calls={2};v={};v.dispmode=2;v.nres=1;v.resolution_changed=1;opt_apply_display(&v);check(fs_window_mode(&window)==2&&window.w==1280&&window.h==720&&g_fx.res_w==1280,"rejected exclusive entry rolls back previous preferred mode and flags");
+ reset();fs_apply_mode(&window,2,1280,720);game_display_started(2,1280,720);fullcalls=0;fail_full_calls={2,4};v={};v.dispmode=2;v.nres=1;v.resolution_changed=1;g_optOpen=true;opt_apply_display(&v);check(fs_window_mode(&window)==0&&(int)g_fx.display_mode==0&&g_fx.res_w==1280&&g_optState.vis.dispmode==0,"rollback rejection reconciles live windowed mode and modal selector");
  reset();deskfail=1;fs_apply_mode(&window,2,0,0);app_startup_display_sync(&window,0,0);check((int)g_fx.display_mode==0&&g_fx.res_w==1280,"startup fullscreen failure reports actual windowed mode without saving");
  reset();setenv("OPENCNC3D_BACKGROUND","1",1);before=readall(path);snprintf(g_visCfgPath,sizeof g_visCfgPath,"%s",path.c_str());int initial=(int)g_fx.display_mode;check(!(fs_initial_flags(2)&SDL_WINDOW_FULLSCREEN),"background startup flags never enter fullscreen");check(!fs_apply_mode(&window,2,0,0),"background helper refuses display mode change");fs_handle_event(&e);game_display_changed(&window,2);app_startup_display_sync(&window,0,0);check(calls.empty()&&(int)g_fx.display_mode==initial&&readall(path)==before,"background keyboard and persistence callback leave display and config alone");
  reset();window.flags|=SDL_WINDOW_HIDDEN;check(!fs_apply_mode(&window,2,0,0),"hidden window refuses mode change");fs_handle_event(&e);check(calls.empty(),"hidden keyboard shortcut changes no mode");

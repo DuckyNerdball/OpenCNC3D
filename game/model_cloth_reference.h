@@ -3,6 +3,16 @@
 #include <stddef.h>
 #include <math.h>
 
+/* THE CLOTH COLOUR'S REFERENCE BRIGHTNESS. A side's cloth colour replaces the fabric's
+   paint with that colour scaled by the paint's own brightness over this number, so the
+   camouflage pattern, the seams and the shading all survive as light and dark of the new
+   colour, and fabric of average brightness comes out as exactly the colour chosen.
+   Measured: the mean linear luminance of the Tempest Rising rifleman's colour map under
+   his cloth mask (T_GDI_Rifleman_D under T_GDI_Rifleman_Cloth), which is the only sheet
+   that carries one. A second soldier with fabric of a different brightness needs its own
+   number, carried per material, before this constant is shared with it. */
+#define M3_CLOTH_REF 0.0820f
+
 /* The explicit ORM alpha is linear coverage, not a colour classification. Only its
    paired albedo participates. Keep every shade and pattern relative to this material's
    measured mean instead of borrowing the luminance of an older soldier's texture. */

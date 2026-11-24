@@ -13,6 +13,12 @@
 # happen to have terrain -- the ROM carries spares (SCB21EA, SCG30EA, SCG90EA and 16
 # more) that nothing in the flow ever selects.
 #
+# THIS IS NOT THE MOVIE LIST. tools/extract_movies.py asks for the movies of every
+# campaign mission file in game/missions (SCG and SCB 02 to 15, every variant), which
+# includes Nod variants this list leaves out (SCB04EB, SCB07EC, SCB10EB among them, all
+# offered by the Nod map). The two lists answer different questions and are kept apart
+# on purpose; widening this one is a terrain-gate decision, not a movie one.
+#
 # WHAT IS CHECKED, and why each one earns its place:
 #
 #   theater=NAME       the pack really bound a tile set, not a blank

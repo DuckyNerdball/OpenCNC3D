@@ -10,8 +10,8 @@ straight out of disc images that public mirrors already host, on archive.org: th
 from the two 1995 C&C Gold discs, which Electronic Arts released as freeware in 2007 (with
 a files.cncnz.com copy of each as one more mirror), and the whole score from the Covert
 Operations disc image, because the Gold discs carry only part of it (below). The Covert
-Operations image has a single mirror, and its standing as freeware is less clear than
-the Gold discs'.
+Operations image uses the archive download endpoint and verified storage replicas; its
+standing as freeware is less clear than the Gold discs'.
 
 The Red Alert module's movies and score come the same way, under the same two boxes,
 from the two 1996 Red Alert discs that Electronic Arts released as freeware in 2008, and
@@ -64,10 +64,10 @@ legacy <component> <relpath>
 
 ## What the player gets
 
-**Movies**: the 75 files of `data/dosdata/movies`, each one contiguous entry of a disc's
+**Movies**: the 90 files of `data/dosdata/movies`, each one contiguous entry of a disc's
 `MOVIES.MIX`, written as loose `dosdata/movies/<NAME>.VQA` because the game's movie
 player opens loose files only. The GDI disc is searched first, then the Nod disc, then
-the Covert Operations disc; all 75 are on the first two (49 GDI, 26 Nod).
+the Covert Operations disc; all 90 are on the first two (55 GDI, 35 Nod).
 
 **Music**: whole archives, written where the game looks for them:
 
@@ -124,7 +124,10 @@ movies for the same reason.
 - COVERT: the 2048-byte-sector image in the archive.org item of the Worldwide Warfare
   compilation. It is the only copy found that serves byte ranges: the files.cncnz.com zip
   is deflated, and the archive.org copies of the retail disc are raw 2352-byte-sector
-  images, in which a file is not one contiguous range. So the music has ONE mirror today.
+  images, in which a file is not one contiguous range. The archive download endpoint and
+  its two official storage replicas serve the same image. The replicas are listed by
+  the item metadata and must pass the same layout, media-byte and release-probe checks;
+  no media file, offset or checksum changes when a mirror is added.
 - RA_ALLIED and RA_SOVIET: the archive.org item `cnc-red-alert`, `redalert_allied.iso`
   and `redalert_soviets.iso`, the images `data/radata` was extracted from (MD5
   `13e213c7...` and `b6eddcf8...`). One mirror each; no second copy that serves ranges has

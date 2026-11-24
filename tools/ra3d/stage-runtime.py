@@ -19,6 +19,26 @@ MEDIA_LIST = ROOT / 'tools/media/media-paths.txt'
 MODULE = 'ra3d'
 
 
+def stage_catalogs(source, out):
+    # These enable the native Mission Disks and secret Ant pickers. They must
+    # travel with the original missions and their own scenes through release staging.
+    for name in ('skirmish-maps.txt', 'expansions.txt', 'ants.txt', 'expansions-manifest.json'):
+        if (source / name).is_file():
+            shutil.copy2(source / name, out / name)
+
+
+def stage_ants(out):
+    source = ROOT / 'game/ant_ra'
+    required = ('ANT.c3m', 'ANTFX.c3m', 'ANT.rig')
+    if any(not (source / name).is_file() for name in required):
+        raise ValueError('Missing approved Ant runtime files in current source')
+    target = out / '3d' / 'ant'
+    target.mkdir(parents=True, exist_ok=True)
+    for path in sorted(source.iterdir()):
+        if path.is_file() and path.suffix in ('.c3m', '.rig', '.png'):
+            shutil.copy2(path, target / path.name)
+
+
 def module_media(media_list=MEDIA_LIST, module=MODULE):
     """The media list's paths inside the module, relative to it, in lower case and with
     no trailing slash. Read the way every reader of the list reads it: '#' starts a
@@ -78,9 +98,8 @@ def main():
             left_out.add(name + '/')
             continue
         shutil.copytree(src, args.out / name, dirs_exist_ok=True, ignore=skip_media)
-    # The multiplayer map list a skirmish screen reads (bake-ra-map-previews.py).
-    if (args.source / 'skirmish-maps.txt').is_file():
-        shutil.copy2(args.source / 'skirmish-maps.txt', args.out / 'skirmish-maps.txt')
+    stage_catalogs(args.source, args.out)
+    stage_ants(args.out)
     for pack in args.source.glob('*.pack'):
         if is_media(pack.name):
             left_out.add(pack.name)
@@ -88,7 +107,9 @@ def main():
         shutil.copy2(pack, args.out / pack.name)
     for binary in (args.app, args.brain):
         shutil.copy2(binary, args.out / binary.name)
-    libraries = ('SDL2.dll',) if dll else ('libSDL2-2.0.0.dylib', 'libSDL3.dylib')
+    # The Windows programs link SDL statically, so the Windows module carries no SDL2.dll
+    # (asked of the result below); the macOS app still loads its libraries from beside it.
+    libraries = ('archive.dll', 'map-archive.json', 'map-archive-LICENSE.txt') if dll else ('libSDL2-2.0.0.dylib', 'libSDL3.dylib', 'libmaparchive.dylib', 'map-archive.json', 'map-archive-LICENSE.txt')
     for name in libraries:
         shutil.copy2(args.app.parent / name, args.out / name)
     # RA can now be installed into an empty launcher. Its shared soldiers must
@@ -108,6 +129,15 @@ def main():
     if present:
         sys.exit(f'stage-runtime: {args.out} holds media no package carries: '
                  f'{", ".join(present)}. Stage into an empty folder.')
+    # NO SDL2.dll IN THE WINDOWS MODULE, asked of the result for the same reason. One left
+    # in the folder by an older staging would reach players, and a launcher from v0.9.0
+    # to v0.9.2, a 32-bit program, loads the SDL2.dll in its own folder.
+    stale = sorted(p.relative_to(args.out).as_posix() for p in args.out.rglob('*')
+                   if p.name.lower() == 'sdl2.dll') if dll else []
+    if stale:
+        sys.exit(f'stage-runtime: {args.out} holds {", ".join(stale)}, and the Windows '
+                 'programs link SDL statically, so no Windows module carries one. '
+                 'Stage into an empty folder.')
     if left_out:
         print(f'RA media left out ({MEDIA_LIST.relative_to(ROOT)}): {", ".join(sorted(left_out))}')
     print(f'RA runtime staged in {args.out}')

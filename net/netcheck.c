@@ -214,12 +214,12 @@ typedef struct {
    the SAME orders in the SAME order, which is the property lockstep exists to provide.
 
    IT IS 32 BITS ON PURPOSE, AND MASKED, and this is not fussiness. It was written as an
-   unsigned long, which is 64 bits on a 64 bit build and 32 on a 32 bit one, so the two
-   ends printed digests of different widths from an identical order stream: measured, a
-   32 bit peer said E2668540 while a 64 bit peer said F749997BE2668540, the same low half
-   with the top half missing. A person comparing those two lines would conclude lockstep
-   had failed. The project ships a 64 bit build on one platform and a 32 bit build on the
-   other, so that is not a corner case, it is the exact pairing this tool exists to
+   unsigned long, which is 64 bits on macOS and 32 on Windows (at either program width),
+   so the two ends printed digests of different widths from an identical order stream:
+   measured, a 32 bit peer said E2668540 while a 64 bit peer said F749997BE2668540, the
+   same low half with the top half missing. A person comparing those two lines would
+   conclude lockstep had failed. The two platforms the project ships disagree on the width
+   of a long, so that is not a corner case, it is the exact pairing this tool exists to
    check, and a diagnostic that misreports the thing it was written to measure is worse
    than not having one. Anything compared BETWEEN peers is fixed width from here on. */
 static void sink(void* user, int seat, const void* bytes, int len)

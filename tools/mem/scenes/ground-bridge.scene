@@ -1,0 +1,47 @@
+# Red Alert, Soviet mission 2 (SCU02EA, temperate): the ground sheet built again in the
+# middle of a mission, twice. A bridge blown changes the map's templates, and so does a
+# save loaded from before the blast (it puts the bridge back); each moves the map's
+# revision and rebuilds the ground for the changed map (ra3d_terrain.h). Frames the
+# bridge at tick 30, saves, blows both spans (60,55 and 58,57, as gate G395 does),
+# frames the gap from two sides, loads the save and frames the bridge standing again.
+game: ra
+scen: SCU02EA
+modes: enh,n64
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 30
+frames 2
+memledger t30
+cam 60 56
+frames 2
+shot {OUT}/t0030_bridge.png
+save 1 bridge standing
+hurtcell 60 55
+tick 3
+hurtcell 60 55
+tick 3
+hurtcell 58 57
+tick 3
+hurtcell 58 57
+tick 40
+frames 2
+memledger blown
+cam 60 56
+frames 2
+shot {OUT}/t0079_blown.png
+cam 57.5 58.5
+frames 2
+shot {OUT}/t0079_blown_b.png
+load 1
+tick 1
+frames 2
+memledger loaded
+cam 60 56
+frames 2
+shot {OUT}/loaded_bridge.png
+tick 20
+frames 2
+shot {OUT}/loaded_t20.png
+quit

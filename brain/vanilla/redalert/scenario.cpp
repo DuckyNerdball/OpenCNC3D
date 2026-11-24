@@ -1,3 +1,4 @@
+// MODIFIED for OpenCNC3D. The extra starts a map with too few start points needs are drawn column then row in two statements, so every compiler deals them alike.
 //
 // Copyright 2020 Electronic Arts Inc.
 //
@@ -60,6 +61,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "../common/fire_visibility.h"
 #include "msgbox.h"
 #include "textbtn.h"
 #include "factory.h"
@@ -754,6 +756,7 @@ void Post_Load_Game(int load_multi)
  *=============================================================================================*/
 void Clear_Scenario(void)
 {
+    g_cncFireVisibility.clear();
     // TCTCTC -- possibly just use in-place new of scenario object?
     ChronalVortex.Stop();
 
@@ -2340,6 +2343,21 @@ bool Read_Scenario_INI(char* fname, bool)
         PlayerPtr->Control.InitialCredits += carryover;
     } else {
 #ifdef REMASTER_BUILD
+        /*
+        ** OpenCNC3D: GlyphX_Assign_Houses decides whether the seats' chosen start locations
+        ** are used by counting the map's start waypoints in Scen.Waypoint, but Map.Read_INI,
+        ** which fills Scen.Waypoint, only runs further down, and Clear_Scenario has just set
+        ** every entry to -1. So no start was ever counted, every pick was dropped and
+        ** Create_Units dealt every seat as though it had asked for a random start. Tiberian
+        ** Dawn reads the map before it assigns houses and never had this fault. The entries
+        ** the assignment scans are read here, values only; Map.Read_INI reads the same values
+        ** again and marks their cells.
+        */
+        for (int opencnc3d_wp = 0; opencnc3d_wp < 26; opencnc3d_wp++) {
+            char opencnc3d_key[8];
+            sprintf(opencnc3d_key, "%d", opencnc3d_wp);
+            Scen.Waypoint[opencnc3d_wp] = ini.Get_Int("Waypoints", opencnc3d_key, -1);
+        }
         // Call the new Assign_Houses function. ST - 8/8/2019 12:35PM
         // Assign_Houses();
         GlyphX_Assign_Houses();
@@ -3178,8 +3196,16 @@ static void Create_Units(bool official)
     //	int deficiency = (Session.Players.Count() + Session.Options.AIPlayers) - num_waypts;
     if (deficiency > 0) {
         for (int index = 0; index < deficiency; index++) {
-            CELL trycell = XY_Cell(Map.MapCellX + Random_Pick(0, Map.MapCellWidth - 1),
-                                   Map.MapCellY + Random_Pick(0, Map.MapCellHeight - 1));
+            /*
+            **	OpenCNC3D: the two draws are taken one statement at a time. As two arguments of
+            **	one call their order is unspecified in C++, and the macOS and Windows compilers
+            **	take them in opposite orders, so a Mac and a Windows peer of one match dealt
+            **	different starts on any map with fewer start points than players. Column first,
+            **	the order the macOS build always used.
+            */
+            int opencnc3d_col = Random_Pick(0, Map.MapCellWidth - 1);
+            int opencnc3d_row = Random_Pick(0, Map.MapCellHeight - 1);
+            CELL trycell = XY_Cell(Map.MapCellX + opencnc3d_col, Map.MapCellY + opencnc3d_row);
 
             trycell = Map.Nearby_Location(trycell, SPEED_TRACK);
             waypts[num_waypts] = trycell;
@@ -3277,6 +3303,34 @@ static void Create_Units(bool official)
             **
             ** ST - 1/8/2020 3:39PM
             */
+
+            /*
+            ** OpenCNC3D: the index is checked before waypts is read with it. GlyphX_Assign_Houses
+            ** gives a random seat -1 once every start in its pool is dealt (two chosen starts and
+            ** two random seats on a two-start map), and a chosen start can lie beyond the
+            ** locations this map has (a pick made against another map, or on the command line).
+            ** Either index read waypts outside what the loop above filled, so the house began
+            ** wherever that memory pointed, which can differ between builds and so between the
+            ** peers of one match. Such a house takes the first location no other house holds;
+            ** the deficiency fill above made at least one location per player.
+            */
+            if (hptr->StartLocationOverride < 0 || hptr->StartLocationOverride >= num_waypts) {
+                int opencnc3d_free = 0;
+                for (int w = 0; w < num_waypts; w++) {
+                    bool held = false;
+                    for (HousesType h2 = HOUSE_MULTI1; h2 < (HOUSE_MULTI1 + Session.MaxPlayers); h2++) {
+                        HouseClass* other = HouseClass::As_Pointer(h2);
+                        if (other != NULL && other != hptr && other->StartLocationOverride == w) {
+                            held = true;
+                        }
+                    }
+                    if (!held) {
+                        opencnc3d_free = w;
+                        break;
+                    }
+                }
+                hptr->StartLocationOverride = opencnc3d_free;
+            }
             centroid = waypts[hptr->StartLocationOverride];
         }
 #endif

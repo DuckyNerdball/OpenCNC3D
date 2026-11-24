@@ -68,6 +68,7 @@ struct EfxAnim {
        an ART-LESS anim, whose Stages resolves through Get_Build_Frame_Count(NULL) to 0.
        See the ghost clock at EfxGhost below. 0 when the brain does not export it. */
     int  biggest;
+    int  ssmlBullet = -1;       /* Dawn Honest John smoke provenance */
     /* Whose wreckage this anim's chunks are. -2 = not yet resolved; resolved ONCE at
        the first chunk burst and reused, because the stamp the dead vehicle left on its
        cell ages out while the anim is still bursting. */
@@ -78,6 +79,7 @@ struct EfxAnim {
 
 struct EfxBullet {
     int  id, type, face, alt, invis, arcing, homing;
+    int  arcStep, arcTicks;     /* Dawn Honest John flight clock */
     char name[16];
     /* The picture it flies as (BulletTypeClass's graphic, "120MM", "DRAGON"), from a brain
        whose bullet names are not their pictures (Red Alert's "Cannon", "HeatSeeker"); "?"
@@ -147,6 +149,8 @@ static void efx_bullet_draw_model(int mi, float wx, float ylift, float wz, int f
    it answers true, the offset is added to where the bullet model is drawn, so the round
    leaves the barrel its flash played at and its trail runs through it. NULL, or false for
    a bullet it knows nothing of: drawn where the engine says, as always. */
+static bool (*g_efxSmokeReplaced)(const EfxAnim&) = NULL;
+static bool (*g_efxBulletReplaced)(const EfxBullet&) = NULL;
 static bool (*g_efxBulletOffset)(int id, int type, float wx, float wz, float out[3]) = NULL;
 
 /* RED ALERT'S ANIMS IN TIBERIAN DAWN'S NUMBERS. Every table in this file (the recipes, the
@@ -592,6 +596,7 @@ static void efx_parse_line(char* line)
            would be worse than one that emits once. */
         a.biggest = efx_field(f, nf, "biggest", 0);
         a.chunkHouse = -2;
+        a.ssmlBullet = efx_field(f, nf, "ssmlbullet", -1);
         efx_str_field(f, nf, "name", a.name, sizeof(a.name));
         a.etype = a.type;
         if (g_efxTypeOf) a.type = g_efxTypeOf(a.type, a.name);
@@ -652,6 +657,8 @@ static void efx_parse_line(char* line)
         b.invis  = efx_field(f, nf, "invis", 0);
         b.arcing = efx_field(f, nf, "arcing", 0);
         b.homing = efx_field(f, nf, "homing", 0);
+        b.arcStep = efx_field(f, nf, "arcstep", 0);
+        b.arcTicks = efx_field(f, nf, "arcticks", 0);
         efx_str_field(f, nf, "name", b.name, sizeof(b.name));
         efx_str_field(f, nf, "img", b.img, sizeof(b.img));
         b.wx = (float)efx_field(f, nf, "lx", 0) / 256.0f;
@@ -2088,6 +2095,7 @@ static void efx_step(int frame)
         /* AN ANIM SOMETHING ELSE DRAWS. The host's Unity explosion (unityvfx_mod.h)
            takes the anims it replaces here, and a taken anim fires no recipe at all, so
            the two explosions are never drawn on top of each other. */
+        if (g_efxSmokeReplaced && g_efxSmokeReplaced(an)) continue;
         if (g_efxClaim && g_efxClaim(an, frame))
             continue;
         if (an.type < 0 || an.type >= EFX_ANIM2RECIPE_N) {
@@ -2681,6 +2689,422 @@ static void efx_host_meshes_draw(int phase)
     if (graded) fx_glUseProgram(0);
 }
 
+/* ---- LIT SOFT SMOKE -----------------------------------------------------------------
+   The remastered smoke and dust are flat cards: one colour across the whole puff, and a
+   hard straight edge wherever a card standing upright cuts into the ground or a wall
+   behind it. This block draws those same cards, with the same art, colours, alpha law,
+   sizes and order, through a small shader that does two things the fixed-function draw
+   cannot.
+
+   SHAPE FROM THE SUN. Each card is shaded as the ball it depicts. A sphere's normal is
+   rebuilt from where the fragment lies on the card (the card's right, up and toward-the-
+   camera axes are the billboard basis the pass already draws with), and the sun lights
+   it through a wrapped diffuse term, so the sun's side of a puff is brighter, the far
+   side darker, and light still creeps round the terminator the way it does through a
+   scattering medium. The sky's ambient is the floor under it. A second sun, where the
+   theater has one, lights the ball the same way, in its share of the direct light.
+
+   SHADOW INSIDE THE PUFF. A ball alone gives every puff the same smooth gradient. The
+   art is lumpy, and in real smoke each lump shades the ones behind it. So the fragment
+   also compares the smoke a short way across the card toward the sun with the smoke the
+   same distance away from it (two taps of the art's own alpha each way) and takes the
+   sun by the difference: a lump's sun side, with clear air toward the sun, comes out
+   lit, and its lee, with smoke toward the sun, falls into shade. Inside an even patch
+   of smoke the two sides match and nothing changes, so this moves light around a puff
+   without darkening it overall. The comparison runs across the card, so it is weighted
+   by how far across the card the sun lies; with the sun behind the camera the puff
+   faces it and no lump hides another.
+
+   THE BRIGHTNESS IS KEPT, NOT RE-DECIDED. The light pass that follows relights every
+   pixel of the scene target by the surface behind it, smoke included: smoke over ground
+   in a building's shadow already comes out darker, and smoke over sunlit ground already
+   carries the sun's level. So this shader does not apply a second absolute light. It
+   applies the shading as a RATIO against the mean shading of a puff
+   (smoke_lit_reference, worked out on the CPU for the current suns and camera over the
+   ball, trimmed by SMOKE_LIT_REF_TRIM), which moves light from the far side and the lee
+   of each puff to its sun side and leaves the smoke's tuned average brightness where it
+   was. Near-black soot has nothing to move, since a ratio of black is black, and it is
+   left black on purpose: lifting the sun's side of a black column to a dark grey was
+   tried, and the light pass then printed the shading of the buildings behind the column
+   onto it, because it relights a smoke pixel as the surface behind it. Taking the sun's
+   shadow at the puff itself, rather than at the ground behind it, would need the same
+   change to the light pass, and is not done.
+
+   SOFT AGAINST THE SCENE. Each puff is treated as a ball in depth as well, not as a
+   card (smoke_soft scales its depth; at 1 it is round). At every fragment the ball spans a chord along the view; the
+   part of that chord in front of the scene is what shows, so alpha is scaled by that
+   fraction. Where the card meets the ground the chord is half buried and the puff is
+   at half strength, fading smoothly to nothing a chord's depth below it and to full a
+   chord's depth above. A flat card instead ends on a straight line there, with the
+   lower half of the puff missing. To let the buried half draw, the card's depth (not
+   its position on screen) is moved to the front of its ball; the scene's depth is
+   copied before the first lit card draws, because the scene target's own depth is
+   still attached and a texture bound for reading while it is attached for writing is
+   undefined.
+
+   WHICH PARTICLES. Particles standing up in the smoke system (Burn_Smoke, sys 6) and
+   on every Enhanced sheet that is smoke (SMOKE, LZSMOKE). The Intensity system's white
+   blob (sys 0) carries smoke puffs, sparks and water drops alike, so its particles are
+   lit only when their colour is a grey short of white and no flash flag is on them. A
+   particle that lies flat on the ground (Red Alert's water foam rings use the LZSMOKE
+   sheet) is a decal, not a ball, and keeps the fixed-function draw, as do fire,
+   explosions, muzzle flashes, sparks, embers, water and the debris trails: they give
+   off light rather than take it, or are not smoke. Fire's
+   light reaches the smoke through the light pass, which adds every point light to each
+   pixel, smoke included; this shader adds none of its own, or smoke beside a fire
+   would be lit twice.
+
+   LINEAR LIGHT. The art and the scene target are display encoded. The shading is done
+   on decoded colour (objectDecode, the sRGB transfer function the effects grade already
+   compiles in) and encoded back (objectEncode), so the ratio is a ratio of linear light.
+   With linear light on (linear_on, fx_post.h) the scene target stays an eight bit,
+   display encoded target that the light pass decodes once at its start, so this shader
+   draws the same smoke with linear light on or off and needs no switch of its own. The
+   pass turns each tuned light factor into radiance with fx_lin_gain, which scales the
+   decoded smoke exactly as the factor scaled the encoded smoke before, so the shading
+   comes through the relight at the same size below the film curve's shoulder (measured:
+   the change this feature makes is 91 to 101 per cent of its size without linear light,
+   scene by scene, with the same pixels lit and shaded). If the scene target ever holds
+   linear colour, the encode becomes the identity and nothing else changes.
+
+   With smoke_lit at 0, or Enhanced effects off, or no post chain, the pass draws exactly
+   what it drew before: none of this code runs and no GL state differs. */
+static GLuint g_smokeLitProg = 0;
+static bool   g_smokeLitTried = false;
+static GLuint g_smokeLitDepth = 0;
+static int    g_smokeLitDepthW = 0, g_smokeLitDepthH = 0;
+static bool   g_smokeLitReady = false;   /* this pass: depth copied and frame uniforms set */
+static long   g_smokeLitDrawn = 0;       /* particles drawn lit, all mission, for efxdump */
+static float  g_smokeLitNormal[3];       /* the current normal, restored after the pass */
+
+/* The mission is over: the depth copy, a full window of 24 bit depth, goes back with the
+   chain's own targets; the next frame that draws lit smoke makes it again. */
+static void smoke_lit_shutdown(void)
+{
+    if (g_smokeLitDepth) glDeleteTextures(1, &g_smokeLitDepth);
+    g_smokeLitDepth = 0;
+    g_smokeLitDepthW = g_smokeLitDepthH = 0;
+    g_smokeLitReady = false;
+}
+static float  g_smokeLitSun[2];          /* the sun across the card: right, up */
+static float  g_smokeLitLast[4];         /* the last pass's sky share, second sun, reference
+                                            and self-shadow weight, for efxdump */
+
+/* The puff as a ball fills this much of its card: the art of the SMOKE and LZSMOKE
+   sheets reaches about this far out from the middle of its frame. */
+static const float SMOKE_LIT_BALL = 0.85f;
+/* How far toward and away from the sun the self-shadow looks, in card half-widths, and
+   how strongly the difference shades, with the sun square across the card: a fragment
+   with smoke on its sun side and none behind gets exp(-SMOKE_LIT_DENSITY) of the sun,
+   the opposite case exp(+SMOKE_LIT_DENSITY), capped. */
+static const float SMOKE_LIT_REACH = 0.36f;
+static const float SMOKE_LIT_DENSITY = 1.8f;
+/* The wrapped diffuse term's offset: how far light creeps round a puff past its
+   terminator. Smoke scatters, so its far side is never fully dark. */
+static const float SMOKE_LIT_WRAP = 0.25f;
+/* The reference models the art as a ball of even density. The art is denser in the
+   middle, which faces the sun more than the rim does, so a puff's true mean shading
+   sits above the model's. Measured over the before/after scenes: the pixels the lit
+   smoke changed came out 0.3 to 1.6 levels brighter on average than the flat cards
+   until the reference was raised by this much, and within half a level after. */
+static const float SMOKE_LIT_REF_TRIM = 1.06f;
+
+static const char* SMOKE_LIT_VS =
+    "#version 120\n"
+    "uniform vec2  uUVMax;\n"          /* the used sub-rect's far texcoords (u1, v1) */
+    "uniform vec3  uF;\n"              /* toward the camera */
+    "uniform float uDepthPush;\n"      /* the ball's front, puff radii from the card; 0 = flat */
+    "varying vec4  vCol;\n"
+    "varying vec3  vW;\n"              /* world position, cells */
+    "varying vec2  vCorner;\n"         /* -1..1 across the card, +1 at its top */
+    "varying float vRad;\n"            /* the puff's radius, cells */
+    "void main() {\n"
+    "    gl_Position = ftransform();\n"
+    "    gl_TexCoord[0] = gl_MultiTexCoord0;\n"
+    "    vCol = gl_Color;\n"
+    "    vW = gl_Vertex.xyz;\n"
+    "    vec2 t = gl_MultiTexCoord0.xy / max(uUVMax, vec2(1e-4));\n"
+    "    vCorner = vec2(t.x * 2.0 - 1.0, 1.0 - t.y * 2.0);\n"
+    /* the card's centre rides in the normal (set once per card); a corner lies a
+       half-diagonal from it */
+    "    vRad = length(gl_Vertex.xyz - gl_Normal) * 0.70710678;\n"
+    /* the depth of the ball's front, at the card's own place on screen */
+    "    if (uDepthPush > 0.0) {\n"
+    "        vec4 f = gl_ModelViewProjectionMatrix * vec4(gl_Vertex.xyz + uF * (vRad * uDepthPush), 1.0);\n"
+    "        if (f.w > 1e-4) gl_Position.z = f.z / f.w * gl_Position.w;\n"
+    "    }\n"
+    "}\n";
+
+static const char* SMOKE_LIT_FS =
+    "#version 120\n"
+    "uniform sampler2D uTex;\n"
+    "uniform sampler2D uDepth;\n"
+    "uniform vec2  uUVMax;\n"
+    "uniform vec4  uVP;\n"             /* the viewport the depth copy covers */
+    "uniform mat4  uInvVP;\n"          /* world from normalised device coordinates */
+    "uniform vec3  uR, uU, uF;\n"      /* card right, card up, toward the camera */
+    "uniform vec3  uToSun, uToSun2;\n"
+    "uniform float uSun2;\n"           /* the second sun's part of the direct light */
+    "uniform float uShare;\n"          /* the sky's share of the light on level ground */
+    "uniform float uWrap;\n"
+    "uniform float uBall;\n"           /* the ball's radius on the card */
+    "uniform vec2  uMarch;\n"          /* texcoord step toward the sun, the full reach */
+    "uniform float uDensity;\n"        /* the self-shadow's weight, 0 = none */
+    "uniform float uRef;\n"            /* the mean shading of a typical puff */
+    "uniform float uStrength;\n"
+    "uniform float uSoft;\n"           /* the ball's half depth, puff radii, 0 = none */
+    "varying vec4  vCol;\n"
+    "varying vec3  vW;\n"
+    "varying vec2  vCorner;\n"
+    "varying float vRad;\n"
+    FX_OBJECT_GRADE_GLSL
+    "float smoke_lit_sun(vec3 N, vec3 L) { return clamp((dot(N, L) + uWrap) / (1.0 + uWrap), 0.0, 1.0); }\n"
+    "float smoke_lit_shade(vec3 N, float T) {\n"
+    "    float sun = mix(min(smoke_lit_sun(N, uToSun) * T, 1.25), smoke_lit_sun(N, uToSun2), uSun2);\n"
+    "    return uShare * (0.75 + 0.25 * N.y) + (1.0 - uShare) * sun;\n"
+    "}\n"
+    "void main() {\n"
+    "    vec2 st = gl_TexCoord[0].xy;\n"
+    "    vec4 c = texture2D(uTex, st) * vCol;\n"
+    "    vec2 q = vCorner / uBall;\n"
+    "    float r2 = dot(q, q);\n"
+    "    if (r2 > 1.0) { q *= inversesqrt(r2); r2 = 1.0; }\n"
+    "    vec3 N = normalize(q.x * uR + q.y * uU + sqrt(1.0 - r2) * uF);\n"
+    "    float T = 1.0;\n"
+    "    if (uDensity > 0.0) {\n"
+    /* more smoke toward the sun than away from it: this point is in the lee of a lump */
+    "        float dS = texture2D(uTex, clamp(st + uMarch * 0.5, vec2(0.0), uUVMax)).a\n"
+    "                 + texture2D(uTex, clamp(st + uMarch,       vec2(0.0), uUVMax)).a;\n"
+    "        float dA = texture2D(uTex, clamp(st - uMarch * 0.5, vec2(0.0), uUVMax)).a\n"
+    "                 + texture2D(uTex, clamp(st - uMarch,       vec2(0.0), uUVMax)).a;\n"
+    "        T = exp(-uDensity * (dS - dA) * 0.5);\n"
+    "    }\n"
+    "    float m = mix(1.0, smoke_lit_shade(N, T) / uRef, uStrength);\n"
+    "    vec3 alb = objectDecode(c.rgb);\n"
+    "    vec3 lit = alb * max(m, 0.0);\n"
+    "    float a = c.a;\n"
+    "    if (uSoft > 0.0) {\n"
+    "        vec2 uv = (gl_FragCoord.xy - uVP.xy) / uVP.zw;\n"
+    "        float d = texture2D(uDepth, uv).r;\n"
+    "        vec4 P = uInvVP * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);\n"
+    /* how far the scene lies behind the card along the view, against the ball's half
+       chord at this point of the card */
+    "        float gap = dot(vW - P.xyz / P.w, uF);\n"
+    "        float h = uSoft * uBall * vRad * max(sqrt(max(1.0 - r2, 0.0)), 0.25);\n"
+    "        a *= clamp((gap + h) / (2.0 * h), 0.0, 1.0);\n"
+    "    }\n"
+    "    gl_FragColor = vec4(objectGrade(objectEncode(lit)), a);\n"
+    "}\n";
+
+/* Built once, on first use; a failure leaves the smoke on the fixed-function draw. */
+static bool smoke_lit_program(void)
+{
+    if (!g_smokeLitTried) {
+        g_smokeLitTried = true;
+        if (fx_gl_ready) {
+            const GLuint vs = fx_compile(GL_VERTEX_SHADER, SMOKE_LIT_VS, "lit smoke");
+            const GLuint fs = vs ? fx_compile(GL_FRAGMENT_SHADER, SMOKE_LIT_FS, "lit smoke") : 0;
+            if (vs && fs) {
+                GLuint p = fx_glCreateProgram();
+                fx_glAttachShader(p, vs); fx_glAttachShader(p, fs); fx_glLinkProgram(p);
+                GLint ok = 0; fx_glGetProgramiv(p, GL_LINK_STATUS, &ok);
+                if (ok) g_smokeLitProg = p; else fx_glDeleteProgram(p);
+            }
+            if (vs) fx_glDeleteShader(vs);
+            if (fs) fx_glDeleteShader(fs);
+        }
+        fprintf(stderr, "SMOKELIT|program|%s\n", g_smokeLitProg ? "ready" : "unavailable, smoke stays flat");
+    }
+    return g_smokeLitProg != 0;
+}
+
+/* Is the pass lit at all: Enhanced effects, the post chain running (its scene target
+   holds the depth this reads), the master switch, and a program. */
+static bool smoke_lit_want(void)
+{
+    return g_efxEnhOn && g_fxActive && g_fx.smoke_lit && smoke_lit_program();
+}
+
+/* Which particles of a draw slot may be lit: 0 none, 1 every standing particle, 2 the
+   standing ones that are grey puffs (smoke_lit_particle). */
+static int smoke_lit_slot(int slot)
+{
+    if (slot < 10) return slot == 6 ? 1 : slot == 0 ? 2 : 0;
+    const char* sheet = EFX_ENH_SRCSHEET[slot - 10].sheet;
+    return (!strcmp(sheet, "SMOKE") || !strcmp(sheet, "LZSMOKE")) ? 1 : 0;
+}
+
+/* Is this particle of a slot lit. One lying flat is a decal on the ground (Red Alert's
+   water foam): never. In the Intensity system's white blob, a grey with no flash on it
+   is a puff of smoke or dust (the launchers' and guns' puffs, the dust a shell kicks up,
+   Red Alert's black plume); anything coloured is a spark or glowing dirt, and a grey
+   near white is a water drop (Red Alert's water shells throw them at 235). */
+static bool smoke_lit_particle(const EfxPart& p, int mode)
+{
+    if (!mode || p.flat) return false;
+    if (mode == 1) return true;
+    if (p.muzzleFlash || p.explosionBloom) return false;
+    const int hi = p.r > p.g ? (p.r > p.b ? p.r : p.b) : (p.g > p.b ? p.g : p.b);
+    const int lo = p.r < p.g ? (p.r < p.b ? p.r : p.b) : (p.g < p.b ? p.g : p.b);
+    return hi - lo < 40 && hi <= 200;
+}
+
+static float smoke_lit_wrapped(const float* N, const float* L, float wrap)
+{
+    const float s = (N[0] * L[0] + N[1] * L[1] + N[2] * L[2] + wrap) / (1.0f + wrap);
+    return s < 0.0f ? 0.0f : s > 1.0f ? 1.0f : s;
+}
+
+/* THE MEAN SHADING OF A TYPICAL PUFF, for the current suns and camera: the shader's
+   shading averaged over an opaque disc the size of the art (SMOKE_LIT_BALL of the
+   card), with the self-shadow that disc casts on itself. The shader divides by it, so
+   a puff keeps its tuned average brightness and only the balance across it changes. A
+   reference taken at the puff's face alone was tried first: the face already faces the
+   sun, so the sun's side could gain only a few per cent while the far side lost much
+   more, and the change was too small to see. */
+static float smoke_lit_reference(const float* R, const float* U, const float* F,
+                                 const float* toSun, const float* toSun2, float sun2,
+                                 float share, float wrap)
+{
+    const int G = 24;
+    double sum = 0.0, wsum = 0.0;
+    for (int j = 0; j < G; j++)
+        for (int i = 0; i < G; i++) {
+            const float qx = ((i + 0.5f) / G) * 2.0f - 1.0f;
+            const float qy = ((j + 0.5f) / G) * 2.0f - 1.0f;
+            const float r2 = qx * qx + qy * qy;
+            if (r2 > 1.0f) continue;
+            const float qz = sqrtf(1.0f - r2);
+            float N[3] = { qx * R[0] + qy * U[0] + qz * F[0],
+                           qx * R[1] + qy * U[1] + qz * F[1],
+                           qx * R[2] + qy * U[2] + qz * F[2] };
+            const float nl = sqrtf(N[0] * N[0] + N[1] * N[1] + N[2] * N[2]);
+            for (int k = 0; k < 3; k++) N[k] /= nl > 1e-6f ? nl : 1.0f;
+            const float sun = (1.0f - sun2) * smoke_lit_wrapped(N, toSun, wrap)
+                            + sun2 * smoke_lit_wrapped(N, toSun2, wrap);
+            /* weighted by the ball's depth there: how much smoke the eye looks through */
+            sum += qz * (share * (0.75f + 0.25f * N[1]) + (1.0f - share) * sun);
+            wsum += qz;
+        }
+    const float ref = wsum > 0.0 ? (float)(sum / wsum) : 1.0f;
+    return ref > 0.05f ? ref : 0.05f;
+}
+
+/* Once per pass, before the first lit card: copy the scene's depth, and hand the program
+   everything that is the same for every card. Outside glBegin/glEnd. */
+static void smoke_lit_frame(const float* R, const float* U)
+{
+    if (g_smokeLitReady) return;
+    g_smokeLitReady = true;
+    const GLuint p = g_smokeLitProg;
+    GLint vp[4];
+    glGetIntegerv(GL_VIEWPORT, vp);
+    float P[16], MV[16], VPm[16], inv[16];
+    glGetFloatv(GL_PROJECTION_MATRIX, P);
+    glGetFloatv(GL_MODELVIEW_MATRIX, MV);
+    fx_mat_mul(P, MV, VPm);
+    const bool invOk = fx_mat_invert(VPm, inv) != 0;
+    const bool soft = g_fx.smoke_soft > 0.0f && vp[2] > 0 && vp[3] > 0 && invOk;
+    if (soft) {
+        glActiveTexture(GL_TEXTURE1);
+        if (!g_smokeLitDepth) glGenTextures(1, &g_smokeLitDepth);
+        glBindTexture(GL_TEXTURE_2D, g_smokeLitDepth);
+        if (g_smokeLitDepthW != vp[2] || g_smokeLitDepthH != vp[3]) {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, vp[2], vp[3], 0,
+                         GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
+            g_smokeLitDepthW = vp[2]; g_smokeLitDepthH = vp[3];
+        }
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, vp[0], vp[1], vp[2], vp[3]);
+        glActiveTexture(GL_TEXTURE0);
+    }
+    /* toward the camera: right x up, which is the lookAt z axis the basis was built from */
+    float F[3] = { R[1] * U[2] - R[2] * U[1], R[2] * U[0] - R[0] * U[2], R[0] * U[1] - R[1] * U[0] };
+    const float fl = sqrtf(F[0] * F[0] + F[1] * F[1] + F[2] * F[2]);
+    for (int k = 0; k < 3; k++) F[k] /= fl > 1e-6f ? fl : 1.0f;
+    fx_sun_dir();
+    const float toSun[3]  = { -g_fxSunDir[0], -g_fxSunDir[1], -g_fxSunDir[2] };
+    const float toSun2[3] = { -g_fxSecondSunDir[0], -g_fxSecondSunDir[1], -g_fxSecondSunDir[2] };
+    /* the sky's share of the light on level ground, and the second sun's share of the
+       direct part, as the light pass divides them */
+    const float sky = fx_sky_energy() * (fx_unified_lighting() ? g_fx.terrain_ambient : 0.6f);
+    const float sunLit  = fx_sun_energy() * (toSun[1] > 0.1f ? toSun[1] : 0.1f);
+    const float sun2Lit = fx_second_sun_energy() * (toSun2[1] > 0.1f ? toSun2[1] : 0.1f);
+    float share = sky + sunLit + sun2Lit > 1e-4f ? sky / (sky + sunLit + sun2Lit) : 1.0f;
+    share = share < 0.15f ? 0.15f : share > 0.9f ? 0.9f : share;
+    const float sun2 = sunLit + sun2Lit > 1e-4f ? sun2Lit / (sunLit + sun2Lit) : 0.0f;
+    const float wrap = SMOKE_LIT_WRAP;
+    /* the primary sun across the card; its length is how far across the card it lies */
+    g_smokeLitSun[0] = toSun[0] * R[0] + toSun[1] * R[1] + toSun[2] * R[2];
+    g_smokeLitSun[1] = toSun[0] * U[0] + toSun[1] * U[1] + toSun[2] * U[2];
+    const float across = sqrtf(g_smokeLitSun[0] * g_smokeLitSun[0] + g_smokeLitSun[1] * g_smokeLitSun[1]);
+    const float density = SMOKE_LIT_DENSITY * (across < 1.0f ? across : 1.0f);
+    fx_glUseProgram(p);
+    fx_set1i(p, "uTex", 0);
+    fx_set1i(p, "uDepth", 1);
+    const float vpf[4] = { (float)vp[0], (float)vp[1], (float)vp[2], (float)vp[3] };
+    fx_set4fv(p, "uVP", 1, vpf);
+    if (invOk) fx_setmat(p, "uInvVP", inv);
+    fx_set3f(p, "uR", R[0], R[1], R[2]);
+    fx_set3f(p, "uU", U[0], U[1], U[2]);
+    fx_set3f(p, "uF", F[0], F[1], F[2]);
+    fx_set3f(p, "uToSun", toSun[0], toSun[1], toSun[2]);
+    fx_set3f(p, "uToSun2", toSun2[0], toSun2[1], toSun2[2]);
+    fx_set1f(p, "uSun2", sun2);
+    fx_set1f(p, "uShare", share);
+    fx_set1f(p, "uWrap", wrap);
+    fx_set1f(p, "uBall", SMOKE_LIT_BALL);
+    fx_set1f(p, "uDensity", density);
+    const float ref = SMOKE_LIT_REF_TRIM * smoke_lit_reference(R, U, F, toSun, toSun2, sun2, share, wrap);
+    fx_set1f(p, "uRef", ref);
+    g_smokeLitLast[0] = share; g_smokeLitLast[1] = sun2; g_smokeLitLast[2] = ref; g_smokeLitLast[3] = density;
+    fx_set1f(p, "uStrength", g_fx.smoke_light_strength);
+    fx_set1f(p, "uSoft", soft ? g_fx.smoke_soft : 0.0f);
+    fx_set1f(p, "uDepthPush", soft ? g_fx.smoke_soft * SMOKE_LIT_BALL : 0.0f);
+    efx_grade_uniforms(p);
+    glGetFloatv(GL_CURRENT_NORMAL, g_smokeLitNormal);
+}
+
+/* Switch to the lit program for one slot's cards. */
+static void smoke_lit_use(const float* R, const float* U, float u1, float v1)
+{
+    smoke_lit_frame(R, U);
+    const GLuint p = g_smokeLitProg;
+    fx_glUseProgram(p);
+    fx_set2f(p, "uUVMax", u1, v1);
+    /* the march toward the sun in this slot's texcoords: across the card is u, and up
+       the card is toward v = 0 */
+    const float sl = sqrtf(g_smokeLitSun[0] * g_smokeLitSun[0] + g_smokeLitSun[1] * g_smokeLitSun[1]);
+    const float k = sl > 1e-4f ? SMOKE_LIT_REACH / sl : 0.0f;
+    fx_set2f(p, "uMarch", g_smokeLitSun[0] * k * 0.5f * u1, -g_smokeLitSun[1] * k * 0.5f * v1);
+    if (g_fx.smoke_soft > 0.0f && g_smokeLitDepth) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, g_smokeLitDepth);
+        glActiveTexture(GL_TEXTURE0);
+    }
+}
+
+/* And back to what the rest of the pass draws with: the effects grade, or nothing. */
+static void smoke_lit_done(bool graded)
+{
+    fx_glUseProgram(graded ? g_efxGradeProg : 0);
+    glNormal3fv(g_smokeLitNormal);
+}
+
+/* End of the pass: unbind the depth copy, so no later draw samples it by accident. */
+static void smoke_lit_end(void)
+{
+    if (!g_smokeLitReady) return;
+    g_smokeLitReady = false;
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+}
+/* ---- end LIT SOFT SMOKE ---- */
+
 static void efx_draw_particles(const float* R, const float* U, bool explosionOnly = false)
 {
     const int nTot = g_efxNPart + g_efxNChunk;
@@ -2758,6 +3182,7 @@ static void efx_draw_particles(const float* R, const float* U, bool explosionOnl
        Its channels must never receive RGB/saturation/tint grading. The bloom's
        bright pass reads its radiance from the already-graded visible scene. */
     const bool graded = !explosionOnly && efx_grade_begin();
+    const bool smokeLit = !explosionOnly && smoke_lit_want();   /* LIT SOFT SMOKE */
     int lastAdditive = -1;
     /* Each system in the cartridge's order, and right after it any Enhanced source sheet
        drawing with that system. */
@@ -2774,12 +3199,32 @@ static void efx_draw_particles(const float* R, const float* U, bool explosionOnl
         if (!s) continue;
         const float u1 = (float)s->uw / (float)s->w;
         const float v1 = (float)s->uh / (float)s->h;
+        /* LIT SOFT SMOKE: a slot that can hold smoke draws the particles that are not
+           lit first, as before, and its lit ones in a second pass through the lit
+           program; a pass with nothing in it is skipped. Off, this is one unlit pass. */
+        const int smokeMode = smoke_lit_slot(slot);
+        const int litMode = smokeLit ? smokeMode : 0;
+        int nLit = 0, nUnlit = 0;
+        if (litMode) {
+            const int sLo = bucket[slot * 16], sHi = bucket[slot * 16 + 16 > EFX_NBUCKET ? EFX_NBUCKET : slot * 16 + 16];
+            for (int j = sLo; j < sHi; j++) {
+                const int i = sorted[j];
+                const EfxPart& p = (i < g_efxNPart) ? g_efxPart[i] : g_efxChunk[i - g_efxNPart];
+                if (smoke_lit_particle(p, litMode)) nLit++; else nUnlit++;
+            }
+        }
+        for (int litPass = 0; litPass < 2; litPass++) {
+        const bool lit = litPass == 1;
+        if (lit ? nLit == 0 : litMode && nUnlit == 0) continue;
+        if (lit) smoke_lit_use(R, U, u1, v1);
         for (int fr = 0; fr < s->frames && fr < 16; fr++) {
             const int k = slot * 16 + fr;
             const int lo = bucket[k], hi = bucket[k + 1 > EFX_NBUCKET ? EFX_NBUCKET : k + 1];
             if (hi <= lo) continue;
-            if ((int)EFX_SYS[sys].additive != lastAdditive) {
-                lastAdditive = EFX_SYS[sys].additive;
+            const bool additive = EFX_SYS[sys].additive
+                                  || (slot >= 10 && EFX_ENH_SRCSHEET[slot - 10].additive);
+            if ((int)additive != lastAdditive) {
+                lastAdditive = additive;
                 glBlendFunc(GL_SRC_ALPHA, lastAdditive ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA);
             }
             glBindTexture(GL_TEXTURE_2D, s->gl[fr]);
@@ -2788,6 +3233,8 @@ static void efx_draw_particles(const float* R, const float* U, bool explosionOnl
                 const int i = sorted[j];
                 const EfxPart& p = (i < g_efxNPart) ? g_efxPart[i]
                                                     : g_efxChunk[i - g_efxNPart];
+                if (litMode && smoke_lit_particle(p, litMode) != lit) continue;
+                if (lit) { glNormal3f(p.x, p.y, p.z); g_smokeLitDrawn++; }
                 /* The source's own stored alpha, held flat and then ramped off over
                    the last quarter of the life. This is a POP GUARD, not a decay
                    curve: the cartridge's art already carries the decay -- the
@@ -2806,6 +3253,10 @@ static void efx_draw_particles(const float* R, const float* U, bool explosionOnl
                 int ai = (int)(p.life - p.age) * (int)p.arate;
                 if (ai > (int)p.a) ai = (int)p.a;
                 if (ai < 0) ai = 0;
+                /* Overlapping Enhanced smoke/landing flares were reading as solid
+                   cards. Keep their source fade curve and reduce optical density;
+                   flames, sparks, ground marks and original modes are unchanged. */
+                if (g_fx.enabled && smoke_lit_particle(p,smokeMode)) ai=(ai*65+50)/100;
                 /* A flat particle lies on the ground: world east and world north as its
                    axes, which winds it the way a camera-facing one is wound as seen from
                    above. */
@@ -2820,7 +3271,10 @@ static void efx_draw_particles(const float* R, const float* U, bool explosionOnl
             }
             glEnd();
         }
+        if (lit) smoke_lit_done(graded);
+        }
     }
+    if (smokeLit) smoke_lit_end();
     if (graded) fx_glUseProgram(0);
     glDisable(GL_TEXTURE_2D);
 }
@@ -3068,6 +3522,7 @@ static void efx_draw(const float* bbRight, const float* bbUp)
        so an unexpected projectile is visible rather than missing. */
     for (size_t i = 0; g_efxDrawBullets && i < g_efxBullets.size(); i++) {
         const EfxBullet& b = g_efxBullets[i];
+        if (g_efxBulletReplaced && g_efxBulletReplaced(b)) continue;
         if (b.invis)
             continue;                 /* 50cal etc: the N64 table says -1, never drawn */
         if (efx_hidden(b.wx, b.wz))
@@ -3182,6 +3637,9 @@ static void efx_dump(void)
                b.name, b.id, b.wx, b.wz, b.face, b.alt, b.invis,
                efx_bullet_lays_flat(b.name) ? 1 : 0, strcmp(b.img, "?") ? "|img=" : "",
                strcmp(b.img, "?") ? b.img : "");
+        if (b.arcTicks > 0)
+            printf("SSML|arc|bullet=%d|step=%d/%d|xz=%.4f,%.4f|target=%.4f,%.4f|alt=%d\n",
+                   b.id, b.arcStep, b.arcTicks, b.ewx, b.ewz, b.tx, b.tz, b.alt);
         /* a shot from the air is drawn off the engine's point (efx_air_shots): both */
         if (b.wx != b.ewx || b.wz != b.ewz)
             printf("EFXDUMP|AIRSHOT|%s|id=%d|engine=%.2f,%.2f|drawn=%.2f,%.2f|lift=%.3f\n",
@@ -3247,6 +3705,10 @@ static void efx_dump(void)
                        k < 10 ? EFX_SYS[k].seq : EFX_ENH_SRCSHEET[k - 10].sheet,
                        g_efxSlotDrawn[k][1], g_efxSlotDrawn[k][0]);
     }
+    /* LIT SOFT SMOKE: how many smoke cards went through the lit program this mission */
+    printf("EFXSMOKELIT|on=%d|program=%s|drawn=%ld|share=%.3f|sun2=%.3f|ref=%.3f|selfshadow=%.3f\n",
+           g_fx.smoke_lit ? 1 : 0, g_smokeLitProg ? "ready" : g_smokeLitTried ? "failed" : "unbuilt",
+           g_smokeLitDrawn, g_smokeLitLast[0], g_smokeLitLast[1], g_smokeLitLast[2], g_smokeLitLast[3]);
     if (g_efxEvicted || g_efxChunkDropped)
         printf("EFXCAP|the pool hit its cap: %ld sprites evicted oldest-first, "
                "%ld chunks refused (caps %d/%d)\n",

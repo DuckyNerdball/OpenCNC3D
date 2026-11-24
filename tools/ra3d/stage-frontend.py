@@ -39,8 +39,10 @@ def main() -> None:
                      args.brain, args.app, args.terrain_pack):
         if not required.is_file():
             parser.error(f"missing {required}")
-    libraries = ("SDL2.dll",) if args.app.suffix == ".exe" else (
-        "libSDL2-2.0.0.dylib", "libSDL3.dylib")
+    # The Windows programs link SDL statically and need no SDL2.dll beside them; the macOS
+    # app still loads its SDL libraries from its own folder.
+    libraries = ("archive.dll", "map-archive.json", "map-archive-LICENSE.txt") if args.app.suffix == ".exe" else (
+        "libSDL2-2.0.0.dylib", "libSDL3.dylib", "libmaparchive.dylib", "map-archive.json", "map-archive-LICENSE.txt")
     for library in libraries:
         if not (args.app.parent / library).is_file():
             parser.error(f"missing {args.app.parent / library}")
@@ -195,10 +197,18 @@ def main() -> None:
     for library in libraries:
         if (args.app.parent / library).resolve() != (module / library).resolve():
             shutil.copy2(args.app.parent / library, module / library)
+    if args.app.suffix == ".exe" and (module / "SDL2.dll").is_file():
+        # Left by an earlier staging into this folder. Nothing loads it any more, and the
+        # Windows packagers refuse a module that carries one.
+        (module / "SDL2.dll").unlink()
+        print(f"removed the stale {module / 'SDL2.dll'}: the Windows programs link SDL statically")
     print(f"RA3D campaigns staged in {module}: {mission_count} mission INIs, "
           f"{len(movies) + 1} original movies including the Allied ending alias")
     print("The original simulation, Classic terrain and Win95 sidebar use Red Alert data")
     print(f"Enhanced's Red Alert soldiers: {len(models)} models in {module / 'einf'}")
+
+    if (HERE.parents[1] / "data/ra3d/expansions/manifest.json").is_file():
+        subprocess.run([sys.executable, str(HERE / "expansions.py"), "stage", "--module", str(module)], check=True)
 
 
 if __name__ == "__main__":

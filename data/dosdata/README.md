@@ -22,7 +22,7 @@ data/dosdata/
   SCORES.MIX      the music score
   AUD.MIX         further audio
   ZOUNDS.MIX      further audio
-  movies/         the campaign cinematics, .VQA, 75 files
+  movies/         the campaign cinematics, .VQA, 90 files
   music/          loose score tracks, .AUD, 15 files
   transit/        TRANSIT.MIX: the menu theme MAP1 and the win theme WIN1
 ```
@@ -53,8 +53,14 @@ seven loose tracks in `music/` are copies of entries in the two archives.
 
 ## Getting the movies
 
-The game asks for 75 `.VQA` files by name and they are split across the two discs:
-**the GDI and Nod `MOVIES.MIX` files are different and you need both.**
+The game asks for 90 `.VQA` files by name and they are split across the two discs:
+**the GDI and Nod `MOVIES.MIX` files are different and you need both.** 87 of them are the
+campaign's: every briefing, action, win and lose movie of every campaign mission file in
+game/missions (SCG and SCB 02 to 15, every variant, and each side's mission 1), and the ten the two endings name (GDIFINA, GDIFINB, GDIEND1, GDIEND2, NODFINAL,
+NODEND1 to NODEND4 and CC2TEASE). The other three are the menu's LOGO and INTRO2, and
+HELLVALY, which GDI 8B's scenario file misspells as HELLVLY, so it never played in 1995
+either. `python3 tools/extract_movies.py --list` prints the campaign's 87 and who asks
+for each.
 
 `tools/extract_movies.py` reconstructs the set from either disc's `MOVIES.MIX`.
 

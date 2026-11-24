@@ -11,7 +11,12 @@
    smoke needs one: the game tints the fireball sheet green for it, and the remastered
    fireball is orange, which the tint turns dark olive. `sys` is the source's system, so
    the sheet draws where that system draws. */
-struct EfxSrcSheet { const char* source; const char* sheet; unsigned char sys; };
+struct EfxSrcSheet {
+    const char* source;
+    const char* sheet;
+    unsigned char sys;
+    bool additive = false;
+};
 
 static const EfxSrcSheet EFX_ENH_SRCSHEET[] = {
   { "LandingSmoke", "LZSMOKE", 1 },
@@ -35,9 +40,10 @@ static const EfxSrcSheet EFX_ENH_SRCSHEET[] = {
   { "GpsTrail_RA", "LZSMOKE", 6 },
   { "Twinkle_RA", "TWINKLE", 7 },
   { "Twinkle_RA_TWINKLE2", "TWINKLE2", 7 },
+  { "SSML_Exhaust", "MFLASH", 5, true },
   { "Twinkle_RA_TWINKLE3", "TWINKLE3", 7 },
 };
-static const int EFX_ENH_NSRCSHEET = 22;
+static const int EFX_ENH_NSRCSHEET = sizeof(EFX_ENH_SRCSHEET) / sizeof(*EFX_ENH_SRCSHEET);
 
 /* An emitter Enhanced mode adds to a cartridge recipe: the muzzle flashes the chain guns
    and the cannon lack, the flare under the landing-zone smoke. `recipe` is the recipe's

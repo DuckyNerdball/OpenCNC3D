@@ -1,5 +1,6 @@
 #ifndef CNC3D_TERRAIN_SURFACE_H
 #define CNC3D_TERRAIN_SURFACE_H
+#include "ground_mem.h"   /* the material read's measured peak and its restore switch */
 
 /* Enhanced terrain detail is real bounded displacement over the native heightfield.
    A saved physical-rock matte supplies height. Every pass uses this one cached mesh;
@@ -103,33 +104,132 @@ static void terrain_surface_free(void)
 /* C3DMATL uses the exact C3DSURF key order and separately zipped linear material
    data: tangent normal XY, roughness, explicit mineral coverage. Two-texel edge
    gutters prevent a neighbouring template from bleeding into the normal target. */
+/* One tile's cell x cell RGBA, its gutters replicated, into its place in the atlas. */
+static void terrain_surface_material_place(std::vector<unsigned char>& atlas,int width,int pitch,int cols,
+                                           unsigned cell,unsigned i,const unsigned char* tile)
+{
+    for(int z=-2;z<(int)cell+2;z++)for(int x=-2;x<(int)cell+2;x++){
+        const int sx=std::max(0,std::min((int)cell-1,x)),sz=std::max(0,std::min((int)cell-1,z));
+        const size_t dst=((size_t)((i/cols)*pitch+z+2)*width+(i%cols)*pitch+x+2)*4;
+        memcpy(&atlas[dst],&tile[((size_t)sz*cell+sx)*4],4);
+    }
+}
+/* THE PACK READ WHOLE, as it always was (OPENCNC3D_PACK_WHOLE_READ=1): the file, then
+   all of it decoded, then the atlas. True with the atlas laid out. */
+static bool terrain_surface_material_read_whole(FILE* f,const std::vector<unsigned char>& surface,
+                                                std::vector<unsigned char>& atlas,unsigned* cellOut,unsigned* countOut,
+                                                int* colsOut,int* rowsOut,int* widthOut,int* heightOut)
+{
+    std::vector<unsigned char> b;
+    fseek(f,0,SEEK_END);long n=ftell(f);
+    if(n>=24&&n<=256L*1024*1024&&fseek(f,0,SEEK_SET)==0){b.resize(n);if(fread(b.data(),1,n,f)!=(size_t)n)b.clear();}
+    ground_mem_note();
+    if(b.size()<24||memcmp(b.data(),"C3DMATL\0",8)||stone_u32(b.data()+8)!=1)return false;
+    unsigned cell=stone_u32(b.data()+12),count=stone_u32(b.data()+16);size_t head=20+(size_t)count*24;
+    if(cell<8||cell>144||!count||count!=stone_u32(surface.data()+16)||head+4>b.size()
+       ||memcmp(b.data()+20,surface.data()+20,count*24))return false;
+    const unsigned packed=stone_u32(b.data()+head);if(head+4+packed!=b.size())return false;
+    const size_t size=(size_t)cell*cell*count*4;if(size>256u*1024u*1024u)return false;
+    std::vector<unsigned char> pixels(size);uLongf decoded=size;
+    ground_mem_note();
+    if(uncompress(pixels.data(),&decoded,b.data()+head+4,packed)!=Z_OK||decoded!=size)return false;
+    const int pitch=cell+4,cols=(int)ceil(sqrt((double)count+1)),rows=(count+1+cols-1)/cols;
+    GLint limit=0;glGetIntegerv(GL_MAX_TEXTURE_SIZE,&limit);if(cols*pitch>limit||rows*pitch>limit)return false;
+    const int width=cols*pitch,height=rows*pitch;
+    memfail_point("material");
+    atlas.assign((size_t)width*height*4,0);
+    ground_mem_note();
+    for(unsigned i=0;i<count;i++)
+        terrain_surface_material_place(atlas,width,pitch,cols,cell,i,&pixels[(size_t)i*cell*cell*4]);
+    *cellOut=cell;*countOut=count;*colsOut=cols;*rowsOut=rows;*widthOut=width;*heightOut=height;
+    return true;
+}
+/* THE PACK READ TILE BY TILE: the header and keys, then the zipped data inflated a
+   piece of the file at a time, each tile copied into its place in the atlas the moment
+   it is whole. Neither the file nor the decoded tiles are ever held in full, only the
+   atlas, one tile and one piece of the file. The same checks as the whole read (a
+   stream that ends short, runs long, or fails its checksum is no material), the same
+   atlas byte for byte. */
+static bool terrain_surface_material_read_tiles(FILE* f,const std::vector<unsigned char>& surface,
+                                                std::vector<unsigned char>& atlas,unsigned* cellOut,unsigned* countOut,
+                                                int* colsOut,int* rowsOut,int* widthOut,int* heightOut)
+{
+    if(fseek(f,0,SEEK_END)!=0)return false;
+    const long n=ftell(f);
+    if(n<24||n>256L*1024*1024||fseek(f,0,SEEK_SET)!=0)return false;
+    unsigned char top[20];
+    if(fread(top,1,sizeof top,f)!=sizeof top)return false;
+    if(memcmp(top,"C3DMATL\0",8)||stone_u32(top+8)!=1)return false;
+    const unsigned cell=stone_u32(top+12),count=stone_u32(top+16);const size_t head=20+(size_t)count*24;
+    if(cell<8||cell>144||!count||count!=stone_u32(surface.data()+16)||head+4>(size_t)n)return false;
+    std::vector<unsigned char> keys((size_t)count*24+4);
+    if(fread(keys.data(),1,keys.size(),f)!=keys.size())return false;
+    if(memcmp(keys.data(),surface.data()+20,count*24))return false;
+    const unsigned packed=stone_u32(keys.data()+(size_t)count*24);if(head+4+packed!=(size_t)n)return false;
+    const size_t size=(size_t)cell*cell*count*4;if(size>256u*1024u*1024u)return false;
+    const int pitch=cell+4,cols=(int)ceil(sqrt((double)count+1)),rows=(count+1+cols-1)/cols;
+    GLint limit=0;glGetIntegerv(GL_MAX_TEXTURE_SIZE,&limit);if(cols*pitch>limit||rows*pitch>limit)return false;
+    const int width=cols*pitch,height=rows*pitch;
+    memfail_point("material");
+    atlas.assign((size_t)width*height*4,0);
+    const size_t tileBytes=(size_t)cell*cell*4;
+    std::vector<unsigned char> tile(tileBytes),in((size_t)256*1024);
+    ground_mem_note();
+    z_stream zs;memset(&zs,0,sizeof zs);
+    if(inflateInit(&zs)!=Z_OK)return false;
+    unsigned done=0;size_t fill=0,left=packed;unsigned char spare=0;
+    int ret=Z_OK;bool good=true;
+    for(;;) {
+        if(!zs.avail_in && left) {
+            const size_t want=left<in.size()?left:in.size();
+            if(fread(in.data(),1,want,f)!=want){good=false;break;}
+            zs.next_in=in.data();zs.avail_in=(uInt)want;left-=want;
+        }
+        /* past the last tile, one spare byte: a stream with more in it runs long */
+        if(done<count){zs.next_out=tile.data()+fill;zs.avail_out=(uInt)(tileBytes-fill);}
+        else {zs.next_out=&spare;zs.avail_out=1;}
+        const uLong before=zs.total_out;
+        ret=inflate(&zs,Z_NO_FLUSH);
+        const size_t made=(size_t)(zs.total_out-before);
+        if(done>=count && made){good=false;break;}
+        fill+=made;
+        if(done<count && fill==tileBytes) {
+            terrain_surface_material_place(atlas,width,pitch,cols,cell,done,tile.data());
+            done++;fill=0;
+        }
+        if(ret==Z_STREAM_END)break;
+        if(ret!=Z_OK){good=false;break;}
+    }
+    const uLong total=zs.total_out;
+    inflateEnd(&zs);
+    if(!good||ret!=Z_STREAM_END||done!=count||total!=size)return false;
+    *cellOut=cell;*countOut=count;*colsOut=cols;*rowsOut=rows;*widthOut=width;*heightOut=height;
+    return true;
+}
 static void terrain_surface_material_load(const std::vector<unsigned char>& surface)
 {
     auto& S=g_terrainSurface;if(!stone_maps_enabled())return;
-    std::vector<unsigned char> b;const char* roots[]={"","game/","../game/","ra3d/","../"};bool found=false;
+    GroundMemPeak peak("material_cpu_peak");
+    const char* roots[]={"","game/","../game/","ra3d/","../"};FILE* f=NULL;
     /* Prefer an explicit SAND file across every root. Its identical Desert donor
        is considered only when no explicit file exists, never after corruption. */
-    for(int donor=0;donor<(S.theater=="SAND"?2:1)&&!found;donor++)for(auto root:roots){const char* dir=getenv("OPENCNC3D_TERRAIN_SURFACE_DIR");
+    for(int donor=0;donor<(S.theater=="SAND"?2:1)&&!f;donor++)for(auto root:roots){const char* dir=getenv("OPENCNC3D_TERRAIN_SURFACE_DIR");
         std::string path=(dir&&*dir?std::string(dir)+"/":std::string(root))+"terrainmaterial_"+(donor?"DESERT":S.theater)+".pack";
-        FILE* f=fopen(path.c_str(),"rb");if(!f)continue;found=true;fseek(f,0,SEEK_END);long n=ftell(f);
-        if(n>=24&&n<=256L*1024*1024&&fseek(f,0,SEEK_SET)==0){b.resize(n);if(fread(b.data(),1,n,f)!=(size_t)n)b.clear();}fclose(f);break;
+        f=fopen(path.c_str(),"rb");if(f)break;
     }
-    if(b.size()<24||memcmp(b.data(),"C3DMATL\0",8)||stone_u32(b.data()+8)!=1)return;
-    unsigned cell=stone_u32(b.data()+12),count=stone_u32(b.data()+16);size_t head=20+(size_t)count*24;
-    if(cell<8||cell>144||!count||count!=stone_u32(surface.data()+16)||head+4>b.size()
-       ||memcmp(b.data()+20,surface.data()+20,count*24))return;
-    const unsigned packed=stone_u32(b.data()+head);if(head+4+packed!=b.size())return;
-    const size_t size=(size_t)cell*cell*count*4;if(size>256u*1024u*1024u)return;
-    std::vector<unsigned char> pixels(size);uLongf decoded=size;
-    if(uncompress(pixels.data(),&decoded,b.data()+head+4,packed)!=Z_OK||decoded!=size)return;
-    const int pitch=cell+4,cols=(int)ceil(sqrt((double)count+1)),rows=(count+1+cols-1)/cols;
-    GLint limit=0;glGetIntegerv(GL_MAX_TEXTURE_SIZE,&limit);if(cols*pitch>limit||rows*pitch>limit)return;
-    const int width=cols*pitch,height=rows*pitch;std::vector<unsigned char> atlas((size_t)width*height*4,0);
-    for(unsigned i=0;i<count;i++)for(int z=-2;z<(int)cell+2;z++)for(int x=-2;x<(int)cell+2;x++){
-        const int sx=std::max(0,std::min((int)cell-1,x)),sz=std::max(0,std::min((int)cell-1,z));
-        const size_t dst=((size_t)((i/cols)*pitch+z+2)*width+(i%cols)*pitch+x+2)*4;
-        memcpy(&atlas[dst],&pixels[((size_t)i*cell*cell+sz*cell+sx)*4],4);
+    if(!f)return;
+    std::vector<unsigned char> atlas;unsigned cell=0,count=0;int cols=0,rows=0,width=0,height=0;bool ok=false;
+    /* A MATERIAL THAT DOES NOT FIT IN MEMORY is left out (the ground then draws as it
+       does with no material pack), and says so; where it fits nothing changes. */
+    try {
+        ok=ground_pack_whole_read()?terrain_surface_material_read_whole(f,surface,atlas,&cell,&count,&cols,&rows,&width,&height)
+                                   :terrain_surface_material_read_tiles(f,surface,atlas,&cell,&count,&cols,&rows,&width,&height);
+    } catch(const std::bad_alloc&) {
+        ok=false;std::vector<unsigned char>().swap(atlas);
+        printf("MEM|caught|material|theater=%s|then=none\n",S.theater.c_str());fflush(stdout);
     }
+    fclose(f);
+    if(!ok)return;
     GLint was=0;glGetIntegerv(GL_TEXTURE_BINDING_2D,&was);glGenTextures(1,&S.material);glBindTexture(GL_TEXTURE_2D,S.material);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
@@ -223,6 +323,7 @@ static bool ground_patch_verify(void)
 struct GroundRevSnapshot {
     int gridW=-1,gridH=-1;unsigned gen=0,pad=0;
     std::vector<unsigned char> corners;   // corner_raw at the last sync
+    std::vector<unsigned short> padCells; // independent planes can move without a shared corner moving
     bool live=false;unsigned surface=0;int fw=0,fh=0,steps=0;
     std::vector<float> lift;              // the live lift at the last sync, empty when it was not live
     bool owed=false;                      // the ground moved between pad changes: the next one is whole
@@ -259,6 +360,15 @@ static void ground_rev_sync(void)
         for(int z=z0;z<=z1;z++)for(int x=x0;x<=x1;x++)marked[(size_t)z*g_gridW+x]=1;
     };
     if(!whole) {
+        if(padMoved) {
+            if(R.padCells.size()!=cells)whole=true;
+            else for(int z=0;z<g_gridH;++z)for(int x=0;x<g_gridW;++x) {
+                const size_t i=(size_t)z*g_gridW+x;
+                const unsigned short key=g_foundations.kind.empty()?0:
+                    (unsigned short)((g_foundations.kind[i]<<8)|g_foundations.cell[i]);
+                if(R.padCells[i]!=key)mark(x-1,z-1,x+1,z+1);
+            }
+        }
         if(memcmp(corners.data(),R.corners.data(),ncorn))
             for(int z=0;z<=g_gridH;z++)for(int x=0;x<=g_gridW;x++)
                 if(corners[(size_t)z*(g_gridW+1)+x]!=R.corners[(size_t)z*(g_gridW+1)+x])mark(x-2,z-2,x+1,z+1);
@@ -295,6 +405,11 @@ static void ground_rev_sync(void)
         for(size_t i=0;i<cells;i++)if(marked[i])g_groundRev[i]=seq;
     }
     R.gridW=g_gridW;R.gridH=g_gridH;R.gen=g_groundGen;R.pad=g_padEpoch;R.corners=corners;
+    if(padMoved||R.padCells.size()!=cells) {
+        R.padCells.assign(cells,0);
+        if(g_foundationGen==g_groundGen&&g_foundations.kind.size()==cells)
+            for(size_t i=0;i<cells;++i)R.padCells[i]=(unsigned short)((g_foundations.kind[i]<<8)|g_foundations.cell[i]);
+    }
     if(live!=R.live || (live && surface!=R.surface)) {
         const bool listed=live && R.live && R.surface==S.liftFrom && surface==S.liftTo && S.liftTo && R.lift.size()==S.lift.size();
         R.live=live;R.surface=surface;
@@ -333,8 +448,9 @@ static bool terrain_surface_base_ensure(const std::vector<TerrainSurfaceCell>& c
         GLint active=GL_TEXTURE0,bound=0,pack=4;glGetIntegerv(GL_ACTIVE_TEXTURE,&active);
         glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glGetIntegerv(GL_PACK_ALIGNMENT,&pack);
         glBindTexture(GL_TEXTURE_2D,g_terrainSurfaceAtlas);glGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_WIDTH,&coastW);glGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_HEIGHT,&coastH);
-        if(coastW>0 && coastH>0 && coastW<=8192 && coastH<=8192){coast.resize((size_t)coastW*coastH);glPixelStorei(GL_PACK_ALIGNMENT,1);glGetTexImage(GL_TEXTURE_2D,0,GL_ALPHA,GL_UNSIGNED_BYTE,coast.data());}
+        if(coastW>0 && coastH>0 && coastW<=8192 && coastH<=8192){coast.resize((size_t)coastW*coastH);glPixelStorei(GL_PACK_ALIGNMENT,1);if(gl_readback_whole())glGetTexImage(GL_TEXTURE_2D,0,GL_ALPHA,GL_UNSIGNED_BYTE,coast.data());else gl_read_tex_rows(g_terrainSurfaceAtlas,coastW,coastH,GL_ALPHA,coast.data());}
         glPixelStorei(GL_PACK_ALIGNMENT,pack);glBindTexture(GL_TEXTURE_2D,bound);glActiveTexture((GLenum)active);
+        texhash_mem("surface_coast",coast.data(),coast.size());
     }
     g_glsWatchTex=B.atlas;B.coastGen=g_glsWatchGen;
     *msRead=terrain_surface_ms(tStart);
@@ -440,7 +556,7 @@ static void terrain_surface_cell_nodes(const TerrainSurfaceCell& c,std::vector<T
     for(int z=0;z<=S.steps;z++)for(int x=0;x<=S.steps;x++) {
         const int gx=c.x*S.steps+x,gz=c.z*S.steps+z;
         const float fx=(float)(x)/S.steps,fz=(float)(z)/S.steps,wx=c.x+fx,wz=c.z+fz;
-        TerrainSurfaceVert& v=nodes[(size_t)z*side+x];v.p[0]=wx;v.p[1]=terrain_y_base(wx,wz)+terrain_surface_node(gx,gz);v.p[2]=wz;
+        TerrainSurfaceVert& v=nodes[(size_t)z*side+x];v.p[0]=wx;v.p[1]=terrain_y_cell_base(wx,wz,c.x,c.z)+terrain_surface_node(gx,gz);v.p[2]=wz;
         v.uv[0]=c.uv[0]+(c.uv[2]-c.uv[0])*fx;v.uv[1]=c.uv[1]+(c.uv[3]-c.uv[1])*fz;
         v.mu[0]=v.mu[1]=0;
         if(S.material){const int tile=c.tile<0?(int)(S.tiles.size()/(S.cell*S.cell)):c.tile,pitch=S.materialCell+4;
@@ -725,7 +841,7 @@ static void terrain_surface_lift_legacy(const std::vector<TerrainSurfaceCell>& c
         GLint active=GL_TEXTURE0,bound=0,pack=4;glGetIntegerv(GL_ACTIVE_TEXTURE,&active);
         glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&bound);glGetIntegerv(GL_PACK_ALIGNMENT,&pack);
         glBindTexture(GL_TEXTURE_2D,g_terrainSurfaceAtlas);glGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_WIDTH,&coastW);glGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_HEIGHT,&coastH);
-        if(coastW>0 && coastH>0 && coastW<=8192 && coastH<=8192){coast.resize((size_t)coastW*coastH);glPixelStorei(GL_PACK_ALIGNMENT,1);glGetTexImage(GL_TEXTURE_2D,0,GL_ALPHA,GL_UNSIGNED_BYTE,coast.data());}
+        if(coastW>0 && coastH>0 && coastW<=8192 && coastH<=8192){coast.resize((size_t)coastW*coastH);glPixelStorei(GL_PACK_ALIGNMENT,1);if(gl_readback_whole())glGetTexImage(GL_TEXTURE_2D,0,GL_ALPHA,GL_UNSIGNED_BYTE,coast.data());else gl_read_tex_rows(g_terrainSurfaceAtlas,coastW,coastH,GL_ALPHA,coast.data());}
         glPixelStorei(GL_PACK_ALIGNMENT,pack);glBindTexture(GL_TEXTURE_2D,bound);glActiveTexture((GLenum)active);
     }
     *msRead=terrain_surface_ms(tStart);Uint64 tStage=SDL_GetPerformanceCounter();
@@ -797,7 +913,7 @@ static void terrain_surface_cell_corners(const TerrainSurfaceCell& c,std::vector
     for(int z=0;z<S.steps;z++)for(int x=0;x<S.steps;x++)for(int k=0;k<6;k++) {
         const int gx=c.x*S.steps+x+ox[k],gz=c.z*S.steps+z+oz[k];
         const float fx=(float)(x+ox[k])/S.steps,fz=(float)(z+oz[k])/S.steps,wx=c.x+fx,wz=c.z+fz;
-        TerrainSurfaceVert v;v.p[0]=wx;v.p[1]=terrain_y_base(wx,wz)+terrain_surface_node(gx,gz);v.p[2]=wz;
+        TerrainSurfaceVert v;v.p[0]=wx;v.p[1]=terrain_y_cell_base(wx,wz,c.x,c.z)+terrain_surface_node(gx,gz);v.p[2]=wz;
         v.uv[0]=c.uv[0]+(c.uv[2]-c.uv[0])*fx;v.uv[1]=c.uv[1]+(c.uv[3]-c.uv[1])*fz;
         v.mu[0]=v.mu[1]=0;
         if(S.material){const int tile=c.tile<0?(int)(S.tiles.size()/(S.cell*S.cell)):c.tile,pitch=S.materialCell+4;

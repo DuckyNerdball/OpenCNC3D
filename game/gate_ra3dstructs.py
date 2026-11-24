@@ -361,13 +361,15 @@ def script(d):
                     v.append(f'hurtcell {hx} {hy}')
             v.append('tick 1')
         v += ['tick 40', f'shot {d}/{tag}_damaged.png', 'ebldump']
-        # (4) dead
-        for k in range(10):
-            for t, x, y, (hx, hy) in hurt:
-                v.append(f'hurtcell {hx} {hy}')
-            v.append('tick 1')
-        v += ['tick 3', f'shot {d}/{tag}_blast.png', 'tick 25', f'shot {d}/{tag}_wreck.png', 'ebldump',
-              'tick 220', 'ebldump', 'quit']
+        # (4) Hold each collapse in view through sinking, then release its slot
+        # by panning away before the next collapse.
+        for index, (_, _, _, (hx, hy)) in enumerate(hurt):
+            v += [f'cam {hx} {hy}', 'dist 1600', 'frames 1']
+            v += [f'hurtcell {hx} {hy}', 'tick 1'] * 10
+            if index == 0:
+                v += ['tick 3', f'shot {d}/{tag}_blast.png', 'tick 25', f'shot {d}/{tag}_wreck.png']
+            v += ['tick 60', 'ebldump', 'cam 0 0', 'frames 1', 'tick 1']
+        v += ['quit']
         write(f'{d}/{tag}.txt', v)
 
 

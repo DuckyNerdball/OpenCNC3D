@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Package the automatic diagnostic game entry and its required asset overlay."""
+"""Package the automatic diagnostic game entry and its required asset overlay.
+
+HISTORICAL: it shares make-bundle.py's checks, which accept only the 32-bit (i386 PE32)
+programs of the v0.8.x builds, so it refuses every 64-bit Windows build until those are
+rebaselined. The standard Windows packages do not use it: tools/win/make-build-win.sh
+puts OpenCNC3D-Diagnostics.exe in every package and tools/win/check-diagnostics.py checks
+it.
+"""
 import argparse
 import importlib.util
 import json

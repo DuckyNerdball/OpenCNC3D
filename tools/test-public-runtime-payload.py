@@ -195,7 +195,7 @@ def main():
     # Compile the production loader body itself. GL calls capture its final atlas
     # in CPU memory; there is no GL context, game process, geometry or shader.
     header=(ROOT/'game/terrain_surface.h').read_text()
-    function=header[header.index('static void terrain_surface_material_load('):header.index('static GLuint terrain_surface_normal_program(')]
+    function=header[header.index('static void terrain_surface_material_place('):header.index('static GLuint terrain_surface_normal_program(')]
     prefix=r'''#include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -210,6 +210,10 @@ enum { GL_MAX_TEXTURE_SIZE=1,GL_TEXTURE_BINDING_2D,GL_TEXTURE_2D,GL_TEXTURE_MIN_
 struct State{std::string theater;GLuint material=0;int materialCell=0,materialCols=0,materialRows=0;};
 static State g_terrainSurface;static std::vector<unsigned char> uploaded;
 static bool stone_maps_enabled(){return true;}
+struct GroundMemPeak{explicit GroundMemPeak(const char*){}};
+static void ground_mem_note(){}
+static void memfail_point(const char*){}
+static bool ground_pack_whole_read(){return getenv("OPENCNC3D_PACK_WHOLE_READ")!=nullptr;}
 static unsigned stone_u32(const unsigned char* p){return p[0]|unsigned(p[1])<<8|unsigned(p[2])<<16|unsigned(p[3])<<24;}
 static void glGetIntegerv(int name,GLint* value){*value=name==GL_MAX_TEXTURE_SIZE?8192:0;}
 static void glGenTextures(int,GLuint* value){*value=71;}

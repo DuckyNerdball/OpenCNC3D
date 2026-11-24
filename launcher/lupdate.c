@@ -120,6 +120,9 @@ static void lu_set(LU_State *u, LU_Phase phase, const char *status)
     if (status)
         snprintf(u->status, sizeof u->status, "%s", status);
     SDL_UnlockMutex(u->lock);
+    /* a failure reaches the log too: the status line is gone with the window */
+    if (phase == LU_FAILED)
+        fprintf(stderr, "LAUNCHER|update|failed|%s\n", status ? status : "");
 }
 
 LU_Phase lu_phase(const LU_State *u)
@@ -622,9 +625,10 @@ static void lu_install_record(const LU_State *u, char *out, size_t outlen)
 /* ------------------------------------------------------------------------ *
  * Unpacking over the install.
  *
- * The update zips carry every binary in the folder, and on Windows two of them
- * are in use by this very process: the launcher's own .exe, and SDL2.dll, which
- * it has loaded. Neither can be opened for writing. lz_extract treats both, and
+ * The update zips carry every binary in the folder, and on Windows the launcher's
+ * own .exe is in use by this very process (and, for a 32-bit launcher up to
+ * v0.9.2, the SDL2.dll it loaded from the folder). A file in use cannot be opened
+ * for writing. lz_extract treats both, and
  * every other file, the same way (the extractor's header in lzip.c has the
  * argument): an identical file is left alone, a changed one is renamed aside and
  * replaced, every step is journalled first, a failure puts every replaced file
@@ -1046,8 +1050,8 @@ static int lu_do_apply(LU_State *u, char *err, int errlen)
          * failure, and it catches nothing subtle. Better than nothing and worse
          * than a hash; the release only has to carry one small file to make it a
          * hash. See the header. */
-        /* 64-bit on every platform: ftell on the 32-bit Windows build stops at 2 GiB,
-         * which a full package can now pass. */
+        /* 64-bit on every platform: on Windows ftell returns a 32-bit `long` at
+         * either program width and stops at 2 GiB, which a full package can pass. */
         long long got = ln_file_size(zip);
         if (got != a->size) {
             snprintf(err, (size_t)errlen,

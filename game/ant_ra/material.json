@@ -1,0 +1,82 @@
+{
+  "source_native_sha256": "8f4cec1f5b5c784816852116eed240c535cf87667827907dd8959caa9df2fbfe",
+  "unit_triangles": 956,
+  "fluid_triangles": 2,
+  "max_total": 958,
+  "body_bones": 32,
+  "fluid_projection_bones": 4,
+  "main_resolution": 2048,
+  "body_material": "NO_PLAYER|CLOTH, BASE alpha explicit player mask; ORM alpha duplicate same mask for existing luminance-replacement path, loader clothRef0.4; normalized cloth replacement gives approved luminance*2.5*house colour. Bristles NO_PLAYER.",
+  "mask_adaptation": "2x2 minimum downsample, extra one-runtime-texel fixed-soil guard from explicit SoilMask. No hue inference. Author maps untouched.",
+  "fluid_material": "NO_PLAYER|FLUID(0x10). BASE alpha remains all-black player mask. NORM alpha high8 and ORM alpha low8 of linear16bit growth distance. Dedicated shader decode. No-mip linear filtering for these data textures preserves precision. Opacity separate.",
+  "axes": "Blender(x,y,z) ->1024*(x,z,-y), matrices conjugated; no resize/recenter",
+  "files": {
+    "ANT_PlayerColorMask.png": "f2b1162d7e820ebf024376d01b1466fe44b3ae7167cb144f5c3ca91cf58ff83a",
+    "ANT_BaseColor.png": "a3ec7f9bb12e43eebd88d9ed68c452b026baaa00a1d192a7c82a224c3456a5c9",
+    "ANT_ORM.png": "1f389da1b3e05868bf02c13836187c6f929fc300dc22f292bc768400d0d71e7e",
+    "AntFluid_BaseColor.png": "d42f9c38d18714e7e7f021972d05ae90741d2d6fd6ca8f2fbfc2ff13180fb2b3",
+    "ANT.rig": "daeb4078ce716956adace8af1a3cb7f461fbf1c6730b7317ad39aac06ace8583",
+    "AntFluid_Opacity.png": "709653c01f97c89c72aa6be1b6a65c8912d293639420dd0daddc159b6470421e",
+    "ANTFX.c3m": "0d03c8f4f9eecc747fed6a80bfeadbe3178b1611a2994c25cee2185a52541599",
+    "ANT.c3m": "bff860cf6ed92d422c61b13e634fb71530578579795d06e7d1f46e005338af40",
+    "ANT_Bristles_BaseColor.png": "12ab908b01741545c2e150a894edf269f9fcd44c4384fb81d86893965ef965d9",
+    "AntFluid_GrowthDistance.png": "cc3b1b84fd82bf0fb0508f1fb3b5f8412f61e30f342dcd85cae27957ab807436",
+    "ANT_Bristles_PlayerColorMask.png": "3552bb8bf493ba63896f7abfb3ee3d899bf7312cd0b3d87691a639344b051238",
+    "AntFluid_PlayerColorMask.png": "4a793e24e6a384be0c4848d4a786281570f8de02dd43a1f2f7245efaa58af76e",
+    "ANT_Normal.png": "e2d61a81b62eb46c8e4ad2e293fbcb7ef1c5515ba5ea31996be71b2afbdc64cc"
+  },
+  "player_colour_pairings": [
+    {
+      "mask": "ANT_PlayerColorMask.png",
+      "albedo": "ANT_BaseColor.png",
+      "uv": "source BakeUV, exported C3M UV0",
+      "dimensions": [
+        2048,
+        2048
+      ],
+      "encoding": "linear grayscale;0 leaves albedo;1 recolours; dirt/eyes/metal excluded"
+    },
+    {
+      "mask": "ANT_Bristles_PlayerColorMask.png",
+      "albedo": "ANT_Bristles_BaseColor.png",
+      "uv": "source uniform bristle UV, exported C3M UV0",
+      "dimensions": [
+        16,
+        16
+      ],
+      "encoding": "linear grayscale; intentionally all-black, fixed dark bristles"
+    },
+    {
+      "mask": "AntFluid_PlayerColorMask.png",
+      "albedo": "AntFluid_BaseColor.png",
+      "uv": "approved carrier BakeUV, exported C3M UV0",
+      "dimensions": [
+        512,
+        512
+      ],
+      "encoding": "linear grayscale16; intentionally all-black, fixed green fluid; opacity and growth separate"
+    }
+  ],
+  "authoring_native": {
+    "path": "workspace-artifact:output/vehicle-gap-2026-11-04/ant/final_fx_v01/Ant_final_fx_v01.blend",
+    "sha256": "8f4cec1f5b5c784816852116eed240c535cf87667827907dd8959caa9df2fbfe"
+  },
+  "authoring_approval_receipt": "art/remaster-ra/ANT/runtime-v01/PRESERVATION.json",
+  "revision_v02": {
+    "approved_blender_combat_sha256": "6f7ee14bcd2596cd4b894a5d53b2c53fd2cef4f45902d604e1de3fe2733f1685",
+    "approved_lab_mesh_sha256": "ced4385efb353285e870fb65ca1939a6ef50e94c9b3c6ff8fdf3b94a8a454116",
+    "gold_tint_linear": [
+      0.750370059894647,
+      0.61170012175409,
+      0.14931934918839707
+    ],
+    "body_sheen": "Normal atlas alpha; explicit Ant gloss material flag 0x20",
+    "combat_readback_max_vertex_error_cells": 1.8209721038011146e-06,
+    "fluid_opacity": "0.65*smoothstep(-0.035, 0.11, 0.85*growth-distance)",
+    "native_exposure": {
+      "shell": 0.16,
+      "fluid": 0.17,
+      "scope": "Ant-only light response translation after native capture revealed clipping"
+    }
+  }
+}

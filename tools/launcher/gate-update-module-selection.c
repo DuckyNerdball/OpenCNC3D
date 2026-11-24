@@ -115,6 +115,13 @@ static void apply_policy(const char *dir,const char *mode)
         assert(a.play_after==1&&a.quit==1&&!u.worker&&fixture_calls==before_launch);
         if(a.mod[0].installed){a.mod_sel=0;a.play_after=a.quit=0;l_set_buttons(&a);assert(!strcmp(a.btn[L_BTN_PLAY].label,"Update")&&!a.btn[L_BTN_PLAY].disabled);}
     }else if(!a.mod[0].installed)assert(a.btn[L_BTN_PLAY].disabled);
+    if(a.mod[0].installed){
+        char path[1400];FILE *f;
+        snprintf(path,sizeof path,"%s/opencnc3d-module-td.txt",dir);assert(!l_has_named_file(dir,"opencnc3d-module-td.txt"));
+        f=fopen(path,"wb");assert(f);fputs("version 0.99.1\n",f);fclose(f);
+        a.mod_sel=0;l_set_buttons(&a);assert(!strcmp(a.btn[L_BTN_PLAY].label,"Launch"));
+        assert(!l_legacy_update_available(&a,LU_AVAILABLE));assert(!remove(path));
+    }
     a.media_add_only=1;a.view=L_VIEW_MODULE_OPTIONS;a.want_movies=a.want_music=0;a.any_movies=a.any_music=1;
     assert(!strcmp(l_m_note(&a,0),"KEPT")&&!strcmp(l_m_note(&a,1),"KEPT"));
     a.media_add_only=0;a.view=L_VIEW_SETTINGS;

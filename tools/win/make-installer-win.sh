@@ -41,13 +41,17 @@ mkdir -p "$PAYLOAD/ecur"
 if [ -n "$PKG" ]; then
     [ -d "$PKG" ] || die "no Windows package at $PKG"
     PKG=$(cd "$PKG" && pwd)
-    for f in OpenCNC3D.exe SDL2.dll READ-ME-WINDOWS.txt LICENSE NOTICE.md dosmenu.pack enhanced-menu.pack ecur/ecur.bin; do
+    # NO SDL2.dll. The Windows programs link SDL statically, so a package that still holds
+    # one was staged over an older build, and is not what this Setup should be made from.
+    SDL_IN=$(cd "$PKG" && find . -iname 'sdl2.dll' -print | sed 's|^\./||')
+    [ -z "$SDL_IN" ] || die "the Windows package carries SDL2.dll ($SDL_IN), and SDL is linked into the programs: stage it again from a fresh build"
+    for f in OpenCNC3D.exe READ-ME-WINDOWS.txt LICENSE NOTICE.md dosmenu.pack enhanced-menu.pack ecur/ecur.bin; do
         [ -s "$PKG/$f" ] || die "missing bootstrap input: $PKG/$f"
         cp "$PKG/$f" "$PAYLOAD/$f"
     done
 else
     tools/win/build-launcher-win.sh
-    cp "$ROOT/build/win/OpenCNC3D.exe" "$ROOT/build/win/SDL2.dll" "$PAYLOAD/"
+    cp "$ROOT/build/win/OpenCNC3D.exe" "$PAYLOAD/"
     GITDESC="${OPENCNC3D_BUILD_ID:-$(git describe --always --dirty 2>/dev/null || echo untracked)}"
     sh "$ROOT/tools/win/installer/readme-windows.sh" "$PAYLOAD/READ-ME-WINDOWS.txt" "$GITDESC"
     cp "$ROOT/LICENSE" "$PAYLOAD/"
@@ -67,7 +71,7 @@ if [ "$MODULE" = ra ]; then
     "${OPENCNC3D_ART_PYTHON:-python3}" "$ROOT/tools/win/installer/make-ra-wizard.py" "$WIZARD"
 fi
 EXTRA=$(cd "$PAYLOAD" && find . -type f | sed 's|^./||' | sort |
-    grep -vxE 'OpenCNC3D\.exe|SDL2\.dll|opencnc3d\.ico|READ-ME-WINDOWS\.txt|LICENSE|NOTICE\.md|dosmenu\.pack|enhanced-menu\.pack|ecur/ecur\.bin' || true)
+    grep -vxE 'OpenCNC3D\.exe|opencnc3d\.ico|READ-ME-WINDOWS\.txt|LICENSE|NOTICE\.md|dosmenu\.pack|enhanced-menu\.pack|ecur/ecur\.bin' || true)
 [ -z "$EXTRA" ] || die "non-bootstrap files in Setup: $EXTRA"
 LC_ALL=C grep -aqF '/api/builds' "$PAYLOAD/OpenCNC3D.exe" || die "OpenCNC3D.exe is not the launcher"
 OUTDIR="${OPENCNC3D_WIN_ZIP:-$HOME/Desktop}"
@@ -96,6 +100,15 @@ PY
     set -- "$@" "-DMODULE=$MODULE_ARG" "-DMEDIA_GAME=$MEDIA_GAME" \
         "-DMODULE_ZIP=$MODULE_ZIP" "-DMODULE_SHA=$MODULE_SHA" "-DMODULE_KB=$MODULE_KB"
 fi
+# 64-BIT ONLY, asked of exactly what Setup embeds, before it is embedded: the bootstrap
+# folder, which is the launcher taken from the package or from build/win, and for a
+# Complete variant the module ZIP it installs. Setup itself is a 32-bit NSIS program on
+# purpose, so that it starts on 32-bit Windows and refuses there; it is not asked.
+if [ -n "$MODULE" ]; then
+    python3 "$ROOT/tools/win/check-pe-arch.py" "$PAYLOAD" "$MODULE_ZIP"
+else
+    python3 "$ROOT/tools/win/check-pe-arch.py" "$PAYLOAD"
+fi || die "Setup would carry a program the 64-bit check refuses (named above). Nothing was built."
 makensis "$@" "$NSI" > "$LOG" 2>&1 || {
     cat "$LOG" >&2; die "makensis failed"; }
 [ -s "$OUTFILE" ] || die "makensis left no installer"
@@ -103,6 +116,11 @@ WANT=$(find "$PAYLOAD" -type f | wc -l | tr -d ' ')
 [ -z "$MODULE" ] || WANT=$((WANT + 1))
 GOT=$(grep -cE '^File: .+ [0-9]+(/[0-9]+)? bytes' "$LOG" || true)
 [ "$GOT" = "$WANT" ] || { rm -f "$OUTFILE"; die "Setup embedded $GOT of $WANT bootstrap files"; }
+# EVERY SETUP'S UNINSTALLER ASKS THE LAUNCHER TO TAKE THE GAMES OUT FIRST. Without that
+# call it removes only the launcher and leaves the games, movies, music and downloads
+# behind (gigabytes) with nothing left to remove them with.
+grep -E '^ExecWait: .*--uninstall .*--dir' "$LOG" >/dev/null || {
+    rm -f "$OUTFILE"; die "the uninstaller does not run the launcher's --uninstall"; }
 if [ -z "$MODULE" ]; then
     grep -E '^ExecWait: .*--(install-module|media-install)' "$LOG" >/dev/null && die "empty Setup contains a game/media worker"
     echo "SETUP|empty_launcher=1|automatic_download=0|files=$GOT|bytes=$(wc -c < "$OUTFILE" | tr -d ' ')"

@@ -33,6 +33,7 @@
 /* rc_decode: a room code is a relayed host's whole address. */
 #include "../net/roomcode.h"
 #include "mpbrowse.h"
+#include "map_import_ui.h"
 /* The lobby's harness writes its own frames out; the movie player already links this. */
 #include "pngwrite.h"
 /* dosmenu_shell.h has already picked a GL header; fx_filter.h needs one and
@@ -42,6 +43,8 @@
 #include "fullscreen.h"
 #include "cncaudio.h"
 #include "audioboot.h"
+/* tap_active: a recording run (--audiowav) keeps the menu's fixed pass, see dms_pace. */
+#include "audiotap.h"
 #include "movieplay.h"
 #include "moviesnd.h"
 
@@ -64,9 +67,11 @@ static unsigned short s_list_direct_port = 0;
 /* defines.h:2226 FADE_PALETTE_MEDIUM is TIMER_SECOND/4, TIMER_SECOND is 60. */
 #define DM_FADE_MS 250
 
-/* One pass of the menu loop. Sixteen milliseconds is the SDL_Delay at the bottom of
-   dms_run, and it is also how much sound a recording run renders per pass, so the two
-   clocks stay together. */
+/* One pass of the menu loop in a RECORDING run (--audiowav): sixteen milliseconds is how
+   much sound such a run renders per pass, and the sleep dms_pace takes per pass there, so
+   the two clocks stay together. Everywhere else a pass is paced to the display (dms_pace),
+   and the number handed to the audio pump does not matter, because a real device pulls
+   at its own rate. */
 #define DM_FRAME_MS 16
 
 /* THE MULTIPLAYER SCREEN RUNS TWICE AS OFTEN, because it is polling a network rather
@@ -179,7 +184,8 @@ int dms_enhanced_menu(const DMS *s) { return dms_enhanced(s); }
 
 static void dms_enh_scene(const DMS *s)
 {
-    if (s->browser) em_browser(s->browser);
+    if (s->importer) em_import_map(s->importer);
+    else if (s->browser) em_browser(s->browser);
     else if (s->ops) em_ops(s->ops);
     else if (s->lobby) em_lobby(s->lobby, s->pack);
     else em_main(&s->st);
@@ -191,7 +197,7 @@ void dms_item_window_rect(const DMS *s, int item, int *x, int *y, int *w, int *h
     int rx = 0, ry = 0, rw = 0, rh = 0;
     if (dms_enhanced(s)) {
         int dw, dh; SDL_GL_GetDrawableSize(s->win, &dw, &dh);
-        dms_enh_scene(s); em_viewport(dw, dh);
+        em_layout_pass(1); dms_enh_scene(s); em_layout_pass(0); em_viewport(dw, dh);
         if (em_item_rect(item, &rx, &ry, &rw, &rh)) {
             *x=(int)(rx/s->px); *y=(int)(ry/s->py);
             *w=(int)(rw/s->px); *h=(int)(rh/s->py); return;
@@ -206,6 +212,23 @@ void dms_item_window_rect(const DMS *s, int item, int *x, int *y, int *w, int *h
 
 /* Window points -> menu pixels. Outside the letterbox the answer is deliberately a
  * long way off the plate, so a click on the black bars hits nothing. */
+int dms_ant_speaker_rect(const DMS* s,int* x,int* y,int* w,int* h)
+{
+    int fx,fy,fw,fh;
+    if(!s->st.red_alert || !s->cfg.ants_available)return 0;
+    if(dms_enhanced(s)) {
+        if(!em_ra_speaker_rect(&fx,&fy,&fw,&fh))return 0;
+    } else {
+        fx=s->vpx+s->scale*s->surf.w*260/320;fy=s->vpy;
+        fw=s->scale*s->surf.w*60/320;fh=s->scale*s->surf.h*50/200;
+    }
+    *x=(int)(fx/s->px);*y=(int)(fy/s->py);*w=(int)(fw/s->px);*h=(int)(fh/s->py);return 1;
+}
+static int dms_ant_speaker_hit(const DMS* s,int x,int y) {
+    int bx,by,bw,bh;
+    return dms_ant_speaker_rect(s,&bx,&by,&bw,&bh) && x>=bx && y>=by && x<bx+bw && y<by+bh;
+}
+
 static void dms_to_menu(const DMS *s, int wx, int wy, int *mx, int *my)
 {
     int fx = (int)(wx * s->px), fy = (int)(wy * s->py);
@@ -222,6 +245,177 @@ static void dms_to_menu(const DMS *s, int wx, int wy, int *mx, int *my)
 static void dms_pump_audio(DMS *s, int ms)
 {
     audio_frame(s->cfg.au, ms);
+}
+
+/* -------------------------------------------------------------- THE MENU'S FRAME PACE *
+ * Every menu loop used to end its pass with a fixed SDL_Delay(16) after presenting. The
+ * sleep came on top of the drawing and the swap, so the menu could never reach 60 frames
+ * a second, and with vertical sync on, sixteen milliseconds of sleep plus a frame's work
+ * missed every other refresh: 30 on a 60 Hz screen.
+ *
+ * dms_pace sleeps only for what is left of one display refresh since the previous pass
+ * was due (none at all when the pass ran long), at the display's own rate and never below
+ * min_hz. With vertical sync on the swap is the pace, and the sleep's period is shortened
+ * by a tenth so it only stops the loop spinning where a swap does not wait (a hidden
+ * window has no refresh to wait for). Due times advance by whole periods, so the average
+ * rate is the display's even though a sleep is whole milliseconds.
+ *
+ * A RECORDING RUN (--audiowav) keeps the old fixed pass. Its sound is rendered by this
+ * thread, a fixed amount per pass, and the gates that measure the recorded score depend
+ * on that amount and that pass being the same number.
+ *
+ * A SCRIPTED LOBBY (DMS_LobbyProbe) keeps at least the old pass length too, through
+ * floor_ms. Its script runs one step a pass, so the steps are also its clock: the settle
+ * it leaves for a networked room to answer is a number of passes, and on a 120 Hz display
+ * a pass paced to the refresh would be half as long as the one that number was sized
+ * against. */
+static double s_pace_due = 0;          /* when the pass now ending was due to start, ms */
+static double s_pace_sleep_ms = 0;     /* time spent asleep in dms_pace, for the bench   */
+static unsigned s_pace_passes = 0;     /* passes paced, for the bench                    */
+
+static double dms_now_ms(void)
+{
+    return (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency();
+}
+
+static int dms_refresh_hz(const DMS *s)
+{
+    SDL_DisplayMode mode;
+    const int display = SDL_GetWindowDisplayIndex(s->win);
+    if (display >= 0 && SDL_GetCurrentDisplayMode(display, &mode) == 0 && mode.refresh_rate > 0)
+        return mode.refresh_rate;
+    return 60;
+}
+
+static void dms_pace_hz(DMS *s, int min_hz, double floor_ms, int recording_ms)
+{
+    double now, period, target;
+    int hz;
+    s_pace_passes++;
+    game_menu_vsync();
+    if (tap_active()) {
+        now = dms_now_ms();
+        SDL_Delay((Uint32)recording_ms);
+        s_pace_sleep_ms += dms_now_ms() - now;
+        return;
+    }
+    hz = dms_refresh_hz(s);
+    if (hz < min_hz) hz = min_hz;
+    period = 1000.0 / hz;
+    if (SDL_GL_GetSwapInterval() != 0) period *= 0.9;
+    if (period < floor_ms) period = floor_ms;
+    now = dms_now_ms();
+    target = s_pace_due + period;
+    if (s_pace_due > 0 && now < target) {
+        const double before = now;
+        SDL_Delay((Uint32)(target - now));
+        now = dms_now_ms();
+        s_pace_sleep_ms += now - before;
+    }
+    /* keep the cadence unless this pass overran by a whole period (a stall, a movie, a
+       mission in between): then start again from now rather than rush to catch up */
+    s_pace_due = (s_pace_due > 0 && now < target + period) ? target : now;
+}
+
+void dms_pace(DMS *s)
+{
+    dms_pace_hz(s, 60, 0.0, DM_FRAME_MS);
+}
+
+/* ------------------------------------------------------------------- THE MENU BENCH *
+ * HARNESS ONLY (--menubench). Holds the main menu with nobody at it for idle_ms, then puts
+ * a stand-in pointer on one button for hover_ms, moving a pixel a pass inside it with the
+ * motion events a hand would send, and prints for each leg how many passes
+ * ran, how many times the panel was drawn in software and sent to the card, how long the
+ * loop slept and the swap interval in force. The last idle frame and the first hovered
+ * frame are written from the back buffer to dir/idle.png and dir/hover.png, so the hover
+ * can be seen to land on the very frame the pointer arrives. */
+static struct {
+    int armed, phase, item;
+    unsigned idle_ms, hover_ms;
+    const char *dir;
+    double t0, sleep0;
+    unsigned passes0, rasters0, uploads0;
+    char path[512];
+} s_bench;
+static int s_bench_px = -1, s_bench_py = -1; /* the stand-in pointer, drawable pixels */
+static const char *s_bench_grab = NULL;      /* write the next presented frame here    */
+
+void dms_menubench(unsigned idle_ms, unsigned hover_ms, int item, const char *dir)
+{
+    memset(&s_bench, 0, sizeof s_bench);
+    s_bench.armed = 1;
+    s_bench.idle_ms = idle_ms;
+    s_bench.hover_ms = hover_ms;
+    s_bench.item = item;
+    s_bench.dir = dir;
+}
+
+static void dms_bench_mark(void)
+{
+    s_bench.t0 = dms_now_ms();
+    s_bench.sleep0 = s_pace_sleep_ms;
+    s_bench.passes0 = s_pace_passes;
+    s_bench.rasters0 = em_raster_count();
+    s_bench.uploads0 = em_upload_count();
+}
+
+static void dms_bench_report(const DMS *s, const char *leg)
+{
+    const double secs = (dms_now_ms() - s_bench.t0) / 1000.0;
+    const unsigned passes = s_pace_passes - s_bench.passes0;
+    printf("MENUBENCH|leg=%s|passes=%u|seconds=%.3f|fps=%.1f|rasters=%u|uploads=%u|sleep_ms=%.0f|swap_interval=%d|hz=%d\n",
+           leg, passes, secs, secs > 0 ? passes / secs : 0.0,
+           em_raster_count() - s_bench.rasters0, em_upload_count() - s_bench.uploads0,
+           s_pace_sleep_ms - s_bench.sleep0, SDL_GL_GetSwapInterval(), dms_refresh_hz(s));
+    fflush(stdout);
+}
+
+/* One step per pass of dms_run, before its events. Answers 1 when the bench is over. */
+static int dms_bench_step(DMS *s)
+{
+    const double now = dms_now_ms();
+    if (!s_bench.armed) return 0;
+    if (s_bench.phase == 0) {
+        dms_bench_mark();
+        s_bench.phase = 1;
+    } else if (s_bench.phase == 1 && now - s_bench.t0 >= s_bench.idle_ms) {
+        dms_bench_report(s, "idle");
+        if (s_bench.dir) {
+            snprintf(s_bench.path, sizeof s_bench.path, "%s/idle.png", s_bench.dir);
+            s_bench_grab = s_bench.path;
+        }
+        s_bench.phase = 2;
+    } else if (s_bench.phase == 2) {
+        int x = 0, y = 0, w = 0, h = 0;
+        dms_item_window_rect(s, s_bench.item, &x, &y, &w, &h);
+        s_bench_px = (int)((x + w / 2) * s->px);
+        s_bench_py = (int)((y + h / 2) * s->py);
+        printf("MENUBENCH|button|item=%d|x=%d|y=%d|w=%d|h=%d\n", s_bench.item,
+               (int)(x * s->px), (int)(y * s->py), (int)(w * s->px), (int)(h * s->py));
+        dms_bench_mark();
+        if (s_bench.dir) {
+            snprintf(s_bench.path, sizeof s_bench.path, "%s/hover.png", s_bench.dir);
+            s_bench_grab = s_bench.path;
+        }
+        s_bench.phase = 3;
+    } else if (s_bench.phase == 3 && now - s_bench.t0 >= s_bench.hover_ms) {
+        dms_bench_report(s, "hover");
+        s_bench_px = s_bench_py = -1;
+        s_bench.armed = 0;
+        return 1;
+    } else if (s_bench.phase == 3) {
+        /* the pointer keeps moving inside the button, a pixel a pass, with the motion
+           event a hand would send: the hover is already drawn, so nothing is redrawn */
+        SDL_Event e;
+        s_bench_px += ((s_pace_passes / 16) & 1) ? -1 : 1;
+        memset(&e, 0, sizeof e);
+        e.type = SDL_MOUSEMOTION;
+        e.motion.x = (int)(s_bench_px / s->px);
+        e.motion.y = (int)(s_bench_py / s->py);
+        SDL_PushEvent(&e);
+    }
+    return 0;
 }
 
 static void dms_fade_rgba(unsigned char *dst, const unsigned char *src, int level, int count)
@@ -282,10 +476,19 @@ void dms_draw(DMS *s)
 
     if (dms_enhanced(s)) {
         int mx = -1000, my = -1000, dx, dy;
-        dms_enh_scene(s); em_viewport(w, h);
+        /* TWO CALLS, AND BOTH ARE NEEDED. The first places this frame's seats, so the
+           pointer below is hit-tested against the screen being drawn and not the last
+           one; the second draws, with the hover that hit test found. Removing either
+           makes the hover a frame late. The first only places seats and draws nothing,
+           and the second draws only when something it would draw has changed, so an idle
+           menu pays for neither. */
+        em_layout_pass(1); dms_enh_scene(s); em_layout_pass(0); em_viewport(w, h);
         /* A new layout needs the current pointer position, not a cached seat
-           from the previous screen. Hidden/unfocused windows have no hover. */
-        if (!fs_background_only() && !(SDL_GetWindowFlags(s->win) & SDL_WINDOW_HIDDEN)
+           from the previous screen. Hidden/unfocused windows have no hover, except
+           the menu bench's pointer, which stands in for one. */
+        if (s_bench_px >= 0) {
+            mx = s_bench_px; my = s_bench_py;
+        } else if (!fs_background_only() && !(SDL_GetWindowFlags(s->win) & SDL_WINDOW_HIDDEN)
             && (SDL_GetWindowFlags(s->win) & SDL_WINDOW_MOUSE_FOCUS)) {
             SDL_GetMouseState(&mx, &my);
             mx = (int)(mx * s->px); my = (int)(my * s->py);
@@ -357,25 +560,73 @@ void dms_draw(DMS *s)
     glDepthMask(GL_TRUE);
 }
 
+/* The back buffer as a PNG, top row first: the frame the window is about to show. */
+static int dms_grab_back(DMS *s, const char *path)
+{
+    int w = 0, h = 0, y, ok;
+    unsigned char *data, *top;
+    SDL_GL_GetDrawableSize(s->win, &w, &h);
+    if (w <= 0 || h <= 0) return 0;
+    data = (unsigned char *)malloc((size_t)w * h * 4);
+    top = (unsigned char *)malloc((size_t)w * h * 4);
+    if (!data || !top) { free(data); free(top); return 0; }
+    glFinish();
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    for (y = 0; y < h; y++)
+        memcpy(top + (size_t)y * w * 4, data + (size_t)(h - 1 - y) * w * 4, (size_t)w * 4);
+    ok = png_write_rgba(path, top, w, h);
+    free(data);
+    free(top);
+    return ok;
+}
+
 static void dms_present(DMS *s)
 {
     dms_draw(s);
+    if (s_bench_grab) {
+        printf("MENUBENCH|shot|%s|%s\n", s_bench_grab,
+               dms_grab_back(s, s_bench_grab) ? "written" : "FAILED");
+        fflush(stdout);
+        s_bench_grab = NULL;
+    }
     SDL_GL_SwapWindow(s->win);
 }
 
-void dms_redraw(DMS *s)
+/* RED ALERT'S TITLE IS 640x400, and every screen drawn over the 320x200 plate (the
+   Special Ops list, the lobby and the multiplayer screen) is 320x200, as all of Tiberian
+   Dawn's are. The multiplayer screen was left out of this, so under Red Alert's 1996 menu
+   it drew its 320x200 picture into the corner of the title's 640x400 surface and filled a
+   quarter of the window, the rest black. */
+static void dms_fit_surface(DMS *s)
 {
-    s->legal_active = !s->st.red_alert && !s->ops && !s->lobby;
-    const int w = s->st.red_alert && !s->ops && !s->lobby ? 640 : DM_SCREEN_W;
-    const int h = s->st.red_alert && !s->ops && !s->lobby ? 400 : DM_SCREEN_H;
+    const int title = s->st.red_alert && !s->ops && !s->lobby && !s->browser && !s->importer;
+    const int w = title ? 640 : DM_SCREEN_W;
+    const int h = title ? 400 : DM_SCREEN_H;
     if (s->surf.w != w || s->surf.h != h) {
         db_surface_init(&s->surf, w, h, s->screen);
         s->mx = w / 2;
         s->my = h / 2;
         dms_layout(s);
     }
+}
+
+void dms_redraw(DMS *s)
+{
+    s->legal_active = !s->st.red_alert && !s->ops && !s->lobby && !s->importer;
+    dms_fit_surface(s);
+    /* The Enhanced screens draw their own panel (dms_draw) and never show this surface, so
+       it is neither painted nor sent to the card for them. It was, on every pass that had a
+       pointer movement in it: a moving pointer cost a 1995 menu frame and a 1024 x 512
+       texture upload that nothing displayed. */
+    if (dms_enhanced(s))
+        return;
     memset(s->screen, DB_TBLACK, sizeof s->screen);
-    if (s->ops) {
+    if (s->importer) {
+        dm_draw_plate(&s->surf, s->pack);
+        mi_draw(&s->surf, s->pack, s->importer);
+    } else if (s->ops) {
         /* The title plate is the menu's, so the list screen is the same picture with a
            different dialog on it -- exactly how the 1995 game moves between Select_Game
            and the map/mission dialogs. */
@@ -592,7 +843,7 @@ int dms_enh_choice(DMS *s, int which)
             em_menu_overlay(s->pack,mx,my);
         }
         em_choice(which,selected,pressed); em_draw(w,h,1); SDL_ShowCursor(SDL_DISABLE);
-        dms_pump_audio(s, DM_FRAME_MS); SDL_GL_SwapWindow(s->win); SDL_Delay(16);
+        dms_pump_audio(s, DM_FRAME_MS); SDL_GL_SwapWindow(s->win); dms_pace(s);
     }
 }
 
@@ -621,6 +872,8 @@ int dms_run(DMS *s)
         SDL_Event e;
         int dirty = 0;
 
+        if (dms_bench_step(s))
+            return DMS_CANCEL;
         while (SDL_PollEvent(&e)) {
             if (dms_enhanced(s)) em_sound_event(&e, s->win);
             if (fs_handle_event(&e)) { dirty = 1; continue; }
@@ -658,6 +911,9 @@ int dms_run(DMS *s)
                     dms_to_menu(s, e.button.x, e.button.y, &cx, &cy);
                     s->mx = cx;
                     s->my = cy;
+                    if((SDL_GetModState()&KMOD_SHIFT) && dms_ant_speaker_hit(s,e.button.x,e.button.y)) {
+                        s->st.pressed=DMS_ANTS;dirty=1;break;
+                    }
                     hit = dm_hit_test(&s->st, cx, cy);
                     if (hit >= 0) {
                         s->st.pressed = hit;
@@ -672,6 +928,9 @@ int dms_run(DMS *s)
                     int cx, cy, hit;
                     dms_to_menu(s, e.button.x, e.button.y, &cx, &cy);
                     hit = dm_hit_test(&s->st, cx, cy);
+                    if(s->st.pressed==DMS_ANTS && dms_ant_speaker_hit(s,e.button.x,e.button.y)) {
+                        s->st.pressed=-1;printf("RAANTS|shortcut|shift-speaker\n");return DMS_ANTS;
+                    }
                     if (hit >= 0 && hit == s->st.pressed)
                         chosen = hit;
                     s->st.pressed = -1;
@@ -726,7 +985,7 @@ int dms_run(DMS *s)
             dms_redraw(s);
         dms_pump_audio(s, DM_FRAME_MS);
         dms_present(s);
-        SDL_Delay(16);
+        dms_pace(s);
     }
 }
 
@@ -770,6 +1029,19 @@ static void dms_enh_push_click(DMS *s, int item)
     SDL_PushEvent(&e);
     e.type = SDL_MOUSEBUTTONUP;
     SDL_PushEvent(&e);
+}
+
+static int s_lobby_gun_game = 0;
+static int s_lobby_rally = 0;
+void dms_lobby_set_gun_game(int gun_game) { s_lobby_gun_game = gun_game ? 1 : 0; }
+void dms_lobby_set_rally(int rally) { s_lobby_rally = rally ? 1 : 0; }
+
+const char* dms_room_label(const char* map, int mode)
+{
+    static char label[48];
+    snprintf(label, sizeof label, "%s / %s", map && *map ? map : "?",
+             mode == DMS_MODE_RALLY ? "Rally" : mode == DMS_MODE_GUN_GAME ? "Gun Game" : "Free for All");
+    return label;
 }
 
 int dms_ra_enh_side(DMS *s, int auto_side, int auto_difficulty, const char *shot, int *difficulty)
@@ -838,26 +1110,67 @@ int dms_ra_enh_side(DMS *s, int auto_side, int auto_difficulty, const char *shot
         }
         em_menu_overlay(s->pack, mx, my);
         em_side_choice(side, diff, pressed); em_draw(w, h, 1); SDL_ShowCursor(SDL_DISABLE);
-        dms_pump_audio(s, DM_FRAME_MS); SDL_GL_SwapWindow(s->win); SDL_Delay(16);
+        dms_pump_audio(s, DM_FRAME_MS); SDL_GL_SwapWindow(s->win); dms_pace(s);
     }
 }
 
-int dms_ra_debrief(DMS *s, const struct EM_Debrief *d, const char *shot, int nowait)
+/* Every page of the debrief, and every series of its graph, written beside `shot` as
+   <shot>-<page>.png and <shot>-graph-<series>.png, for a gate or a proof sheet to read
+   (OPENCNC3D_DEBRIEF_PAGES=1 on a run that draws the debrief once). */
+static void dms_debrief_pages(DMS *s, struct EM_Debrief *d, const char *shot, int w, int h)
 {
+    static const char *const names[EM_PAGES] = {
+        "summary", "score", "units", "structures", "economy", "graph" };
+    char base[1024], path[1100];
+    const int keep_page = d->page, keep_series = d->series;
+    int p, k;
+    snprintf(base, sizeof base, "%s", shot);
+    if (strlen(base) > 4 && !strcmp(base + strlen(base) - 4, ".png")) base[strlen(base) - 4] = 0;
+    for (p = 0; p < EM_PAGES; p++) {
+        const int nseries = p == EM_PAGE_GRAPH ? EM_SERIES : 1;
+        for (k = 0; k < nseries; k++) {
+            d->page = p; d->series = k;
+            if (p == EM_PAGE_GRAPH) snprintf(path, sizeof path, "%s-graph-%d.png", base, k);
+            else snprintf(path, sizeof path, "%s-%s.png", base, names[p]);
+            dms_layout(s);
+            em_match_debrief(d, -1); em_viewport(w, h);
+            em_menu_overlay(s->pack, -1000, -1000);
+            if (em_write_shot(path, w, h)) printf("SHOT|%s|%dx%d|page=%d|series=%d\n", path, w, h, p, k);
+        }
+    }
+    d->page = keep_page; d->series = keep_series;
+    fflush(stdout);
+}
+
+int dms_match_debrief(DMS *s, const struct EM_Debrief *d0, const char *shot, int nowait)
+{
+    /* The screen's own copy, which the tabs and the series buttons change. Static: the
+       table carries the whole timeline and is too large for a thread's stack. */
+    static struct EM_Debrief cur;
+    struct EM_Debrief *d = &cur;
     int pressed = -1, first = 1;
+    cur = *d0;
     SDL_ShowCursor(SDL_DISABLE);
     for (;;) {
         SDL_Event e;
         int w, h, mx = -1000, my = -1000;
         SDL_GL_GetDrawableSize(s->win, &w, &h); dms_layout(s);
-        em_ra_debrief(d, pressed); em_viewport(w, h);
+        em_match_debrief(d, pressed); em_viewport(w, h);
         if (first) {
+            int bx = 0, by = 0, bw = 0, bh = 0;
+            const char *pages = getenv("OPENCNC3D_DEBRIEF_PAGES");
             first = 0;
             em_menu_overlay(s->pack, -1000, -1000);
             if (shot && *shot && em_write_shot(shot, w, h))
                 printf("SHOT|%s|%dx%d\n", shot, w, h);
-            printf("RADEBRIEF|shown|%s\n", nowait ? "once" : "until pressed");
+            /* WHERE CONTINUE LANDED in the window, which is how a reader of the picture
+               finds the panel: the button stands at (758, 550) of the dialog and is 220
+               dialog pixels wide, whatever the window's size and scale. */
+            em_item_rect(EM_DEBRIEF_CONTINUE, &bx, &by, &bw, &bh);
+            printf("%s|shown|%s|continue=%d,%d,%d,%d\n", em_red_alert() ? "RADEBRIEF" : "DEBRIEF",
+                   nowait ? "once" : "until pressed", bx, by, bw, bh);
             fflush(stdout);
+            if (shot && *shot && pages && pages[0] == '1') dms_debrief_pages(s, d, shot, w, h);
             if (nowait) return 1;
         }
         while (SDL_PollEvent(&e)) {
@@ -868,11 +1181,42 @@ int dms_ra_debrief(DMS *s, const struct EM_Debrief *d, const char *shot, int now
                 em_pick((int)(e.motion.x * s->px), (int)(e.motion.y * s->py));
             if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT)
                 pressed = em_pick((int)(e.button.x * s->px), (int)(e.button.y * s->py));
-            /* ANY CLICK OR KEY CONTINUES, as on the 1996 screen; Continue is where a
-               hand looks for it */
-            if (e.type == SDL_MOUSEBUTTONUP || e.type == SDL_KEYDOWN) {
-                game_enhanced_menu_sound(1);
-                return 1;
+            /* A CLICK PRESSES WHAT IT IS ON: Continue leaves, a tab turns the page, a series
+               button redraws the graph. A click on nothing does nothing, now that the
+               screen has controls of its own to miss. */
+            if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
+                const int at = em_pick((int)(e.button.x * s->px), (int)(e.button.y * s->py));
+                const int was = pressed;
+                pressed = -1;
+                if (at != was || at < 0) continue;
+                if (at == EM_DEBRIEF_CONTINUE) { game_enhanced_menu_sound(1); return 1; }
+                if (at >= EM_DEBRIEF_TAB && at < EM_DEBRIEF_TAB + EM_PAGES) {
+                    d->page = at - EM_DEBRIEF_TAB; game_enhanced_menu_sound(1);
+                }
+                if (at >= EM_DEBRIEF_SERIES && at < EM_DEBRIEF_SERIES + EM_SERIES) {
+                    d->series = at - EM_DEBRIEF_SERIES; game_enhanced_menu_sound(1);
+                }
+            }
+            /* THE KEYS: left and right (or Tab) turn the pages, one to six go straight to
+               one, up and down step the graph's series. Any other key continues, as on
+               the 1995 and 1996 screens. */
+            if (e.type == SDL_KEYDOWN) {
+                const SDL_Keycode k = e.key.keysym.sym;
+                const int back = (e.key.keysym.mod & KMOD_SHIFT) != 0;
+                if (k == SDLK_RIGHT || (k == SDLK_TAB && !back)) {
+                    d->page = (d->page + 1) % EM_PAGES; game_enhanced_menu_sound(0);
+                } else if (k == SDLK_LEFT || (k == SDLK_TAB && back)) {
+                    d->page = (d->page + EM_PAGES - 1) % EM_PAGES; game_enhanced_menu_sound(0);
+                } else if (k >= SDLK_1 && k < SDLK_1 + EM_PAGES) {
+                    d->page = (int)(k - SDLK_1); game_enhanced_menu_sound(0);
+                } else if (k == SDLK_DOWN || k == SDLK_UP) {
+                    d->page = EM_PAGE_GRAPH;
+                    d->series = (d->series + (k == SDLK_DOWN ? 1 : EM_SERIES - 1)) % EM_SERIES;
+                    game_enhanced_menu_sound(0);
+                } else {
+                    game_enhanced_menu_sound(1);
+                    return 1;
+                }
             }
         }
         if (!fs_background_only() && !(SDL_GetWindowFlags(s->win) & SDL_WINDOW_HIDDEN)
@@ -881,8 +1225,8 @@ int dms_ra_debrief(DMS *s, const struct EM_Debrief *d, const char *shot, int now
             em_pick(mx, my);
         }
         em_menu_overlay(s->pack, mx, my);
-        em_ra_debrief(d, pressed); em_draw(w, h, 1); SDL_ShowCursor(SDL_DISABLE);
-        dms_pump_audio(s, DM_FRAME_MS); SDL_GL_SwapWindow(s->win); SDL_Delay(16);
+        em_match_debrief(d, pressed); em_draw(w, h, 1); SDL_ShowCursor(SDL_DISABLE);
+        dms_pump_audio(s, DM_FRAME_MS); SDL_GL_SwapWindow(s->win); dms_pace(s);
     }
 }
 
@@ -949,7 +1293,7 @@ int dms_ra_choose_difficulty(DMS *s, int auto_difficulty, const char *shot)
         if (dirty) dms_ra_difficulty_redraw(s, selected, pressed);
         dms_pump_audio(s, DM_FRAME_MS);
         dms_present(s);
-        SDL_Delay(16);
+        dms_pace(s);
     }
 }
 
@@ -1028,7 +1372,7 @@ int dms_ra_choose_side(DMS *s, int auto_side, const char *shot)
         if (dirty) dms_ra_side_redraw(s, selected, pressed);
         dms_pump_audio(s, DM_FRAME_MS);
         dms_present(s);
-        SDL_Delay(DM_FRAME_MS);
+        dms_pace(s);
     }
 }
 
@@ -1036,7 +1380,9 @@ int dms_ra_choose_side(DMS *s, int auto_side, const char *shot)
    two screens answer different questions: dms_run returns a menu item, this returns a
    mission. Everything else -- the plate, the surface, the texture, the pointer, the
    score -- is the same shell, so the screen cannot drift from the menu it opened from. */
-int dms_special(DMS *s, const struct DO_Mission *list, int count)
+static int dms_usermaps_probe_enabled;
+static const char* dms_usermaps_probe_shot;
+static int dms_special_impl(DMS *s, const struct DO_Mission *list, int count, int user_maps)
 {
     DO_State ops;
     /* DMS_CANCEL, not -1: if this ever falls out of the loop without a decision, backing
@@ -1044,10 +1390,32 @@ int dms_special(DMS *s, const struct DO_Mission *list, int count)
     int result = DMS_CANCEL;
 
     do_state_init(&ops, (const DO_Mission *)list, count);
+    ops.user_maps=user_maps;
+    ops.red_alert=s->st.red_alert;
+    ops.ants=s->st.red_alert && count>0 && list[0].scen && !strncmp(list[0].scen,"SCA",3);
     s->ops = &ops;
     SDL_ShowCursor(SDL_DISABLE);
     dms_layout(s);
     dms_redraw(s);
+
+    if (user_maps && dms_usermaps_probe_enabled) {
+        int x, y, w = 0, h = 0;
+        SDL_Event e;
+        dms_usermaps_probe_enabled = 0;
+        dms_present(s);
+        if (dms_usermaps_probe_shot) dms_write_shot(s, dms_usermaps_probe_shot);
+        if (dms_enhanced(s)) {
+            if (!em_item_rect(DO_HIT_IMPORT, &x, &y, &w, &h)) { s->ops = NULL; return DMS_CANCEL; }
+            x = (int)((x + w / 2) / s->px); y = (int)((y + h / 2) / s->py);
+        } else {
+            x = (int)((s->vpx + (DO_IMPORT_X + DO_IMPORT_W / 2) * s->scale) / s->px);
+            y = (int)((s->vpy + (DO_BTN_Y + DO_BTN_H / 2) * s->scale) / s->py);
+        }
+        memset(&e, 0, sizeof e); e.type = SDL_MOUSEBUTTONDOWN;
+        e.button.button = SDL_BUTTON_LEFT; e.button.x = x; e.button.y = y;
+        SDL_PushEvent(&e); e.type = SDL_MOUSEBUTTONUP; SDL_PushEvent(&e);
+        printf("MAPIMPORTUI|usermaps-button|click|%d,%d\n", x, y); fflush(stdout);
+    }
 
     for (;;) {
         SDL_Event e;
@@ -1064,8 +1432,10 @@ int dms_special(DMS *s, const struct DO_Mission *list, int count)
             case SDL_KEYDOWN:
                 if (e.key.keysym.sym == SDLK_ESCAPE) {
                     result = DMS_CANCEL; done = 1;   /* back to the menu, NOT exit */
+                } else if (ops.user_maps && e.key.keysym.sym == SDLK_i) {
+                    result = DMS_IMPORT; done = 1;
                 } else if (dms_enhanced(s) && (e.key.keysym.sym == SDLK_LEFT || e.key.keysym.sym == SDLK_RIGHT)) {
-                    em_ops_filter(&ops, e.key.keysym.sym == SDLK_RIGHT); dirty = 1;
+                    em_ops_step(&ops, e.key.keysym.sym == SDLK_RIGHT ? 1 : -1); dirty = 1;
                 } else if (e.key.keysym.sym == SDLK_UP) {
                     if (dms_enhanced(s)) em_ops_move(&ops, -1); else do_move(&ops, -1); dirty = 1;
                 } else if (e.key.keysym.sym == SDLK_DOWN) {
@@ -1123,6 +1493,8 @@ int dms_special(DMS *s, const struct DO_Mission *list, int count)
                     if (hit == ops.pressed && hit == DO_HIT_PLAY
                         && do_row_playable(&ops, ops.selected)) {
                         result = ops.selected; done = 1;
+                    } else if (hit == ops.pressed && hit == DO_HIT_IMPORT && ops.user_maps) {
+                        result = DMS_IMPORT; done = 1;
                     } else if (hit == ops.pressed && hit == DO_HIT_CANCEL) {
                         result = DMS_CANCEL; done = 1;   /* back to the menu, NOT exit */
                     }
@@ -1149,7 +1521,7 @@ int dms_special(DMS *s, const struct DO_Mission *list, int count)
             dms_redraw(s);
         dms_pump_audio(s, DM_FRAME_MS);
         dms_present(s);
-        SDL_Delay(16);
+        dms_pace(s);
     }
 
     s->ops = NULL;
@@ -1158,6 +1530,23 @@ int dms_special(DMS *s, const struct DO_Mission *list, int count)
         printf("menu: Special Ops -> %s\n", list[result].scen);
         fflush(stdout);
     }
+    return result;
+}
+
+int dms_special(DMS *s, const struct DO_Mission *list, int count)
+{ return dms_special_impl(s, list, count, 0); }
+
+int dms_usermaps(DMS *s, const struct DO_Mission *list, int count)
+{ return dms_special_impl(s, list, count, 1); }
+
+int dms_usermaps_import_probe(DMS* s, const struct DO_Mission* list, int count, const char* shot)
+{
+    int result;
+    printf("MAPIMPORTUI|menu-mode|%s\n", dms_enhanced(s) ? "enhanced" : "classic");
+    fflush(stdout);
+    dms_usermaps_probe_enabled = 1; dms_usermaps_probe_shot = shot;
+    result = dms_usermaps(s, list, count);
+    dms_usermaps_probe_enabled = 0; dms_usermaps_probe_shot = NULL;
     return result;
 }
 
@@ -1333,10 +1722,12 @@ static void dms_lobby_net_push(const SK_State *lob, const struct SK_Map *maps)
     sk_result(lob, &r);
     snprintf(ns.scenario, sizeof ns.scenario, "%s", maps[lob->sel].scen);
     ns.credits = r.credits;
-    ns.tiberium = (unsigned char)r.tiberium;
+    ns.tiberium = r.tiberium;
     ns.crates = (unsigned char)r.crates;
     ns.aitake = r.aitake;
     ns.shortgame = r.shortgame;
+    ns.gun_game = r.gun_game;
+    ns.rally_laps = r.rally_laps;
     ns.superweapons = (unsigned char)r.superweapons;
     ns.bases = (unsigned char)r.bases;
     ns.unit_count = r.unit_count;
@@ -1368,13 +1759,7 @@ static void dms_lobby_net_push(const SK_State *lob, const struct SK_Map *maps)
         ns.ctf = (unsigned char)(r.ctf ? 1 : 0);
         ns.ai_difficulty = r.ai_difficulty;
     }
-    /* THE MATCH'S TICK RATE, pushed on every dirty frame like every other rule on this
-       screen. There is no speed row for a player to move yet, so what goes out is the
-       wire's own default, which is the same slider index a campaign mission ships at.
-       This struct is memset and rebuilt each time, so leaving the field alone would send
-       0, and 0 is a legitimate speed -- the slowest one -- rather than "not said": every
-       joiner would adopt it and the whole room would crawl. */
-    ns.speed = NM_DEFAULT_SPEED;
+    ns.speed = r.speed;
     /* THE ROOM'S WIDTH AND ITS SEAT MODES, seat by seat. A computer is a BOT seat and
        nothing else: there is no AI gauge on this screen in a room, so the count of
        computers is the count of seats set to BOT. netmatch folds the taken table in and
@@ -1493,6 +1878,7 @@ static void dms_lobby_net_sync(SK_State *lob, const struct SK_Map *maps, int cou
 {
     lobby_flush_my_seat(lob);
     int i;
+    lob->net_relayed = nm_is_relayed();
     lob->net_seat = nm_lobby_seat();
     lob->net_humans = nm_lobby_wanted();
     for (i = 0; i < SK_ROSTER_ROWS; i++) {
@@ -1577,11 +1963,18 @@ static void dms_lobby_net_sync(SK_State *lob, const struct SK_Map *maps, int cou
                 if (maps[i].scen && strcmp(maps[i].scen, ns->scenario) == 0) { lob->sel = i; break; }
         }
         lob->credits = ns->credits;
+        lob->tiberium = ns->tiberium;
         lob->build   = ns->build;
         lob->super   = ns->superweapons ? 1 : 0;
         lob->crates  = ns->crates ? 1 : 0;
         lob->aitake  = ns->aitake ? 1 : 0;
         lob->shortgame = ns->shortgame ? 1 : 0;
+        lob->gun_game = ns->gun_game;
+        /* A RALLY ROOM says so by its laps; the screen lists courses and shows the race's
+           rules. The map itself is the host's, found above whatever this side lists. */
+        lob->rally = !lob->countries && ns->rally_laps > 0;
+        if (lob->rally) lob->laps = ns->rally_laps;
+        lob->speed = ns->speed;
         lob->units   = ns->unit_count;
         lob->ai_difficulty = ns->ai_difficulty;
         memcpy(lob->ai_levels, ns->ai_levels, sizeof lob->ai_levels);
@@ -1652,6 +2045,17 @@ static void dms_lobby_net_sync(SK_State *lob, const struct SK_Map *maps, int cou
     }
 }
 
+static char s_skirmish_prefs[512] = "";
+void dms_skirmish_remember(const char *path) {
+    snprintf(s_skirmish_prefs, sizeof s_skirmish_prefs, "%s", path ? path : "");
+}
+static void dms_skirmish_store(SK_State *st) {
+    if (st->net || !s_skirmish_prefs[0]) return;
+    if (st->popup >= 0) sk_seat_edit_finish(st, 0);
+    const int ok = sk_prefs_write(s_skirmish_prefs, st);
+    printf("SKPREFS|write|game=%s|ok=%d|path=%s\n", st->countries ? "ra" : "td", ok, s_skirmish_prefs);
+}
+
 int dms_lobby(DMS *s, const struct SK_Map *maps, int count, const struct SK_Prev *prev,
               struct SK_Lobby *out, DMS_LobbyProbe *probe)
 {
@@ -1673,7 +2077,17 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
     /* Red Alert's seats are its countries, its tech runs to 10 */
     if (s->cfg.red_alert) sk_set_red_alert(&lob);
     lob.net = net;
+    /* A SKIRMISH LISTS THE MAPS OF ITS MODE (a Rally's courses, or every other map), before
+       the remembered map is read, so a remembered map of the other kind is not taken */
+    if (!net) sk_set_rally(&lob, s_lobby_rally);
+    if (!net && s_skirmish_prefs[0]) {
+        const int ok = sk_prefs_read(s_skirmish_prefs, &lob);
+        printf("SKPREFS|read|game=%s|ok=%d|path=%s\n", lob.countries ? "ra" : "td", ok, s_skirmish_prefs);
+    }
     lob.net_seat = -1;
+    /* A skirmish opens in Free for All, or in the mode an automated run seeded; the player
+       changes it with the Game Mode dropdown. A room adopts the host's below. */
+    if (!net) lob.gun_game = s_lobby_gun_game && !lob.countries && !lob.rally;
     /* A JOINER'S ROWS ARE EMPTY UNTIL THE HOST'S ROOM ARRIVES. sk_init seats a human in
        row 0 for a skirmish; on a joiner that read as a row called HOST (or PLAYER, on a
        build that adopted the empty wire) before anything had been heard. */
@@ -1708,6 +2122,7 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
             if (fs_handle_event(&e)) { dirty = 1; continue; }
             switch (e.type) {
             case SDL_QUIT:
+                dms_skirmish_store(&lob);
                 s->lobby = NULL;
                 if (net) SDL_StopTextInput();
                 return DMS_QUIT;
@@ -1721,6 +2136,14 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
 
             case SDL_KEYDOWN: {
                 const int k = dms_lobby_key(e.key.keysym.sym);
+                /* AN OPEN LIST (the Game Mode dropdown, or a seat's) TAKES THE KEYS FIRST:
+                   Escape closes the list, and nothing reaches the room behind it, where
+                   Escape leaves (a host's closes the room) and Enter starts the match. */
+                if (k && dms_enhanced(s) && em_sk_drop_open()) {
+                    if (k == SK_KEY_ESC) em_sk_drop_close();
+                    dirty = 1;
+                    break;
+                }
                 if (k) {
                     act = sk_key(&lob, k);
                     dirty = 1;
@@ -1818,6 +2241,7 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
                        room on a lookahead nobody measured. */
                     dms_lobby_net_push(&lob, maps);
                     nm_lobby_start();
+                    lob.net_starting = nm_lobby_starting();
                     dirty = 1;
                 } else {
                     result = 0;
@@ -1857,6 +2281,8 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
            (netmatch refuses the write too, which is the belt to this brace). */
         if (net == 1 && dirty && !nm_lobby_starting())
             dms_lobby_net_push(&lob, maps);
+        /* the room's setup is frozen while its start is agreed, the Game Mode dropdown too */
+        lob.net_starting = net && nm_lobby_starting();
 
         /* AND A JOINER'S OWN ROW REACHES THE ROOM ON THE SAME BEAT, for the same reason
            and with the same shape: side, team, colour and start are the seat's own to
@@ -1886,6 +2312,9 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
             const int ls = nm_lobby_poll();
             last_net = SDL_GetTicks();
             dms_lobby_net_sync(&lob, maps, count);
+            /* and again here: a START the poll just agreed freezes the dropdown before
+               this frame draws it */
+            lob.net_starting = nm_lobby_starting();
             /* THE HOST'S OWN LINE, refreshed every poll rather than written once: the
                room code and the address are both facts about the socket, and asking the
                network each time is what stops this screen and the wire disagreeing.
@@ -1944,16 +2373,24 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
                        recomputed here, so what is advertised is by construction the same
                        thing the handshake will refuse against. */
                     if (!nm_is_relayed())
-                        nb_announce(nm_lobby_name(), maps[lob.sel].scen, maps[lob.sel].name,
+                        nb_announce(nm_lobby_name(), maps[lob.sel].scen,
+                                    dms_room_label(maps[lob.sel].name,
+                                                   lob.rally ? DMS_MODE_RALLY
+                                                   : lob.gun_game ? DMS_MODE_GUN_GAME : DMS_MODE_FFA),
                                     NM_PORT_DEFAULT,
                                     filled, nm_lobby_wanted(), nm_lobby_locked(),
                                     nm_abi(), nm_scen());
                     /* AND THE SAME COUNTS TO THE WORLD, for a relayed room. Both take
                        their numbers from the same call, so a browser on either side of a
                        router sees one game rather than two descriptions of it. */
+                    /* with the mode, as the local network's advert above says it: a
+                       relayed room can be a Rally, and a row that says only the map
+                       cannot tell a race from a Free for All */
                     dms_mp_list_beat(nm_lobby_name(), maps[lob.sel].scen,
-                                     maps[lob.sel].name, filled, nm_lobby_wanted(),
-                                     nm_lobby_locked());
+                                     dms_room_label(maps[lob.sel].name,
+                                                    lob.rally ? DMS_MODE_RALLY
+                                                    : lob.gun_game ? DMS_MODE_GUN_GAME : DMS_MODE_FFA),
+                                     filled, nm_lobby_wanted(), nm_lobby_locked());
                 }
             }
             /* WHAT THE ROOM IS WAITING FOR, in the chat pane's last line, whenever no
@@ -2023,9 +2460,11 @@ int dms_lobby_net(DMS *s, const struct SK_Map *maps, int count, const struct SK_
             dms_lobby_step(s, &lob, &probe->script[stepi++]);
         dms_pump_audio(s, DM_FRAME_MS);
         dms_present(s);
-        SDL_Delay(16);
+        if (probe && probe->script) dms_pace_hz(s, 60, DM_FRAME_MS, DM_FRAME_MS);
+        else dms_pace(s);
     }
 
+    dms_skirmish_store(&lob);
     if ((result == 0 || result == DMS_MP_PLAY) && out)
         sk_result(&lob, out);
     if (probe)
@@ -2722,6 +3161,7 @@ int dms_multiplayer(DMS *s, struct MP_State *stv, const struct NmSetup *setup,
     s_mp_ran = 0;
     SDL_ShowCursor(SDL_DISABLE);
     SDL_StartTextInput();          /* the two typed fields; stopped on every exit below */
+    dms_fit_surface(s);
     dms_layout(s);
     /* THE PING COLUMN STARTS EMPTY, and a direct row still selected from last time is not
        asked about until the player selects something on this visit. */
@@ -3041,7 +3481,11 @@ int dms_multiplayer(DMS *s, struct MP_State *stv, const struct NmSetup *setup,
                     const int filled = nm_lobby_filled();
                     if (filled < nm_lobby_wanted()
                         && !nm_lobby_start_pending() && !nm_lobby_starting()) {
-                        nb_announce(st->name, setup ? setup->scenario : st->mapname, NULL,
+                        nb_announce(st->name, setup ? setup->scenario : st->mapname,
+                                    dms_room_label(setup ? setup->scenario : st->mapname,
+                                                   (setup && setup->rally_laps > 0) ? DMS_MODE_RALLY
+                                                   : (setup && setup->gun_game) ? DMS_MODE_GUN_GAME
+                                                   : DMS_MODE_FFA),
                                     NM_PORT_DEFAULT, filled, nm_lobby_wanted(),
                                     st->private_game && st->pass[0], abi, scen);
                     }

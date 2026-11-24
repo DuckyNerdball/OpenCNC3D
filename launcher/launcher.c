@@ -39,8 +39,10 @@
  * and able to play across to the others. OpenCNC3D is the first, and the grid of four
  * tiles is where the next one goes. Three of the four are empty and say so, and
  * pressing one opens the module browser. A version-bound public catalog offers
- * downloads and updates for both games; verified private caches support offline
- * restoration. The same accepted cards and media checkboxes drive each route.
+ * downloads and updates for both games; a verified package already in the launcher's
+ * download folder (one a stopped install left, or one a Mac installer package brought)
+ * installs without the network, and goes once its game is in. The same accepted cards
+ * and media checkboxes drive each route.
  *
  * That button used to be drawn disabled, in the engine's own BOXSTYLE_GREEN_DIS_RAISED,
  * for as long as the editor existed in the tree and not in anything a player was
@@ -66,6 +68,9 @@
 #include "lcmdline.h"
 #include "lmedia.h"
 #include "lmodule.h"
+#ifdef _WIN32
+#include "lsdl_tidy.h"   /* used on Windows only */
+#endif
 #include "lpath.h"
 #include "lui.h"
 #include "lskin.h"
@@ -95,11 +100,66 @@ int lsetup_cli_main(int argc, char **argv, int *handled);
 #include <zlib.h>
 #include <sys/stat.h>
 #include "ra_emblem.h"
+#include "module_switches.h"
 
 #ifdef _WIN32
 #include <windows.h>
 #else
 #include <unistd.h>
+#endif
+#include "log_keep.h"   /* the previous log kept; the early-exit message's words */
+#include "../app/userdir.h"   /* the per-user folder's name, said once */
+
+#ifdef _WIN32
+/* THE LAUNCHER'S OWN LOG, on Windows. It is a windowed program (-mwindows), so what it
+ * prints goes nowhere when it is double-clicked, and a game that failed to start, an
+ * update that failed, or a module that would not install left nothing behind once its
+ * window closed. When no console is attached, standard error (and output) go to
+ * opencnc3d-launcher-log.txt beside the launcher, or in the per-user folder when that
+ * folder cannot be written; the previous run's copy is kept as
+ * opencnc3d-launcher-log-previous.txt. Failing to open it is silent: the launcher still
+ * runs. */
+static char l_log_path[1100];
+static int l_log_try(const char *dir)
+{
+    char path[1100];
+    wchar_t w[1100];
+    LogKeep k;
+    log_keep_rotate(dir, "opencnc3d-launcher-log.txt", "opencnc3d-launcher-log-previous.txt",
+                    NULL, 0, &k);
+    lk_join(path, sizeof path, dir, "opencnc3d-launcher-log.txt");
+    if (!lk_wide(path, w, 1100) || !_wfreopen(w, L"w", stderr))
+        return 0;
+    setvbuf(stderr, NULL, _IONBF, 0);
+    fflush(stdout);
+    if (_dup2(_fileno(stderr), _fileno(stdout)) == 0)
+        setvbuf(stdout, NULL, _IONBF, 0);
+    snprintf(l_log_path, sizeof l_log_path, "%s", path);
+    fprintf(stderr, "OpenCNC3D launcher %s -- log opened at %s\n", LCFG_BUILD, path);
+    return 1;
+}
+static void l_log_open(void)
+{
+    wchar_t exe[1100];
+    char dir[1100];
+    const DWORD n = GetModuleFileNameW(NULL, exe, 1100);
+    if (n > 0 && n < 1100) {
+        wchar_t *slash = wcsrchr(exe, L'\\');
+        if (slash) {
+            slash[1] = 0;
+            if (WideCharToMultiByte(CP_UTF8, 0, exe, -1, dir, (int)sizeof dir, NULL, NULL) > 0
+                && l_log_try(dir))
+                return;
+        }
+    }
+    {
+        char *pref = SDL_GetPrefPath(OPENCNC3D_PREF_ORG, OPENCNC3D_PREF_APP);
+        if (pref) {
+            l_log_try(pref);
+            SDL_free(pref);
+        }
+    }
+}
 #endif
 
 /* ------------------------------------------------------------------------ *
@@ -259,6 +319,10 @@ enum
     L_BTN_REMOVE_3,
     L_BTN_LANG0,
     L_BTN_LANG1,
+    /* LAUNCH THE INSTALLED BUILD while an update waits, beside Update. At the end of the
+     * table so that no index a test reads moves; it is placed in the row by hand, and
+     * only while Update is on offer. */
+    L_BTN_LAUNCH_INSTALLED,
     L_BTN_COUNT
 };
 #define L_BTN_ROW 4 /* how many of the above are the row along the bottom */
@@ -347,7 +411,7 @@ typedef struct
     char language_code[2][16], language_name[2][80], language_note[2][64];
     int language_count, language_want[2], language_have[2], language_any[2];
     int language_pending[2], language_record[2];
-    long long language_size[2], language_here[2];
+    long long language_size[2], language_here[2], language_miss[2];
     int component_queue[3], component_count, component_at, component_active;
     int settings_movies, settings_music;
     int have_movies, have_music;     /* all of it on the disk, re-read when a screen opens and a job ends */
@@ -356,6 +420,7 @@ typedef struct
     int rec_ok, rec_movies, rec_music; /* what opencnc3d-media.txt says was chosen  */
     int pend_movies, pend_music;     /* and whether it says the disk had not got there */
     long long size_movies, size_music; /* from the manifest                       */
+    long long miss_movies, miss_music; /* of that, what is not on the disk: what a tick fetches */
     int want_movies, want_music;     /* the two ticks                             */
     int job_movies, job_music;       /* what the job in hand was asked for        */
     int had_movies, had_music;       /* what was on the disk when it started      */
@@ -614,7 +679,32 @@ static void l_module_versions(L_App *a)
 {
     int i;for(i=0;i<2;i++)a->mod[i].needs_update=!a->private_source && a->mod[i].installed &&
         SDL_AtomicGet(&a->catalog_phase)==2 && a->catalog.module[i].available &&
-        !lmod_module_current(a->dir,i,LCFG_BUILD);
+        lmod_module_update_available(a->dir,i,a->catalog.version);
+}
+static int l_legacy_update_available(const L_App *a,LU_Phase phase)
+{
+    char latest[100];
+    if(a->private_source||phase!=LU_AVAILABLE||a->mod_sel!=0||!a->mod[0].installed||!a->up
+        ||(SDL_AtomicGet((SDL_atomic_t *)&a->catalog_phase)==2&&a->catalog.module[0].available))return 0;
+    lu_latest(a->up,latest,sizeof latest);
+    return latest[0]&&lmod_module_update_available(a->dir,0,latest);
+}
+/* WHETHER THE SELECTED GAME'S INSTALLED BUILD CAN BE STARTED while an update waits:
+ * installed, and not older than another game installed in the same folder (whose
+ * package would have brought the shared runtime with it). A version that cannot be
+ * compared counts as older, so the doubtful case keeps the update-only row. */
+static int l_installed_playable(const L_App *a)
+{
+    char other[100];
+    int i;
+    if (a->mod_sel < 0 || a->mod_sel > 1 || !a->mod[a->mod_sel].installed)
+        return 0;
+    for (i = 0; i < 2; i++)
+        if (i != a->mod_sel && a->mod[i].installed
+            && lmod_module_version(a->dir, i, other, (int)sizeof other)
+            && lmod_module_update_available(a->dir, a->mod_sel, other))
+            return 0;
+    return 1;
 }
 static void l_catalog_start(L_App *a);
 static void l_module_start(L_App *a,int target);
@@ -635,6 +725,25 @@ static void l_find_ra_module(L_App *a)
     }
     a->mod[1].name = "RA3D";
     a->mod[1].installed = 1;
+}
+
+/* The third module slot, on a development machine only. Nothing downloads, updates or
+ * removes it from here, and no package carries it. */
+static int l_file_here(const char *dir, const char *rel)
+{
+    char path[1200];
+    FILE *f;
+    snprintf(path, sizeof path, "%s/%s", dir, rel);
+    f = fopen(path, "rb");
+    if (!f) return 0;
+    fclose(f);
+    return 1;
+}
+static void l_find_third_module(L_App *a)
+{
+    a->mod[2].name = NULL;
+    a->mod[2].installed = 0;
+    (void)l_file_here; /* a release build has no third slot */
 }
 
 /* Read the whole of a file. Returns a NUL-terminated buffer the caller owns, or
@@ -691,8 +800,6 @@ static void l_read_installed(L_App *a)
     snprintf(a->version, sizeof a->version, "%s", LCFG_BUILD[0] ? LCFG_BUILD : "?");
     snprintf(path, sizeof path, "%s/opencnc3d-install.txt", a->dir);
     blob = l_read_file(path, NULL);
-    if (!blob)
-        return;
     for (p = blob; p && *p;) {
         char *nl = strchr(p, '\n');
         if (nl)
@@ -709,6 +816,25 @@ static void l_read_installed(L_App *a)
         p = nl ? nl + 1 : NULL;
     }
     free(blob);
+    if(a->private_source)return;
+    /* A module install preserves the bootstrap record, including its old version
+     * and data fingerprint. The legacy TD updater compares the installed TD
+     * identity; RA-only installs report RA without creating a TD update target. */
+    if (lmod_td_present(a->dir)) {
+        char version[100];
+        if(lmod_module_version(a->dir,0,version,sizeof version))
+            snprintf(a->version,sizeof a->version,"%s",version);
+    } else if (lmod_ra_present(a->dir,NULL,0)) {
+        char version[100];
+        if(lmod_module_version(a->dir,1,version,sizeof version))
+            snprintf(a->version,sizeof a->version,"%s",version);
+    }
+}
+
+static const char *l_selected_version(const L_App *a,char version[100])
+{
+    if(!a->private_source&&a->mod_sel<2&&a->mod[a->mod_sel].installed&&lmod_module_version(a->dir,a->mod_sel,version,100))return version; /* slot 2 has no catalogue entry */
+    return a->version;
 }
 
 /* Everything after a bare "--" on the launcher's own command line, handed
@@ -766,12 +892,38 @@ static int l_launch(const char *dir, const char *exe, const char *module,
     memset(&si, 0, sizeof si);
     si.cb = sizeof si;
     memset(&pi, 0, sizeof pi);
+    fprintf(stderr, "LAUNCHER|launch|%s|in %s\n", exe, dir);
     if (!CreateProcessA(path, cmd, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi)) {
-        snprintf(err, (size_t)errlen, "could not start %s (error %lu)", exe,
-                 (unsigned long)GetLastError());
+        const DWORD e = GetLastError();
+        if (e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND)
+            snprintf(err, (size_t)errlen, "could not start %.400s: the file is missing (error %lu)."
+                     " Run OpenCNC3D Setup again to repair the installation.", path, (unsigned long)e);
+        else
+            snprintf(err, (size_t)errlen, "could not start %s (error %lu)", exe, (unsigned long)e);
+        fprintf(stderr, "LAUNCHER|launch|failed|%s\n", err);
         return 0;
     }
     CloseHandle(pi.hThread);
+    /* A GAME THAT CLOSES AS IT STARTS is caught here, not lost. The launcher's window is
+     * already gone, so waiting a few seconds costs the player nothing; a game that dies
+     * in that time (a DLL Windows cannot find, a graphics driver that refuses, a file an
+     * antivirus took) used to take the launcher with it and leave nothing on screen.
+     * A crash that raises a Windows Error Reporting box keeps the process alive past the
+     * wait and is not caught here; the game's own log still has its FATAL line. */
+    {
+        const DWORD waited = WaitForSingleObject(pi.hProcess, 4000);
+        DWORD code = 0;
+        if (waited == WAIT_OBJECT_0 && GetExitCodeProcess(pi.hProcess, &code) && code != 0) {
+            log_keep_early_exit_text(err, (size_t)errlen, exe, (unsigned long)code, dir,
+                                     strcmp(exe, "cnc_eyes.exe") != 0, l_log_path);
+            fprintf(stderr, "LAUNCHER|launch|closed at once|%s|exit code 0x%08lX\n", exe,
+                    (unsigned long)code);
+            CloseHandle(pi.hProcess);
+            return 0;
+        }
+        fprintf(stderr, "LAUNCHER|launch|%s|%s\n", exe,
+                waited == WAIT_OBJECT_0 ? "ended at once with exit code 0" : "running");
+    }
     CloseHandle(pi.hProcess);
     return 1;
 #else
@@ -807,6 +959,9 @@ static int l_launch(const char *dir, const char *exe, const char *module,
 #define L_RA_GAME_EXE "ra3d/opencnc3d"
 #define L_EDIT_EXE "cnc_eyes"
 #endif
+/* The third slot's program and folder; a release build has no third slot to launch. */
+#define L_MOD3_GAME_EXE L_GAME_EXE
+#define L_MOD3_DIR NULL
 
 /* THE EDITOR IS A FLAG ON THE OTHER BINARY, not a third program. opencnc3d links the
  * same object file, but its entry point goes to the 1995 menu and never reads
@@ -1100,12 +1255,14 @@ static int l_m_busy(L_App *a)
 static void l_m_refresh(L_App *a)
 {
     a->have_movies = a->have_music = 0;
+    a->miss_movies = a->miss_music = 0;
     a->any_movies = a->any_music = 0;
     a->here_movies = a->here_music = 0;
     a->rec_ok = a->rec_movies = a->rec_music = 0;
     a->pend_movies = a->pend_music = 0;
     if (a->media) {
         lm_installed(a->media, &a->have_movies, &a->have_music);
+        lm_missing(a->media, &a->miss_movies, &a->miss_music);
         lm_present_any(a->media, &a->any_movies, &a->any_music, &a->here_movies,
                        &a->here_music);
         a->rec_ok = lm_wanted(a->media, &a->rec_movies, &a->rec_music, &a->pend_movies,
@@ -1122,6 +1279,7 @@ static void l_language_refresh(L_App *a)
         lm_installed(a->language[i], &a->language_have[i], &music);
         lm_present_any(a->language[i], &a->language_any[i], &music, &a->language_here[i], NULL);
         lm_sizes(a->language[i], &a->language_size[i], NULL);
+        lm_missing(a->language[i], &a->language_miss[i], NULL);
         have_record = lm_wanted(a->language[i], &a->language_record[i], &music,
                                 &pending, NULL);
         a->language_pending[i] = have_record && pending;
@@ -1129,17 +1287,28 @@ static void l_language_refresh(L_App *a)
     }
 }
 
-/* What the ticks would download: each ticked component that is not all on the disk. A
- * component part way down still counts whole, so this is the most the job can need
- * rather than a guess at what is left. */
+/* What a tick on one component would fetch. Where the folder is an install of the game
+ * the screen manages, the files of it that are missing (one movie, say, rather than the
+ * set); the screen that offers a game not yet installed has no files of it to look at,
+ * so there it is the whole component. */
+static long long l_m_fetch(const L_App *a, int which)
+{
+    if (a->view == L_VIEW_MODULE_OPTIONS)
+        return which ? a->size_music : a->size_movies;
+    return which ? a->miss_music : a->miss_movies;
+}
+
+/* What the ticks would download: the files of each ticked component that are not on the
+ * disk at their size. A file part way down still counts whole, so this is the most the
+ * job can need rather than a guess at what is left. */
 static long long l_m_need(const L_App *a)
 {
-    long long n = (a->want_movies && !a->have_movies ? a->size_movies : 0) +
-                  (a->want_music && !a->have_music ? a->size_music : 0);
+    long long n = (a->want_movies && !a->have_movies ? l_m_fetch(a, 0) : 0) +
+                  (a->want_music && !a->have_music ? l_m_fetch(a, 1) : 0);
     int i;
     if (a->view == L_VIEW_SETTINGS)
         for (i = 0; i < a->language_count; i++)
-            if (a->language_want[i] && !a->language_have[i]) n += a->language_size[i];
+            if (a->language_want[i] && !a->language_have[i]) n += a->language_miss[i];
     return n;
 }
 
@@ -1256,7 +1425,14 @@ static void l_m_result(const L_App *a, char *buf, int len)
 /* THE START-UP LINE FOR A RECORD LEFT PENDING: a download that was stopped, failed or
  * killed, or a removal that was refused, in an earlier run. Said once on the module
  * grid, with where to finish it, rather than left for the player to find in Settings.
- * Empty when there is nothing pending. */
+ *
+ * And for a component that was chosen and finished, but is no longer whole: the
+ * manifest compiled into a newer launcher can list files an older one never fetched
+ * (the campaign's endings and three Nod briefings were added that way), and nothing
+ * else would tell an install that already has the movies that more of them exist.
+ * The gear's Apply fetches just the missing files.
+ *
+ * Empty when there is nothing to say. */
 static void l_m_pending_line(const L_App *a, char *buf, int len)
 {
     const int dmo = a->rec_ok && a->pend_movies && a->rec_movies;
@@ -1278,6 +1454,16 @@ static void l_m_pending_line(const L_App *a, char *buf, int len)
                  rem[0] + ('a' - 'A'), rem + 1);
     else if (down[0] || rem[0])
         snprintf(buf, (size_t)len, "%s. The gear finishes it.", down[0] ? down : rem);
+    else {
+        const int nmo = a->rec_ok && a->rec_movies && !a->pend_movies && a->any_movies
+                        && !a->have_movies;
+        const int nmu = a->rec_ok && a->rec_music && !a->pend_music && a->any_music
+                        && !a->have_music;
+        if (nmo || nmu)
+            snprintf(buf, (size_t)len, "Some %s not installed yet. The gear adds %s.",
+                     nmo && nmu ? "movies and music are" : nmo ? "movies are" : "music is",
+                     nmo && !nmu ? "them" : nmu && !nmo ? "it" : "them");
+    }
 }
 
 /* A checkbox row's right hand column: the size a tick will download, or what the
@@ -1288,7 +1474,10 @@ static const char *l_m_note(L_App *a, int which)
     const int any = which ? a->any_music : a->any_movies;
     const int want = which ? a->want_music : a->want_movies;
     char sz[32];
-    lm_format_size(which ? a->size_music : a->size_movies, sz, sizeof sz);
+    /* A component that is all there or all missing reads the same either way; one that is
+       part there would download only its missing files, and says so: the whole set's
+       size beside "WILL BE DOWNLOADED" overstated a single missing movie by the rest. */
+    lm_format_size(l_m_fetch(a, which), sz, sizeof sz);
     if (want && have)
         snprintf(a->m_note[which], sizeof a->m_note[which], "%s", "INSTALLED");
     else if (!want && any)
@@ -1313,9 +1502,10 @@ static void l_set_buttons(L_App *a)
     const int busy = l_m_busy(a);
     const int form = a->view == L_VIEW_SETUP || a->view == L_VIEW_SETTINGS ||
                      a->view == L_VIEW_INSTALL || a->view == L_VIEW_MODULE_OPTIONS;
-    int i;
+    int i, offering = 0;
     static const char *labels[L_BTN_COUNT] = {"Launch", "Changelog", "Editor", "Quit",
-                                              "Close", "", "", "", "X", "X", "X", "X", "X", "", ""};
+                                              "Close", "", "", "", "X", "X", "X", "X", "X", "", "",
+                                              "Launch"};
 
     for (i = 0; i < L_BTN_COUNT; i++) {
         a->btn[i].x = L_BTN_X0 + i * L_BTN_STEP;
@@ -1329,6 +1519,7 @@ static void l_set_buttons(L_App *a)
         a->btn[i].checked = 0;
         a->btn[i].note = NULL;
     }
+    a->btn[L_BTN_LAUNCH_INSTALLED].hidden = 1;
 
     /* The two ticks. The same rows on Setup and on Settings; only the words
      * differ, because Setup is asking whether to download and Settings is saying
@@ -1363,7 +1554,7 @@ static void l_set_buttons(L_App *a)
         else if (!a->language_want[i] && a->language_any[i])
             snprintf(a->language_note[i], sizeof a->language_note[i], "WILL BE REMOVED");
         else {
-            char size[32]; lm_format_size(a->language_size[i], size, sizeof size);
+            char size[32]; lm_format_size(a->language_miss[i], size, sizeof size);
             snprintf(a->language_note[i], sizeof a->language_note[i], "%s, %s",
                      a->language_want[i] ? "DOWNLOAD" : "NOT INSTALLED", size);
         }
@@ -1388,7 +1579,8 @@ static void l_set_buttons(L_App *a)
         remove->w = 12;
         remove->h = 9;
         remove->label = "X";
-        remove->hidden = a->view != L_VIEW_MODULES || !a->mod[i].installed;
+        remove->hidden = a->view != L_VIEW_MODULES || !a->mod[i].installed
+            || i == 2; /* staged by hand, removed by hand */
         remove->disabled = updating || busy || !lz_held_here(a->dir);
     }
     if (!a->mod[a->mod_sel].installed) {
@@ -1419,9 +1611,10 @@ static void l_set_buttons(L_App *a)
      * one. The Changelog button works the same way, because it is the way back as
      * well as the way in, and a second button to leave a screen with one thing on
      * it is furniture. */
-    if (!a->private_source && ph == LU_AVAILABLE && a->mod_sel == 0 && a->mod[0].installed)
+    if (l_legacy_update_available(a,ph)) {
         a->btn[L_BTN_PLAY].label = "Update";
-    else if (ph == LU_DOWNLOADING || ph == LU_APPLYING)
+        offering = 1;
+    } else if (ph == LU_DOWNLOADING || ph == LU_APPLYING)
         a->btn[L_BTN_PLAY].label = "Updating";
     else if (ph == LU_DONE)
         a->btn[L_BTN_PLAY].label = "Launch";
@@ -1429,10 +1622,14 @@ static void l_set_buttons(L_App *a)
 
     if(!a->private_source && a->mod[a->mod_sel].needs_update && l_module_available(a,a->mod_sel) && !updating && !busy){
         a->btn[L_BTN_PLAY].label="Update";a->btn[L_BTN_PLAY].disabled=0;
+        offering = 1;
     }
     /* The map editor still knows TD theaters and objects only. */
     if (a->mod_sel == 1)
         a->btn[L_BTN_EDITOR].disabled = 1;
+    /* The third slot has no editor and no movies or music to fetch yet */
+    if (a->mod_sel == 2)
+        a->btn[L_BTN_EDITOR].disabled = a->btn[L_BTN_GEAR].disabled = 1;
 
     if (a->view == L_VIEW_NOTES) {
         a->btn[L_BTN_NOTES].label = "Back";
@@ -1466,6 +1663,28 @@ static void l_set_buttons(L_App *a)
     if (busy) {
         a->btn[L_BTN_PLAY].disabled = 1;
         a->btn[L_BTN_EDITOR].disabled = 1;
+    }
+
+    /* UPDATE IS AN OFFER, NOT A GATE. While a newer build is on offer the first slot
+     * says Update, and Launch stands beside it and starts the build that is installed,
+     * so a player who does not want the update now, or whose launcher is wrong about
+     * one, can still play. The row takes five buttons in the span the four fill: 5*52
+     * plus four 5 pixel gaps is 280, from 20 to 300, and "Changelog" still fits.
+     * Not for a game older than another one installed here: either game's package
+     * carries the shared runtime, so the newer one has already replaced it, and the
+     * older game's data would run on a renderer it was not released with. That game is
+     * offered the update alone, as before. */
+    if (offering && a->view == L_VIEW_MODULES && !updating && !busy && l_installed_playable(a)) {
+        static const int row[5] = {L_BTN_PLAY, L_BTN_LAUNCH_INSTALLED, L_BTN_NOTES,
+                                   L_BTN_EDITOR, L_BTN_QUIT};
+        for (i = 0; i < 5; i++) {
+            a->btn[row[i]].x = L_BTN_X0 + i * 57;
+            a->btn[row[i]].w = 52;
+        }
+        a->btn[L_BTN_LAUNCH_INSTALLED].y = L_BTN_Y;
+        a->btn[L_BTN_LAUNCH_INSTALLED].h = L_BTN_H;
+        a->btn[L_BTN_LAUNCH_INSTALLED].hidden = 0;
+        a->btn[L_BTN_LAUNCH_INSTALLED].disabled = 0;
     }
 
     /* THE MOVIES AND MUSIC SCREENS USE THE SAME FOUR SLOTS, relabelled, the way Play
@@ -1555,7 +1774,7 @@ static void l_set_buttons(L_App *a)
 static void l_fix_hot(L_App *a)
 {
     static const int order[] = {L_BTN_CHK_MOVIES, L_BTN_CHK_MUSIC, L_BTN_PLAY,
-                                L_BTN_NOTES,      L_BTN_EDITOR,    L_BTN_QUIT,
+                                L_BTN_LAUNCH_INSTALLED, L_BTN_NOTES,      L_BTN_EDITOR,    L_BTN_QUIT,
                                 L_BTN_CLOSE, L_BTN_GEAR, L_BTN_REMOVE, L_BTN_REMOVE_RA, L_BTN_REMOVE_2, L_BTN_REMOVE_3, L_BTN_LANG0, L_BTN_LANG1, L_BTN_WINDOW_CLOSE};
     int i;
     if (a->hot >= 0 && a->hot < L_BTN_COUNT && !a->btn[a->hot].hidden &&
@@ -2045,7 +2264,8 @@ static void l_m_tick(L_App *a)
 static int l_catalog_worker(void *user)
 {
     L_App *a=(L_App *)user;
-    int ok=lmod_catalog_fetch(LCFG_BUILD,&a->catalog,a->catalog_error,sizeof a->catalog_error);
+    int ok=lmod_catalog_fetch(NULL,&a->catalog,a->catalog_error,sizeof a->catalog_error);
+    if(!ok)fprintf(stderr,"LAUNCHER|catalog|failed|%s\n",a->catalog_error);
     SDL_AtomicSet(&a->catalog_phase,ok?2:-1);return 0;
 }
 static void l_catalog_start(L_App *a)
@@ -2068,8 +2288,9 @@ static int l_module_worker(void *user)
     L_App *a = (L_App *)user;
     int ok;
     if(SDL_AtomicGet(&a->catalog_phase)==2 && a->catalog.module[a->module_target].available)
-        ok=lmod_install_remote(a->dir,a->module_target,LCFG_BUILD,&a->catalog,l_module_progress,a,a->module_error,sizeof a->module_error);
+        ok=lmod_install_remote(a->dir,a->module_target,a->catalog.version,&a->catalog,l_module_progress,a,a->module_error,sizeof a->module_error);
     else ok=lmod_install_cached(a->dir,a->module_target,LCFG_BUILD,l_module_progress,a,a->module_error,sizeof a->module_error);
+    if (!ok) fprintf(stderr, "LAUNCHER|module|install failed|%d|%s\n", a->module_target, a->module_error);
     SDL_AtomicSet(&a->module_phase, ok ? 2 : -1); return 0;
 }
 static void l_module_start(L_App *a, int target)
@@ -2488,8 +2709,10 @@ static void l_draw(L_App *a)
      * answer of "the same as the one you have", and saying so costs one word. */
     if (a->install_offer)
         snprintf(line, sizeof line, "INSTALLED  NOTHING YET");
-    else
-        snprintf(line, sizeof line, "INSTALLED  v%s", a->version);
+    else {
+        char version[100];
+        snprintf(line, sizeof line, "INSTALLED  v%s", l_selected_version(a,version));
+    }
     lui_print(&a->surf, a->f6, line, L_PANEL_X, L_INFO_Y, DM_TEXT_MEDIUM);
 
     switch (ph) {
@@ -2808,12 +3031,17 @@ static void l_activate(L_App *a, int item)
             a->quit = 1;
         } else if(a->mod[a->mod_sel].needs_update&&l_module_available(a,a->mod_sel)){
             l_module_offer(a,a->mod_sel);
-        } else if (ph == LU_AVAILABLE && a->mod_sel == 0 && a->mod[0].installed) {
+        } else if (l_legacy_update_available(a,ph)) {
             lu_apply(a->up);
         } else {
             a->play_after = 1;
             a->quit = 1;
         }
+        break;
+    case L_BTN_LAUNCH_INSTALLED:
+        /* the build on the disk, whatever is on offer */
+        a->play_after = 1;
+        a->quit = 1;
         break;
     case L_BTN_EDITOR:
         /* 2 rather than 1: the same leave-the-loop-and-launch path Play takes, with
@@ -3102,7 +3330,7 @@ static int l_headless(L_App *a, int mode)
     int guard;
 
     printf("install:   %s\n", a->dir);
-    printf("installed: v%s\n", a->version);
+    {char version[100];printf("installed: v%s\n",l_selected_version(a,version));}
     printf("host:      %s\n", lu_host_summary());
 
     if (lu_phase(a->up) == LU_NOTCONFIGURED) {
@@ -3199,6 +3427,9 @@ static void l_usage(void)
            "  --fetch-menu-art --dir <folder>  only the menu art, for a folder that\n"
            "                   holds nothing but the launcher\n"
            "  --media-manifest <file>  a media manifest other than the built-in one\n");
+    printf("  --uninstall [--keep-settings] --dir <folder>\n"
+           "                   remove both games, their media, language packs and the\n"
+           "                   launcher's downloads (and settings, unless kept). No window.\n");
     printf("  --media-shot-progress <done>/<total>, --media-shot-failed <reason>,\n"
            "  --media-shot-choice <movies,music|...>, --media-shot-tick <movies|music>,\n"
            "  --media-shot-confirm\n"
@@ -3219,7 +3450,8 @@ static void l_usage(void)
 static int l_install_offer(const L_App *a)
 {
     struct stat st;
-    if (!a->dir[0] || lz_is_install(a->dir) || l_has_named_file(a->dir, L_GAME_EXE))
+    if (!a->dir[0] || lz_is_install(a->dir) || l_has_named_file(a->dir, L_GAME_EXE)
+        || a->mod[1].installed)
         return 0;
     if (strstr(a->dir, ".app/Contents"))
         return 0;
@@ -3574,7 +3806,7 @@ int main(int argc, char **argv)
     char path[1200];
     char manifest[1024];
     char *local_notes;
-    int scale = 3, play_now = 0, headless = 0, view_given = 0, i;
+    int scale = 3, play_now = 0, headless = 0, view_given = 0, module_given = 0, i;
     int shot_choice = -1, shot_confirm = 0, shot_tick = 0;
     int restore_module = -1;
     const char *module_site=NULL;
@@ -3594,6 +3826,8 @@ int main(int argc, char **argv)
     if (AttachConsole(ATTACH_PARENT_PROCESS)) {
         freopen("CONOUT$", "w", stdout);
         freopen("CONOUT$", "w", stderr);
+    } else {
+        l_log_open();   /* double-clicked: a file instead (see l_log_open) */
     }
 #endif
 
@@ -3735,6 +3969,7 @@ int main(int argc, char **argv)
             shot_confirm = 1;
         else if (!strcmp(argv[i], "--module") && i + 1 < argc) {
             const char *name = argv[++i];
+            module_given = 1;
             if (!strcmp(name, "ra3d")) a.mod_sel = 1;
             else if (!strcmp(name, "opencnc3d")) a.mod_sel = 0;
             else { fprintf(stderr, "unknown module: %s\n", name); return 2; }
@@ -3779,19 +4014,32 @@ int main(int argc, char **argv)
     if (lz_held_here(a.dir) && !lmod_settle(a.dir, err, sizeof err)) {
         fprintf(stderr, "%s\n", err);lu_destroy(a.up);return 1;
     }
+#ifdef _WIN32
+    /* An old 32-bit SDL2.dll that no program here loads any more (an install that began
+     * as v0.9.2 or earlier, its programs since replaced by 64-bit ones, possibly by an
+     * old launcher's module update): lsdl_tidy.h. Under the install lock only. */
+    if (lz_held_here(a.dir)) lsdl_tidy(a.dir);
+#endif
     if (restore_module >= 0) {
         int ok=lmod_install_cached(a.dir,restore_module,LCFG_BUILD,NULL,NULL,err,sizeof err);
         printf("MODULE-INSTALL|%s|%s\n",ok?"PASS":"FAIL",ok?"verified cached game installed":err);
         lu_destroy(a.up);return ok?0:1;
     }
+    /* A package an older launcher kept after its install, about 4 GB a game, goes now
+     * (lmodule.h lmod_cache_tidy). After the restore above, which may be repairing a game
+     * from exactly that package. */
+    if (lz_held_here(a.dir) && !a.private_source)
+        lmod_cache_tidy(a.dir);
     a.mod[0].installed = lmod_td_present(a.dir);
     l_find_ra_module(&a);
+    l_find_third_module(&a);
     if(module_site){
-        if(!lmod_catalog_fetch_at(module_site,LCFG_BUILD,&a.catalog,err,sizeof err)){fprintf(stderr,"%s\n",err);lu_destroy(a.up);return 1;}
+        if(!lmod_catalog_fetch_at(module_site,NULL,&a.catalog,err,sizeof err)){fprintf(stderr,"%s\n",err);lu_destroy(a.up);return 1;}
         SDL_AtomicSet(&a.catalog_phase,2);l_module_versions(&a);
     }
     a.remove_module = a.mod_sel;
-    if (!a.mod[a.mod_sel].installed && !play_now && a.view!=L_VIEW_MODULE_OPTIONS)
+    if (!a.mod[a.mod_sel].installed && (!play_now || !module_given)
+        && a.view != L_VIEW_MODULE_OPTIONS)
         a.mod_sel = a.mod[0].installed ? 0 : a.mod[1].installed ? 1 : 0;
     l_read_installed(&a);
     lu_set_installed(a.up, a.version);
@@ -3804,8 +4052,8 @@ int main(int argc, char **argv)
     }
     if (play_now) {
         lu_destroy(a.up); /* the lock belongs to the launcher, never to the game */
-        if (!l_launch(a.dir, a.mod_sel == 1 ? L_RA_GAME_EXE : L_GAME_EXE,
-                      a.mod_sel == 1 ? "ra3d" : NULL, err, sizeof err)) {
+        if (!l_launch(a.dir, a.mod_sel == 2 ? L_MOD3_GAME_EXE : a.mod_sel == 1 ? L_RA_GAME_EXE : L_GAME_EXE,
+                      a.mod_sel == 2 ? L_MOD3_DIR : a.mod_sel == 1 ? "ra3d" : NULL, err, sizeof err)) {
             fprintf(stderr, "%s\n", err);
             return 1;
         }
@@ -4000,6 +4248,7 @@ int main(int argc, char **argv)
         free(big);
         free(a.rgba);
         printf("%s %s (%dx%d)\n", ok ? "wrote" : "FAILED to write", shot, bw, bh);
+        {char version[100];printf("LINSTALLED|module=%d|version=%s\n",a.mod_sel,l_selected_version(&a,version));}
         printf("LSIGNAL|enabled=%d|ms=%u|period_ms=%u\n",
                ls_enabled() && !a.no_motion ? 1 : 0,a.signal_ms,LS_SIGNAL_PERIOD_MS);
         printf("LCURSOR|source=ecur/ecur.bin|mesh=CUR00|triangles=%u|source_crc32=%08lx|native_x=%.3f|native_y=%.3f|smoothing=0\n",l_cursor.ntri,l_cursor.crc,a.cursor_x,a.cursor_y);
@@ -4048,12 +4297,17 @@ int main(int argc, char **argv)
             if (bi >= L_BTN_REMOVE && bi < L_BTN_REMOVE + L_MOD_COUNT) {
                 printf("LREMOVE|label=X|x=%d|y=%d|w=%d|h=%d|disabled=%d\n",l_native_x(a.btn[bi].x)*scale,l_native_y(a.btn[bi].y)*scale,l_native_extent(a.btn[bi].w)*scale,l_native_extent(a.btn[bi].h)*scale,a.btn[bi].disabled);continue;
             }
-            if (a.btn[bi].kind == LUI_KIND_CHECK)
+            if (a.btn[bi].kind == LUI_KIND_CHECK) {
                 printf("LCHK|label=%s|checked=%d|x=%d|y=%d|w=%d|h=%d|disabled=%d\n",
                        a.btn[bi].label ? a.btn[bi].label : "", a.btn[bi].checked ? 1 : 0,
                        l_native_x(a.btn[bi].x) * scale, l_native_y(a.btn[bi].y) * scale, l_native_extent(a.btn[bi].w) * scale,
                        l_native_extent(a.btn[bi].h) * scale, a.btn[bi].disabled ? 1 : 0);
-            else if (a.btn[bi].kind == LUI_KIND_BUTTON)
+                /* and the row's right hand column, on a line of its own so a reader of the
+                   rectangles above is not handed a field it does not expect */
+                if (a.btn[bi].note)
+                    printf("LNOTE|label=%s|note=%s\n", a.btn[bi].label ? a.btn[bi].label : "",
+                           a.btn[bi].note);
+            } else if (a.btn[bi].kind == LUI_KIND_BUTTON)
                 printf("LBTN|i=%d|label=%s|x=%d|y=%d|w=%d|h=%d|disabled=%d|hidden=0\n",
                        bi,a.btn[bi].label?a.btn[bi].label:"",
                        l_native_x(a.btn[bi].x)*scale,l_native_y(a.btn[bi].y)*scale,
@@ -4174,7 +4428,9 @@ int main(int argc, char **argv)
 
     if (a.play_after && !l_launch(a.dir,
                                   a.play_after == 2 ? L_EDIT_EXE :
+                                  a.mod_sel == 2 ? L_MOD3_GAME_EXE :
                                   a.mod_sel == 1 ? L_RA_GAME_EXE : L_GAME_EXE,
+                                  a.play_after == 1 && a.mod_sel == 2 ? L_MOD3_DIR :
                                   a.play_after == 1 && a.mod_sel == 1 ? "ra3d" : NULL,
                                   err, sizeof err)) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenCNC3D", err, NULL);

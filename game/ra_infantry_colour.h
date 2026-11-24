@@ -21,6 +21,18 @@ static const float RA_SOLDIER_CLOTH[8][3] = {
 static const unsigned char RA_RADAR_BAR[8][3] = {
     { 144, 136, 76 }, { 104, 116, 160 }, { 176, 0, 0 },   { 120, 152, 100 },
     { 212, 120, 16 }, { 148, 124, 112 }, { 64, 132, 116 }, { 152, 76, 56 } };
+/* A PALETTE.CPS ROW AS THE RED ALERT LIBRARY NUMBERS IT, AND BACK. The library is built
+   with REMASTER_BUILD, whose PlayerColorType puts PCOLOR_BLUE at 5 and PCOLOR_GREY at 6
+   (redalert/defines.h) and whose Init_Color_Remaps swaps those two remaps to match
+   (redalert/init.cpp). Everything on this side keeps the 1996 row order, grey 5 and blue 6:
+   the two tables above, the brain's remap= export, the Classic pack's remap bands, and the
+   skirmish lobby's squares, colour names and country pairings. So a colour handed to the
+   library (CNCPlayerInfoStruct::ColorIndex) or read back from it (ColorIndex,
+   CNCObjectStruct::RemapColor) is turned by this, which is its own inverse. */
+static inline int ra_library_colour(int c)
+{
+    return c == 5 ? 6 : c == 6 ? 5 : c;
+}
 /* Historical normalization retained for every other Red Alert uniform. Allied blue
    uses the current material's own explicit cloth-mask reference, so an updated soldier
    atlas cannot silently inherit another model's brightness. */

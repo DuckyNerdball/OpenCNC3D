@@ -34,6 +34,9 @@
 // MODIFIED for OpenCNC3D fair skirmish difficulty, 19 October 2026.
 // Rejects hidden enemy object destinations for fair skirmish infantry.
 // This changes multiplayer simulation; campaign rules remain on their original path.
+// MODIFIED for OpenCNC3D. Scatter leaves a soldier on a player's
+// attack-move in that mission and gives him only the step aside, so he carries on to the
+// clicked cell afterwards. It DOES change the game simulation.
 
 /* $Header:   F:\projects\c&c\vcs\code\infantry.cpv   2.19   16 Oct 1995 16:50:30   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -101,6 +104,8 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "gun_game_ability.h"
 #include "fair_ai_td.h"
 #include "ccini.h"
 
@@ -203,26 +208,26 @@ void InfantryClass::Debug_Dump(MonoClass* mono) const
 {
     Validate();
     mono->Set_Cursor(0, 0);
-    mono->Print("ÚName:ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂMission:ÄÄÄÂTarCom:ÂNavCom:ÂRadio:ÂCoord:ÄÄÂHeadTo:ÄÂSt:Ä¿\n"
-                "³                   ³           ³       ³       ³      ³        ³        ³    ³\n"
-                "ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂNÂYÂHealth:ÄÂBody:ÂTurret:ÂSpeed:ÂPath:ÁÄÄÄÄÄÄÂCargo:ÄÄÄÄÁÄÄÄÄ´\n"
-                "³Active........³ ³ ³        ³     ³       ³      ³            ³               ³\n"
-                "³Limbo.........³ ³ ÃÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´\n"
-                "³Owned.........³ ³ ³Last Message:                                             ³\n"
-                "³Discovered....³ ³ ÃTimer:ÂArm:ÂTrack:ÂTiberium:ÂFlash:ÂStage:ÂTeam:ÄÄÄÄÂArch:´\n"
-                "³Selected......³ ³ ³      ³    ³      ³         ³      ³      ³         ³     ³\n"
-                "³Teathered.....³ ³ ÃÄÄÄÄÄÄÁÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÙ\n"
-                "³Locked on Map.³ ³ ³                                                           \n"
-                "³Is Prone......³ ³ ³                                                           \n"
-                "³Is A Loner....³ ³ ³                                                           \n"
-                "³Deploying.....³ ³ ³                                                           \n"
-                "³Rotating......³ ³ ³                                                           \n"
-                "³Firing........³ ³ ³                                                           \n"
-                "³Driving.......³ ³ ³                                                           \n"
-                "³To Look.......³ ³ ³                                                           \n"
-                "³Recoiling.....³ ³ ³                                                           \n"
-                "³To Display....³ ³ ³                                                           \n"
-                "ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÁÄÙ                                                           \n");
+    mono->Print("ÃšName:Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã‚Mission:Ã„Ã„Ã„Ã‚TarCom:Ã‚NavCom:Ã‚Radio:Ã‚Coord:Ã„Ã„Ã‚HeadTo:Ã„Ã‚St:Ã„Â¿\n"
+                "Â³                   Â³           Â³       Â³       Â³      Â³        Â³        Â³    Â³\n"
+                "ÃƒÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã‚NÃ‚YÃ‚Health:Ã„Ã‚Body:Ã‚Turret:Ã‚Speed:Ã‚Path:ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã‚Cargo:Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Â´\n"
+                "Â³Active........Â³ Â³ Â³        Â³     Â³       Â³      Â³            Â³               Â³\n"
+                "Â³Limbo.........Â³ Â³ ÃƒÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Â´\n"
+                "Â³Owned.........Â³ Â³ Â³Last Message:                                             Â³\n"
+                "Â³Discovered....Â³ Â³ ÃƒTimer:Ã‚Arm:Ã‚Track:Ã‚Tiberium:Ã‚Flash:Ã‚Stage:Ã‚Team:Ã„Ã„Ã„Ã„Ã‚Arch:Â´\n"
+                "Â³Selected......Â³ Â³ Â³      Â³    Â³      Â³         Â³      Â³      Â³         Â³     Â³\n"
+                "Â³Teathered.....Â³ Â³ ÃƒÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã™\n"
+                "Â³Locked on Map.Â³ Â³ Â³                                                           \n"
+                "Â³Is Prone......Â³ Â³ Â³                                                           \n"
+                "Â³Is A Loner....Â³ Â³ Â³                                                           \n"
+                "Â³Deploying.....Â³ Â³ Â³                                                           \n"
+                "Â³Rotating......Â³ Â³ Â³                                                           \n"
+                "Â³Firing........Â³ Â³ Â³                                                           \n"
+                "Â³Driving.......Â³ Â³ Â³                                                           \n"
+                "Â³To Look.......Â³ Â³ Â³                                                           \n"
+                "Â³Recoiling.....Â³ Â³ Â³                                                           \n"
+                "Â³To Display....Â³ Â³ Â³                                                           \n"
+                "Ã€Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„ÃÃ„Ã™                                                           \n");
     mono->Set_Cursor(1, 1);
     mono->Printf("%s:%s", House->Class->IniName, Class->IniName);
     mono->Text_Print("X", 16 + (IsProne ? 2 : 0), 10);
@@ -1205,6 +1210,10 @@ void InfantryClass::opencnc3d_end_leg_here(void)
 void InfantryClass::AI(void)
 {
     Validate();
+    if (Gun_Game_Dodging(this)) {
+        Gun_Game_Roll_Step(this);
+        return;
+    }
     FootClass::AI();
 
     if (IsUnloading)
@@ -1699,6 +1708,7 @@ void InfantryClass::AI(void)
                 **	Advance the infantry as far as it should go.
                 */
                 MPHType maxspeed = MPHType(min((unsigned)(Class->MaxSpeed * House->GroundspeedBias), MPH_LIGHT_SPEED));
+                maxspeed = MPHType(Gun_Ability_Speed(this, maxspeed));
                 CELL opencnc3d_was = Coord_Cell(Coord);
                 Coord = Coord_Move(Coord, Direction(Head_To_Coord()), Fixed_To_Cardinal(maxspeed, movespeed));
 
@@ -1886,7 +1896,11 @@ MoveType InfantryClass::Can_Enter_Cell(CELL cell, FacingType) const
     if (cellptr->Overlay != OVERLAY_NONE) {
         OverlayTypeClass const& otype = OverlayTypeClass::As_Reference(cellptr->Overlay);
 
-        if (otype.IsCrate && !House->IsHuman) {
+        /*
+        **	OpenCNC3D: a Gun Game combatant collects crates whether a person or the
+        **	computer plays it; the computer's own crate seeking walks it onto them.
+        */
+        if (otype.IsCrate && !House->IsHuman && !(Gun_Game_Active() && Gun_Game_Combatant(Owner()) == this)) {
             return (MOVE_NO);
         }
 
@@ -2405,6 +2419,15 @@ void InfantryClass::Scatter(COORDINATE threat, bool forced, bool nokidding)
         FacingType newface;
         CELL newcell;
 
+        /*
+        **	OpenCNC3D: a soldier stepping aside on a player's attack-move keeps the attack-move.
+        **	Only the step is assigned; Mission_Guard_Area walks him on to the clicked cell
+        **	once he has taken it. The attack-move test is the one that routine keeps (its
+        **	mission state value, set when an attack-move starts and cleared once it arrives),
+        **	so a soldier on the G key, or on any other mission, still scatters into a plain move.
+        */
+        const bool attackmove = House->IsHuman && Mission == MISSION_GUARD_AREA && Status == 1;
+
         if (threat) {
             toface = Dir_Facing(Direction8(threat, Coord));
             toface = toface + (Random_Pick(0, 4) - 2);
@@ -2426,7 +2449,9 @@ void InfantryClass::Scatter(COORDINATE threat, bool forced, bool nokidding)
             if (Map.In_Radar(newcell) && Can_Enter_Cell(newcell) == MOVE_OK) {
                 if (!Class->IsAvoidingTiberium || Map[newcell].Overlay == OVERLAY_NONE
                     || OverlayTypeClass::As_Reference(Map[newcell].Overlay).Land != LAND_TIBERIUM) {
-                    Assign_Mission(MISSION_MOVE);
+                    if (!attackmove) {
+                        Assign_Mission(MISSION_MOVE);
+                    }
                     Assign_Destination(::As_Target(newcell));
                 }
             }
@@ -3125,7 +3150,8 @@ int InfantryClass::Rearm_Delay(bool second) const
         return (Random_Pick(5, 50));
     }
 #endif
-    return (FootClass::Rearm_Delay(second));
+    const int delay = FootClass::Rearm_Delay(second);
+    return *this == INFANTRY_E3 && Gun_Game_Active() ? (delay + 1) / 2 : delay;
 }
 
 /***********************************************************************************************

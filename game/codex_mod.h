@@ -788,7 +788,9 @@ static void codex_enhanced_page(int fbw,int fbh){
     st.name=r.name;st.code=r.code;st.brief=r.brief;st.armour=r.armour;st.strong=r.strong;st.weak=r.weak;st.unlocks=r.unlocks;
     st.cost=r.cost;st.hp=r.hitpoints;st.damage=r.damage;st.speed=r.speed;st.rof=r.rof;st.range256=r.range256;
     int mi=codex_mesh_for(r.code),m3=codex_enhanced_m3(r.code);st.model_available=mi>=0||m3>=0;
-    em_database(&st);em_viewport(fbw,fbh);em_pick(int(g_mouseScrC),int(g_mouseScrR));em_database(&st);em_draw(fbw,fbh,0);
+    em_database(&st);em_viewport(fbw,fbh);em_pick(int(g_mouseScrC),int(g_mouseScrR));em_database(&st);
+    gls_foreign_begin("codex dialog");em_draw(fbw,fbh,0);
+    gls_forget_foreign();   /* the dialog drew in another translation unit, unseen by the cache */
     int x,y,w,h;if(st.model_available&&em_database_view(&x,&y,&w,&h)){
         glPushAttrib(GL_ALL_ATTRIB_BITS);
         codex_draw_model(mi,x,y,w,h,fbh,(getenv("OPENCNC3D_BACKGROUND")?.65f:float(SDL_GetTicks()%30000)*2.f*M_PI/30000.f+.65f),g_cxHouse==CODEX_HOUSE_NOD?0:1,m3);
@@ -885,7 +887,11 @@ static void codex_draw(int fbw, int fbh)
     }
     end_overlay();
 
-    /* 4. the two emblems. logo3d owns its own GL state and restores what it found. */
+    /* 4. the two emblems. logo3d saves only some of the GL state it changes (its texture
+       binding, texture environment, alpha function, current colour and matrix mode stay
+       as it left them), and opening the pack uploads its textures, so the state cache
+       forgets everything around both (gl_state_cache.h, gls_forget_foreign). */
+    gls_foreign_begin("emblems");
     codex_logos_open();
     if (g_cxLogos.n > 0) {
         const int which = (g_cxHouse == CODEX_HOUSE_NOD) ? LOGO3D_NOD : LOGO3D_GDI;
@@ -899,6 +905,7 @@ static void codex_draw(int fbw, int fbh)
                         g_cxL.evaW * sc, g_cxL.evaH * sc,
                         deg, 256, 0.0f, 0.0f, 1.0f, 1.0f, LOGO3D_TILT_DEFAULT);
     }
+    gls_forget_foreign();   /* opened and drawn by another translation unit, unseen by the cache */
     glViewport(0, 0, fbw, fbh);
 }
 
@@ -998,7 +1005,7 @@ static bool codex_holds_the_world(void)
     return g_cxOpen;
 }
 
-/* IS THERE A DATABASE TAB AT ALL. Two conditions, and both are the point rather than
+/* IS THERE A DATABASE TAB AT ALL. Three conditions, and each is the point rather than
    belt and braces:
 
    g_fx.enabled is ENHANCED. Classic is the 1995 game and the 1995 game shipped no
@@ -1010,11 +1017,24 @@ static bool codex_holds_the_world(void)
    which carries no DATABASE caption. The requirement is explicit: this is built on the
    Enhanced HUD and is not available in Classic mode.
 
+   NOT IN RED ALERT, until Red Alert has rows of its own. CODEX is Tiberian Dawn's table,
+   read out of Tiberian Dawn's source, so in a Red Alert mission the page listed GDI's and
+   Nod's structures and units under Red Alert's Allied and Soviet badges. No list is
+   better than the other game's list; the 1996 game had no database tab either, so its
+   strip is OPTIONS, credits and SIDEBAR as it was.
+
    Everything else -- the hit test, the plate draw, the key, the script verbs -- asks this
-   one function, so the tab cannot be clickable on a screen that is not drawing it. */
-static bool codex_available(void)
+   one function, so the tab cannot be clickable on a screen that is not drawing it. The
+   first two conditions are enhanced_hud_ready, which the unit card asks on its own: the
+   card is Red Alert's as much as Tiberian Dawn's, and must not go with the tab. */
+static bool enhanced_hud_ready(void)
 {
     return g_fx.enabled != 0 && sb_hud_active();
+}
+
+static bool codex_available(void)
+{
+    return enhanced_hud_ready() && !g_raModule;
 }
 
 static void codex_set_house_from_player(void)

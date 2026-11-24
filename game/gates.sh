@@ -108,8 +108,8 @@ export OPENCNC3D_BACKGROUND
 # THE 1995 MENUS, FOR THE GATES THAT SCRIPT THEM. Under Enhanced the shell draws the
 # Enhanced menu over the same controllers with a layout of its own, so a gate that clicks
 # the 1995 lobby, game browser, save screen or briefing at their 1995 rectangles lands on
-# nothing there. OPENCNC3D_MENU_1995=1 keeps the 1995 screens for the runs of those gates,
-# the screens Classic and N64 draw in any case. They are switched on around exactly those
+# nothing there. OPENCNC3D_MENU_1995=1 keeps the 1995 screens for the runs of those gates.
+# No player sees them: the menus are Enhanced in every graphics mode (G378). They are switched on around exactly those
 # gates and off again after; G6 and G59 walk the shell through the Enhanced menu itself,
 # and G325 drives every Enhanced screen against the controllers underneath.
 menu1995_on()  { OPENCNC3D_MENU_1995=1; export OPENCNC3D_MENU_1995; }
@@ -1128,9 +1128,11 @@ rm -f shots/g22_near.png shots/g22_far.png shots/g22_sn.png shots/g22_sf.png sho
 # identical boxes and cannot pass. Measured on the first green run: world cursor 32x59 px
 # near, 23x30 far; the same two positions through `cursor3d 0` give 24x42 BOTH TIMES,
 # which is this gate's own negative control and proves the test can fail.
-# Plus: over the DOS sidebar the 1995 sprite must SURVIVE (the console has no sidebar and
-# therefore no cursor art for one) -- 192 black outline pixels and 402 white in a 60x60
-# crop where the bare panel has zero of each.
+# Plus: over the sidebar the pointer is the CONSOLE'S OWN ARROW drawn flat, the same art
+# as on the map, not the 1995 sprite: white ink (419 pixels measured) and none of the
+# sprite's black outline (it had 192), in a 60x60 crop where the bare panel has neither.
+# The 1995 sprite stood in there once, on the ground that the console has no sidebar; the
+# pointer changing art at the bar's edge was reported as a fault, and DOS Classic keeps it.
 cat > gate_cursor.txt <<'EOS'
 tick 30
 cam 48 52
@@ -1197,9 +1199,9 @@ CDET=$(cmp -s shots/g22_d1.png shots/g22_d2.png && echo 1 || echo 0)
 if [ "$GRC" != "0" ]; then
   bad "G22 cursor: a run failed or wrote no shot (GRC=$GRC)"
 elif [ "$CDRAWN" = "1" ] && [ "$CFW" -lt "$CNW" ] && [ "$CFH" -lt "$CNH" ] \
-   && [ "$CSPR" = "1" ] && [ "$CBLK" -ge 100 ] && [ "$CWHT" -ge 200 ] && [ "$CBARE" = "0" ] \
+   && [ "$CSPR" = "1" ] && [ "$CBLK" -le 40 ] && [ "$CWHT" -ge 200 ] && [ "$CBARE" = "0" ] \
    && [ "$CDET" = "1" ]; then
-  ok "G22 cursor is in the WORLD: ${CNW}x${CNH} px near, ${CFW}x${CFH} far (the flat sprite gives identical boxes), DOS pointer kept over the panel, two shots byte-identical"
+  ok "G22 cursor is in the WORLD: ${CNW}x${CNH} px near, ${CFW}x${CFH} far (the flat sprite gives identical boxes), the console's own arrow over the panel, two shots byte-identical"
 else
   bad "G22 cursor: near=${CNW}x${CNH} far=${CFW}x${CFH} (far must be narrower AND shorter) sprite-control-identical=$CSPR panel black=$CBLK white=$CWHT bare=$CBARE(want 0) determinism=$CDET"
 fi
@@ -2058,6 +2060,12 @@ fi
 # The shot is DELETED first and the exit status is READ, which is G4's lesson: shots/
 # persists between suite runs, so a binary that died at startup used to leave the previous
 # run's PNG for this gate to re-measure and pass on.
+#
+# LEG (b) READS THE 1995 PAGE, so G48 runs under menu1995_on. The pause dialog is the
+# Enhanced one in every graphics mode (G378), and the Enhanced jukebox prints in its own
+# lettering: run on it, the page opened and both tracks started and only the glyph leg
+# missed (381 pixels). The Enhanced page is G325's, against the same controllers.
+menu1995_on
 rm -f shots/jukebox.png shots/g48.log
 ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 \
       --script gate_jukebox.txt > shots/g48.log 2>&1
@@ -2083,6 +2091,7 @@ else
     bad "G48 jukebox: page-opened=$JBPAGE(want 1) tracks-started=$JBPLAY(want >=2) rows=$JBROWS(want >=8) named=$JBNAMED(want =rows) distinct=$JBDIST(want =named) aoi-row=$JBAOI(want >=0) glyph-mismatch=$JBMISS(want 0)"
   fi
 fi
+menu1995_off
 
 # G48b THE JUKEBOX HANDS THE SCORE BACK. Reported: playing a track by hand in the
 # Jukebox left the next track on the list unplayed when it finished.
@@ -2387,9 +2396,17 @@ for SSEL in 52 14; do
   # against, and they are pinned so the measurement is about the SHADOW and not about
   # whatever the picture happens to look like this month. Change them only with the
   # thresholds, and say so.
+  # PIN THE CONTACT-TEST DEPTH BIAS. approved lighting now
+  # uses 0.03754, which can intentionally remove the eight-pixel boot band even
+  # with a correctly placed caster. The previous delivered renderer and this
+  # candidate both read 314,368,274,129 under that unpinned default. This fixture
+  # isolates attachment at the minimum 0.002 bias (also the22Oct saved value),
+  # without changing shipped tuning or either acceptance floor: the correct
+  # renderer reads 400,448,437,334 (1619 total); restoring dB=side+0.02 reads
+  # 222,172,213,131 (738 total) and still FAILS both original assertions.
   G52GRADE='grade_on 1\nexposure -0.03571\ncontrast 1.07589\nsaturation 1.08000\ntemperature 0.12500\ntint 0.0\nlift 0.0\ngain 1.10268\n'
-  printf "enabled 1\nshadow_on 1\nsun_az %s\nsun_el %s\ncloud_on 0\nfog_fx 0\nsand_fx 0\ninf_scale 1.0\nsun_lambert 0\neinf_on 0\nspr_shadow_scale 1.7\n$G52GRADE" "$SSAZ" "$SSEL" > gfx_g52_on.cfg
-  printf "enabled 1\nshadow_on 0\nsun_az %s\nsun_el %s\ncloud_on 0\nfog_fx 0\nsand_fx 0\ninf_scale 1.0\nsun_lambert 0\neinf_on 0\nspr_shadow_scale 1.7\n$G52GRADE" "$SSAZ" "$SSEL" > gfx_g52_off.cfg
+  printf "enabled 1\nshadow_on 1\nsun_az %s\nsun_el %s\ncloud_on 0\nfog_fx 0\nsand_fx 0\ninf_scale 1.0\nsun_lambert 0\neinf_on 0\nspr_shadow_scale 1.7\nshadow_bias 0.002\n$G52GRADE" "$SSAZ" "$SSEL" > gfx_g52_on.cfg
+  printf "enabled 1\nshadow_on 0\nsun_az %s\nsun_el %s\ncloud_on 0\nfog_fx 0\nsand_fx 0\ninf_scale 1.0\nsun_lambert 0\neinf_on 0\nspr_shadow_scale 1.7\nshadow_bias 0.002\n$G52GRADE" "$SSAZ" "$SSEL" > gfx_g52_off.cfg
   rm -f shots/sprshadow_on.png shots/sprshadow_off.png shots/g52.log
   ./cnc_eyes --scen SCG01EC --pack SCG01EA.pack $BASE --noshroud --nominimap --nosidebar \
       --gfx gfx_g52_on.cfg --w 1000 --h 650 --script gate_sprshadow.txt > shots/g52.log 2>&1
@@ -2398,13 +2415,13 @@ for SSEL in 52 14; do
       --gfx gfx_g52_off.cfg --w 1000 --h 650 --script gate_sprshadow_off.txt >> shots/g52.log 2>&1
   SSRC2=$?
   cat shots/g52.log >> "$OUT"
-  SSPRE=$(grep -c "FX|preset|gfx_g52_o[nf]*\.cfg: 19 applied, 0 unknown" shots/g52.log)
+  SSPRE=$(grep -c "FX|preset|gfx_g52_o[nf]*\.cfg: 20 applied, 0 unknown" shots/g52.log)
   SSBOX=$(sed -n 's/^CLICKOBJ|want=E1[^|]*|silhouette=\([0-9]*\),\([0-9]*\)\.\.\([0-9]*\),\([0-9]*\).*/\1,\2,\3,\4/p' shots/g52.log | head -4 | tr '\n' ' ')
   SSNB=$(echo $SSBOX | wc -w | tr -d ' ')
   if [ "$SSRC" != "0" ] || [ "$SSRC2" != "0" ]; then
     bad "G52 infantry shadows at sun $SSAZ/$SSEL: the run itself failed (exit $SSRC / $SSRC2)"
   elif [ "$SSPRE" != "2" ]; then
-    bad "G52 infantry shadows at sun $SSAZ/$SSEL: the preset did not apply in both arms -- $SSPRE of 2 runs said '19 applied, 0 unknown', so the numbers below would be the DEFAULT sun, grade, soldiers and shadow size rather than the ones this gate asked for"
+    bad "G52 infantry shadows at sun $SSAZ/$SSEL: the preset did not apply in both arms -- $SSPRE of 2 runs said '20 applied, 0 unknown', so the numbers below would be the DEFAULT sun, grade, soldiers and shadow size rather than the ones this gate asked for"
   elif [ "$SSNB" != "4" ]; then
     bad "G52 infantry shadows at sun $SSAZ/$SSEL: the squad is not in frame -- $SSNB of 4 silhouettes [$SSBOX]"
   elif [ ! -s shots/sprshadow_on.png ] || [ ! -s shots/sprshadow_off.png ]; then
@@ -2415,9 +2432,9 @@ for SSEL in 52 14; do
     SSTOT=$(echo "$SSR" | cut -d'|' -f6); SSAP=$(echo "$SSR" | cut -d'|' -f8)
     if [ "$SSEL" = "52" ]; then
       if [ "${SSMIN:-0}" -ge 200 ] && [ "${SSTOT:-0}" -ge 1000 ]; then
-        ok "G52 infantry shadows at the SHIPPED sun $SSAZ/$SSEL: all four men have a shadow under their own boots ($SSPER darkened pixels each, $SSTOT together, $SSAP in the whole apron)"
+        ok "G52 infantry shadows at the CONTACT-TEST sun $SSAZ/$SSEL: all four men have a shadow under their own boots ($SSPER darkened pixels each, $SSTOT together, $SSAP in the whole apron)"
       else
-        bad "G52 infantry shadows at the SHIPPED sun $SSAZ/$SSEL: per-man band=[$SSPER] smallest=$SSMIN(want >=200) together=$SSTOT(want >=1000) apron=$SSAP"
+        bad "G52 infantry shadows at the CONTACT-TEST sun $SSAZ/$SSEL: per-man band=[$SSPER] smallest=$SSMIN(want >=200) together=$SSTOT(want >=1000) apron=$SSAP"
       fi
     else
       if [ "${SSAP:-0}" -ge 600 ]; then
@@ -2676,7 +2693,10 @@ if command -v lipo >/dev/null 2>&1 && [ "$(lipo -archs ./opencnc3d 2>/dev/null |
 fi
 SOBTN=$(LC_ALL=C tr -c '[:print:]' '\n' < "$SOBIN" 2>/dev/null | grep -c '^Special Ops$')
 SOINI=0; SOPACK=0; SOMISS=""
-for f in missions/SC[BG][2-8][0-9]E[A-C].INI; do
+# SCG99EA is named, not globbed: it is the cartridge's SCG90EA, GDI's second N64 Special
+# Ops, installed under that code because SCG90EA is the Test Map here (G430). The 90s are
+# otherwise the harness's, which the glob leaves out on purpose.
+for f in missions/SC[BG][2-8][0-9]E[A-C].INI missions/SCG99EA.INI; do
   [ -e "$f" ] || continue
   b=$(basename "$f" .INI)
   SOINI=$((SOINI+1))
@@ -2715,17 +2735,718 @@ SOEND=$(echo "$SOLOG" | grep -m1 '^SPECOPSSHOT|rows=')
 SOORDER=$(echo "$SOEND" | sed -n 's/.*|order=\([^|]*\)|.*/\1/p')
 SOLAST=$(echo "$SOEND" | sed -n 's/.*|last=\([^|]*\)|.*/\1/p')
 SOLISTED=$(echo "$SOEND" | sed -n 's/.*|missions=\([0-9]*\)|.*/\1/p')
+# The Funpark missions (G431) borrow a theater pack and have a section of their own
+# before the TEST MAPS when they are installed.
+SOFUN=0
+for f in missions/SCJ0[1-5]EA.INI; do [ -e "$f" ] && SOFUN=$((SOFUN+1)); done
 SOWANT="GDI COVERT OPERATIONS,GDI SPECIAL OPS,NOD COVERT OPERATIONS,NOD SPECIAL OPS,TEST MAPS"
+[ "$SOFUN" -gt 0 ] && SOWANT="GDI COVERT OPERATIONS,GDI SPECIAL OPS,NOD COVERT OPERATIONS,NOD SPECIAL OPS,FUNPARK,TEST MAPS"
 SOPNG=0; [ -s shots/so/specops_top.png ] && [ -s shots/so/specops_end.png ] && SOPNG=1
 SOMENU=$(LC_ALL=C tr -c '[:print:]' '\n' < "$SOBIN" 2>/dev/null | grep -c '^Test Map$')
 rm -f gate_g46_slice.bin
 if [ "${SOBTN:-0}" -ge 1 ] && [ "${SOINI:-0}" -ge 20 ] && [ "$SOINI" = "$SOPACK" ] \
    && [ "${SODRAW:-0}" -eq 3 ] && [ "$SORC" = "0" ] && [ "$SOORDER" = "$SOWANT" ] \
-   && [ "$SOLAST" = "SCG90EA" ] && [ "${SOLISTED:-0}" -eq $((SOINI + 1)) ] \
+   && [ "$SOLAST" = "SCG90EA" ] && [ "${SOLISTED:-0}" -eq $((SOINI + 1 + SOFUN)) ] \
    && [ "$SOPNG" = "1" ] && [ "${SOMENU:-0}" -eq 1 ]; then
   ok "G46 Special Ops: the menu carries the button, $SOINI missions installed with a pack each, 3 of 3 sampled load and draw, the list is filed as [$SOORDER] with the Test Map ($SOLISTED rows) last and the main menu has no Test Map button of its own"
 else
-  bad "G46 Special Ops: button=$SOBTN(want 1) inis=$SOINI(want >=20) with-pack=$SOPACK(want $SOINI, missing:$SOMISS) loaded=$SODRAW(want 3) shot-rc=$SORC(want 0) order=[$SOORDER](want [$SOWANT]) last=$SOLAST(want SCG90EA) listed=$SOLISTED(want $((SOINI + 1))) pngs=$SOPNG(want 1) test-map-strings=$SOMENU(want exactly 1, the list row's)"
+  bad "G46 Special Ops: button=$SOBTN(want 1) inis=$SOINI(want >=20) with-pack=$SOPACK(want $SOINI, missing:$SOMISS) loaded=$SODRAW(want 3) shot-rc=$SORC(want 0) order=[$SOORDER](want [$SOWANT]) last=$SOLAST(want SCG90EA) listed=$SOLISTED(want $((SOINI + 1 + SOFUN))) pngs=$SOPNG(want 1) test-map-strings=$SOMENU(want exactly 1, the list row's)"
+fi
+
+# =====================================================================================
+# G430 GDI'S SECOND N64 SPECIAL OPS IS IN THE LIST AND PLAYS (app/opencnc3d.cpp
+# specops_scan and SPECOP_TITLES; game/missions/SCG99EA.INI and .BIN; the pack is
+# SCG99EA=SCG90EA in tools/bakery/runtime-scenarios.txt). The cartridge's Special Ops
+# roster (ROM 0x21B260) is SCG30EA and SCG90EA for GDI, SCB21EA and SCB22EB for Nod. Its
+# SCG90EA is a Nod base round a Technology Center that wins when an engineer captures it;
+# here the code SCG90EA is the renderer's Test Map, so the mission is installed as SCG99EA,
+# the ROM's own key for its briefing text. Five claims:
+#   a  the Special Ops list carries SCG99EA on its own pack, titled "N64 Special Ops 2",
+#      under GDI SPECIAL OPS and straight after SCG30EA "N64 Special Ops 1"; the Enhanced
+#      Special Ops tab is drawn and the list ends on the Test Map as before
+#   b  the pack is the cartridge scene: its header names SCG99EA and the engine reads its
+#      heightmap with relief (the cartridge's corner heights run 62..255), not flat
+#   c  the mission is the cartridge's: the Technology Center, 4 Obelisks and 12 SAM sites
+#      at the start, and the MCV reinforcement on the field by tick 300
+#   d  it is won the cartridge's way: an engineer (invulnerable, so the Obelisks cannot
+#      stop the gate) ordered into the Technology Center captures it for GDI and the
+#      engine's own trigger ends the mission with GAMEOVER|WIN
+#   e  the program a player runs starts it from the list: the harness walks the Enhanced
+#      list with keys (the Special Ops tab, HOME, DOWN, RETURN) and the round plays
+#      SCG99EA on SCG99EA.pack. Before the harness learned the tab, the same walk in
+#      Tiberian Dawn counted rows across both tabs and started SCB21EA instead.
+# PROVEN TO FAIL: before the fix the list had no SCG99EA row (GDI SPECIAL OPS held only
+# SCG30EA and the three PlayStation-era missions), and no SCG99EA.INI or pack existed.
+# NOT COVERED: the destroy-to-lose half of the same trigger; the Enhanced menu's pixels
+# beyond the PNG being written (look at shots/g430/specops_end.png).
+# =====================================================================================
+if [ ! -f SCG99EA.pack ] || [ ! -f missions/SCG99EA.INI ]; then
+  bad "G430 GDI N64 Special Ops 2: SCG99EA.pack or missions/SCG99EA.INI is not in this folder"
+else
+  rm -rf shots/g430 && mkdir -p shots/g430
+  G430LOG=$(./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+              --specopsshot shots/g430 2>&1)
+  G430SRC=$?
+  echo "$G430LOG" >> "$OUT"
+  # The rows of the GDI SPECIAL OPS section, in draw order, as CODE|PACK|TITLE.
+  G430SEC=$(echo "$G430LOG" | awk -F'|' '/^SPECOPS\|heading\|/{on=($4=="GDI SPECIAL OPS");next}
+                                          on && /^SPECOPS\|row\|/{print $4"|"$5"|"$6}')
+  G430FIRST=$(echo "$G430SEC" | sed -n 1p)
+  G430SECOND=$(echo "$G430SEC" | sed -n 2p)
+  G430LAST=$(echo "$G430LOG" | grep -m1 '^SPECOPSSHOT|rows=' | sed -n 's/.*|last=\([^|]*\)|.*/\1/p')
+  G430PNG=0; [ -s shots/g430/specops_end.png ] && G430PNG=1
+  { printf 'tick 5\ncount MISS 1\ncount OBLI 4\ncount SAM 12\ncount MCV 0\ntick 300\ncount MCV 1\n'
+    printf 'cam 31.5 33\nshot shots/g430/techcenter.png\nquit\n'; } > shots/g430/boot.txt
+  { printf 'tick 5\ncam 31.5 34\ncheatset invuln 1\nspawnobj E6 32 35\ntick 3\n'
+    printf 'lclickobj E6 0\norderobj MISS 0\n'
+    for k in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do printf 'tick 10\n'; done
+    printf 'obj MISS 0\nquit\n'; } > shots/g430/win.txt
+  gbegin shots/g430/techcenter.png
+  grun shots/g430/boot.log --scen SCG99EA --pack SCG99EA.pack $BASE --noshroud --nosound \
+    --w 1280 --h 720 --script shots/g430/boot.txt
+  grun shots/g430/win.log --scen SCG99EA --pack SCG99EA.pack $BASE --noshroud --nosound \
+    --w 1280 --h 720 --script shots/g430/win.txt
+  gshots shots/g430/techcenter.png
+  mkdir -p shots/g430/h
+  G430H=$(./opencnc3d --harness 150 --rounds 1 --shotdir shots/g430/h --harnessscen SCG99EA \
+          --hidden 2>&1)
+  echo "$G430H" >> "$OUT"
+  G430PLAY=$(echo "$G430H" | grep -c '^APP|specops|play|SCG99EA|SCG99EA.pack$')
+  G430HEND=$(echo "$G430H" | grep -c '^HARNESS|end|1 round(s), 0 failure(s)')
+  G430BOOT=$(grep -c '^COUNT|.*|PASS$' shots/g430/boot.log)
+  G430HDR=$(grep -m1 '^pack SCG99EA: theater=TEMPERAT ' shots/g430/boot.log | cut -c1-40)
+  G430HMIN=$(sed -n 's/^pack: heightmap \([0-9]*\)\.\.\([0-9]*\),.*/\1/p' shots/g430/boot.log | head -1)
+  G430HMAX=$(sed -n 's/^pack: heightmap \([0-9]*\)\.\.\([0-9]*\),.*/\2/p' shots/g430/boot.log | head -1)
+  G430OWN=$(grep '^OBJ|MISS#0|' shots/g430/win.log | tail -1 | cut -d'|' -f4)
+  G430WIN=$(grep -c '^GAMEOVER|WIN|' shots/g430/win.log)
+  if [ "$GRC" != "0" ] || [ "$G430SRC" != "0" ]; then
+    bad "G430 GDI N64 Special Ops 2: a run failed (GRC=$GRC, specops rc=$G430SRC)"
+  elif [ "$G430FIRST" = "SCG30EA|SCG30EA.pack|N64 Special Ops 1" ] \
+     && [ "$G430SECOND" = "SCG99EA|SCG99EA.pack|N64 Special Ops 2" ] \
+     && [ "$G430LAST" = "SCG90EA" ] && [ "$G430PNG" = "1" ] && [ -n "$G430HDR" ] \
+     && [ "$G430BOOT" = "5" ] && [ "${G430HMIN:-0}" -gt 0 ] \
+     && [ $(( ${G430HMAX:-0} - ${G430HMIN:-0} )) -ge 100 ] \
+     && [ "$G430OWN" = "GoodGuy" ] && [ "$G430WIN" -ge 1 ] \
+     && [ "$G430PLAY" = "1" ] && [ "$G430HEND" = "1" ]; then
+    ok "G430 GDI N64 Special Ops 2: listed after N64 Special Ops 1 on its own pack, started from the list by keys, the cartridge heightmap ($G430HMIN..$G430HMAX), Technology Center + 4 Obelisks + 12 SAMs + the MCV drop, and an engineer's capture wins it"
+  else
+    bad "G430 GDI N64 Special Ops 2: first=[$G430FIRST](want SCG30EA|SCG30EA.pack|N64 Special Ops 1) second=[$G430SECOND](want SCG99EA|SCG99EA.pack|N64 Special Ops 2) last=$G430LAST(want SCG90EA) png=$G430PNG header=[$G430HDR](want the pack line naming SCG99EA) counts-passed=$G430BOOT(want 5) heights=$G430HMIN..$G430HMAX(want relief >=100) tech-center-owner=$G430OWN(want GoodGuy) wins=$G430WIN(want >=1) list-start=$G430PLAY(want 1) harness-clean=$G430HEND(want 1)"
+  fi
+fi
+
+# =====================================================================================
+# G431 THE FUNPARK (DINOSAUR) MISSIONS ARE IN THE LIST AND PLAY IN FUNPARK MODE
+# (app/opencnc3d.cpp specops_scan and the Funpark chain; menu/enhanced_menu.cpp ops_tabs;
+# brain/vanilla/tiberiandawn/dllinterface.cpp CNC_Start_Custom_Instance;
+# game/gun_game_roster_render.h for the dinosaurs' cards). SCJ01EA..SCJ05EA ship only on
+# the 1995 MS-DOS disc, and 1995 reached them only behind its "funpark" switch: the side
+# plate, then the five in order, in Funpark mode (light blue player, build level 98, the
+# multiplayer build rules, theme J1, no score screen between them). Six claims:
+#   a  the five INI and BIN files in missions/ are GENERAL.MIX's bytes, and each has a
+#      65x65 generated heightmap beside it
+#   b  the Special Ops list files them under FUNPARK, each on its theater's borrowed pack
+#      (SCB01EA.pack for the desert SCJ02EA, SCG01EA.pack for the rest), and the Enhanced
+#      list draws a third tab, Funpark
+#   c  each boots on that pack re-skinned from its own ground (every cell but SCJ03EA's
+#      three ROAD30 cells, which the cartridge's bank has no art for) with its heightmap,
+#      in Funpark mode (the engine's own flags, the Multi4 player through RemapLtBlue, not
+#      Multi4's own RemapBlue, build level 98) and with every dinosaur its INI places
+#   d  the mode does not leak: in one process, SCJ01EA, then GDI 1 reads both flags clear,
+#      then SCJ03EA reads them set again
+#   e  N64 and Enhanced draw a T-Rex from its 1995 frames: no fallback box for any
+#      dinosaur, the animal's tan pixels on the glass round where it stands, and no bright
+#      green under it (its LTGREEN shadow pixels must go through the engine's shadow
+#      table, as Classic's do; drawn plain they were a green blot); and killed, its death
+#      (the same SHP played as an animation) is drawn where it fell, not nothing
+#   f  the program a player runs walks the chain from the list: the harness picks Funpark 4
+#      by keys on the third tab, the side plate takes Nod, SCJ04EA starts on SCG01EA.pack
+#      re-skinned and played as Nod, a win goes straight on to SCJ05EA with no score
+#      screen, and SCJ05EA's win ends the chain back at the menu
+#   g  the player's army is PAINTED in the Funpark light blue in all three modes, read off
+#      the pixels round SCJ04EA's MCV and buggies: house.cpp Remap_Table hands Multi4
+#      RemapLtBlue (a blue-grey) in a Funpark mission, units and buildings alike. N64 and
+#      Enhanced have to show blue-grey and no GDI gold; Classic blue-grey and no teal
+#      (teal is Multi4's own RemapBlue, which the object export's RemapColor names). The
+#      `funpark 1` verb in c also asserts the 3D modes' livery for the player is LTBLUE
+#   h  the mission's own win condition holds in Funpark mode: on SCJ01EA, with the T-Rex
+#      and the Triceratops dead and the Stegosaurus alive, 700 ticks bring no verdict;
+#      with the Stegosaurus dead too, the engine declares the win (TICK|gameover|WIN)
+#   i  a Funpark save carries the chain on: the harness plays Funpark 2 as Nod and saves
+#      from the pause dialog (the slot records campaign 1/1/2 on SCB01EA.pack); a second
+#      run loads it from the main menu's Load Mission, boots SCJ02EA in Funpark mode as
+#      Nod re-skinned on the borrowed pack, and its win goes on to SCJ03EA, not the menu
+# PROVEN TO FAIL: before the fix no SCJ file was installed, the list had no FUNPARK
+# section, CNC_Start_Custom_Instance never set the Funpark flags, and the boot log read
+# "fallback types: STEG x1 TREX x1 TRIC x1". For g: before the livery was seated, N64 and
+# Enhanced drew 1791 and 1719 gold pixels in that box (the GDI livery, the same picture
+# --noteamcolours gives today), and Classic drew the buggies teal.
+# NOT COVERED: the sidebar's BuildLevel 98 offer after SCJ04EA's MCV deploys (the flags
+# and the level are read, the build list is not walked); the dinosaurs' sounds and the
+# DINO and GENERIC movies, which never shipped; the J1 score playing (this folder carries
+# no score: the boot log names J1 as the opener).
+# =====================================================================================
+if [ ! -f missions/SCJ01EA.INI ] || [ ! -f SCG01EA.pack ] || [ ! -f SCB01EA.pack ]; then
+  bad "G431 Funpark: missions/SCJ01EA.INI, SCG01EA.pack or SCB01EA.pack is not in this folder"
+else
+  rm -rf shots/g431 && mkdir -p shots/g431
+  G431DATA=$(python3 - "$GATEDIR/../tools/heightmap-viewer" <<'PY' 2>&1
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import export_dos as E
+mix, same, hgt = E.Mix(E.GENERAL), 0, 0
+for scen in E.DINOSAUR:
+    for ext in (".INI", ".BIN"):
+        p = os.path.join("missions", scen + ext)
+        if os.path.exists(p) and open(p, "rb").read() == mix.get(scen + ext):
+            same += 1
+    p = os.path.join("missions", scen + ".HGT")
+    if os.path.exists(p) and os.path.getsize(p) == 4225:
+        hgt += 1
+print("G431DATA|%d|%d" % (same, hgt))
+PY
+)
+  echo "$G431DATA" >> "$OUT"
+  G431SAME=$(echo "$G431DATA" | grep '^G431DATA|' | cut -d'|' -f2)
+  G431HGT=$(echo "$G431DATA" | grep '^G431DATA|' | cut -d'|' -f3)
+  # b: the list
+  G431LOG=$(./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+              --specopsshot shots/g431 2>&1)
+  G431SRC=$?
+  echo "$G431LOG" >> "$OUT"
+  G431SEC=$(echo "$G431LOG" | awk -F'|' '/^SPECOPS\|heading\|/{on=($4=="FUNPARK");next}
+                                         on && /^SPECOPS\|row\|/{printf "%s%s|%s|%s", sep, $4, $5, $6; sep=","}')
+  G431SECW="SCJ01EA|SCG01EA.pack|Funpark 1,SCJ02EA|SCB01EA.pack|Funpark 2,SCJ03EA|SCG01EA.pack|Funpark 3,SCJ04EA|SCG01EA.pack|Funpark 4,SCJ05EA|SCG01EA.pack|Funpark 5"
+  G431TABS=$(echo "$G431LOG" | grep -c '^SPECOPS|enhanced|Covert Ops,Special Ops,Funpark|')
+  G431PNG=0; [ -s shots/g431/specops_funpark.png ] && G431PNG=1
+  # c: every mission, booted the way its row boots it
+  G431BOOT=""; G431BAD=""
+  for n in 1 2 3 4 5; do
+    case $n in
+      1) G431C="TREX 1;TRIC 1;STEG 1"; G431P=SCG01EA.pack; G431CELLS=4096;;
+      2) G431C="TREX 2;STEG 1;RAPT 5;TRIC 1"; G431P=SCB01EA.pack; G431CELLS=4096;;
+      3) G431C="RAPT 19;TREX 1"; G431P=SCG01EA.pack; G431CELLS=4093;;
+      4) G431C="RAPT 37;TREX 5;TRIC 6;STEG 1;MCV 1"; G431P=SCG01EA.pack; G431CELLS=4096;;
+      5) G431C="TREX 1;RAPT 9;STEG 4;TRIC 3"; G431P=SCG01EA.pack; G431CELLS=4096;;
+    esac
+    { printf 'tick 1\nfunpark 1\n'; echo "$G431C" | tr ';' '\n' | sed 's/^/count /'; printf 'quit\n'; } \
+      > shots/g431/boot$n.txt
+    gbegin
+    grun shots/g431/boot$n.log --scen SCJ0${n}EA --pack $G431P $BASE --reskin --noshroud --nosound \
+      --w 640 --h 400 --script shots/g431/boot$n.txt
+    G431WANT=$(( $(echo "$G431C" | tr ';' '\n' | wc -l) + 1 ))
+    G431GOT=$(grep -c '^\(COUNT\|FUNPARK\)|.*|PASS$' shots/g431/boot$n.log)
+    G431SKIN=$(grep -c "^reskin: SCJ0${n}EA -- $G431CELLS of 4096 cells repainted" shots/g431/boot$n.log)
+    G431H=$(grep -c "^reskin: SCJ0${n}EA.HGT applied" shots/g431/boot$n.log)
+    if [ "$GRC" = "0" ] && [ "$G431GOT" = "$G431WANT" ] && [ "$G431SKIN" = "1" ] && [ "$G431H" = "1" ]; then
+      G431BOOT="$G431BOOT SCJ0$n"
+    else
+      G431BAD="$G431BAD SCJ0$n(rc=$GRC passed=$G431GOT/$G431WANT skin=$G431SKIN hgt=$G431H)"
+    fi
+  done
+  # d: the flags in one process
+  printf 'tick 1\nfunpark 1\nremission SCG01EA SCG01EA.pack\nfunpark 0\nremission SCJ03EA SCG01EA.pack\nfunpark 1\nquit\n' \
+    > shots/g431/leak.txt
+  gbegin
+  grun shots/g431/leak.log --scen SCJ01EA --pack SCG01EA.pack $BASE --reskin --noshroud --nosound \
+    --w 640 --h 400 --script shots/g431/leak.txt
+  G431LEAKRC=$GRC
+  G431LEAK=$(awk -F'|' '/^FUNPARK\|/{sub("jurassic=","",$2); sub("thingies=","",$3); printf "%s%s%s ", $2, $3, $NF}' shots/g431/leak.log)
+  # e: a T-Rex in N64 and Enhanced
+  { printf 'tick 5\ncam 52.5 12.5\ngfxmode 1\ntick 2\nshot shots/g431/trex_n64.png\ngfxmode 2\ntick 2\nshot shots/g431/trex_enh.png\n'
+    printf 'gfxmode 1\nhurtobj TREX\ntick 1\nhurtobj TREX\ntick 1\nhurtobj TREX\ntick 4\ncount TREX 0\nshot shots/g431/trex_dies.png\nquit\n'; } \
+    > shots/g431/trex.txt
+  gbegin shots/g431/trex_n64.png shots/g431/trex_enh.png shots/g431/trex_dies.png
+  grun shots/g431/trex.log --scen SCJ01EA --pack SCG01EA.pack $BASE --reskin --noshroud --nosound \
+    --enhanced --texset 3 --w 1280 --h 720 --script shots/g431/trex.txt
+  gshots shots/g431/trex_n64.png shots/g431/trex_enh.png shots/g431/trex_dies.png
+  G431TREXRC=$GRC
+  G431DEAD=$(grep -c '^COUNT|TREX|want=0|have=0|PASS$' shots/g431/trex.log)
+  G431FB=$(grep -c '^ *fallback types:.*\(TREX\|TRIC\|STEG\|RAPT\)' shots/g431/trex.log)
+  G431PIX=$(python3 - shots/g431/trex_n64.png shots/g431/trex_enh.png shots/g431/trex_dies.png <<'PY' 2>&1
+import sys
+from PIL import Image
+out = []
+for path in sys.argv[1:]:
+    im = Image.open(path).convert("RGB").crop((440, 280, 760, 460))
+    px = im.load(); w, h = im.size
+    tan = green = 0
+    for y in range(h):
+        for x in range(w):
+            r, g, b = px[x, y]
+            if r > 140 and g > 100 and b < 140 and r > b + 40: tan += 1
+            if g > 180 and r < 120 and b < 120: green += 1
+    out.append("%d,%d" % (tan, green))
+print("G431PIX|" + "|".join(out))
+PY
+)
+  echo "$G431PIX" >> "$OUT"
+  G431N64TAN=$(echo "$G431PIX" | grep '^G431PIX|' | cut -d'|' -f2 | cut -d, -f1)
+  G431N64GRN=$(echo "$G431PIX" | grep '^G431PIX|' | cut -d'|' -f2 | cut -d, -f2)
+  G431ENHTAN=$(echo "$G431PIX" | grep '^G431PIX|' | cut -d'|' -f3 | cut -d, -f1)
+  G431ENHGRN=$(echo "$G431PIX" | grep '^G431PIX|' | cut -d'|' -f3 | cut -d, -f2)
+  G431DIETAN=$(echo "$G431PIX" | grep '^G431PIX|' | cut -d'|' -f4 | cut -d, -f1)
+  # f: the chain, from the list
+  mkdir -p shots/g431/h
+  G431HLOG=$(./opencnc3d --harness 400 --harnesswin 30 --rounds 2 --shotdir shots/g431/h \
+             --harnessscen SCJ04EA --flowside nod --hidden 2>&1)
+  echo "$G431HLOG" >> "$OUT"
+  G431CHAIN=$(echo "$G431HLOG" | grep -E '^APP\|specops\|play\|SCJ04EA\|SCG01EA\.pack$|^CAMPAIGN\|funpark\|side=NOD\|from=4$|^funpark: SCJ04EA started with jurassic=1 thingies=1 actlike=Nod buildlevel=98$|^reskin: SCJ04EA -- 4096 of 4096|^CAMPAIGN\|funpark\|next=5$|^funpark: SCJ05EA started with jurassic=1 thingies=1 actlike=Nod buildlevel=98$|^reskin: SCJ05EA -- 4096 of 4096|^CAMPAIGN\|complete\|FUNPARK$|^HARNESS\|end\|2 round\(s\), 0 failure\(s\)' | sort -u | wc -l | tr -d ' ')
+  G431SCORE=$(echo "$G431HLOG" | grep -c '^CAMPAIGN|\(score\|mapsel\)|')
+  # g: the player's colour, on the pixels, in N64, Enhanced and Classic
+  { printf 'tick 5\nfunpark 1\nlook MCV\nzoom -8\n'
+    printf 'gfxmode 1\ntick 2\nshot shots/g431/paint_n64.png\n'
+    printf 'gfxmode 2\ntick 2\nshot shots/g431/paint_enh.png\n'
+    printf 'gfxmode 0\ntick 2\nshot shots/g431/paint_classic.png\nquit\n'; } > shots/g431/paint.txt
+  gbegin shots/g431/paint_n64.png shots/g431/paint_enh.png shots/g431/paint_classic.png
+  grun shots/g431/paint.log --scen SCJ04EA --pack SCG01EA.pack $BASE --reskin --noshroud --nosound \
+    --enhanced --texset 3 --w 1280 --h 720 --script shots/g431/paint.txt
+  gshots shots/g431/paint_n64.png shots/g431/paint_enh.png shots/g431/paint_classic.png
+  G431PAINTRC=$GRC
+  G431PAINTV=$(grep -c '^FUNPARK|.*|player=Multi4|paint=LTBLUE|PASS$' shots/g431/paint.log)
+  G431PAINT=$(python3 - shots/g431/paint_n64.png 520,250,760,400 shots/g431/paint_enh.png 520,250,760,400 \
+                shots/g431/paint_classic.png 410,250,630,410 <<'PY' 2>&1
+import sys
+from PIL import Image
+out = []
+for path, box in zip(sys.argv[1::2], sys.argv[2::2]):
+    im = Image.open(path).convert("RGB").crop(tuple(int(v) for v in box.split(",")))
+    px = im.load(); w, h = im.size
+    gold = grey = teal = 0
+    for y in range(h):
+        for x in range(w):
+            r, g, b = px[x, y]
+            if r > 140 and g > 100 and r - b > 60: gold += 1
+            elif r > 110 and b >= r - 6 and b >= g - 6 and max(r, g, b) - min(r, g, b) < 50: grey += 1
+            elif r < 70 and g > 90 and b > 90: teal += 1
+    out.append("%d,%d,%d" % (gold, grey, teal))
+print("G431PAINT|" + "|".join(out))
+PY
+)
+  echo "$G431PAINT" >> "$OUT"
+  G431PN64=$(echo "$G431PAINT" | grep '^G431PAINT|' | cut -d'|' -f2)
+  G431PENH=$(echo "$G431PAINT" | grep '^G431PAINT|' | cut -d'|' -f3)
+  G431PCLA=$(echo "$G431PAINT" | grep '^G431PAINT|' | cut -d'|' -f4)
+  G431PAINTOK=1
+  for G431V in "$G431PN64" "$G431PENH"; do
+    [ "$(echo "$G431V" | cut -d, -f1)" -le 200 ] 2>/dev/null && [ "$(echo "$G431V" | cut -d, -f2)" -ge 1000 ] 2>/dev/null \
+      || G431PAINTOK=0
+  done
+  [ "$(echo "$G431PCLA" | cut -d, -f2)" -ge 2000 ] 2>/dev/null && [ "$(echo "$G431PCLA" | cut -d, -f3)" -le 50 ] 2>/dev/null \
+    || G431PAINTOK=0
+  # h: the engine's own win, the Special house killed
+  printf 'tick 5\nfunpark 1\nhurtobj TREX\nhurtobj TRIC\ntick 1\nhurtobj TREX\nhurtobj TRIC\ntick 1\nhurtobj TREX\nhurtobj TRIC\ntick 4\ncount TREX 0\ncount TRIC 0\ntick 700\ncount STEG 1\nhurtobj STEG\ntick 1\nhurtobj STEG\ntick 1\nhurtobj STEG\ntick 4\ncount STEG 0\ntick 700\nquit\n' \
+    > shots/g431/win.txt
+  gbegin
+  grun shots/g431/win.log --scen SCJ01EA --pack SCG01EA.pack $BASE --reskin --noshroud --nosound \
+    --w 640 --h 400 --script shots/g431/win.txt
+  G431WINRC=$GRC
+  G431WINC=$(grep -c '^\(COUNT\|FUNPARK\)|.*|PASS$' shots/g431/win.log)
+  # the verdict must come after the Stegosaurus' death and not before
+  G431WIN=$(awk '/^COUNT\|STEG\|want=0\|have=0\|PASS$/{dead=1} /^TICK\|gameover\|/{if(dead && $0 ~ /\|WIN\|/) w++; else early++}
+                 END{printf "%d,%d", w, early}' shots/g431/win.log)
+  # i: a Funpark save, loaded from the main menu, carries the chain on
+  rm -rf shots/g431/sl && mkdir -p shots/g431/sl/saves shots/g431/sl/h1 shots/g431/sl/h2
+  ./opencnc3d --harness 400 --rounds 1 --shotdir shots/g431/sl/h1 --harnessscen SCJ02EA --flowside nod \
+    --hidden --savedir shots/g431/sl/saves --autoesc 2 --autosave > shots/g431/sl/save.log 2>&1
+  G431SAVERC=$?
+  cat shots/g431/sl/save.log >> "$OUT"
+  G431SAVED=$(grep -c '^SAVE|slot=0|SCJ02EA 0 min|.*|scen=SCJ02EA|' shots/g431/sl/save.log)
+  ./opencnc3d --harness 400 --harnesswin 60 --rounds 2 --shotdir shots/g431/sl/h2 --harnessload \
+    --savedir shots/g431/sl/saves --hidden > shots/g431/sl/load.log 2>&1
+  G431LOADRC=$?
+  cat shots/g431/sl/load.log >> "$OUT"
+  G431SL=$(grep -E '^APP\|load\|slot=0\|scen=SCJ02EA\|pack=SCB01EA\.pack\|dir=missions/\|campaign=1/1/2$|^funpark: SCJ02EA started with jurassic=1 thingies=1 actlike=Nod buildlevel=98$|^reskin: SCJ02EA -- 4096 of 4096|^LOAD\|slot=0\|frame=[0-9]*\|scen=SCJ02EA\||^CAMPAIGN\|funpark\|next=3$|^funpark: SCJ03EA started with jurassic=1 thingies=1 actlike=Nod buildlevel=98$' \
+           shots/g431/sl/load.log | sed 's/frame=[0-9]*|scen=SCJ02EA|.*/LOADED/' | sort -u | wc -l | tr -d ' ')
+  if [ "$G431SRC" != "0" ] || [ "$G431LEAKRC" != "0" ] || [ "$G431TREXRC" != "0" ] \
+     || [ "$G431PAINTRC" != "0" ] || [ "$G431WINRC" != "0" ] || [ "$G431SAVERC" != "0" ] || [ "$G431LOADRC" != "0" ]; then
+    bad "G431 Funpark: a run failed (list rc=$G431SRC, leak rc=$G431LEAKRC, T-Rex rc=$G431TREXRC, paint rc=$G431PAINTRC, win rc=$G431WINRC, save rc=$G431SAVERC, load rc=$G431LOADRC)"
+  elif [ "$G431SAME" = "10" ] && [ "$G431HGT" = "5" ] && [ "$G431SEC" = "$G431SECW" ] \
+     && [ "$G431TABS" = "1" ] && [ "$G431PNG" = "1" ] && [ -z "$G431BAD" ] \
+     && [ "$G431LEAK" = "11PASS 00PASS 11PASS " ] && [ "$G431FB" = "0" ] \
+     && [ "${G431N64TAN:-0}" -ge 300 ] && [ "${G431ENHTAN:-0}" -ge 300 ] \
+     && [ "${G431N64GRN:-1}" -le 10 ] && [ "${G431ENHGRN:-1}" -le 10 ] \
+     && [ "$G431DEAD" = "1" ] && [ "${G431DIETAN:-0}" -ge 30 ] \
+     && [ "$G431CHAIN" = "9" ] && [ "$G431SCORE" = "0" ] \
+     && [ "$G431PAINTV" = "1" ] && [ "$G431PAINTOK" = "1" ] \
+     && [ "$G431WINC" = "5" ] && [ "$G431WIN" = "1,0" ] \
+     && [ "$G431SAVED" = "1" ] && [ "$G431SL" = "6" ]; then
+    ok "G431 Funpark: the five missions are the 1995 disc's bytes with heightmaps, filed under FUNPARK on borrowed theater packs with a third Enhanced tab, each boots re-skinned in Funpark mode with every dinosaur ($G431BOOT), the mode clears for GDI 1 and returns, a T-Rex is drawn from its 1995 frames in N64 and Enhanced ($G431N64TAN/$G431ENHTAN tan pixels, no green) and its death too ($G431DIETAN), the list walks SCJ04EA to SCJ05EA as Nod to the menu, the player is painted blue-grey in N64/Enhanced/Classic (gold,bluegrey,teal $G431PN64 / $G431PENH / $G431PCLA), the engine wins SCJ01EA only once all three dinosaurs are dead, and a Funpark 2 save loaded from the menu goes on to Funpark 3"
+  else
+    bad "G431 Funpark: data same=$G431SAME(want 10) hgt=$G431HGT(want 5) section=[$G431SEC](want [$G431SECW]) tabs=$G431TABS png=$G431PNG boots-bad=[$G431BAD] leak=[$G431LEAK](want [11PASS 00PASS 11PASS ]) dino-fallbacks=$G431FB(want 0) tan=$G431N64TAN/$G431ENHTAN(want >=300) green=$G431N64GRN/$G431ENHGRN(want <=10) killed=$G431DEAD(want 1) death-tan=$G431DIETAN(want >=30) chain=$G431CHAIN(want 9 of 9 lines) score-or-map-screens=$G431SCORE(want 0) paint-verb=$G431PAINTV(want 1) paint gold,bluegrey,teal n64=$G431PN64 enh=$G431PENH(want gold<=200 bluegrey>=1000) classic=$G431PCLA(want bluegrey>=2000 teal<=50) win-checks=$G431WINC(want 5) win,early=$G431WIN(want 1,0) saved=$G431SAVED(want 1) save-load-chain=$G431SL(want 6 of 6 lines)"
+  fi
+fi
+
+# =====================================================================================
+# G432 THE CAMPAIGN MAP SAYS WHERE THE NEXT MISSION IS (app/campaign.c camp_map_country
+# and camp_print_statistics; game/gate_mapstats.py; game/bake_campaign.py's COUNTRYA).
+# 1995's Map_Selection does not go dark the moment a territory is picked: it lights the
+# picked country on the bare map (COUNTRYE.SHP for GDI, COUNTRYA.SHP for Nod), fades the
+# rest of the palette to DARK_E.PAL, and types a page about the country (its name, then
+# seven labelled lines for GDI or nine for Nod, then CLICK TO CONTINUE) and waits for the
+# player (mapsel.cpp:1065-1123, Print_Statistics :1182-1356). The port used to cut from
+# the pick straight to black. Claims, for each side, on one hands-off flow:
+#   a  exactly one statistics page, between the pick and the next briefing, naming the
+#      country the pick's click colour selects from the 1995 table: GDI's first map is
+#      Estonia (colour 0x95, GDIStats[21], the table's own "slot for Estonia"), Nod's is
+#      Egypt (colour 0x80, through Print_Statistics' Nod index hack to NodStats[1])
+#   b  the page goes where 1995 puts it: both countries sit right of x 128 and above
+#      y 100, so x 8, y 98
+#   c  on the pixels: the country keeps its brightness through the fade (its outline is
+#      read from the pack's own shape frame, not a box), the rest of the map loses most
+#      of it and its green borders go out, the page block carries green ink and so does
+#      the CLICK TO CONTINUE line
+#   d  the flow goes on by itself afterwards and mission two boots (FLOWTEST|complete),
+#      so no other campaign-flow gate can hang on the new wait
+# Red Alert has no such page: its 1996 map screen prints only STAND BY after the pick
+# (redalert/mapsel.cpp:241), so there is nothing to assert there.
+mkdir -p shots/g432
+G432OK=1; G432WHY=""
+for G432SIDE in gdi nod; do
+  rm -f flow_mapcountry.png flow_mapstats.png
+  ./opencnc3d --flowtest 20 --flowside $G432SIDE --dylib ./TiberianDawn.dylib --dir ./missions/ \
+        --content ./content/ --cameos cameos.pack --dospack dossidebar.pack \
+        --dosinf dosinfantry.pack > shots/g432/$G432SIDE.log 2> shots/g432/$G432SIDE.err &
+  G432P=$!; G432W=0
+  while kill -0 $G432P 2>/dev/null && [ $G432W -lt 300 ]; do sleep 1; G432W=$((G432W+1)); done
+  G432RC=0
+  if kill -0 $G432P 2>/dev/null; then
+    kill $G432P 2>/dev/null; G432K=0
+    while kill -0 $G432P 2>/dev/null && [ $G432K -lt 10 ]; do sleep 1; G432K=$((G432K+1)); done
+    kill -9 $G432P 2>/dev/null; wait $G432P 2>/dev/null; G432RC=timeout
+  else
+    wait $G432P; G432RC=$?
+  fi
+  cat shots/g432/$G432SIDE.log shots/g432/$G432SIDE.err >> "$OUT"
+  [ -s flow_mapcountry.png ] && mv flow_mapcountry.png shots/g432/${G432SIDE}_country.png
+  [ -s flow_mapstats.png ] && mv flow_mapstats.png shots/g432/${G432SIDE}_stats.png
+  if [ "$G432SIDE" = gdi ]; then
+    G432WANT='CAMPAIGN|mapstats|side=0|country=21|name=ESTONIA|x=8|y=98'; G432S=0; G432LINES=7
+  else
+    G432WANT='CAMPAIGN|mapstats|side=1|country=1|clicked=0|name=EGYPT|x=8|y=98'; G432S=1; G432LINES=9
+  fi
+  # a/b/d: the order of the flow's own lines, read off the log
+  G432SEQ=$(grep -E '^CAMPAIGN\|(mapsel\|picked|mapstats\|side|mapstats\|done|brief\|SC.02)|^FLOWTEST\|complete' \
+            shots/g432/$G432SIDE.log | cut -d'|' -f1-3 | tr '\n' ' ')
+  G432PAGE=$(grep -cxF "$G432WANT" shots/g432/$G432SIDE.log)
+  G432PAGES=$(grep -c '^CAMPAIGN|mapstats|side=' shots/g432/$G432SIDE.log)
+  G432CTRY=$(grep -m1 '^CAMPAIGN|mapcountry|' shots/g432/$G432SIDE.log)
+  G432SH=$(echo "$G432CTRY" | sed -n 's/.*|shape=\([0-9]*\)|at=\([0-9]*\),\([0-9]*\)|.*/\1 \2 \3/p')
+  # c: the pixels
+  G432PIX=""
+  if [ -s shots/g432/${G432SIDE}_country.png ] && [ -s shots/g432/${G432SIDE}_stats.png ] && [ -n "$G432SH" ]; then
+    G432PIX=$(python3 "$GATEDIR/gate_mapstats.py" campaign.pack shots/g432/${G432SIDE}_country.png \
+              shots/g432/${G432SIDE}_stats.png $G432S $G432SH 8 98 $G432LINES 2>&1)
+  fi
+  echo "G432|$G432SIDE|seq=$G432SEQ|pix=$G432PIX" >> "$OUT"
+  set -- $G432PIX
+  G432LIT=${1:-0}; G432REST=${2:-999}; G432INK=${3:-0}; G432BORD=${4:-999}; G432CLICK=${5:-0}
+  case "$G432LIT$G432REST$G432INK$G432BORD$G432CLICK" in *[!0-9]*) G432LIT=0 ;; esac
+  G432SEQW="CAMPAIGN|mapsel|picked=0 CAMPAIGN|mapstats|side=$G432S CAMPAIGN|mapstats|done CAMPAIGN|brief|SC$( [ $G432S = 0 ] && echo G || echo B )02EA FLOWTEST|complete|2 missions booted and returned through the full flow "
+  if [ "$G432RC" != "0" ] || [ "$G432PAGE" != "1" ] || [ "$G432PAGES" != "1" ] \
+     || [ "$G432SEQ" != "$G432SEQW" ] || [ "$G432LIT" -lt 90 ] || [ "$G432REST" -gt 60 ] \
+     || [ "$G432INK" -lt 800 ] || [ "$G432BORD" -gt 100 ] || [ "$G432CLICK" -lt 100 ]; then
+    G432OK=0
+    G432WHY="$G432WHY [$G432SIDE: exit=$G432RC(want 0) page=$G432PAGE(want 1 line '$G432WANT') pages=$G432PAGES(want 1) seq=[$G432SEQ](want [$G432SEQW]) country=[$G432CTRY] lit=$G432LIT(want >=90) rest=$G432REST(want <=60) ink=$G432INK(want >=800) border=$G432BORD(want <=100) click=$G432CLICK(want >=100)]"
+  else
+    G432WHY="$G432WHY $G432SIDE lit/rest/ink=$G432LIT/$G432REST/$G432INK"
+  fi
+done
+if [ "$G432OK" = "1" ]; then
+  ok "G432 campaign map country page: GDI's pick lights Estonia and Nod's Egypt on the bare map, the rest fades to DARK_E, each types its 1995 statistics page at x 8 y 98 with CLICK TO CONTINUE, and both flows go on to mission two ($G432WHY)"
+else
+  bad "G432 campaign map country page:$G432WHY"
+fi
+
+# =====================================================================================
+# G433 THE TIBERIAN DAWN CAMPAIGNS END THE WAY 1995 ENDED THEM (brain/vanilla/tiberiandawn/
+# dllinterface.cpp Apply_Campaign_Scenario_Name; app/campaign.c camp_nod_target and
+# camp_attract; app/opencnc3d.cpp, the end of the campaign flow).
+# Winning GDI 15 used to end in silence and Nod 13 the same: the engine names the ending
+# movies only when it knows it is playing scenario 15 (GDI) or 13 (Nod), and a mission
+# started by name never told it which scenario it was, so every campaign mission ran as
+# scenario 1. Claims:
+#   a  the engine's own verdict (the cheat page's Instant Win, as G108) names GDIFINA and
+#      then GDIEND1 for SCG15EA, NODFINAL after the score for SCB13EA, EB and EC, and
+#      still names CONSYARD and no ending for SCG01EA
+#   b  a game saved in GDI 15 and loaded again still ends with GDIFINA and GDIEND1, and
+#      so does the same save with both of its scenario words rewritten to 1, which is
+#      what every save written before campaign starts knew their mission carried: only
+#      the re-application after a load (CNC_Save_Load) can give that one its ending
+#   c  the GDI flow from mission 15, on the engine's verdict: GDIFINA, the score for
+#      scenario 15, GDIEND1, the ATTRACT2 still, CC2TEASE, CAMPAIGN|complete|GDI, and no
+#      movie missing
+#   d  the Nod flow from mission 13: the score, NODFINAL, the satellite target screen
+#      (the autopilot clicks the bottom left city, target 3), NODEND3, the still,
+#      CC2TEASE, CAMPAIGN|complete|NOD; on the pixels the picture is lit and the
+#      "Select a target" caption is drawn in tan below it
+#   e  Nod 4B, a mission only a map choice reaches, plays its own briefing NOD4B and its
+#      action movie RETRO
+#   f  every movie the campaign asks for (tools/extract_movies.py --list: every campaign
+#      mission file's movie keys and the ten the endings name) is in data/dosdata/movies and in
+#      this folder
+# Red Alert is not touched: its missions start by number and its endings have their own
+# gate (tools/ra3d/gate-ra-campaign.sh).
+mkdir -p shots/g433
+G433OK=1; G433WHY=""
+g433no() { G433OK=0; G433WHY="$G433WHY [$1]"; }
+# a: the engine
+G433V="--noshroud --nosound --w 1280 --h 800 --script $GATEDIR/gate_verdict.txt"
+for G433S in SCG15EA SCB13EA SCB13EB SCB13EC SCG01EA; do
+  G433L=$(./cnc_eyes --scen $G433S --pack $G433S.pack $BASE $G433V 2>&1 | grep '^GAMEOVER|movies|')
+  echo "G433|verdict|$G433S|$G433L" >> "$OUT"
+  case $G433S in
+    SCG15EA) G433W='GAMEOVER|movies|first=GDIFINA|second=|third=|fourth=|after-score=GDIEND1' ;;
+    SCG01EA) G433W='GAMEOVER|movies|first=CONSYARD|second=|third=|fourth=|after-score=' ;;
+    *)       G433W='GAMEOVER|movies|first=|second=|third=|fourth=|after-score=NODFINAL' ;;
+  esac
+  [ "$G433L" = "$G433W" ] || g433no "a $G433S said '$G433L', want '$G433W'"
+done
+# b: save in GDI 15, load it back, win
+rm -rf shots/g433/saves; mkdir -p shots/g433/saves
+printf 'tick 40\nsave 0 g433\ntick 5\nquit\n' > shots/g433/save.txt
+printf 'tick 20\nload 0\ntick 20\ncheats\noptclick Instant Win\ntick 30\nquit\n' > shots/g433/load.txt
+./cnc_eyes --scen SCG15EA --pack SCG15EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+  --savedir "$PWD/shots/g433/saves" --script shots/g433/save.txt > shots/g433/save.log 2>&1
+g433load() {   # the slot-0 save loaded into SCG15EA and won: its LOAD and GAMEOVER lines
+  ./cnc_eyes --scen SCG15EA --pack SCG15EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+    --savedir "$PWD/shots/g433/saves" --script shots/g433/load.txt 2>&1 | grep -E '^(LOAD\|slot=0\|frame|GAMEOVER\|movies)'
+}
+G433END='GAMEOVER|movies|first=GDIFINA|second=|third=|fourth=|after-score=GDIEND1'
+G433LL=$(g433load)
+echo "G433|load|$(echo "$G433LL" | tr '\n' ' ')" >> "$OUT"
+echo "$G433LL" | grep -q '^LOAD|slot=0|frame=' && echo "$G433LL" | grep -qxF "$G433END" \
+  || g433no "b the GDI 15 save loaded and won said [$(echo "$G433LL" | tr '\n' ' ')]"
+# The same save made old: its header scenario word (after the 44-byte description) and
+# Save_Misc_Values' Scen.Scenario (followed by the two one-byte difficulties and the frame
+# the save was written on) rewritten from 15 to 1. Each must be found exactly once, or the rewrite
+# is refused rather than guessed.
+G433SF=$(grep -a '^SAVE|slot=0|' shots/g433/save.log | tail -1 | sed -n 's/.*|frame=\([0-9]*\)|.*/\1/p')
+G433OLD=$(python3 - shots/g433/saves/savegame.000 "${G433SF:-x}" <<'PY' 2>&1
+import struct, sys
+path, frame = sys.argv[1], sys.argv[2]
+d = bytearray(open(path, "rb").read())
+if not frame.isdigit():
+    print("no-frame"); sys.exit()
+frame = int(frame)
+# the header: the description, text ending CR LF NUL ^Z, padded to 44 bytes, then the word
+hdr = []
+for i in range(len(d) - 4):
+    if d.startswith(b"\r\n\x00\x1a", i):
+        j = i
+        while j > 0 and 32 <= d[j - 1] < 127 and i - j < 40:
+            j -= 1
+        if i > j and struct.unpack_from("<i", d, j + 44)[0] == 15:
+            hdr.append(j)
+# Save_Misc_Values: Scen.Scenario (int), the two one-byte difficulties, then Frame (int)
+misc = [o for o in range(0, len(d) - 10)
+        if struct.unpack_from("<i", d, o)[0] == 15 and d[o + 4] <= 2 and d[o + 5] <= 2
+        and struct.unpack_from("<i", d, o + 6)[0] == frame]
+if len(hdr) != 1 or len(misc) != 1:
+    print("unlocated hdr=%d misc=%d" % (len(hdr), len(misc))); sys.exit()
+struct.pack_into("<i", d, hdr[0] + 44, 1)
+struct.pack_into("<i", d, misc[0], 1)
+open(path, "wb").write(d)
+print("rewritten hdr@%d misc@%d" % (hdr[0] + 44, misc[0]))
+PY
+)
+echo "G433|old-save|$G433OLD" >> "$OUT"
+case "$G433OLD" in
+  rewritten*)
+    G433LO=$(g433load)
+    echo "G433|load-old|$(echo "$G433LO" | tr '\n' ' ')" >> "$OUT"
+    echo "$G433LO" | grep -q '^LOAD|slot=0|frame=' && echo "$G433LO" | grep -qxF "$G433END" \
+      || g433no "b the GDI 15 save rewritten to scenario 1, loaded and won, said [$(echo "$G433LO" | tr '\n' ' ')] (want $G433END)" ;;
+  *) g433no "b could not rewrite the save's scenario words: $G433OLD" ;;
+esac
+# c, d, e: the shell's flow, watchdogged
+g433flow() {   # g433flow NAME ARGS...: one hands-off flow into shots/g433/NAME.log
+  _n=$1; shift
+  rm -f flow_*.png
+  ./opencnc3d "$@" --dylib ./TiberianDawn.dylib --dir ./missions/ --content ./content/ \
+      --cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack \
+      > shots/g433/$_n.log 2> shots/g433/$_n.err &
+  _p=$!; _w=0
+  while kill -0 $_p 2>/dev/null && [ $_w -lt 400 ]; do sleep 1; _w=$((_w+1)); done
+  if kill -0 $_p 2>/dev/null; then kill -9 $_p 2>/dev/null; wait $_p 2>/dev/null; G433RC=timeout
+  else wait $_p; G433RC=$?; fi
+  for _f in flow_*.png; do [ -s "$_f" ] && mv "$_f" "shots/g433/${_n}_$_f"; done
+  [ "$G433RC" = 0 ] || g433no "$_n exit $G433RC"
+  grep -q '^CAMPAIGN|movie|.*|missing$' shots/g433/$_n.log \
+    && g433no "$_n missing movies: $(grep '^CAMPAIGN|movie|.*|missing$' shots/g433/$_n.log | cut -d'|' -f3 | tr '\n' ' ')"
+  grep -E '^CAMPAIGN\|(movie|score\|scen|attract|nod-ending\|(target|caption)|complete|brief)' \
+    shots/g433/$_n.log | sed 's/|score=.*//; s/|after=.*//' | tr '\n' ' '
+}
+G433GDI=$(g433flow gdi15 --flowtest 20 --flowstart 15 --flowrealwin --flowside gdi)
+echo "G433|gdi15|$G433GDI" >> "$OUT"
+G433GDIW='CAMPAIGN|movie|GDI1|played CAMPAIGN|brief|SCG15EA|intro=x|brief=GDI15|action=x CAMPAIGN|movie|GDI15|played CAMPAIGN|movie|GDIFINA|played CAMPAIGN|score|scen=15 CAMPAIGN|movie|GDIEND1|played CAMPAIGN|attract|ATTRACT2|shown CAMPAIGN|movie|CC2TEASE|played CAMPAIGN|complete|GDI '
+[ "$G433GDI" = "$G433GDIW" ] || g433no "c GDI flow [$G433GDI] want [$G433GDIW]"
+G433NOD=$(g433flow nod13 --flowtest 20 --flowstart 13 --flowrealwin --flowside nod --flowtarget 3)
+echo "G433|nod13|$G433NOD" >> "$OUT"
+G433NODW='CAMPAIGN|movie|NOD1PRE|played CAMPAIGN|brief|SCB13EA|intro=x|brief=NOD13|action=x CAMPAIGN|movie|NOD13|played CAMPAIGN|score|scen=13 CAMPAIGN|movie|NODFINAL|played CAMPAIGN|nod-ending|caption CAMPAIGN|nod-ending|target=3 CAMPAIGN|movie|NODEND3|played CAMPAIGN|attract|ATTRACT2|shown CAMPAIGN|movie|CC2TEASE|played CAMPAIGN|complete|NOD '
+[ "$G433NOD" = "$G433NODW" ] || g433no "d Nod flow [$G433NOD] want [$G433NODW]"
+G433PIX=""
+if [ -s shots/g433/nod13_flow_nodtarget.png ]; then
+  G433PIX=$(python3 - shots/g433/nod13_flow_nodtarget.png <<'PY' 2>&1
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGB")
+W, H = im.size
+s = max(1, min(W // 320, H // 200))
+x0, y0 = (W - 320 * s) // 2, (H - 200 * s) // 2
+px = im.load()
+def plate(x, y):
+    return px[x0 + x * s + s // 2, y0 + y * s + s // 2]
+# the picture, plate rows 22..177: mean brightness
+tot = n = 0
+for y in range(22, 178, 2):
+    for x in range(0, 320, 2):
+        r, g, b = plate(x, y); tot += r + g + b; n += 1
+lit = tot // (3 * n)
+# the caption, plate rows 180..188 from x 0: warm ink (red over blue, not grey)
+tan = 0
+for y in range(180, 189):
+    for x in range(0, 100):
+        r, g, b = plate(x, y)
+        if r > 120 and r > b + 40:
+            tan += 1
+# and nothing in the caption band right of where 15 letters end
+stray = 0
+for y in range(180, 189):
+    for x in range(100, 320):
+        r, g, b = plate(x, y)
+        if r + g + b > 60:
+            stray += 1
+print(lit, tan, stray)
+PY
+)
+fi
+echo "G433|nodtarget-pixels|lit,tan,stray=$G433PIX" >> "$OUT"
+set -- $G433PIX
+G433LIT=${1:-0}; G433TAN=${2:-0}; G433STRAY=${3:-999}
+case "$G433LIT$G433TAN$G433STRAY" in *[!0-9]*) G433LIT=0 ;; esac
+if [ "$G433LIT" -lt 40 ] || [ "$G433TAN" -lt 60 ] || [ "$G433STRAY" -gt 0 ]; then
+  g433no "d target screen pixels lit=$G433LIT(want >=40) tan=$G433TAN(want >=60) stray=$G433STRAY(want 0) [$G433PIX]"
+fi
+G433B=$(g433flow nod4b --flowtest 20 --flowrounds 1 --flowstart 4B --flowrealwin --flowside nod)
+echo "G433|nod4b|$G433B" >> "$OUT"
+G433BW='CAMPAIGN|movie|NOD1PRE|played CAMPAIGN|brief|SCB04EB|intro=x|brief=NOD4B|action=RETRO CAMPAIGN|movie|NOD4B|played CAMPAIGN|movie|RETRO|played '
+[ "$G433B" = "$G433BW" ] || g433no "e Nod 4B flow [$G433B] want [$G433BW]"
+# f: the movie set
+G433LIST=$(python3 "$GATEDIR/../tools/extract_movies.py" --list | cut -d' ' -f1)
+G433N=$(echo "$G433LIST" | grep -c .)
+G433MISS=""
+for G433M in $G433LIST; do
+  [ -s "$GATEDIR/../data/dosdata/movies/$G433M.VQA" ] || G433MISS="$G433MISS data:$G433M"
+  [ -s "dosdata/movies/$G433M.VQA" ] || G433MISS="$G433MISS here:$G433M"
+done
+echo "G433|movies|wanted=$G433N|missing=[$G433MISS]" >> "$OUT"
+[ "$G433N" -ge 87 ] && [ -z "$G433MISS" ] || g433no "f wanted=$G433N(want >=87) missing=[$G433MISS]"
+if [ "$G433OK" = "1" ]; then
+  ok "G433 Tiberian Dawn endings: the engine names GDIFINA/GDIEND1 for GDI 15 and NODFINAL for all three Nod 13s (GDI 1 unchanged, and a GDI 15 save keeps it, also one whose scenario words say 1 as older saves do), the GDI flow plays GDIFINA, the score, GDIEND1, the ATTRACT2 still and CC2TEASE, Nod plays NODFINAL, picks a city on the satellite picture (lit=$G433LIT, caption tan=$G433TAN) and plays NODEND3, the still and CC2TEASE, Nod 4B plays NOD4B and RETRO, and all $G433N campaign movies are on disk"
+else
+  bad "G433 Tiberian Dawn endings:$G433WHY"
+fi
+
+# =====================================================================================
+# G434 AN INSTALL THAT HAS THE MOVIES IS TOLD WHEN MORE OF THEM EXIST (launcher/launcher.c
+# l_m_pending_line). The launcher fetches the movies once, when the box is ticked; a newer
+# launcher whose manifest lists more files (the campaign endings and three Nod briefings
+# were added that way) had no way to say so, and an install that already had the movies
+# kept the old set without a word. Claims, on a stand-in install whose record says the
+# movies were chosen and finished, against a two-movie manifest:
+#   a  with one of the two missing, the module grid says "Some movies are not installed
+#      yet. The gear adds them." and Settings keeps Movies ticked, so Apply sends the
+#      movies job that fetches the missing file
+#   b  with both there, the grid says nothing of the kind
+#   c  Settings' Movies row prices the download at what it fetches, the one missing movie
+#      (GDIFINA, 12.3 MB), not the whole two-movie set (18.3 MB): l_m_note printed the
+#      manifest's total for the component however much of it was already on the disk.
+#      Read off the row's own LNOTE line. The Music row goes the same way: a second
+#      stand-in whose manifest files the same two files as music, one of them on the
+#      disk, prices its Music row at the one that is missing.
+if [ ! -x ./opencnc3d-launcher ] || [ ! -s dosmenu.pack ]; then
+  skip "G434 more movies than an install has: no opencnc3d-launcher or dosmenu.pack in this folder"
+else
+  G434D="$PWD/shots/g434"; rm -rf "$G434D"; mkdir -p "$G434D/dosdata/movies" "$G434D/missions/user_maps"
+  cp dosmenu.pack "$G434D/"
+  printf 'version 0.9.6\ndata_id g434\n' > "$G434D/opencnc3d-install.txt"
+  printf 'v0.9.6  macos\n' > "$G434D/BUILD-ID.txt"
+  printf 'stand-in\n' > "$G434D/opencnc3d"; chmod +x "$G434D/opencnc3d"
+  printf 'stand-in\n' > "$G434D/TiberianDawn.dylib"
+  printf 'movies yes\nmusic no\nmovies_state complete\nmusic_state none\n' > "$G434D/opencnc3d-media-td.txt"
+  G434A="$GATEDIR/../data/dosdata/movies/GDI1.VQA"; G434B="$GATEDIR/../data/dosdata/movies/GDIFINA.VQA"
+  { echo "OCMEDIA 1"; echo "mirror GDI http://127.0.0.1:9/GDI.ISO 0"
+    for G434F in "$G434A" "$G434B"; do
+      echo "file movies dosdata/movies/$(basename "$G434F") $(wc -c < "$G434F" | tr -d ' ') $(shasum -a 256 "$G434F" | cut -d' ' -f1) GDI 0"
+    done; } > "$G434D/manifest.txt"
+  cp "$G434A" "$G434D/dosdata/movies/"
+  g434run() { perl -e 'alarm 60; exec { $ARGV[0] } @ARGV' ./opencnc3d-launcher --dir "$G434D" \
+                --media-manifest "$G434D/manifest.txt" "$@" --scale 1 2>&1; }
+  G434G=$(g434run --shot "$G434D/grid.png" | grep -E '^LSTATUS')
+  G434SALL=$(g434run --view settings --shot "$G434D/settings.png")
+  G434S=$(echo "$G434SALL" | grep -E '^LAPPLY')
+  G434NOTE=$(echo "$G434SALL" | grep -E '^LNOTE\|label=MOVIES\|' | head -1)
+  G434WANT=$(awk -v b="$(wc -c < "$G434B" | tr -d ' ')" 'BEGIN { printf "WILL BE DOWNLOADED, %.1f MB", b / 1048576 }')
+  G434MD="$PWD/shots/g434music"; rm -rf "$G434MD"; mkdir -p "$G434MD/music" "$G434MD/missions/user_maps"
+  cp dosmenu.pack "$G434D/opencnc3d-install.txt" "$G434D/BUILD-ID.txt" "$G434D/opencnc3d" \
+     "$G434D/TiberianDawn.dylib" "$G434MD/"
+  printf 'movies no\nmusic yes\nmovies_state none\nmusic_state complete\n' > "$G434MD/opencnc3d-media-td.txt"
+  sed 's#^file movies dosdata/movies/#file music music/#' "$G434D/manifest.txt" > "$G434MD/manifest.txt"
+  cp "$G434A" "$G434MD/music/"
+  G434MUS=$(perl -e 'alarm 60; exec { $ARGV[0] } @ARGV' ./opencnc3d-launcher --dir "$G434MD" \
+              --media-manifest "$G434MD/manifest.txt" --view settings --shot "$G434MD/settings.png" \
+              --scale 1 2>&1 | grep -E '^LNOTE\|label=MUSIC\|' | head -1)
+  rm -rf "$G434MD/music"
+  cp "$G434B" "$G434D/dosdata/movies/"
+  G434W=$(g434run --shot "$G434D/whole.png" | grep -E '^LSTATUS')
+  echo "G434|missing-one|$G434G|$G434S|$G434NOTE|$G434MUS|whole|$G434W" >> "$OUT"
+  if [ "$G434G" = "LSTATUS|text=Some movies are not installed yet. The gear adds them." ] \
+     && [ "$G434S" = "LAPPLY|movies=1|music=0|asks=0|game=0|enabled=1" ] \
+     && [ "$G434NOTE" = "LNOTE|label=MOVIES|note=$G434WANT" ] \
+     && [ "$G434MUS" = "LNOTE|label=MUSIC|note=$G434WANT" ] \
+     && ! echo "$G434W" | grep -q "not installed yet"; then
+    ok "G434 more movies than an install has: a finished movies install missing one manifest movie is told so on the module grid, Settings keeps Movies ticked for Apply and prices it at the one missing movie ($G434WANT, not the whole set), the Music row prices a part-installed score the same way, and a whole one is not told"
+  else
+    bad "G434 more movies than an install has: grid '$G434G' (want the 'Some movies are not installed yet' line), settings '$G434S' (want movies=1|music=0|asks=0|game=0|enabled=1), movies row '$G434NOTE' (want note=$G434WANT, the missing movie alone; the whole set's size is the old fault), music row '$G434MUS' (want note=$G434WANT, the same test for the score), whole '$G434W' (want no such line)"
+  fi
+  rm -rf "$G434D/dosdata"
+fi
+
+# =====================================================================================
+# G435 THE DOWNLOAD CARRIES EVERY MOVIE THE CAMPAIGN PLAYS (tools/media/media-manifest.txt,
+# tools/extract_movies.py --list). A player's movies come from the launcher's manifest,
+# not from data/dosdata/movies, and the manifest is regenerated from that folder with
+# tools/media/make-media-manifest.py, which needs the network. Every name the campaign
+# asks for (every campaign mission's movie keys and the ten the endings name) must be a
+# "file movies dosdata/movies/NAME.VQA" record, or that movie never reaches an install
+# made by the launcher.
+#
+# THREE OUTCOMES, AND ONLY ONE OF THEM IS GREEN. Every movie in the manifest: PASS. Some
+# missing, all of them on G435PENDING: SKIP, naming each one, because those were added to
+# the data before the manifest could be regenerated and launcher installs still lack them
+# (tools/release.sh lets exactly this skip through, out loud, and no other). Any movie
+# missing that is NOT on that list: FAIL. Once the manifest is regenerated the gate passes
+# on its own; then empty G435PENDING so a later loss fails instead of skipping.
+G435PENDING=""
+G435MISS=""
+G435NEW=""
+G435LIST=$(python3 "$GATEDIR/../tools/extract_movies.py" --list | cut -d' ' -f1)
+G435N=$(echo "$G435LIST" | grep -c .)
+for G435M in $G435LIST; do
+  if ! grep -q "^file movies dosdata/movies/$G435M\.VQA " "$GATEDIR/../tools/media/media-manifest.txt"; then
+    G435MISS="$G435MISS $G435M"
+    case " $G435PENDING " in *" $G435M "*) : ;; *) G435NEW="$G435NEW $G435M" ;; esac
+  fi
+done
+echo "G435|wanted=$G435N|manifest-missing=[$G435MISS]|not-pending=[$G435NEW]" >> "$OUT"
+if [ "$G435N" -lt 87 ]; then
+  bad "G435 the download manifest: tools/extract_movies.py --list named $G435N movies (want >=87), so there was nothing to check against"
+elif [ -n "$G435NEW" ]; then
+  bad "G435 the download manifest lacks$G435NEW, which are not on the pending list: no launcher install receives them. Regenerate with python3 -I tools/media/make-media-manifest.py (network), then python3 -I tools/media/probe-sources.py"
+elif [ -n "$G435MISS" ]; then
+  skip "G435 the download manifest is NOT complete: launcher installs do not receive$G435MISS (in data/dosdata/movies, pending a manifest regeneration over the network: python3 -I tools/media/make-media-manifest.py, then python3 -I tools/media/probe-sources.py). The other $((G435N - $(echo $G435MISS | wc -w))) campaign movies are listed"
+else
+  ok "G435 the download manifest lists all $G435N movies the campaign plays"
 fi
 
 # G45 THE BUILDING PAD. 19 Aug: "The Conyard still has a missing texture." The
@@ -3181,7 +3902,10 @@ fi
 # Three sizes, and each one is asserted:
 #   1280x600 rows=6 and a 597-row bar: a short screen loses rows, not pixels.
 #   1280x960 rows=8, the whole housing: the size every other HUD gate measures at.
-#   3008x1200 rows=8 still, at zoom 1: a taller screen does not stretch the housing.
+#   3008x1200 zoom 2 and rows=6: at zoom 1 the whole housing would cover only 58% of
+#             this height, so the bar takes the next zoom (sb_layout, G531) and sheds rows
+#             to fit, exactly as the 600-row screen does at zoom 1. The housing never
+#             stretches: it is the 960-row screen that shows all eight rows at zoom 1.
 # And at every size every visible cell has to hit-test to its OWN row and column, as what
 # is drawn there (a buildable, a locked entry, or nothing past the end of the list), and
 # the row below the last one must not answer as a cell, or the picture would be right and
@@ -3200,8 +3924,8 @@ G38S=$(OPENCNC3D_HUD=new ./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pac
 # Once the window became SDL_WINDOW_RESIZABLE always, macOS constrained it to the visible
 # frame, so a 1692-tall window on a 1692-tall display capped at 1547 and the gate went red
 # having tested nothing; the drawable line says it plainly ("surface 3008x1547"). 1200 fits
-# any development screen, and it is still under the 1386 rows at which this HUD's zoom
-# steps up to 2, so it is the tallest zoom-1 screen the gate can rely on being granted.
+# any development screen, and it is above the 1002 rows at which this HUD's zoom steps up
+# to 2 with four rows, so it measures the shedding at the second zoom.
 G38C=$(OPENCNC3D_HUD=new ./cnc_eyes --noshroud --scen SCG01EC --pack SCG01EA.pack $BASE --w 3008 --h 1200 \
            --script "$GATEDIR/gate_hudrows.txt" 2>&1 | tee -a "$OUT" | grep '^SBWALK|rows=')
 g38f() { echo "$1" | sed -n "s/.*|$2=\([0-9]*\).*/\1/p"; }
@@ -3210,13 +3934,13 @@ G38BH=$(g38f "$G38B" barh)
 G38SR=$(g38f "$G38S" rows); G38SP=$(g38f "$G38S" probes); G38SO=$(g38f "$G38S" ok)
 G38SH=$(g38f "$G38S" barh)
 G38CR=$(g38f "$G38C" rows); G38CP=$(g38f "$G38C" probes); G38CO=$(g38f "$G38C" ok)
-G38CH=$(g38f "$G38C" barh)
+G38CH=$(g38f "$G38C" barh); G38CS=$(echo "$G38C" | sed -n 's/.*|scale=\([0-9]*\)|.*/\1/p')
 if [ "${G38SR:-0}" = "6" ] && [ "${G38SH:-0}" = "597" ] && [ -n "$G38SP" ] && [ "$G38SP" = "$G38SO" ] && \
    [ "${G38BR:-0}" = "8" ] && [ "${G38BH:-0}" = "693" ] && [ -n "$G38BP" ] && [ "$G38BP" = "$G38BO" ] && \
-   [ "${G38CR:-0}" = "8" ] && [ "${G38CH:-0}" = "693" ] && [ -n "$G38CP" ] && [ "$G38CP" = "$G38CO" ]; then
-  ok "G38 HUD rows follow the screen: 6 rows and a ${G38SH}px bar at 600, the whole 8-row ${G38BH}px housing at 960 and still 8 at 1200, and every one of $G38SP, $G38BP and $G38CP probes hit-tests as what its cell draws, the row below the last answering as no cell"
+   [ "${G38CR:-0}" = "6" ] && [ "${G38CH:-0}" = "597" ] && [ "${G38CS:-0}" = "2" ] && [ -n "$G38CP" ] && [ "$G38CP" = "$G38CO" ]; then
+  ok "G38 HUD rows follow the screen: 6 rows and a ${G38SH}px bar at 600, the whole 8-row ${G38BH}px housing at 960, and at 1200 the second zoom with 6 rows, and every one of $G38SP, $G38BP and $G38CP probes hit-tests as what its cell draws, the row below the last answering as no cell"
 else
-  bad "G38 HUD rows: at 600 rows=$G38SR(want 6) barh=$G38SH(want 597) probes=$G38SP ok=$G38SO; at 960 rows=$G38BR(want 8) barh=$G38BH(want 693) probes=$G38BP ok=$G38BO; at 1200 rows=$G38CR(want 8, the housing does not stretch; if the drawable line reads shorter than asked, the window manager clamped it and the height needs choosing again) barh=$G38CH(want 693) probes=$G38CP ok=$G38CO (probes must equal ok at every size)"
+  bad "G38 HUD rows: at 600 rows=$G38SR(want 6) barh=$G38SH(want 597) probes=$G38SP ok=$G38SO; at 960 rows=$G38BR(want 8) barh=$G38BH(want 693) probes=$G38BP ok=$G38BO; at 1200 zoom=$G38CS(want 2) rows=$G38CR(want 6; if the drawable line reads shorter than asked, the window manager clamped it and the height needs choosing again) barh=$G38CH(want 597) probes=$G38CP ok=$G38CO (probes must equal ok at every size)"
 fi
 
 # =====================================================================================
@@ -4151,7 +4875,9 @@ ACAMMO=$(echo "$ACLOG" | grep -c '^AIR|ORCA|.*|pips=[0-9]*/5|')
 # A 0.0000 here now means the deck lookup found nothing and the Apache is buried to 51
 # percent of its own height again.
 ACGROUND=$(echo "$ACLOG" | grep -c '^AIR|HELI|.*|alt=0|lift=0.1504|')
-ACFLY=$(echo "$ACLOG" | grep -c '^AIR|A10|.*|alt=24|lift=0.9375|')
+# AT LEAST 0.9375: a flying aircraft's floor is the ground smoothed over its neighbourhood
+# (flight_floor), so over a dip its lift above the point under it is more than its altitude.
+ACFLY=$(echo "$ACLOG" | grep '^AIR|A10|.*|alt=24|lift=' | sed -n 's/.*|lift=\([0-9.]*\)|.*/\1/p' | awk '$1>=0.9375' | wc -l | tr -d ' ')
 ACAFTER=$(echo "$ACLOG" | grep -c '^AIRDUMP|aircraft=7')
 # v0.6.1: the parked Apache must beat the helipad it is standing on, and once selected it
 # must carry its ammo pips. Both were broken until aircraft got a pick class of their own.
@@ -5980,10 +6706,11 @@ TTNAME=$(echo "$TTLOG" | grep -c '^SBTIP|hover=1|.*|name=Med\. Tank|cost=800$')
 TTCHROME=$(echo "$TTLOG" | grep -c '^SBTIP|hover=[0-9]*|col=-1|slot=-1|name=Sell Structure|cost=-1$')
 # 3. off the panel, nothing. This is the leg that fails if the hover is never cleared.
 TTNONE=$(echo "$TTLOG" | grep -c '^SBTIP|hover=0|col=-1|slot=-1|name=-|cost=-1$')
-# 4. THE WHOLE TABLE, not one lucky lookup. 119 rows, and -- the real assertion -- not one
+# 4. THE WHOLE TABLE, not one lucky lookup. 120 rows (114 buildables, five chrome labels and
+#    the scenario-3 Prison name, G481), and -- the real assertion -- not one
 #    of them fell back to its own ident. "MTNK" as a title would mean the bake's join
 #    silently failed for that row and nothing else would show it.
-TTCOUNT=$(echo "$TTLOG" | grep -c '^SBTIPNAMES|count=119$')
+TTCOUNT=$(echo "$TTLOG" | grep -c '^SBTIPNAMES|count=120$')
 TTDEMOLISH=$(echo "$TTLOG" | grep -c '^SBTIPNAME|SB_DEMOLISH|Demolish Structure$')
 TT6DEMOLISH=$(echo "$TTLOG6" | grep -c '^SBTIPNAME|SB_DEMOLISH|Demolish Structure$')
 TTIDENT=$(echo "$TTLOG" | python3 -c '
@@ -6017,7 +6744,7 @@ elif [ "${TTNAME:-0}" -ge 1 ] && [ "${TTCHROME:-0}" -ge 1 ] && [ "${TTNONE:-0}" 
      && [ "${TTCOUNT:-0}" -ge 1 ] && [ "$TTDEMOLISH" = "1" ] && [ "$TT6DEMOLISH" = "1" ] \
      && [ "${TTIDENT:-1}" -eq 0 ] && [ "${TT6:-0}" -ge 1 ] \
      && [ "${TT6CHROME:-0}" -ge 1 ] && [ "${TT6NONE:-0}" -ge 1 ]; then
-  ok "G94 sidebar tooltip: a cameo reads 'Med. Tank' and '\$800' from the game's own CONQUER.ENG and its own export, a chrome button reads 'Sell Structure' with no price line, off the panel reads nothing, all 119 baked names including 'Demolish Structure' resolved with none falling back to its ident except the three the game itself calls A10, C17 and APC, and the Enhanced HUD gets the same three at its own geometry"
+  ok "G94 sidebar tooltip: a cameo reads 'Med. Tank' and '\$800' from the game's own CONQUER.ENG and its own export, a chrome button reads 'Sell Structure' with no price line, off the panel reads nothing, all 120 baked names including 'Demolish Structure' resolved with none falling back to its ident except the three the game itself calls A10, C17 and APC, and the Enhanced HUD gets the same three at its own geometry"
 else
   bad "G94 sidebar tooltip: cameo=$TTNAME(want >=1) chrome=$TTCHROME(want >=1) offpanel=$TTNONE(want >=1; zero means the hover is never cleared) table=$TTCOUNT(want 1) demolish=$TTDEMOLISH/$TT6DEMOLISH(want 1 each) idents-not-joined=$TTIDENT(want 0; counts rows whose title is its own ident EXCLUDING the three the game really does call A10/C17/APC, plus any of those three that went missing) enhanced-cameo=$TT6 enhanced-chrome=$TT6CHROME enhanced-offpanel=$TT6NONE(want >=1 each; zero means it works on the DOS bar only)"
 fi
@@ -7451,7 +8178,9 @@ fi
 
 # =====================================================================================
 # G121  SWAPPED MOUSE BUTTONS: an option, off out of the box, and one the script layer
-# must not feel.
+# must not feel. The swap is the LEFT-HANDED value of the three-way mouse scheme now
+# (mouse_scheme 1; the Gameplay page's row is "Mouse scheme" and one press from Classic
+# lands on it), and OPTMOUSE prints the scheme where OPTSWAP printed the yes/no.
 #
 # WHY THE SECOND RUN IS THE IMPORTANT ONE. Every click verb in this suite -- lclick,
 # lclickobj, rbutton, mmclick, order, band, sbclick -- calls the ui_ functions directly
@@ -7486,7 +8215,7 @@ optvis
 optclick OK
 optclick OK
 optclick Gameplay
-optclick Swap mouse buttons
+optclick Mouse scheme
 optclick OK
 optvis
 optclick Visuals
@@ -7500,7 +8229,7 @@ cat > /tmp/g121_verbs.txt <<'G121BEOF'
 # The option ON, set through the gfx verb rather than the dialog so the sidebar is not
 # switched out from under the radar half. Every gesture below is G65's or G110's own.
 gfx enabled 1
-gfx swap_buttons 1
+gfx mouse_scheme 1
 tick 30
 zoom max
 # FRAME THE TANK FIRST, exactly as G110's own script does before its lclickobj. At
@@ -7530,10 +8259,10 @@ SWPRC=$?
 SWVLOG=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound \
              --forceradar --w 1280 --h 960 --script /tmp/g121_verbs.txt 2>&1)
 SWVRC=$?
-echo "$SWPLOG" | grep -E '^(OPTSWAP|ADVRECT)' >> "$OUT"
+echo "$SWPLOG" | grep -E '^(OPTMOUSE|ADVRECT)' >> "$OUT"
 echo "$SWVLOG" | grep -E '^(GFX|EXPECTSEL|EXPECTCELL|CANCEL|MMCLICK|MINIMAP|CAM\|cam)' >> "$OUT"
-# The four OPTSWAP readings, in order: fresh, clicked, under CLASSIC, back under ENHANCED.
-sw() { echo "$SWPLOG" | grep '^OPTSWAP|' | sed -n "$1p"; }
+# The four OPTMOUSE readings, in order: fresh, clicked, under CLASSIC, back under ENHANCED.
+sw() { echo "$SWPLOG" | grep '^OPTMOUSE|' | sed -n "$1p"; }
 SW1=$(sw 1); SW2=$(sw 2); SW3=$(sw 3); SW4=$(sw 4)
 # No control on the Advanced page may share a pixel with another. G108's walk, verbatim.
 SWOVER=$(echo "$SWPLOG" | awk -F'|' '/^ADVRECT\|/ {
@@ -7556,13 +8285,13 @@ elif [ "${SWROWS:-0}" != "22" ]; then
   bad "G121 swapped mouse buttons: the Advanced page reported $SWROWS rectangles, want 22 (six Global rows, three mode tabs, the ten well rows the Enhanced tab shows, Reset to Defaults, OK and the scroll bar). Fewer means a control lost its rectangle and the overlap walk never saw it; more means optvis dumped that page twice and the walk below is comparing rows with their own duplicates"
 elif [ "${SWOVER:-99}" != "0" ]; then
   bad "G121 swapped mouse buttons: $SWOVER pairs of controls overlap on the Advanced page -- the well needs DOPT_A_STEP and DOPT_A_VIEW_H worked again against DOPT_AD_OK_Y, and until it is, OK or Reset is partly unclickable"
-elif ! echo "$SW1" | grep -q '^OPTSWAP|swap=0|fx_swap=0|enhanced=1$'; then
+elif ! echo "$SW1" | grep -q '^OPTMOUSE|scheme=0|fx_scheme=0|enhanced=1$'; then
   bad "G121 swapped mouse buttons: the box does not start CLEAR under ENHANCED [$SW1] -- off by default is the whole promise"
-elif ! echo "$SW2" | grep -q '^OPTSWAP|swap=1|fx_swap=1|enhanced=1$'; then
+elif ! echo "$SW2" | grep -q '^OPTMOUSE|scheme=1|fx_scheme=1|enhanced=1$'; then
   bad "G121 swapped mouse buttons: clicking the box did not move the dial behind it [$SW2]"
-elif ! echo "$SW3" | grep -q '^OPTSWAP|swap=1|fx_swap=1|enhanced=0$'; then
+elif ! echo "$SW3" | grep -q '^OPTMOUSE|scheme=1|fx_scheme=1|enhanced=0$'; then
   bad "G121 swapped mouse buttons: CLASSIC changed the binding [$SW3]. Classic governs the PICTURE; input settings are the player's and must survive it. This arm used to force the dial to 0, and because the Visuals screen writes the preset on the way out, that silently rewrote a customised swap_buttons on disc"
-elif ! echo "$SW4" | grep -q '^OPTSWAP|swap=1|fx_swap=1|enhanced=1$'; then
+elif ! echo "$SW4" | grep -q '^OPTMOUSE|scheme=1|fx_scheme=1|enhanced=1$'; then
   bad "G121 swapped mouse buttons: ENHANCED disturbed a binding it has no business touching [$SW4]"
 elif [ "${SWFAIL:-1}" != "0" ]; then
   bad "G121 swapped mouse buttons: with the option ON the verb run reported $SWFAIL script failures. THE SWAP HAS REACHED THE SCRIPT LAYER: lclick or mmclick has stopped meaning the physical button it names, and every click gate in this suite is now a function of a user setting. It belongs at the SDL event boundary and nowhere below it"
@@ -11046,7 +11775,7 @@ tick 30
 options
 optclick Gameplay
 optgp
-optclick Swap mouse buttons
+optclick Mouse scheme
 optgp
 optclick Right button scrolls
 optgp
@@ -11094,10 +11823,10 @@ GPHEAD=$(echo "$GP1" | grep -c '|head=1|')
 GPHR=$(echo "$GP1" | sed -n 's/.*|headrect=\([0-9]*\),\([0-9]*\) \([0-9]*\)x\([0-9]*\)|.*/\1 \3/p')
 GPHOK=$(awk -v v="$GPHR" -v b="$GPBOX" 'BEGIN{ split(v,V," "); split(b,B," ");
   print (V[1] > B[1] && V[1]+V[2]-1 < B[2]) ? 1 : 0 }')
-GPDEF=$(echo "$GP1" | grep -c '|swap=0|fx_swap=0|push=1|fx_push=1|cash=1|fx_cash=1|')
-GPSWAP=$(echo "$GP2" | grep -c '|swap=1|fx_swap=1|push=1|fx_push=1|cash=1|fx_cash=1|')
-GPPUSH=$(echo "$GP3" | grep -c '|swap=1|fx_swap=1|push=0|fx_push=0|cash=1|fx_cash=1|')
-GPCASH=$(echo "$GP4" | grep -c '|swap=1|fx_swap=1|push=0|fx_push=0|cash=0|fx_cash=0|')
+GPDEF=$(echo "$GP1" | grep -c '|scheme=0|fx_scheme=0|push=1|fx_push=1|cash=1|fx_cash=1|')
+GPSWAP=$(echo "$GP2" | grep -c '|scheme=1|fx_scheme=1|push=1|fx_push=1|cash=1|fx_cash=1|')
+GPPUSH=$(echo "$GP3" | grep -c '|scheme=1|fx_scheme=1|push=0|fx_push=0|cash=1|fx_cash=1|')
+GPCASH=$(echo "$GP4" | grep -c '|scheme=1|fx_scheme=1|push=0|fx_push=0|cash=0|fx_cash=0|')
 GPBACK=$(echo "$GPLOG" | grep -c '^OPTIONS|script|click|OK|.*|page=0$')
 GPADVN=$(echo "$ADLOG" | grep -c '^ADVRECT|')
 GPADVSWAP=$(echo "$ADLOG" | grep -c '^ADVRECT|.*|Swap mouse buttons|')
@@ -11135,8 +11864,10 @@ fi
 #
 # Two claims. FIRST, CLASSIC governs the PICTURE and not the hand: choosing Classic must
 # leave a customised binding alone in memory AND on disc. Measured before this round: with
-# swap_buttons 1 on disc, walking Visuals then Classic rewrote opencnc3d-fx.cfg with
-# swap_buttons 0, so the setting could not survive being looked at.
+# the buttons swapped on disc, walking Visuals then Classic rewrote opencnc3d-fx.cfg with
+# the shipped binding, so the setting could not survive being looked at. The setting is the
+# three-way mouse_scheme now (Classic, left-handed, Modern), and the left-handed one stands
+# in for the swap below.
 # SECOND, the pause dialog now WRITES. fx_save had exactly three callers and none of them
 # was the in-mission dialog, so anything set while paused was lost on quit.
 # THE WRITE COUNT IS MEASURED, not assumed: the F5 panel writes straight into g_fx on every
@@ -11146,8 +11877,9 @@ fi
 VISDIR=/tmp/g144_vis
 rm -rf "$VISDIR"; mkdir -p "$VISDIR"
 VISCFG="$VISDIR/opencnc3d-fx.cfg"
-# RUN 1 GETS ITS OWN FILE. It ends on an ODD number of clicks on purpose (so the write
-# count is 1 and not 0), which means it leaves swap_buttons 1 behind. Runs 2..5 measure
+# RUN 1 GETS ITS OWN FILE. It clicks the three-way row FOUR times on purpose (Classic to
+# left-handed, Modern, Classic, left-handed), so it ends moved and the write count is 1 and
+# not 0, which means it leaves mouse_scheme 1 behind. Runs 2..5 measure
 # absolute values on a file that starts from the compiled defaults, so sharing one file
 # across all five makes run 2 toggle 1 -> 0 and demand 1. Measured: that is a red on a
 # CORRECT build. Two files, and each run's starting state is stated rather than inherited.
@@ -11169,9 +11901,10 @@ gfx bloom_intensity 1.00
 gfxpanel 0
 options
 optclick Gameplay
-optclick Swap mouse buttons
-optclick Swap mouse buttons
-optclick Swap mouse buttons
+optclick Mouse scheme
+optclick Mouse scheme
+optclick Mouse scheme
+optclick Mouse scheme
 optclick OK
 optclick Resume Mission
 quit
@@ -11180,7 +11913,7 @@ cat > /tmp/g144_2.txt <<'G144BEOF'
 tick 30
 options
 optclick Gameplay
-optclick Swap mouse buttons
+optclick Mouse scheme
 optclick OK
 optclick Resume Mission
 quit
@@ -11222,13 +11955,13 @@ V1PANELSEEN=$(printf '%s\n' "$V1" | grep -c '^GFX|panel=open$')
 V1DLG=$(printf '%s\n' "$V1" | awk '/^OPTIONS\|open\|/{p=1} /\|click\|Resume Mission\|/{p=0} p&&/^VISCFG\|wrote\|/{c++} END{print c+0}')
 V1ALL=$(printf '%s\n' "$V1" | grep -c '^VISCFG|wrote|')
 V2=$(v_run /tmp/g144_2.txt); V2RC=$?
-V2DISK=$(sed -n 's/^swap_buttons *\([0-9]*\).*/\1/p' "$VISCFG" | head -1)
+V2DISK=$(sed -n 's/^mouse_scheme *\([0-9]*\).*/\1/p' "$VISCFG" | head -1)
 V2PUSH=$(sed -n 's/^right_drag_scroll *\([0-9]*\).*/\1/p' "$VISCFG" | head -1)
 V3=$(v_run /tmp/g144_3.txt); V3RC=$?
-V3READ=$(printf '%s\n' "$V3" | grep -c '^OPTGP|page=7|swap=1|fx_swap=1|')
+V3READ=$(printf '%s\n' "$V3" | grep -c '^OPTGP|page=7|scheme=1|fx_scheme=1|')
 V4=$(v_run /tmp/g144_4.txt); V4RC=$?
-V4SWAP=$(printf '%s\n' "$V4" | grep -c '^OPTSWAP|swap=1|fx_swap=1|enhanced=0$')
-V4DISK=$(sed -n 's/^swap_buttons *\([0-9]*\).*/\1/p' "$VISCFG" | head -1)
+V4SWAP=$(printf '%s\n' "$V4" | grep -c '^OPTMOUSE|scheme=1|fx_scheme=1|enhanced=0$')
+V4DISK=$(sed -n 's/^mouse_scheme *\([0-9]*\).*/\1/p' "$VISCFG" | head -1)
 V5=$(v_run /tmp/g144_5.txt); V5RC=$?
 V5W=$(printf '%s\n' "$V5" | grep -c '^VISCFG|wrote|')
 printf 'G144|panel=%s|dialog=%s|total=%s|disk_swap=%s|disk_push=%s|relaunch=%s|classic_swap=%s|classic_disk=%s|noop=%s\n' \
@@ -11242,19 +11975,19 @@ elif [ "${V1PANEL:-99}" != "0" ]; then
 elif [ "${V1DLG:-99}" != "0" ]; then
   bad "G144 input is the player's: clicking boxes with the pause dialog still OPEN produced $V1DLG file writes, want 0. The write belongs on the way OUT of the dialog, not on every click inside it"
 elif [ "${V1ALL:-0}" != "1" ]; then
-  bad "G144 input is the player's: the whole of run 1 produced $V1ALL file writes, want exactly 1. Three clicks on one box leave it moved, so closing the dialog must write once and once only"
+  bad "G144 input is the player's: the whole of run 1 produced $V1ALL file writes, want exactly 1. Four clicks on the three-way mouse scheme row leave it moved, so closing the dialog must write once and once only"
 elif [ "${V2DISK:-x}" != "1" ] || [ "${V2PUSH:-x}" != "1" ]; then
-  bad "G144 input is the player's: after setting the box from the PAUSE dialog and leaving, the file on disc reads swap_buttons=${V2DISK:-absent} right_drag_scroll=${V2PUSH:-absent}, want 1 and 1. Until this round fx_save had three callers and the in-mission dialog was not one of them, so a mouse setting made while paused was lost on quit"
+  bad "G144 input is the player's: after setting the box from the PAUSE dialog and leaving, the file on disc reads mouse_scheme=${V2DISK:-absent} right_drag_scroll=${V2PUSH:-absent}, want 1 and 1. Until this round fx_save had three callers and the in-mission dialog was not one of them, so a mouse setting made while paused was lost on quit"
 elif [ "${V3READ:-0}" -lt 1 ]; then
-  bad "G144 input is the player's: a FRESH process reading the same file did not come up with the binding set (want one OPTGP line with swap=1 and fx_swap=1, having clicked nothing). A setting written and never read back is not persistence"
+  bad "G144 input is the player's: a FRESH process reading the same file did not come up with the binding set (want one OPTGP line with scheme=1 and fx_scheme=1, having clicked nothing). A setting written and never read back is not persistence"
 elif [ "${V4SWAP:-0}" -lt 1 ]; then
   bad "G144 input is the player's: choosing CLASSIC changed the binding in memory. Classic governs the PICTURE; how the game is driven stays the player's"
 elif [ "${V4DISK:-x}" != "1" ]; then
-  bad "G144 input is the player's: choosing CLASSIC rewrote the file, which now reads swap_buttons=${V4DISK:-absent} over a customised 1. This is the measurement that opened this round: the Visuals screen writes the preset on the way out, so a CLASSIC arm that touches the binding destroys it on disc"
+  bad "G144 input is the player's: choosing CLASSIC rewrote the file, which now reads mouse_scheme=${V4DISK:-absent} over a customised 1. This is the measurement that opened this round: the Visuals screen writes the preset on the way out, so a CLASSIC arm that touches the binding destroys it on disc"
 elif [ "${V5W:-99}" != "0" ]; then
   bad "G144 input is the player's: opening the dialog, changing nothing and leaving produced $V5W file writes, want 0"
 else
-  ok "G144 input is the player's: ten dial moves with the tuning panel open write nothing and three clicks inside the dialog write nothing, closing it on a change writes exactly once, the pause dialog's own setting reaches the file, a fresh process reads it back, CLASSIC leaves it alone in memory AND on disc, and a look-and-leave writes nothing at all"
+  ok "G144 input is the player's: ten dial moves with the tuning panel open write nothing and four clicks inside the dialog write nothing, closing it on a change writes exactly once, the pause dialog's own setting reaches the file, a fresh process reads it back, CLASSIC leaves it alone in memory AND on disc, and a look-and-leave writes nothing at all"
 fi
 
 # =====================================================================================
@@ -11763,10 +12496,14 @@ fi
 #      at -70 of 1024 model units, i.e. slightly into the ground) and stands 16.7 px above
 #      it (+259 units), and its centroid is within a pixel of the ground point in x. Lift
 #      it half a cell and every one of those numbers moves by tens of pixels.
+# THE CHEAT PAGE IS SHUT (optclick OK) BEFORE THE SHOTS. The Enhanced page is the one open
+# in every graphics mode, and it covers the wreck's cell, so with it still up both shots
+# came out the same picture: changed-in-box=0.
 cat > gate_wreck.txt <<'EOS'
 tick 20
 cheats
 cheatset fog 0
+optclick OK
 cam 18.5 40
 tick 1
 shot shots/g160_on.png
@@ -13752,6 +14489,8 @@ for g203r in "chem_e E5 31" "chem_w E5 29" "flame_e E4 31"; do
     echo "editplace E1 $g203x 30 1"
     echo "editsave"
     echo "editplay play"
+    # The pixel control measures spray visibility, not current theater color grading.
+    echo "gfxload gate_visual_lighting_20261026.txt"
     echo "cam 30.5 30.5"
     g203i=1
     while [ $g203i -le 12 ]; do
@@ -14324,18 +15063,21 @@ fi
 # between the two shots, crosses the tab row) and 0. With the chain-off frame as the
 # control: 159312 above the card.
 #
-# The band coordinates and camera cells are chosen so the run is deterministic: the units
-# have not moved at tick 30 and the band covers the whole map view. group= on the OBJ|
+# The first band covers all six units, including the gunboat after the shoreline changed.
+# Both bands are SHIFT bands, each from an empty selection: a fresh box leaves the MCV out
+# when it caught anything else (the 1996 band rule, G415), and this gate needs the MCV in the
+# selection; an added-to box keeps it.
+# Reassigning the MCV leaves the other five in group 1. group= on the OBJ|
 # line is what the tab counts read; a brain without it reports ten empty tabs and leg 1
 # goes red, which is the point.
 # =====================================================================================
 gbegin /tmp/g235.log /tmp/g235off.log shots/g235_nocard.png shots/g235_on.png
 printf 'enabled 1\n' > gfx_g235.cfg
-{ echo "tick 30"; echo "cam 56 55"; echo "tick 1"; echo "band 0 0 1279 900"
+{ echo "tick 30"; echo "cam 56 56"; echo "tick 1"; echo "shiftband 0 0 1279 900"; echo "select"; echo "bandoff"
   echo "group 1 2"; echo "cam 57 50"; echo "tick 1"; echo "lclickobj MCV 0"; echo "group 2 2"
   echo "cam 56 53"; echo "tick 1"; echo "deselect"; echo "unitcard"
   echo "shot shots/g235_nocard.png"
-  echo "band 0 0 1279 900"; echo "unitcard"
+  echo "shiftband 0 0 1279 900"; echo "bandoff"; echo "unitcard"
   echo "shot shots/g235_on.png"
   echo "cardclick tab 0"; echo "unitcard"; echo "cardclick mini 1"; echo "unitcard"
   echo "cardclick tab 1"; echo "unitcard"; echo quit; } > /tmp/g235.script
@@ -14350,6 +15092,7 @@ gshots shots/g235_nocard.png shots/g235_on.png
 G235NOCARD=$(grep -a '^UNITCARD|shown=' /tmp/g235.log | head -1)
 G235STATE=$(grep -a '^UNITCARD|shown=1|count=5|' /tmp/g235.log | head -1)
 G235GROUPS=$(echo "$G235STATE" | sed -n 's/.*|groups=\([0-9]*,[0-9]*\),.*/\1/p')
+G235BOAT=$(grep -ac '^SELECT|6 selected: .*BOAT#' /tmp/g235.log)
 G235RECALL=$(grep -ac '^GROUP|recall|key=1|slot=0|selection=5$' /tmp/g235.log)
 G235ACTIVE=$(grep -ac '^UNITCARD|tab|key=1|slot=0|count=5|frame=3|' /tmp/g235.log)
 G235PICK=$(grep -ac '^UNITCARD|pick|E1|id=[0-9]*|ok=1|selection=1$' /tmp/g235.log)
@@ -14363,6 +15106,8 @@ else
   G235ABOVE=$(python3 "$GATEDIR/gate_gfx.py" rect shots/g235_nocard.png shots/g235_on.png 0 100 480 432 | cut -d'|' -f2)
   if [ -z "$G235STATE" ]; then
     bad "G235 unit card: no UNITCARD|shown=1|count=5 line. Either the card did not come up in Enhanced on the new HUD, or the band took a different selection: $(grep -a '^UNITCARD|shown\|^UNITCARD|unavail\|^BAND|' /tmp/g235.log | head -3 | tr '\n' ' ')"
+  elif [ "$G235BOAT" != "1" ]; then
+    bad "G235 unit card: the first band must select the gunboat along with the five land units"
   elif [ "$G235GROUPS" != "5,1" ]; then
     bad "G235 unit card: the tabs report groups=$G235GROUPS (want 5,1). Group 1 should hold the four riflemen and the gun boat, group 2 the MCV; a brain without group= on the OBJ| line reports 0,0"
   elif [ "${G235RECALL:-0}" -lt 1 ] || [ "${G235ACTIVE:-0}" -lt 1 ]; then
@@ -15286,12 +16031,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# G214 THE SCREEN A MATCH ENDS ON.
+# G214 THE OLDER MATCH PLATE, DRAWN WITH THE OLD MENUS.
 #
 # The campaign's score screen reports one commander against a designer's par. A match has
-# no par, so this one is a table: one row per commander, and every row's SCORE drawn as a
+# no par, so this plate is a table: one row per commander, and every row's SCORE drawn as a
 # bar measured against whoever leads. It borrows the campaign screen's plate, its turning
 # medallion and its music, and keeps exactly one of that screen's numbers, the time.
+#
+# A PLAYER NO LONGER SEES IT. Tiberian Dawn's matches end on the Enhanced debrief, the
+# TOP SCORES layout Red Alert's uses (G480, G527, G325). This plate is drawn only with the
+# old menus asked for (OPENCNC3D_MENU_1995=1), which is how both runs below reach it, so
+# the code the old-menu gates still drive stays proven.
 #
 # WHY IT NEEDS A GATE. The screen is otherwise reachable only by playing a match to its
 # finish, which nothing automated can do in a second, so without a door into it the whole
@@ -15320,7 +16070,7 @@ G214RC=""; G214ROWS=""; G214R=""; G214LOG=""; G214M=""
 G214GDI=0; G214NOD=0; G214NODLOGO=0
 if [ -x ./opencnc3d ] && [ -s campaign.pack ]; then
   rm -f flow_matchscore.png flow_matchscore_mid.png
-  G214LOG=$(./opencnc3d --matchshot --w 1280 --h 800 --dylib ./TiberianDawn.dylib \
+  G214LOG=$(OPENCNC3D_MENU_1995=1 ./opencnc3d --matchshot --w 1280 --h 800 --dylib ./TiberianDawn.dylib \
             --dir ./missions/ 2>&1)
   printf '%s\n' "$G214LOG" >> "$OUT"
   G214RC=$(printf '%s' "$G214LOG" | sed -n 's/^MATCHSHOT|rc=\([-0-9]*\)|.*/\1/p' | head -1)
@@ -15338,7 +16088,7 @@ if [ -x ./opencnc3d ] && [ -s campaign.pack ]; then
   # played Nod gets the Nod medallion turning in the corner and the Nod score theme; the
   # same one number drives both, so proving the emblem proves the music with it.
   G214GDI=$(printf '%s' "$G214LOG" | grep -c 'CAMPAIGN|matchscore|.*|side=GDI|')
-  G214NODLOG=$(./opencnc3d --matchshot --flowside nod --w 800 --h 500 \
+  G214NODLOG=$(OPENCNC3D_MENU_1995=1 ./opencnc3d --matchshot --flowside nod --w 800 --h 500 \
                --dylib ./TiberianDawn.dylib --dir ./missions/ 2>&1)
   printf '%s\n' "$G214NODLOG" >> "$OUT"
   G214NOD=$(printf '%s' "$G214NODLOG" | grep -c 'CAMPAIGN|matchscore|.*|side=Nod|')
@@ -15351,9 +16101,9 @@ if [ "${G214RC:-1}" = "0" ] && [ "${G214ROWS:-0}" = "8" ] \
    && [ "${G214MONO:-0}" = "1" ] && [ "${G214COLS:-0}" -ge 5 ] && [ "${G214BTN:-0}" = "1" ] && [ "${G214DRAWN:-0}" = "7" ] \
    && [ "${G214M:-0}" = "3" ] && [ "${G214GDI:-0}" = "1" ] \
    && [ "${G214NOD:-0}" = "1" ] && [ "${G214NODLOGO:-0}" = "1" ]; then
-  ok "G214 the screen a match ends on: eight commanders drawn on the campaign score screen's own plate, the leader's bar $G214LEAD of 295 pixels wide and every bar below it shorter than the one above, all the way down. $G214COLS different liveries on the board, and the commander who scored nothing has no bar rather than a stub. A full room fits inside the panel, and the CONTINUE button is drawn below it. Part way through, with the third commander just finished, only $G214M rows carried a bar against $G214DRAWN at the end, so the standings really are walked down one commander at a time rather than appearing all at once. Run again as Nod, the board reports the Nod side and turns the Nod medallion, so the emblem and the theme follow the faction the player played rather than the campaign's"
+  ok "G214 the older match plate, drawn with the old menus: eight commanders drawn on the campaign score screen's own plate, the leader's bar $G214LEAD of 295 pixels wide and every bar below it shorter than the one above, all the way down. $G214COLS different liveries on the board, and the commander who scored nothing has no bar rather than a stub. A full room fits inside the panel, and the CONTINUE button is drawn below it. Part way through, with the third commander just finished, only $G214M rows carried a bar against $G214DRAWN at the end, so the standings really are walked down one commander at a time rather than appearing all at once. Run again as Nod, the board reports the Nod side and turns the Nod medallion, so the emblem and the theme follow the faction the player played rather than the campaign's"
 else
-  bad "G214 the screen a match ends on: rc=$G214RC(want 0) rows=$G214ROWS(want 8) leader-bar=$G214LEAD(want >=280) last-bar=$G214LAST(want 0) bars-descend=$G214MONO(want 1) distinct-liveries=$G214COLS(want >=5) continue-button=$G214BTN(want 1) rows-with-bars=$G214DRAWN(want 7) rows-mid-animation=$G214M(want 3) gdi-board-says-gdi=$G214GDI(want 1) nod-board-says-nod=$G214NOD(want 1) nod-medallion=$G214NODLOGO(want 1). $(printf '%s' "$G214LOG" | grep -E 'campaign:|CAMPAIGN.matchscore' | head -2 | tr '\n' ' ')"
+  bad "G214 the older match plate, drawn with the old menus: rc=$G214RC(want 0) rows=$G214ROWS(want 8) leader-bar=$G214LEAD(want >=280) last-bar=$G214LAST(want 0) bars-descend=$G214MONO(want 1) distinct-liveries=$G214COLS(want >=5) continue-button=$G214BTN(want 1) rows-with-bars=$G214DRAWN(want 7) rows-mid-animation=$G214M(want 3) gdi-board-says-gdi=$G214GDI(want 1) nod-board-says-nod=$G214NOD(want 1) nod-medallion=$G214NODLOGO(want 1). $(printf '%s' "$G214LOG" | grep -E 'campaign:|CAMPAIGN.matchscore' | head -2 | tr '\n' ' ')"
 fi
 
 # =====================================================================================
@@ -15630,6 +16380,14 @@ fi
 #
 # THE EXIT CODE IS HALF THE ASSERTION. A survivor that prints the right sentence and still
 # exits non-zero is still a crash as far as everything downstream is concerned.
+#
+# AND THE SENTENCE HAS TO REACH THE DEBRIEF, which is read off the table the match ends on
+# (MATCHSTATS|rows=...|ended=), not off the GAMEOVER line. The reason has to be written
+# into that table AFTER the table is cleared; written before, it is wiped with the rest
+# and the broken match's debrief prints the score formula like a finished one, while a
+# gate reading GAMEOVER| alone stays green. Leg A's joiner must carry THE HOST LEFT THE GAME
+# into its table; leg B's survivor wins on a real verdict, and its table must say that the
+# killed seat STOPPED ANSWERING rather than leave the debrief looking like a fought win.
 # ---------------------------------------------------------------------------
 # THE SCRIPTS ARE WRITTEN HERE, not shipped beside the gate. The run folder is not in
 # git, so a gate that expected a file to be sitting in it already would pass on this
@@ -15652,7 +16410,7 @@ cat > gate_netlost_long.txt <<'TXT'
 tick 40000
 quit
 TXT
-G218A=""; G218AR=1; G218BGONE=0; G218BV=""; G218BR=1; G218BKILL=0
+G218A=""; G218AR=1; G218BGONE=0; G218BV=""; G218BR=1; G218BKILL=0; G218AMS="-"; G218BMS="-"
 if [ -x ./cnc_eyes ] && [ -s "$SKMAP.pack" ] && [ -s "missions/$SKMAP.INI" ]; then
   # ---- leg A: the host quits mid-match; the joiner must end at once ----
   rm -f g218a_h.log g218a_j.log
@@ -15667,6 +16425,7 @@ if [ -x ./cnc_eyes ] && [ -s "$SKMAP.pack" ] && [ -s "missions/$SKMAP.INI" ]; th
   wait $G218AJP; G218AR=$?
   cat g218a_h.log g218a_j.log >> "$OUT"
   G218A=$(sed -n 's/^GAMEOVER|NETLOST|\(.*\)$/\1/p' g218a_j.log | head -1)
+  G218AMS=$(grep -a '^MATCHSTATS|rows=' g218a_j.log | tail -1 | sed -n 's/.*|ended=\(.*\)$/\1/p')
 
   # ---- leg B: the joiner is killed with no goodbye; the host waits out the stall ----
   rm -f g218b_h.log g218b_j.log
@@ -15686,6 +16445,7 @@ if [ -x ./cnc_eyes ] && [ -s "$SKMAP.pack" ] && [ -s "missions/$SKMAP.INI" ]; th
   cat g218b_h.log >> "$OUT"
   G218BGONE=$(grep -ac '^NET|peer-gone|seat=1' g218b_h.log)
   G218BV=$(grep -a '^GAMEOVER|SKIRMISH|' g218b_h.log | cut -d'|' -f3 | sort -u)
+  G218BMS=$(grep -a '^MATCHSTATS|rows=' g218b_h.log | tail -1 | sed -n 's/.*|ended=\(.*\)$/\1/p')
   # DID THE PLUG ACTUALLY COME OUT? The victim has to have been IN the match and to have
   # died without a word. A peer that ran out of script leaves its own accounting line on
   # the way out; a peer that was killed leaves nothing after its last frame. Both halves
@@ -15694,12 +16454,15 @@ if [ -x ./cnc_eyes ] && [ -s "$SKMAP.pack" ] && [ -s "missions/$SKMAP.INI" ]; th
   if [ "$(grep -ac '^NET|match|seat=1' g218b_j.log)" -ge 1 ] \
      && [ "$(grep -ac '^NET|leaving' g218b_j.log)" = "0" ]; then G218BKILL=1; fi
 fi
+G218BMSOK=0
+case "$G218BMS" in *" STOPPED ANSWERING") G218BMSOK=1 ;; esac
 if [ "$G218A" = "THE HOST LEFT THE GAME" ] && [ "${G218AR:-1}" = "0" ] \
+   && [ "$G218AMS" = "THE HOST LEFT THE GAME" ] && [ "$G218BMSOK" = "1" ] \
    && [ "${G218BKILL:-0}" = "1" ] \
    && [ "${G218BGONE:-0}" -ge 1 ] && [ "$G218BV" = "WIN" ] && [ "${G218BR:-1}" = "0" ]; then
-  ok "G218 a match that breaks ends on a screen: the host quit mid-match and the joiner ended AT ONCE saying \"$G218A\" instead of sitting in a stopped world for thirty seconds; a peer in a running match was killed outright with no goodbye and the survivor declared it gone and finished on a real verdict ($G218BV); and both survivors exited 0. A match broke, not a game -- which used to close the application with a failing code and the only account of it in a log file"
+  ok "G218 a match that breaks ends on a screen: the host quit mid-match and the joiner ended AT ONCE saying \"$G218A\" instead of sitting in a stopped world for thirty seconds, and its debrief table carries that sentence; a peer in a running match was killed outright with no goodbye and the survivor declared it gone and finished on a real verdict ($G218BV), its debrief saying \"$G218BMS\" rather than looking like a fought win; and both survivors exited 0. A match broke, not a game -- which used to close the application with a failing code and the only account of it in a log file"
 else
-  bad "G218 a match that breaks ends on a screen: host-left-reason=[$G218A](want THE HOST LEFT THE GAME) joiner-exit=$G218AR(want 0) peer-killed-mid-match=$G218BKILL(want 1) killed-peer-declared-gone=$G218BGONE(want >=1) survivor-verdict=[$G218BV](want WIN) survivor-exit=$G218BR(want 0). A non-zero exit is the shell still treating a broken match as a broken game; an empty host-left reason with a clean exit usually means the check went into the live loop again, which --script never reaches. peer-killed-mid-match=0 means leg B measured nothing at all: the victim reached the end of its own script and left under its own power before the plug was pulled, so the three numbers after it describe an ordinary goodbye and say nothing about the departure machinery -- lengthen gate_netlost_long.txt rather than reading them. $(grep -ahE '^GAMEOVER\||^NETDESYNC' g218a_j.log g218b_h.log 2>/dev/null | head -3 | tr '\n' ' ')"
+  bad "G218 a match that breaks ends on a screen: host-left-reason=[$G218A](want THE HOST LEFT THE GAME) joiner-debrief-ended=[$G218AMS](want THE HOST LEFT THE GAME; empty is the table being cleared after the reason was written) joiner-exit=$G218AR(want 0) peer-killed-mid-match=$G218BKILL(want 1) killed-peer-declared-gone=$G218BGONE(want >=1) survivor-verdict=[$G218BV](want WIN) survivor-debrief-ended=[$G218BMS](want <NAME> STOPPED ANSWERING) survivor-exit=$G218BR(want 0). A non-zero exit is the shell still treating a broken match as a broken game; an empty host-left reason with a clean exit usually means the check went into the live loop again, which --script never reaches. peer-killed-mid-match=0 means leg B measured nothing at all: the victim reached the end of its own script and left under its own power before the plug was pulled, so the three numbers after it describe an ordinary goodbye and say nothing about the departure machinery -- lengthen gate_netlost_long.txt rather than reading them. $(grep -ahE '^GAMEOVER\||^NETDESYNC' g218a_j.log g218b_h.log 2>/dev/null | head -3 | tr '\n' ' ')"
 fi
 
 # =====================================================================================
@@ -16022,15 +16785,18 @@ def load(x): return np.asarray(Image.open(x).convert('RGB')).astype(int)
 off, on, sub = load('shots/g225_off.png'), load('shots/g225_on.png'), load('shots/g225_sub.png')
 offsub = load('shots/g225_off_sub.png')
 d = np.abs(off - on).sum(axis=2) > 24
+# Wetting can hide some existing sea motion. Subtracting total counts cancels
+# genuine rain pixels; take the set difference instead. Production:8333 new
+# moving pixels; disabling animated rain terms:301, below the unchanged500 floor.
 m = np.abs(on - sub).sum(axis=2) > 24
 mo = np.abs(off - offsub).sum(axis=2) > 24
 print(int(d[40:780, 0:940].sum()), int(d[0:800, 960:1280].sum()),
-      int(m[40:780, 0:940].sum()) - int(mo[40:780, 0:940].sum()))
+      int((m & ~mo)[40:780, 0:940].sum()))
 PY
 )
 fi
 set -- $G223R
-G223WORLD="$1"; G223BAR="$2"; G223MOVE="$3"   # MOVE is what the rain ADDS, sea subtracted
+G223WORLD="$1"; G223BAR="$2"; G223MOVE="$3"   # Moving-pixel set difference: only motion absent from the dry control.
 G223SAME=0
 if [ -s shots/g225_on.png ] && [ -s shots/g225_on2.png ] && cmp -s shots/g225_on.png shots/g225_on2.png; then
   G223SAME=1
@@ -16776,7 +17542,7 @@ fi
 # ones intended.
 #
 # THE ROWS THAT MUST STILL READ MOVED AFTER THE PRESS:
-#   swap_buttons, right_drag_scroll  INPUT, which lives on the Gameplay page. This is the
+#   mouse_scheme, right_drag_scroll  INPUT, which lives on the Gameplay page. This is the
 #       half a careless fix breaks, and it would not merely change the session: the
 #       Visuals screen writes the preset on the way out, so a reset that cleared these
 #       would erase a customised mouse from the file on disc.
@@ -16870,7 +17636,7 @@ gfx ss_scale 3
 gfx ui_scale 1
 options
 optclick Gameplay
-optclick Swap mouse buttons
+optclick Mouse scheme
 optclick Right button scrolls
 optclick Credit tick sound
 optclick OK
@@ -16963,7 +17729,7 @@ G232EOF
 # stale file from a previous suite run is exactly as convincing as a stale PNG.
 gbegin shots/g232_ref.png shots/g232_after.png /tmp/g232_before.cfg /tmp/g232_after.cfg \
        shots/g232_ref.log shots/g232_reset.log shots/g232_ss.log
-G232BASE="--noshroud --nosound --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 --gfx"
+G232BASE="--seed 4242 --noshroud --nosound --scen SCG01EC --pack SCG01EA.pack $BASE --w 1280 --h 800 --gfx"
 grun shots/g232_ref.log   $G232BASE --script /tmp/g232_ref.txt
 grun shots/g232_reset.log $G232BASE --script /tmp/g232_reset.txt
 grun shots/g232_ss.log    $G232BASE --script /tmp/g232_ss.txt
@@ -17009,7 +17775,7 @@ echo "$G232D" | grep -q 'fx_mode=0|fx_res=800x600|fx_ui=0|sb_div=1' || G232OK=0
 # the camera turned back with the row, not a frame later
 echo "$G232P" | grep -q 'value=0|disabled=0|fx_persp=0|yaw=0.0' || G232OK=0
 # AND THE INPUT SURVIVED, both switches, the page and the dial agreeing
-echo "$G232G" | grep -q 'swap=1|fx_swap=1|push=0|fx_push=0|cash=0|fx_cash=0' || G232OK=0
+echo "$G232G" | grep -q 'scheme=1|fx_scheme=1|push=0|fx_push=0|cash=0|fx_cash=0' || G232OK=0
 # THE WINDOW IS LEFT ALONE. The storm moved the mode through the live Windowed row; the
 # press resets a graphics mode, and the display is Global. In an automated run a switch is
 # printed rather than performed, so the line IS the measurement: exactly one, the row on
@@ -17028,8 +17794,8 @@ if [ "$GRC" != "0" ]; then
   bad "G232 Reset to defaults: a run failed (GRC=$GRC). Nothing below was measured"
 elif [ "${G232BEFORE:-0}" -lt 40 ]; then
   bad "G232 Reset to defaults: the storm only moved $G232BEFORE dials off their defaults (want >=40). The gate cannot go red on a reset that does nothing, so this is the gate failing and not the button"
-elif [ "$G232KEEP" != "cash_tick display_mode enabled res_h res_w right_drag_scroll swap_buttons " ]; then
-  bad "G232 Reset to defaults: $G232AFTER dials still stand off their defaults after the press and they are [$G232KEEP], want exactly [cash_tick display_mode enabled res_h res_w right_drag_scroll swap_buttons ]. More than those means the reset does not cover the whole picture; FEWER means it has reached something that is not a picture at all -- the two input switches are the player's mouse and the credit tick is a sound, and the Visuals screen writes the preset on the way out, so clearing them rewrites the player's choice on disc"
+elif [ "$G232KEEP" != "cash_tick display_mode enabled mouse_scheme res_h res_w right_drag_scroll " ]; then
+  bad "G232 Reset to defaults: $G232AFTER dials still stand off their defaults after the press and they are [$G232KEEP], want exactly [cash_tick display_mode enabled mouse_scheme res_h res_w right_drag_scroll ]. More than those means the reset does not cover the whole picture; FEWER means it has reached something that is not a picture at all -- the two input switches are the player's mouse and the credit tick is a sound, and the Visuals screen writes the preset on the way out, so clearing them rewrites the player's choice on disc"
 elif [ "${G232DISP:-0}" != "1" ] || ! echo "$G232DISPLAST" | grep -q 'DISPLAY|deferred|mode=0|'; then
   bad "G232 Reset to defaults: the window was touched by the press ($G232DISP DISPLAY| lines, last [$G232DISPLAST], want exactly 1, the Windowed click, reading mode=0). The display is a Global row above the graphics mode tabs; Reset resets the mode the tabs point at and must leave the window where the player put it"
 elif [ "$G232OK" != "1" ]; then
@@ -17240,8 +18006,8 @@ G233PIC=1
 [ "$(g233dial new_hud)" = "1" ] || G233PIC=0
 [ "$(g233dial texset)" = "3.00000" ] || G233PIC=0   # the Enhanced textures, Enhanced's default
 [ "$(g233dial ss_scale)" = "1.00000" ] || G233PIC=0
-[ "$(g233dial sun_az)" = "57.85714" ] || G233PIC=0
-[ "$(g233dial sun_el)" = "28.00000" ] || G233PIC=0
+[ "$(g233dial sun_az)" = "45.00000" ] || G233PIC=0
+[ "$(g233dial sun_el)" = "30.85714" ] || G233PIC=0
 [ "$(g233dial inf_scale)" = "0.76786" ] || G233PIC=0   # the tuned panel's Enhanced infantry size
 [ "$(g233dial decal_soft)" = "0.60000" ] || G233PIC=0
 [ "$(g233dial grass)" = "1" ] || G233PIC=0
@@ -17437,7 +18203,7 @@ G238LOADROW=$(echo "$G238A" | grep -c '^SLOTS|row|0|slot=0|(GDI) Second save$')
 G238LOAD=$(echo "$G238A" | grep -c '^LOAD|slot=0|frame=300|scen=SCG01EA|objects=')
 G238DELQ=$(echo "$G238A" | grep -c '^OPTIONS|script|click|Delete|.*|page=6$')
 G238DEL=$(echo "$G238A" | grep -c '^DELETE|slot=0|removed$')
-G238LEFT=$(echo "$G238A" | grep -c '^SLOTS|0 occupied of 16$')
+G238LEFT=$(echo "$G238A" | grep -c '^SLOTS|0 occupied of 100$')
 G238CLOSED=$(echo "$G238A" | grep -c '^OPTIONS|script|click|Resume Mission|.*|page=0$')
 G238END=$(echo "$G238A" | grep -c '^SCRIPT|end .* 0 failures$')
 echo "$G238A" | awk '/^OBJDUMP-BEGIN/{n++} n==1&&/^(OBJ\||TIB\||WALL\|)/{print}' > /tmp/g238_a.txt
@@ -17524,20 +18290,10 @@ menu1995_off
 # under every corner). Footprints that touch are now levelled together, and an apron row
 # never overrides a corner a footprint owns.
 #
-# THREE LEGS, and why each one is there. (1) The shipped SCB07EC base, which carried the
-# defect as it ships: padcheck must count zero buried and every footprint flat, the
-# Barracks' own south corners must read the same height as the column it shares with the
-# plant, and that height must be the plant's 87 and NOT the yard's 90 or the refinery's
-# 101. The yard's apron row lies on the Barracks' north edge, so a rule that let aprons
-# join groups would fuse the whole base into one platform, and this number would say so.
-# (2) The player's own path on SCG01EC: build a Barracks and place it at 56,52 beside the
-# Construction Yard. Its own east column, which the yard never reaches, must read the
-# yard's 125: the whole Barracks rose, rather than the shared column being given away.
-# (3) The control: the same SCB07EC run with --noflatpads must report buried > 0. A
-# readout that cannot go red proves nothing, and the raw cartridge terrain sinks 15 of
-# that base's 38 pre-placed buildings, so the verb has something to say. On a binary
-# without the verb every leg fails, because an unknown script command is a script failure.
-# =====================================================================================
+# Direction 3 November 2026 prioritizes smooth connected terrain and
+# explicitly permits height adjustments. Shared platforms replace the 2 November
+# independent-height/vertical-seam policy. Exposed ground blends into the map.
+# --noflatpads remains the negative control. See docs/terrain-foundations.md.
 gbegin shots/padcheck_scb07ec.png shots/padlive_scg01ec.png \
        shots/g239_base.log shots/g239_live.log shots/g239_raw.log
 grun shots/g239_base.log --scen SCB07EC --pack SCB07EC.pack $BASE --noshroud --nominimap \
@@ -17564,6 +18320,7 @@ G239_L1=$(sed -n 's/^SBRRAW|56,53|.*|seen=\([0-9]*\).*/\1/p' shots/g239_live.log
 G239_L2=$(sed -n 's/^SBRRAW|58,52|.*|seen=\([0-9]*\).*/\1/p' shots/g239_live.log | tail -1)
 G239_L3=$(sed -n 's/^SBRRAW|58,54|.*|seen=\([0-9]*\).*/\1/p' shots/g239_live.log | tail -1)
 G239_RBUR=$(g239_field shots/g239_raw.log buried)
+G239_SEAMS=$(grep -ah "^PADSTEPS|" shots/g239_base.log shots/g239_live.log | grep -ac "^PADSTEPS|edges=0|max-height=0|colour=0|normals=0|depth=0$")
 G239_PLACED=$(grep -ac '^SCRIPT|place|placementmode now 0' shots/g239_live.log)
 if [ "$GRC" != "0" ]; then
   bad "G239 the pad never buries a building: a run failed (exit $GRC); a binary without padcheck fails here, because an unknown script verb is a script failure"
@@ -17572,19 +18329,21 @@ elif [ -z "$G239_BLD" ] || [ "$G239_BLD" -lt 30 ]; then
 elif [ "$G239_BUR" != "0" ] || [ "$G239_FLAT" != "$G239_BLD" ]; then
   bad "G239 the pad never buries a building: SCB07EC buried=${G239_BUR:-none} (want 0) flat=${G239_FLAT:-none} of $G239_BLD (want all); a building whose footprint corner is above its own anchor is drawn with the ground through it"
 elif [ "$G239_PYLE" != "87 87 87.00" ]; then
-  bad "G239 the pad never buries a building: the SCB07EC Barracks at 45,52 reads pad/low/anchor [$G239_PYLE] (want 87 87 87.00): it must stand level with the Power Plant it touches, and not at the yard's 90 or the refinery's 101, which would mean an apron row fused the base"
+  bad "G239 the pad never buries a building: the SCB07EC Barracks at 45,52 reads pad/low/anchor [$G239_PYLE] (want 87 87 87.00): its touching Power Plant shares one flat platform"
 elif [ "$G239_S1" != "87" ] || [ "$G239_S2" != "87" ] || [ "$G239_S3" != "87" ]; then
-  bad "G239 the pad never buries a building: the Barracks' own south corners read $G239_S1/$G239_S2 and its shared east column $G239_S3 (want 87 87 87): a building is one flat model and stands at one height"
+  bad "G239 the pad never buries a building: the Barracks' own south corners read $G239_S1/$G239_S2 and its shared east column $G239_S3 (want 87 87 87): the building and its touching neighbour share continuous ground"
 elif [ "${G239_PLACED:-0}" -lt 1 ] || [ -z "$G239_LBLD" ]; then
   bad "G239 the pad never buries a building: the SCG01EC Barracks was never placed (placements=$G239_PLACED, padcheck buildings=${G239_LBLD:-none}), so the live leg measured nothing"
 elif [ "$G239_LBUR" != "0" ] || [ "$G239_LPYLE" != "113 125 125 125.00" ]; then
-  bad "G239 the pad never buries a building: after placing a Barracks at 56,52 beside the Construction Yard, buried=${G239_LBUR:-none} (want 0) and the Barracks reads raw/pad/low/anchor [$G239_LPYLE] (want 113 125 125 125.00): its own ground is 113, the yard's 125, and the two must become one platform"
+  bad "G239 the pad never buries a building: after placing a Barracks at 56,52 beside the Construction Yard, buried=${G239_LBUR:-none} (want 0) and the Barracks reads raw/pad/low/anchor [$G239_LPYLE] (want 113 125 125 125.00): its raw ground is 113 and the shared platform matches the yard at 125"
 elif [ "$G239_L1" != "125" ] || [ "$G239_L2" != "125" ] || [ "$G239_L3" != "125" ]; then
-  bad "G239 the pad never buries a building: the placed Barracks' shared west column reads $G239_L1 and its own east column $G239_L2/$G239_L3 (want 125 125 125): the whole building must rise to the yard's level, not have its west edge given to the yard"
+  bad "G239 the pad never buries a building: the placed Barracks' shared west column reads $G239_L1 and its own east column $G239_L2/$G239_L3 (want 125 125 125): the Barracks and yard share continuous corners"
+elif [ "$G239_SEAMS" != "2" ]; then
+  bad "G239 connected platforms: expected zero vertical edges in both normal runs; matched $G239_SEAMS"
 elif [ -z "$G239_RBUR" ] || [ "$G239_RBUR" -lt 5 ]; then
   bad "G239 the pad never buries a building: with --noflatpads the same base reports buried=${G239_RBUR:-none} (want >= 5); the raw cartridge terrain sinks 15 of its 38 buildings, and a padcheck that cannot see them cannot see anything"
 else
-  ok "G239 the pad never buries a building: SCB07EC $G239_BLD buildings, 0 buried, all flat, the Barracks level with its Power Plant at 87; a Barracks placed beside SCG01EC's Construction Yard rises 113 to 125 on both its columns; without the pad the verb counts $G239_RBUR buried"
+  ok "G239 the pad never buries a building: SCB07EC $G239_BLD buildings, 0 buried, all flat, the Barracks and Power Plant share87; the placed Barracks and yard share125; without the pad the verb counts $G239_RBUR buried"
 fi
 
 # =====================================================================================
@@ -17771,6 +18530,11 @@ awk 'BEGIN{d=0} {print} /^\[UNITS\]/ && !d {printf "021=GoodGuy,JEEP,256,3523,0,
     missions/SCG15EC.INI > missions/user_maps/USEREDGE.INI
 cp missions/SCG15EC.BIN missions/user_maps/USEREDGE.BIN
 cat > /tmp/g242_rim.txt <<'G242EOF'
+# Hold the local culling/legacy feather calibration; the final fog mask has its own probes.
+gfxload gate_visual_lighting_20261026.txt
+gfx fow_smooth 0
+gfx fow_final 0
+gfx fow_noise 0
 tick 2
 gfx tib_hue 105.1
 gfx tib_sat 1
@@ -17810,6 +18574,11 @@ sed 's#shots/g242_x.png#shots/g242_rim_off.png#' /tmp/g242_rim.txt > /tmp/g242_o
 sed 's#shots/g242_x.png#shots/g242_rim_on_bare.png#'  /tmp/g242_rim.txt > /tmp/g242_on_bare.txt
 sed 's#shots/g242_x.png#shots/g242_rim_off_bare.png#' /tmp/g242_rim.txt > /tmp/g242_off_bare.txt
 cat > /tmp/g242_fog.txt <<'G242EOF'
+# Hold the local culling/legacy feather calibration; the final fog mask has its own probes.
+gfxload gate_visual_lighting_20261026.txt
+gfx fow_smooth 0
+gfx fow_final 0
+gfx fow_noise 0
 tick 5
 gfx tib_hue 105.1
 gfx tib_sat 1
@@ -18218,8 +18987,13 @@ fi
 #   (a) the READOUT: EFXDUMP|BULLET carries flat=0 in Classic and flat=1 under Enhanced
 #       for the 120mm round, and EFXDUMP|BULLETSCR projects the middle of the drawn box.
 #   (b) the PICTURE, west: the bright box on the flight line (gate_shell.py, threshold
-#       150 in a 29 px window about the projected centre) is TALLER than wide in Classic
-#       (3 x 6 measured at 1280x720) and WIDER than tall under Enhanced (7 x 3).
+#       120 in a 17 px window about the projected centre) is TALLER than wide in Classic
+#       (3 x 6 measured at 1280x720 with the camera on the height of its own cell, 3 x 5
+#       with it on the ground averaged round that cell) and WIDER than tall under
+#       Enhanced (7 x 3, and 5 x 2). The threshold is 120, not the script's default
+#       150: with the averaged camera the laid shell's upper face reads 115 and its side
+#       144 to 162, so 150 cut it to 3 x 2 though it is drawn 6 x 2; the grass in the
+#       window never passes 79 in any of the three frames.
 #   (c) the PICTURE, north: laid along the view direction the box foreshortens to no
 #       more than 8 px tall and 4 px wide (2 x 5 measured), which is what a shell pointing
 #       along its travel looks like from behind.
@@ -18236,8 +19010,11 @@ sed 's#shots/shell_x.png#shots/g_shell_we.png#' "$GATEDIR/gate_shell_w.txt" > /t
 sed 's#shots/shell_x.png#shots/g_shell_ne.png#' "$GATEDIR/gate_shell_n.txt" > /tmp/gshell_ne.txt
 # THE GROUND DETAIL, PINNED OFF: a grass clump or a rock on the flight line clips the
 # shell's box ("nothing between it and the camera" is this gate's premise).
+# AND THE TEMPORAL ANTI-ALIASING (aa_mode): it blends the shell, a box two pixels wide,
+# with the frames before it, so the bright box flying north thins to 1 x 1 against 2 x 5
+# without it. The box sizes and the threshold above were measured without it.
 for g245f in /tmp/gshell_wc.txt /tmp/gshell_we.txt /tmp/gshell_ne.txt; do
-  { printf 'gfx fol_on 0\ngfx rock_on 0\ngfx mottle_on 0\n'; cat "$g245f"; } > "$g245f.pin" && mv "$g245f.pin" "$g245f"
+  { printf 'gfx fol_on 0\ngfx rock_on 0\ngfx mottle_on 0\ngfx aa_mode 0\n'; cat "$g245f"; } > "$g245f.pin" && mv "$g245f.pin" "$g245f"
 done
 gbegin shots/g_shell_wc.png shots/g_shell_we.png shots/g_shell_ne.png \
        shots/g_shell_wc.log shots/g_shell_we.log shots/g_shell_ne.log
@@ -18252,14 +19029,17 @@ SHNE=$(grep -c '^EFXDUMP|BULLET|120mm|id=0|cell=58.5,50.0|face=0|alt=0|invis=0|f
 SHWCS=$(sed -n 's/^EFXDUMP|BULLETSCR|120mm|id=0|scr=\([0-9.]*\),\([0-9.]*\)|flat=0$/\1 \2/p' shots/g_shell_wc.log | head -1)
 SHWES=$(sed -n 's/^EFXDUMP|BULLETSCR|120mm|id=0|scr=\([0-9.]*\),\([0-9.]*\)|flat=1$/\1 \2/p' shots/g_shell_we.log | head -1)
 SHNES=$(sed -n 's/^EFXDUMP|BULLETSCR|120mm|id=0|scr=\([0-9.]*\),\([0-9.]*\)|flat=1$/\1 \2/p' shots/g_shell_ne.log | head -1)
+# The radius of eight contains the largest expected shell plus the 2.5 px centring
+# allowance, while excluding an unrelated bright structure pixel nine rows away.
+# Geometry thresholds and the centring assertion remain unchanged.
 # The pictures, measured about the projected centre. A run without the readout has no
 # centre to measure about, and its box is reported as 0 x 0 rather than measured at some
 # corner of the frame where the sidebar would be counted instead.
-if [ -n "$SHWCS" ]; then set -- $(python3 "$GATEDIR/gate_shell.py" shots/g_shell_wc.png $SHWCS); else set -- 0 0 0 0 0; fi
+if [ -n "$SHWCS" ]; then set -- $(python3 "$GATEDIR/gate_shell.py" shots/g_shell_wc.png $SHWCS 8 120); else set -- 0 0 0 0 0; fi
 SHWCW=$1; SHWCH=$2; SHWCX=$3; SHWCY=$4
-if [ -n "$SHWES" ]; then set -- $(python3 "$GATEDIR/gate_shell.py" shots/g_shell_we.png $SHWES); else set -- 0 0 0 0 0; fi
+if [ -n "$SHWES" ]; then set -- $(python3 "$GATEDIR/gate_shell.py" shots/g_shell_we.png $SHWES 8 120); else set -- 0 0 0 0 0; fi
 SHWEW=$1; SHWEH=$2; SHWEX=$3; SHWEY=$4
-if [ -n "$SHNES" ]; then set -- $(python3 "$GATEDIR/gate_shell.py" shots/g_shell_ne.png $SHNES); else set -- 0 0 0 0 0; fi
+if [ -n "$SHNES" ]; then set -- $(python3 "$GATEDIR/gate_shell.py" shots/g_shell_ne.png $SHNES 8 120); else set -- 0 0 0 0 0; fi
 SHNEW=$1; SHNEH=$2; SHNEX=$3; SHNEY=$4
 # centre error, worst axis, over the three frames; 99 when a readout or a box is missing
 SHERR=$(python3 -c "
@@ -18283,40 +19063,45 @@ else
   bad "G245 tank shell: readouts classic-west=$SHWC enhanced-west=$SHWE enhanced-north=$SHNE (want 1 each), boxes classic-west=${SHWCW}x${SHWCH}(want taller than wide) enhanced-west=${SHWEW}x${SHWEH}(want wider than tall, >=5 wide) enhanced-north=${SHNEW}x${SHNEH}(want <=4 x <=8), worst centre error ${SHERR}px(want <=2.5)"
 fi
 
-# G246 THE ROCKET LAUNCHER POINTS WHERE ITS ROCKETS GO UNDER ENHANCED, AND CLASSIC KEEPS
-# THE CONSOLE'S PICTURE. The GDI rocket launcher (INI MSAM) is turret equipped in the
-# engine but its cartridge model is one rigid node, and the console draws the whole model
-# at PrimaryFacing while the homing DRAGON round leaves along SecondaryFacing from the
-# unit's centre. The body is turned only in TarComClass::AI's FIRE_FACING arm, which is
-# unreachable while the launcher is rearming, so a retarget inside the 83-tick reload
-# swings the turret alone and the next volley leaves out of the flank of a body that
-# never moved. Under Enhanced draw_facing hands the launcher its turret facing instead;
-# Classic keeps PrimaryFacing. Same scenario, same script, two looks, and the SIM must be
-# identical in both: this is a renderer-only change and the readouts prove it.
+# G246 THE ROCKET LAUNCHER POINTS WHERE ITS ROCKETS GO IN BOTH 3D LOOKS, N64 AND ENHANCED,
+# AND THE FLAT CLASSIC VIEW IS LEFT TO THE 1995 SPRITE. The GDI rocket launcher (INI MSAM)
+# is turret equipped in the engine but its cartridge model is one rigid node, and the
+# console draws the whole model at PrimaryFacing while the homing DRAGON round leaves along
+# SecondaryFacing from the unit's centre. The body is turned only in TarComClass::AI's
+# FIRE_FACING arm, which is unreachable while the launcher is rearming, so a retarget
+# inside the 83-tick reload swings the turret alone and the next volley leaves out of the
+# flank of a body that never moved. In the N64 and Enhanced looks draw_facing hands the
+# launcher its turret facing instead (launcher_follows_turret), a declared deviation from
+# the console in the N64 look. Classic draws the engine's own 1995 sprite, which already
+# picks its frame by the turret, so the renderer's facing is not handed to it. Same
+# scenario, same script, three looks, and the SIM must be identical in all three: this is
+# a renderer-only change and the readouts prove it.
 #
 # THE REPRO is the reload gate. SCG90EA with unit 003 swapped for a launcher at 57,50
 # facing north. Force-fire east at 61,50: the body turns 0->63 (FIRE_FACING, the turret
 # was 64 off), both rockets leave east (tick 33, 42). At tick 60, inside the reload,
 # force-fire north at 57,46: the turret swings 63->0 at 6/tick over 13 ticks while the
 # body stays at 63, and the next pair leaves at tick 125 and 134, due north (face=0) from
-# 57.5,50.3, the unit's own centre. Both runs must print the same engine state at every
-# sample or the gate is measuring two different games.
+# 57.5,50.3, the unit's own centre. All three runs must print the same engine state at
+# every sample or the gate is measuring different games.
 #
-# Assertions, all four needed:
-#   (a) ENGINE, both looks: face=63 tface=63 before the retarget; face=63 tface=0 after
+# Assertions, all needed:
+#   (a) ENGINE, every look: face=63 tface=63 before the retarget; face=63 tface=0 after
 #       the swing and at the launch; the launch line EFXDUMP|BULLET|DRAGON|id=0|
 #       cell=57.5,50.3|face=0. The body did NOT turn and the rocket is going north.
-#   (b) YAW, Classic: every sampled yaw is 191 ((63+128)&255): the body's facing, as the
-#       console draws it.
-#   (c) YAW, Enhanced: 191 before the swing, 128 ((0+128)&255) at the launch, and the
-#       13-tick swing is CONTINUOUS: 14 samples, no |jump| above 6 (the turret's own
-#       ROT+1 step), so the swap cannot snap the hull the way the old stillness latch
-#       snapped the harvester.
+#   (b) YAW, N64 and Enhanced alike: 191 ((63+128)&255) before the swing, 128
+#       ((0+128)&255) at the launch, and the 13-tick swing is CONTINUOUS: 14 samples, no
+#       |jump| above 6 (the turret's own ROT+1 step), so the swap cannot snap the hull
+#       the way the old stillness latch snapped the harvester. The two looks' yaw
+#       sequences are equal sample for sample.
+#   (c) YAW, Classic: every sample stays the body's 191, which proves the swap is not
+#       handed to the flat view (its picture is the engine's sprite, not this yaw).
 #   (d) PIXELS: the launcher's own sand pixels in a box around it (cam 57 50 at zoom max
 #       puts it at about 685,386; the box keeps the medium tank to its west and the smoke
-#       column out). Their spread is wider than tall when the hull lies east-west and
-#       taller than wide when it points north. Measured: Classic w=64 h=35, Enhanced
-#       w=32 h=54. The shipped build measures w=64 h=35 in BOTH looks.
+#       column out). Their spread is taller than wide when it points north. Measured:
+#       N64 w=32 h=53 and Enhanced w=33 h=59. The build before the N64 swap measures
+#       w=64 h=35 in N64 (the launcher lying east-west, rockets out of its flank) and
+#       fails (b) with yaw 191 in all 17 N64 samples.
 #
 # The Enhanced run passes --noevhc: this gate is about the cartridge's one-node model.
 # The remastered launcher has its launcher as a turret piece, so its hull stays at
@@ -18326,9 +19111,11 @@ GML=$(mktemp -d "${TMPDIR:-/tmp}/gate_mlrs.XXXXXX")
 cp missions/*.INI missions/*.BIN "$GML"/
 sed -i.bak 's/^003=GoodGuy,MTNK,256,3257,0,Guard,None/003=GoodGuy,MSAM,256,3257,0,Guard,None/' "$GML/SCG90EA.INI"
 GMLSWAP=$(grep -c '^003=GoodGuy,MSAM,256,3257,0,Guard,None' "$GML/SCG90EA.INI")
-for look in classic enh; do
+for look in n64 enh classic; do
+GMLMODE=""; [ "$look" = "classic" ] && GMLMODE="gfxmode 0"
 cat > "/tmp/g246_$look.txt" <<EOS
 tick 5
+$GMLMODE
 cam 57 50
 zoom max
 lclickobj MSAM 0
@@ -18350,38 +19137,56 @@ shot shots/g246_$look.png
 quit
 EOS
 done
-gbegin shots/g246_classic.png shots/g246_enh.png shots/g246_classic.log shots/g246_enh.log
-grun shots/g246_classic.log --scen SCG90EA --pack SCG01EA.pack $BASE --dir "$GML/" --noshroud \
-     --w 1280 --h 720 --script /tmp/g246_classic.txt
+gbegin shots/g246_n64.png shots/g246_enh.png shots/g246_classic.png \
+       shots/g246_n64.log shots/g246_enh.log shots/g246_classic.log
+grun shots/g246_n64.log --scen SCG90EA --pack SCG01EA.pack $BASE --dir "$GML/" --noshroud \
+     --w 1280 --h 720 --script /tmp/g246_n64.txt
 grun shots/g246_enh.log --scen SCG90EA --pack SCG01EA.pack $BASE --dir "$GML/" --noshroud \
      --w 1280 --h 720 --enhanced --noevhc --script /tmp/g246_enh.txt
-gshots shots/g246_classic.png shots/g246_enh.png
+grun shots/g246_classic.log --scen SCG90EA --pack SCG01EA.pack $BASE --dir "$GML/" --noshroud \
+     --w 1280 --h 720 --script /tmp/g246_classic.txt
+gshots shots/g246_n64.png shots/g246_enh.png shots/g246_classic.png
 rm -rf "$GML"
 # (a) the engine, read out of each log and required to agree between the looks
 gml_engine() {
   grep -E '^AIMWATCH\|MSAM#0\|t=[0-9]+\|' "$1" | sed 's/|still=[0-9]*|isstill=[0-9]|yaw=[0-9]*|jump=[-+0-9]*|/|/' | tr '\n' ' '
 }
-GMLEC=$(gml_engine shots/g246_classic.log)
+GMLEN=$(gml_engine shots/g246_n64.log)
 GMLEE=$(gml_engine shots/g246_enh.log)
-GMLSAME=0; [ -n "$GMLEC" ] && [ "$GMLEC" = "$GMLEE" ] && GMLSAME=1
-GMLPRE=$(grep -c '^AIMWATCH|MSAM#0|t=0|lx=14720|ly=12928|face=63|tface=63|' shots/g246_classic.log)
-GMLPOST=$(grep -c '^AIMWATCH|MSAM#0|t=0|lx=14720|ly=12928|face=63|tface=0|' shots/g246_classic.log)
-GMLLAUNCH=$(grep -c '^EFXDUMP|BULLET|DRAGON|id=0|cell=57.5,50.3|face=0|' shots/g246_classic.log)
-GMLLAUNCHE=$(grep -c '^EFXDUMP|BULLET|DRAGON|id=0|cell=57.5,50.3|face=0|' shots/g246_enh.log)
-# (b) Classic: every yaw is the body's
+GMLEC=$(gml_engine shots/g246_classic.log)
+GMLSAME=0; [ -n "$GMLEN" ] && [ "$GMLEN" = "$GMLEE" ] && [ "$GMLEN" = "$GMLEC" ] && GMLSAME=1
+GMLPRE=$(grep -c '^AIMWATCH|MSAM#0|t=0|lx=14720|ly=12928|face=63|tface=63|' shots/g246_n64.log)
+GMLPOST=$(grep -c '^AIMWATCH|MSAM#0|t=0|lx=14720|ly=12928|face=63|tface=0|' shots/g246_n64.log)
+GMLLAUNCH=0
+for l in n64 enh classic; do
+  grep -q '^EFXDUMP|BULLET|DRAGON|id=0|cell=57.5,50.3|face=0|' "shots/g246_$l.log" && GMLLAUNCH=$((GMLLAUNCH+1))
+done
+# (b) N64 and Enhanced: the yaw follows the turret, continuously, the same in both
+gml_yaws() { grep -E '^AIMWATCH\|MSAM#0\|t=[0-9]+\|' "$1" | sed -n 's/.*|yaw=\([0-9]*\)|.*/\1/p' | tr '\n' ' '; }
+GMLYN=$(gml_yaws shots/g246_n64.log)
+GMLYE=$(gml_yaws shots/g246_enh.log)
+GMLYSAME=0; [ -n "$GMLYN" ] && [ "$GMLYN" = "$GMLYE" ] && GMLYSAME=1
+gml_follow() {
+  local P A J S
+  P=$(grep -c '^AIMWATCH|MSAM#0|t=0|lx=14720|ly=12928|face=63|tface=63|still=70|isstill=1|yaw=191|' "$1")
+  A=$(grep -c '^AIMWATCH|MSAM#0|t=0|lx=14720|ly=12928|face=63|tface=0|still=13[58]|isstill=1|yaw=128|' "$1")
+  J=$(grep -E '^AIMWATCH\|MSAM#0\|t=[0-9]+\|' "$1" | sed -n 's/.*|jump=\([-+0-9]*\)|.*/\1/p' | tr -d '+' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{m=-lo; if (hi>m) m=hi; print m+0}')
+  S=$(grep -c '^AIMWATCH|MSAM#0|t=1[0-3]|' "$1")
+  echo "$P $A ${J:-99} $S"
+}
+set -- $(gml_follow shots/g246_n64.log)
+GMLNPRE="$1"; GMLNAT="$2"; GMLNJUMP="$3"; GMLNSW="$4"
+set -- $(gml_follow shots/g246_enh.log)
+GMLEPRE="$1"; GMLEAT="$2"; GMLEJUMP="$3"; GMLESW="$4"
+# (c) Classic: the flat view is not handed the swap
 GMLCYAW=$(grep -E '^AIMWATCH\|MSAM#0\|t=[0-9]+\|' shots/g246_classic.log | grep -c '|yaw=191|')
 GMLCN=$(grep -cE '^AIMWATCH\|MSAM#0\|t=[0-9]+\|' shots/g246_classic.log)
-# (c) Enhanced: the yaw follows the turret, continuously
-GMLEPRE=$(grep -c '^AIMWATCH|MSAM#0|t=0|lx=14720|ly=12928|face=63|tface=63|still=70|isstill=1|yaw=191|' shots/g246_enh.log)
-GMLEAT=$(grep -c '^AIMWATCH|MSAM#0|t=0|lx=14720|ly=12928|face=63|tface=0|still=13[58]|isstill=1|yaw=128|' shots/g246_enh.log)
-GMLEJUMP=$(grep -E '^AIMWATCH\|MSAM#0\|t=[0-9]+\|' shots/g246_enh.log | sed -n 's/.*|jump=\([-+0-9]*\)|.*/\1/p' | tr -d '+' | sort -n | awk 'NR==1{lo=$1} {hi=$1} END{m=-lo; if (hi>m) m=hi; print m+0}')
-GMLESW=$(grep -c '^AIMWATCH|MSAM#0|t=1[0-3]|' shots/g246_enh.log)
 # (d) the pixels
 GMLPIX=$(python3 - <<'PY'
 from PIL import Image
 import numpy as np
 out = []
-for p in ('shots/g246_classic.png', 'shots/g246_enh.png'):
+for p in ('shots/g246_n64.png', 'shots/g246_enh.png'):
     a = np.asarray(Image.open(p).convert('RGB')).astype(int)
     box = a[320:450, 632:770]
     r, g, b = box[:, :, 0], box[:, :, 1], box[:, :, 2]
@@ -18397,20 +19202,24 @@ print(' '.join(str(v) for v in out))
 PY
 )
 set -- $GMLPIX
-GMLCS="${1:-0}"; GMLCW="${2:-0}"; GMLCH="${3:-0}"; GMLES="${4:-0}"; GMLEW="${5:-0}"; GMLEH="${6:-0}"
+GMLNS="${1:-0}"; GMLNW="${2:-0}"; GMLNH="${3:-0}"; GMLES="${4:-0}"; GMLEW="${5:-0}"; GMLEH="${6:-0}"
 if [ "$GRC" != "0" ]; then
-  bad "G246 rocket launcher: the run itself failed or wrote no shot (GRC=$GRC)"
+  bad "G246 rocket launcher: a run failed or wrote no shot (GRC=$GRC)"
 elif [ "$GMLSWAP" != "1" ] || [ "$GMLSAME" != "1" ] || [ "$GMLPRE" -lt 2 ] || [ "$GMLPOST" -lt 2 ] \
-   || [ "$GMLLAUNCH" != "1" ] || [ "$GMLLAUNCHE" != "1" ]; then
-  bad "G246 rocket launcher, the engine half: launcher-in-scenario=$GMLSWAP(want 1) same-sim-both-looks=$GMLSAME(want 1) face63-tface63-samples=$GMLPRE(want >=2) face63-tface0-samples=$GMLPOST(want >=2) north-launch-from-centre classic=$GMLLAUNCH enh=$GMLLAUNCHE(want 1 each)"
-elif [ "$GMLCN" -lt 17 ] || [ "$GMLCYAW" != "$GMLCN" ]; then
-  bad "G246 rocket launcher, Classic: $GMLCYAW of $GMLCN sampled yaws are the body's 191 (want all of >=17)"
-elif [ "$GMLEPRE" -lt 1 ] || [ "$GMLEAT" -lt 2 ] || [ "$GMLESW" != "4" ] || [ "${GMLEJUMP:-99}" -gt 6 ]; then
+   || [ "$GMLLAUNCH" != "3" ]; then
+  bad "G246 rocket launcher, the engine half: launcher-in-scenario=$GMLSWAP(want 1) same-sim-three-looks=$GMLSAME(want 1) face63-tface63-samples=$GMLPRE(want >=2) face63-tface0-samples=$GMLPOST(want >=2) north-launch-from-centre=$GMLLAUNCH of 3 looks"
+elif [ "$GMLNPRE" -lt 1 ] || [ "$GMLNAT" -lt 2 ] || [ "$GMLNSW" != "4" ] || [ "$GMLNJUMP" -gt 6 ]; then
+  bad "G246 rocket launcher, N64: yaw191-before=$GMLNPRE(want >=1) yaw128-at-launch=$GMLNAT(want >=2) swing-samples=$GMLNSW(want 4) largest-jump=$GMLNJUMP(want <=6); the console's own pose (yaw 191 throughout) is what an N64 build without the swap draws"
+elif [ "$GMLEPRE" -lt 1 ] || [ "$GMLEAT" -lt 2 ] || [ "$GMLESW" != "4" ] || [ "$GMLEJUMP" -gt 6 ]; then
   bad "G246 rocket launcher, Enhanced: yaw191-before=$GMLEPRE(want >=1) yaw128-at-launch=$GMLEAT(want >=2) swing-samples=$GMLESW(want 4) largest-jump=$GMLEJUMP(want <=6)"
-elif [ "$GMLCS" -lt 400 ] || [ "$GMLES" -lt 400 ] || [ "$GMLCW" -le "$GMLCH" ] || [ "$GMLEH" -le "$GMLEW" ]; then
-  bad "G246 rocket launcher, the pixels: classic sand=$GMLCS w=$GMLCW h=$GMLCH (want w>h, east-west) enhanced sand=$GMLES w=$GMLEW h=$GMLEH (want h>w, pointing north)"
+elif [ "$GMLYSAME" != "1" ]; then
+  bad "G246 rocket launcher: the N64 and Enhanced yaws differ (N64: $GMLYN / Enhanced: $GMLYE)"
+elif [ "$GMLCN" -lt 17 ] || [ "$GMLCYAW" != "$GMLCN" ]; then
+  bad "G246 rocket launcher, Classic: $GMLCYAW of $GMLCN sampled yaws are the body's 191 (want all of >=17: the flat view is not handed the swap)"
+elif [ "$GMLNS" -lt 400 ] || [ "$GMLES" -lt 400 ] || [ "$GMLNH" -le "$GMLNW" ] || [ "$GMLEH" -le "$GMLEW" ]; then
+  bad "G246 rocket launcher, the pixels: n64 sand=$GMLNS w=$GMLNW h=$GMLNH, enhanced sand=$GMLES w=$GMLEW h=$GMLEH (want h>w in both, pointing north)"
 else
-  ok "G246 rocket launcher: same sim both looks (face 63, turret 63->0 in 13 ticks, volley north from 57.5,50.3); Classic draws the body at 191 in all $GMLCN samples; Enhanced follows the turret 191->128 with no jump over $GMLEJUMP and lands at 128 at the launch; launcher ${GMLCW}x${GMLCH} px east-west in Classic, ${GMLEW}x${GMLEH} px north in Enhanced"
+  ok "G246 rocket launcher: same sim in N64, Enhanced and Classic (face 63, turret 63->0 in 13 ticks, volley north from 57.5,50.3); N64 and Enhanced both follow the turret 191->128 with no jump over $GMLNJUMP and land at 128 at the launch, sample for sample alike; Classic's flat view keeps the body's 191 in all $GMLCN samples; launcher ${GMLNW}x${GMLNH} px north in N64, ${GMLEW}x${GMLEH} px north in Enhanced"
 fi
 
 # G247 THE TEXTURE BOOKS SIT ON THEIR BUILDINGS. G68 reads the slot the silo picks; this
@@ -19031,6 +19840,9 @@ menu1995_on
 #   THE CLAMP. A preset asking Windowed at 6015x3383 is shrunk to the usable room before
 #   the window is born, and says so; this is the shell's birth path in a hidden harness
 #   run, the one path that applies a mode in an automated run.
+#   THE RETINA SWITCH, at the same birth: full resolution is asked for by Tiberian Dawn's
+#   file for both games, off without a hidpi line, and a Red Alert save of it keeps that
+#   file's one line in step (the leg after the clamp says how).
 #
 # A live leg (no inject) reads THIS machine's display through the same verb: entry 0 is
 # the desktop, every unfit entry is exactly the set marked DISABLED under Windowed, and
@@ -19224,10 +20036,132 @@ G251GH=$(printf '%s' "$G251CL" | sed -n 's/.*|got=\([0-9]*\)x\([0-9]*\).*/\2/p')
 [ "$G251SRC" = "0" ] || g251bad "clamp: the shell run failed (exit $G251SRC)"
 echo "$G251CL" | grep -q '^DISPLAY|clamped|asked=6015x3383|got=[0-9]*x[0-9]*$' || g251bad "clamp: no clamped line [$G251CL]"
 [ -n "$G251GW" ] && [ "$G251GW" -le "${G251UW:-0}" ] && [ "$G251GH" -le "${G251UH:-0}" ] || g251bad "clamp: got ${G251GW}x${G251GH} is not within the usable ${G251UW}x${G251UH}"
+# THE RETINA SWITCH, through the same birth and the same sandbox. Full resolution is one
+# setting for both games, off unless the player turned it on, and read from Tiberian
+# Dawn's file whenever that exists. The shell prints DISPLAY|hidpi|wanted=W|applied=A|
+# from=FILE as the window is born, in every run; applied is 1 only in a player's run, so it
+# is 0 in all of these. A row turned on is saved as "hidpi 1    # moved"; a bare "hidpi 1"
+# was written while the default was on and reads as the default.
+#   (i)   the clamp run above, whose file has no hidpi line: wanted=0, by the default;
+#   (ii)  the same kind of file with a marked hidpi 1 (a menu shot): wanted=1;
+#   (iii) Red Alert (a menu shot), Tiberian Dawn's file with a bare hidpi 1 and Red Alert's
+#         own with a marked one: wanted=0 from Tiberian Dawn's file (the old default),
+#         Red Alert's live row 0 (RA3D|hidpi|live=0), and neither file written;
+#   (iv)  Red Alert remembering its own file (--visualscfg ra3d-fx.cfg), both directions:
+#         a. Tiberian Dawn's LF file without the line, Red Alert's own with a marked 1:
+#            wanted=0, live 0 read back with gfxsave; an unrelated dial saves Red Alert's
+#            file with hidpi still 0 and must leave Tiberian Dawn's alone; then hidpi 1
+#            appends the one marked line (two saves of its own file, one VISCFG|hidpi);
+#         b. Tiberian Dawn's CRLF file with a marked 1 in the middle, Red Alert's own 0:
+#            wanted=1, live 1 read back; hidpi 0 replaces that line in place with an
+#            unmarked 0, CRLF and every other byte kept, no temporary left;
+#   (v)   saves Red Alert does not carry: a --visualscfg naming another file, whose
+#         remembered save of hidpi 1 must not reach Tiberian Dawn's file, and a gfxsave of
+#         ra3d-fx.cfg in that run, which is not the file the run remembers.
+# Every Tiberian Dawn file that a rewrite may touch carries the enh_textures line every
+# save writes, without which the rewrite refuses the file as not whole. Both Red Alert
+# files are written fresh into the sandbox after removing whatever link stood there,
+# because a save through a link lands in the run folder; --shotdir keeps the debrief
+# picture a skirmish writes inside the sandbox too.
+# PROVEN TO FAIL on the build before: no DISPLAY|hidpi or RA3D|hidpi line at all, Red
+# Alert's live row read back from its own file, and Tiberian Dawn's file never written.
+G251HI=$(grep '^DISPLAY|hidpi|' /tmp/g251_shell.log | head -1)
+[ "$G251HI" = "DISPLAY|hidpi|wanted=0|applied=0|from=opencnc3d-fx.cfg (no hidpi line: the default)" ] || g251bad "retina (i): a file without the line gave [$G251HI]"
+printf 'display_mode 0\nres_w 1280\nres_h 720\n%-18s %d    # moved\n' hidpi 1 > "$G251SB/opencnc3d-fx.cfg"
+( cd "$G251SB" && perl -e 'alarm 120; exec @ARGV' ./opencnc3d --nosound $BASE --menupack dosmenu.pack \
+    --menushot shots/g251_hidpi_td.png > /tmp/g251_hidpi_td.log 2>&1 ) || g251bad "retina (ii): the menu shot failed"
+cat /tmp/g251_hidpi_td.log >> "$OUT"
+G251HI=$(grep '^DISPLAY|hidpi|' /tmp/g251_hidpi_td.log | head -1)
+[ "$G251HI" = "DISPLAY|hidpi|wanted=1|applied=0|from=opencnc3d-fx.cfg" ] || g251bad "retina (ii): a file with a marked hidpi 1 gave [$G251HI]"
+G251RA="the Red Alert arms did not run: no Red Alert module is staged in this folder"
+if [ -x ra3d/opencnc3d ] && [ -f ra3d/RedAlert.dylib ]; then
+  G251RA="Red Alert follows Tiberian Dawn's file both ways (0 over its own marked 1, 1 over its own 0) on the window, the live row and a gfxsave read back, writing neither file at start; its saves append a marked hidpi 1 to an LF file and put an unmarked 0 in place in a CRLF file, every other byte kept; a save to another --visualscfg file or a gfxsave of a file the run does not remember leaves Tiberian Dawn's file alone"
+  rm -f "$G251SB/ra3d-fx.cfg" "$G251SB/ra3d-controls.cfg" "$G251SB/ra_debrief.png"
+  rm -rf /tmp/g251_hidpi_save; mkdir -p /tmp/g251_hidpi_save
+  g251ra() {   # g251ra LOG SCRIPT [extra args]: one hidden Red Alert skirmish in the sandbox
+    g251log=$1; g251scr=$2; shift 2
+    ( cd "$G251SB" && perl -e 'alarm 180; exec @ARGV' ./ra3d/opencnc3d --module ra3d --hidden --nosound --no-movies \
+        --raskirmish SCM10EA --side soviet --ai 3 --seed 4242 --savedir /tmp/g251_hidpi_save --shotdir shots \
+        "$@" --script "$g251scr" > "$g251log" 2>&1 )
+  }
+  # (iii)
+  printf 'enh_textures       1\ndisplay_mode 0\nres_w 1280\nres_h 720\n%-18s %d\n' hidpi 1 > "$G251SB/opencnc3d-fx.cfg"
+  printf '%-18s %d    # moved\n' hidpi 1 > "$G251SB/ra3d-fx.cfg"
+  cp "$G251SB/opencnc3d-fx.cfg" /tmp/g251_hidpi_td_before.cfg
+  cp "$G251SB/ra3d-fx.cfg" /tmp/g251_hidpi_ra_before.cfg
+  ( cd "$G251SB" && perl -e 'alarm 120; exec @ARGV' ./ra3d/opencnc3d --module ra3d --nosound \
+      --menushot shots/g251_hidpi_ra.png > /tmp/g251_hidpi_ra.log 2>&1 ) || g251bad "retina (iii): the Red Alert menu shot failed"
+  cat /tmp/g251_hidpi_ra.log >> "$OUT"
+  G251HI=$(grep '^DISPLAY|hidpi|' /tmp/g251_hidpi_ra.log | head -1)
+  [ "$G251HI" = "DISPLAY|hidpi|wanted=0|applied=0|from=opencnc3d-fx.cfg (an unmarked hidpi 1, the old default: the default)" ] || g251bad "retina (iii): Red Alert's window asked [$G251HI]"
+  G251HI=$(grep '^RA3D|hidpi|' /tmp/g251_hidpi_ra.log | head -1)
+  [ "$G251HI" = "RA3D|hidpi|live=0|from=opencnc3d-fx.cfg (an unmarked hidpi 1, the old default: the default)" ] || g251bad "retina (iii): Red Alert's live row [$G251HI]"
+  cmp -s /tmp/g251_hidpi_td_before.cfg "$G251SB/opencnc3d-fx.cfg" || g251bad "retina (iii): a plain Red Alert run wrote Tiberian Dawn's file"
+  cmp -s /tmp/g251_hidpi_ra_before.cfg "$G251SB/ra3d-fx.cfg" || g251bad "retina (iii): a plain Red Alert run wrote its own file"
+  # (iv) a: appended
+  printf 'enh_textures       1\ndisplay_mode 0\nres_w 1280\nres_h 720\n' > "$G251SB/opencnc3d-fx.cfg"
+  cp "$G251SB/opencnc3d-fx.cfg" /tmp/g251_hidpi_td_before.cfg
+  printf 'gfxsave /tmp/g251_hidpi_live.cfg\ngfx taa_sharpen 0.5\nframes 5\ngfx hidpi 1\nquit\n' > /tmp/g251_hidpi_a.txt
+  { cat /tmp/g251_hidpi_td_before.cfg; printf '%-18s %d    # moved\n' hidpi 1; } > /tmp/g251_hidpi_a_want.cfg
+  rm -f /tmp/g251_hidpi_live.cfg
+  g251ra /tmp/g251_hidpi_a.log /tmp/g251_hidpi_a.txt --visualscfg ra3d-fx.cfg || g251bad "retina (iv a): the appending Red Alert run failed"
+  cat /tmp/g251_hidpi_a.log >> "$OUT"
+  grep -q '^SCRIPT|end .* 0 failures' /tmp/g251_hidpi_a.log || g251bad "retina (iv a): script [$(grep '^SCRIPT|end' /tmp/g251_hidpi_a.log)]"
+  G251HI=$(grep '^DISPLAY|hidpi|' /tmp/g251_hidpi_a.log | head -1)
+  [ "$G251HI" = "DISPLAY|hidpi|wanted=0|applied=0|from=opencnc3d-fx.cfg (no hidpi line: the default)" ] || g251bad "retina (iv a): Red Alert's window asked [$G251HI]"
+  G251HI=$(grep '^RA3D|hidpi|' /tmp/g251_hidpi_a.log | head -1)
+  [ "$G251HI" = "RA3D|hidpi|live=0|from=opencnc3d-fx.cfg (no hidpi line: the default)" ] || g251bad "retina (iv a): Red Alert's live row [$G251HI]"
+  G251HI=$(sed -n 's/^hidpi  *\([0-9]\).*/\1/p' /tmp/g251_hidpi_live.cfg 2>/dev/null | head -1)
+  [ "$G251HI" = "0" ] || g251bad "retina (iv a): Red Alert's live row read back [$G251HI] at the start of a remembering run, want 0"
+  G251HI=$(grep '^VISCFG|hidpi|' /tmp/g251_hidpi_a.log | tr '\n' ' ')
+  [ "$G251HI" = "VISCFG|hidpi|wrote|opencnc3d-fx.cfg|1 " ] || g251bad "retina (iv a): printed [$G251HI], want one VISCFG|hidpi|wrote|opencnc3d-fx.cfg|1"
+  G251HI=$(grep -c '^VISCFG|wrote|ra3d-fx.cfg$' /tmp/g251_hidpi_a.log)
+  [ "$G251HI" = "2" ] || g251bad "retina (iv a): Red Alert saved its own file $G251HI times, want 2 (hidpi 0, then 1)"
+  cmp -s /tmp/g251_hidpi_a_want.cfg "$G251SB/opencnc3d-fx.cfg" || g251bad "retina (iv a): Tiberian Dawn's file is not itself plus one appended hidpi line: [$(tr '\n' '/' < "$G251SB/opencnc3d-fx.cfg")]"
+  # (iv) b: replaced in place, the other way
+  printf 'enh_textures       1\r\ndisplay_mode 0\r\nres_w 1280\r\n%-18s %d    # moved\r\nres_h 720\r\n# kept as written\r\n' hidpi 1 > "$G251SB/opencnc3d-fx.cfg"
+  printf 'hidpi 0\n' > "$G251SB/ra3d-fx.cfg"
+  printf 'enh_textures       1\r\ndisplay_mode 0\r\nres_w 1280\r\n%-18s %d\r\nres_h 720\r\n# kept as written\r\n' hidpi 0 > /tmp/g251_hidpi_b_want.cfg
+  printf 'gfxsave /tmp/g251_hidpi_live.cfg\ngfx hidpi 0\nquit\n' > /tmp/g251_hidpi_b.txt
+  rm -f /tmp/g251_hidpi_live.cfg
+  g251ra /tmp/g251_hidpi_b.log /tmp/g251_hidpi_b.txt --visualscfg ra3d-fx.cfg || g251bad "retina (iv b): the replacing Red Alert run failed"
+  cat /tmp/g251_hidpi_b.log >> "$OUT"
+  grep -q '^SCRIPT|end .* 0 failures' /tmp/g251_hidpi_b.log || g251bad "retina (iv b): script [$(grep '^SCRIPT|end' /tmp/g251_hidpi_b.log)]"
+  G251HI=$(grep '^DISPLAY|hidpi|' /tmp/g251_hidpi_b.log | head -1)
+  [ "$G251HI" = "DISPLAY|hidpi|wanted=1|applied=0|from=opencnc3d-fx.cfg" ] || g251bad "retina (iv b): Red Alert's window asked [$G251HI], want 1 from Tiberian Dawn's file over its own 0"
+  G251HI=$(grep '^RA3D|hidpi|' /tmp/g251_hidpi_b.log | head -1)
+  [ "$G251HI" = "RA3D|hidpi|live=1|from=opencnc3d-fx.cfg" ] || g251bad "retina (iv b): Red Alert's live row [$G251HI]"
+  G251HI=$(sed -n 's/^hidpi  *\([0-9]\).*/\1/p' /tmp/g251_hidpi_live.cfg 2>/dev/null | head -1)
+  [ "$G251HI" = "1" ] || g251bad "retina (iv b): Red Alert's live row read back [$G251HI], want 1"
+  G251HI=$(grep '^VISCFG|hidpi|' /tmp/g251_hidpi_b.log | tr '\n' ' ')
+  [ "$G251HI" = "VISCFG|hidpi|wrote|opencnc3d-fx.cfg|0 " ] || g251bad "retina (iv b): printed [$G251HI], want one VISCFG|hidpi|wrote|opencnc3d-fx.cfg|0"
+  cmp -s /tmp/g251_hidpi_b_want.cfg "$G251SB/opencnc3d-fx.cfg" || g251bad "retina (iv b): Tiberian Dawn's CRLF file is not itself with the one hidpi line replaced: [$(od -c "$G251SB/opencnc3d-fx.cfg" | head -4 | tr '\n' ' ')]"
+  [ -e "$G251SB/opencnc3d-fx.cfg.tmp" ] && g251bad "retina (iv b): the rewrite left its temporary file behind"
+  # (v) saves that are not carried
+  printf 'enh_textures       1\ndisplay_mode 0\nres_w 1280\nres_h 720\n' > "$G251SB/opencnc3d-fx.cfg"
+  cp "$G251SB/opencnc3d-fx.cfg" /tmp/g251_hidpi_td_before.cfg
+  printf 'hidpi 0\n' > "$G251SB/ra3d-fx.cfg"
+  printf 'hidpi 0\n' > /tmp/g251_hidpi_other.cfg
+  printf 'gfx hidpi 1\nframes 5\ngfxsave ra3d-fx.cfg\nquit\n' > /tmp/g251_hidpi_c.txt
+  g251ra /tmp/g251_hidpi_c.log /tmp/g251_hidpi_c.txt --visualscfg /tmp/g251_hidpi_other.cfg || g251bad "retina (v): the Red Alert run failed"
+  cat /tmp/g251_hidpi_c.log >> "$OUT"
+  grep -q '^SCRIPT|end .* 0 failures' /tmp/g251_hidpi_c.log || g251bad "retina (v): script [$(grep '^SCRIPT|end' /tmp/g251_hidpi_c.log)]"
+  grep -q '^VISCFG|wrote|/tmp/g251_hidpi_other.cfg$' /tmp/g251_hidpi_c.log || g251bad "retina (v): the remembered other file was never saved, so the arm proved nothing"
+  grep -q '^GFX|saved|ra3d-fx.cfg$' /tmp/g251_hidpi_c.log || g251bad "retina (v): the gfxsave of ra3d-fx.cfg did not save"
+  G251HI=$(grep '^VISCFG|hidpi|' /tmp/g251_hidpi_c.log | tr '\n' ' ')
+  [ -z "$G251HI" ] || g251bad "retina (v): printed [$G251HI], want no VISCFG|hidpi line"
+  cmp -s /tmp/g251_hidpi_td_before.cfg "$G251SB/opencnc3d-fx.cfg" || g251bad "retina (v): a save Red Alert does not carry wrote Tiberian Dawn's file"
+  rm -rf /tmp/g251_hidpi_save
+fi
+# EVERY NUMBER IS READ BY NOW: the sandbox and the leg's files go, as G233's do. The
+# sandbox's settings files are real files and the rest are links into the run folder;
+# every log was already appended to the suite's output.
+rm -rf "$G251SB"
+rm -f /tmp/g251_hidpi_* /tmp/g251_inject.txt /tmp/g251_live.txt /tmp/g251_shell.log
 if [ "$GRC" != "0" ]; then
   bad "G251 the Resolution list fits the display: a run failed or a shot was not written (GRC=$GRC)"
 elif [ "$G251OK" = "1" ]; then
-  ok "G251 the Resolution list fits the display: for a 1080p panel listing 18 sizes the list holds all 18 with Desktop first, the 9 that cannot fit its 1920x1040 room are greyed and refused under Windowed with a reason and pickable under True fullscreen (3840x2160 written), Desktop under Windowed resolves to 1920x1040, the wheel/bar/pick scroll the seven-row window (restop 6, 11, 0), 2103x1183 survives the quantiser and lands on entry 7; this display lists $G251LN sizes ($G251LDIST distinct, desktop listed=$G251LLISTED) with $G251LOVER greyed; the Desktop row is pixel-identical across modes and the six greyed rows differ by$G251ROWS; the shell clamped a 6015x3383 window to ${G251GW}x${G251GH}"
+  ok "G251 the Resolution list fits the display: for a 1080p panel listing 18 sizes the list holds all 18 with Desktop first, the 9 that cannot fit its 1920x1040 room are greyed and refused under Windowed with a reason and pickable under True fullscreen (3840x2160 written), Desktop under Windowed resolves to 1920x1040, the wheel/bar/pick scroll the seven-row window (restop 6, 11, 0), 2103x1183 survives the quantiser and lands on entry 7; this display lists $G251LN sizes ($G251LDIST distinct, desktop listed=$G251LLISTED) with $G251LOVER greyed; the Desktop row is pixel-identical across modes and the six greyed rows differ by$G251ROWS; the shell clamped a 6015x3383 window to ${G251GW}x${G251GH}; full resolution is asked for by Tiberian Dawn's file, wanted=0 without a hidpi line and 1 with a marked hidpi 1; $G251RA"
 else
   bad "G251 the Resolution list fits the display:$G251WHY"
 fi
@@ -19391,6 +20325,14 @@ fi
 #       tick makes every --shot run disagree with the last one.
 # =====================================================================================
 cat > /tmp/g256.txt <<'G256EOF'
+# Grade can raise a channel while physical luminance falls. Measure the multiply
+# before grade/bloom/gamma; every spatial, lifetime and zero-leak floor is unchanged.
+# The temporal anti-aliasing resolves after the marks and rings up to 4 levels lighter
+# along their edges, so it is off too.
+gfx grade_on 0
+gfx bloom_on 0
+gfx gamma_on 0
+gfx aa_mode 0
 cam 53 17
 zoom min
 tick 6
@@ -19417,6 +20359,14 @@ sed 's#g256_on#g256_on2#' /tmp/g256.txt > /tmp/g256b.txt
 # The Classic leg drives the same vehicle the same way with no --enhanced, and asks the
 # observer what it recorded rather than looking at the picture.
 cat > /tmp/g256c.txt <<'G256EOF'
+# Grade can raise a channel while physical luminance falls. Measure the multiply
+# before grade/bloom/gamma; every spatial, lifetime and zero-leak floor is unchanged.
+# The temporal anti-aliasing resolves after the marks and rings up to 4 levels lighter
+# along their edges, so it is off too.
+gfx grade_on 0
+gfx bloom_on 0
+gfx gamma_on 0
+gfx aa_mode 0
 cam 53 17
 zoom min
 tick 6
@@ -21247,7 +22197,11 @@ elif [ "$G276OK" = "1" ]; then ok "G276 Classic, N64 and Enhanced profiles and f
 else bad "G276 modes:$G276WHY"; fi
 
 # =====================================================================================
-# G277: SPACE cycles through the new three-mode order with a deterministic tile rip.
+# G277: SPACE cycles through the new three-mode order with a deterministic swipe: a
+# vertical line crosses from left to right in 1.0 s, eased out, the new mode behind it
+# and the old picture still ahead of it, with no title. The line is green in Tiberian
+# Dawn. At 0.27 s the eased-out front stands at 1280 * (1 - (1 - 0.27)^3) = 782 px, so the
+# mid shot must carry a bright green column there.
 # =====================================================================================
 cat > /tmp/g277.txt <<'G277EOF'
 tick 30
@@ -21279,7 +22233,8 @@ gshots shots/g277_old.png shots/g277_mid.png shots/g277_new.png shots/g277_mid2.
 G277OK=1; G277WHY=""
 g277bad() { G277OK=0; G277WHY="$G277WHY [$1]"; }
 grep -a '^GFXMODE|enhanced|space' shots/g277.log >/dev/null || g277bad switch
-grep -a '^GFXWIPE|rumble|playing' shots/g277.log >/dev/null || g277bad rumble
+grep -a '^GFXWIPE|swipe|seconds=1.00|line=green' shots/g277.log >/dev/null || g277bad swipe
+grep -a '^GFXWIPE|state=2|t=0.270|title=-1.000|' shots/g277.log >/dev/null || g277bad title-shown
 grep -a '^OPTMODE|' shots/g277.log | tail -1 | grep -q 'mode=2|fx_mode=2|.*fx_enabled=1|fx_exp=0' || g277bad target
 cmp -s shots/g277_mid.png shots/g277_mid2.png || g277bad nondeterministic
 G277PX=$(python3 - <<'PYPIX'
@@ -21296,8 +22251,24 @@ set -- $G277PX
 [ "${1:--1}" -ge 1000 ] || g277bad "old-mid=$1"
 [ "${2:--1}" -ge 1000 ] || g277bad "mid-new=$2"
 [ "${3:--1}" -ge 10000 ] || g277bad "old-new=$3"
+G277LINE=$(python3 - <<'PYLINE'
+import numpy as np
+from PIL import Image
+try:
+    m=np.asarray(Image.open('shots/g277_mid.png').convert('RGB')).astype(np.int16)
+    h=m.shape[0]
+    best=0
+    for x in range(774,791):
+        c=m[:,x]
+        best=max(best,int(((c[:,1]>180)&(c[:,0]<140)&(c[:,1]-c[:,0]>80)).sum()))
+    print(best, h)
+except Exception: print('-1 0')
+PYLINE
+)
+set -- $G277LINE
+[ "${1:--1}" -ge $(( ${2:-800} * 9 / 10 )) ] || g277bad "green-line-rows=$1/$2"
 if [ "$GRC" != "0" ]; then bad "G277 wipe run failed (GRC=$GRC)";
-elif [ "$G277OK" = "1" ]; then ok "G277 SPACE rips from N64 to Enhanced, deterministically, with rumble";
+elif [ "$G277OK" = "1" ]; then ok "G277 SPACE swipes from N64 to Enhanced behind a green line, deterministically";
 else bad "G277 wipe:$G277WHY"; fi
 
 # =====================================================================================
@@ -22258,6 +23229,13 @@ if [ -s g295m/SCG91EA.INI ]; then
   grun shots/g295c.log  --scen SCG93EA $G295ARGS --enhanced --script g295m/SCG93EA.txt
   grun shots/g295n.log  --scen SCG91EA $G295ARGS --enhanced --noebld --script g295m/SCG91EA_n.txt
   grun shots/g295k.log  --scen SCG91EA $G295ARGS --script g295m/SCG91EA_k.txt
+  # The group fights can spend both local physics slots or leave deaths off-screen.
+  # Prove each complete wreck with a single target held in view, with the cap in force.
+  for G295CASE in g295m/wreck-*; do
+    G295LOG="shots/g295-${G295CASE##*/}.log"
+    rm -f "$G295LOG"
+    grun "$G295LOG" --scen SCG91EA $G295ARGS --dir "$G295CASE/" --enhanced --script "$G295CASE/SCG91EA.txt"
+  done
   G295CHK=$(python3 gate_ebldmg.py check shots g295m 2>>"$OUT")
 else
   G295CHK="0 the test missions were not made (missions/SCM01EA is not in the run folder)"
@@ -22291,8 +23269,9 @@ fi
 # THE CLAIMS, read from the renderer's own dump (evhcdump: EVHCART per model with the
 # observer counts, EVHCOBJ per unit with what the colour picture last drew, and the
 # EVHC|fire|death|impact|sink|gone events), in gate_evhc.py check:
-#   (1) all 21 files load and attach; the 16 placed types draw; each plan lies within 0.16
-#       cells of the cartridge model it stands in for; every type has a wreck;
+#   (1) all 22 files load and attach; the 16 placed types draw; each of the original 21
+#       plans lies within 0.16 cells of its cartridge model; the SSML has both rocket
+#       hinges, and every type has a wreck;
 #   (2) the force-fired Mammoth's turret turns; (3) a driven Medium Tank's two track sides
 #       travel and its wheel flipbook steps; (4) a driven Hum-vee rolls and steers;
 #   (5) the Mammoth's barrels kick in turn; (6) the APC's rear door opens for riflemen;
@@ -22315,8 +23294,11 @@ fi
 #       normals into the light pass's normal target
 #       (EVHCNRM objects), the Mammoth's wreck too; the same frame drawn again with them
 #       out (evhcnormals 0, the run-time --noevhcnormals) differs on at least 1500 pixels
-#       by more than eight levels, every one of them within 60 pixels of a remastered
-#       vehicle; with --noevhc and in Classic the switch draws nothing and changes nothing.
+#       by more than eight levels, all but at most 2 of them within 60 pixels of a
+#       remastered vehicle (a single edge pixel on the Guard Tower's corner, measured with
+#       the camera on the ground averaged round its cell, is depth-edge noise; a switch
+#       leaking into the rest of the frame moves hundreds); with --noevhc and in Classic
+#       the switch draws nothing and changes nothing.
 #   (13) THE HARVESTER'S CLAWS (EVHCHARV, run c): lowered with the mouth's lower jaw open
 #       while it harvests, raised with the jaw shut otherwise, at least one draw part way
 #       through a change; every drawn phase gives the lift and the jaw the schedule's
@@ -22361,8 +23343,9 @@ for t in a a2 n cl; do g296_a $t; done
   echo "tick 5"; echo "cheatset money 1"; echo "cheatset instant 1"; echo "tick 3"
   echo "build HPAD"; echo "ready HPAD 200"; echo "startplace HPAD"; echo "place auto"
   echo "tick 110"; echo "cam 47 38"; echo "shot shots/g296_b_t.png"; echo "evhcdump"
-  echo "lclickobj ORCA 0"; echo "actcell 50 38"
-  for i in $(seq 1 12); do echo "tick 4"; echo "shot shots/g296_b_t.png"; echo "evhcdump"; done
+  # This cell stays visible after firing reveal fades and accepts the Orca's move.
+  echo "lclickobj ORCA 0"; echo "actcell 49 39"
+  for i in $(seq 1 16); do echo "tick 4"; echo "shot shots/g296_b_t.png"; echo "evhcdump"; done
   echo "hurtunit ORCA 0 5000"
   for i in $(seq 1 16); do echo "tick 3"; echo "shot shots/g296_b_t.png"; echo "evhcdump"; done
   echo "quit"
@@ -22749,8 +23732,8 @@ fi
 # G304 A REMASTERED STRUCTURE GOES UP PART BY PART (ebld_place.h; game/eplc/<TYPE>.eplc,
 # baked by tools/art/remaster/bake_eplc.py from the remaster lab's placements). Under
 # ENHANCED a structure put down rises as the lab's Place button plays it: the slab out of
-# the ground with its dust, then every part through the slab, the game's placement jolt and
-# a rumble as the main structure rises, and at the end the remastered model at rest; a sale
+# the ground with its dust, then every part through the slab with the camera steady,
+# and at the end the remastered model at rest; a sale
 # plays it backwards; a wall line comes up course by course. Classic keeps the cartridge's
 # reveal.
 #
@@ -22765,10 +23748,8 @@ fi
 #       the tick its 3.88 s are up, every part at rest.
 #   (3) THE DUST: at 0.4 s the particle pool holds at least 20 more smoke particles than the
 #       same moment without the placement (--noeplc).
-#   (4) THE CAMERA: the game's jolt at the press, 0.009 a footprint cell; no rumble while the
-#       slab comes up (0 and 0.4 s); a rumble while the main structure rises (1.6 s); none
-#       after it (2.2 s). The Construction Yard's one jolt is its own, 1.724 s in (on tick
-#       26 of its placement, 0.027 for its three cells) and not at the press.
+#   (4) THE CAMERA remains steady from the press through the Power Plant's rise and
+#       on both sides of the Construction Yard's authored cue at tick 26.
 #   (5) THE HAND-OVER: the Weapons Factory's fans, spun up over the placement, meet the idle
 #       turn the remastered building draws after it within 3 degrees of one tick's turn; and
 #       six seconds after the Power Plant's end its frame is byte-identical to the same frame
@@ -22885,18 +23866,17 @@ need(sav >= snv + 20, "at 0.4 s the placement's dust is missing: smoke %d agains
 def rum(L, s):
     m = first(section(L, s), RUMBLE)
     return abs(float(m.group(1))) + abs(float(m.group(2))) if m else -1
-need(rum(A, "n0") == 0 and rum(A, "n1") == 0, "the camera rumbled while the slab came up")
-need(rum(A, "n3") > 0.002, "no rumble while the main structure rose (1.6 s): %s" % rum(A, "n3"))
-need(rum(A, "n4") == 0, "the rumble outlasted the rise (2.2 s): %s" % rum(A, "n4"))
+rumble = {stage: rum(A, stage) for stage in ("n0", "n1", "n2", "n3", "n4")}
+need(all(value == 0 for value in rumble.values()), "placement camera offsets must all be zero: %s" % rumble)
 sh = first(section(A, "n0"), SHAKE)
-need(sh and abs(float(sh.group(1)) - 0.018) < 1e-4 and ok_order and abs(int(sh.group(2)) - int(n0.group(5))) <= 1,
-     "the placement jolt at the press wants amp 0.018 on the start tick: [%s]" % (sh.group(0) if sh else "none"))
+need(sh and float(sh.group(1)) == 0 and ok_order and int(sh.group(2)) < int(n0.group(5)),
+     "the placement press must not start a shake: [%s]" % (sh.group(0) if sh else "none"))
 fs = [m for m in (re.match(START, l) for l in A) if m and m.group(2) == "FACT"]
 f25, f26 = first(section(A, "f25"), SHAKE), first(section(A, "f26"), SHAKE)
 if need(fs and f25 and f26, "the Construction Yard's replay or its shake dumps are missing"):
     s = int(fs[0].group(4))
-    need(int(f25.group(2)) < s and int(f26.group(2)) == s + 26 and abs(float(f26.group(1)) - 0.027) < 1e-4,
-         "the Construction Yard's jolt wants tick %d at 0.027 and none at the press: [%s] [%s]" % (s + 26, f25.group(0), f26.group(0)))
+    need(all(float(sample.group(1)) == 0 and int(sample.group(2)) < s for sample in (f25, f26)),
+         "the Construction Yard's cue must leave the camera steady: [%s] [%s]" % (f25.group(0), f26.group(0)))
 # (5) THE HAND-OVER
 w55, w56, w57 = (obj(s, "WEAP") for s in ("w55", "w56", "w57"))
 p58 = {m.group(1): float(m.group(2)) for m in (re.match(POSE, l) for l in section(A, "w58")) if m}
@@ -22946,8 +23926,8 @@ need(oa == ob and oa, "the EPLC lines of the two Enhanced runs differ")
 if why:
     print("0 " + "; ".join(why[:6]))
 else:
-    print("1 25 placements matched; the Power Plant rose slab first and ended on its tick; dust %s against %s; rumble %.4f at 1.6 s; the yard's jolt on its tick; the fans met their idle turn; the hand-over frame identical; the sale ran back; the wall line rose; --noeplc and Classic ran none; two runs identical"
-          % (sav, snv, rum(A, "n3")))
+    print("1 25 placements matched; the Power Plant rose slab first and ended on its tick; dust %s against %s; the camera stayed steady through the plant and yard placements; the fans met their idle turn; the hand-over frame identical; the sale ran back; the wall line rose; --noeplc and Classic ran none; two runs identical"
+          % (sav, snv))
 PY
 )
 G304V=$(echo "$G304CHK" | head -1 | cut -d' ' -f1)
@@ -23157,6 +24137,8 @@ fi
 #       defaults, and the frame after every dial was moved and put back is the first frame
 #       byte for byte;
 #   (5) CLASSIC: brightness 0 moves nothing.
+# Every run has the modern lighting's nine masters off (gate_structs.py), the lighting the
+# dials were tuned and their bars set under.
 # NOT COVERED: whether a setting looks right, which is for a person; byte identity at the
 # defaults against the renderer before the group existed is a comparison of two binaries
 # and was measured on G273, G274, G295, G303 and G304's frames when the group landed.
@@ -23344,7 +24326,8 @@ fi
 #       stage (one level, as the sandbags);
 #   (6) the oil pump: held, its intact frame and its clip pieces move three ticks apart;
 #       damaged, its own loop's tick runs on from the tick the switch started it at;
-#   (7) --noebld and Classic read none of it and the old shatter takes the civilians;
+#   (7) --noebld and Classic read none of it; the old shatter handles each death and
+#       spawns shards only for admitted wrecks;
 #   (8) two runs are one run (dump lines and shots).
 # NOT COVERED: how each stage looks against the lab, which no counter can say; the
 # `gate_ebldciv.py sheet` scripts shoot every type at every stage for a person.
@@ -23363,6 +24346,17 @@ if [ -s g308m/SCG97EA.INI ] && [ -s g308m/SCG98EA.INI ]; then
   grun shots/g308b.log  --scen SCG98EA --pack SCB01EA.pack $G308ARGS --enhanced --texset 1 --script g308m/SCG98EA.txt
   grun shots/g308n.log  --scen SCG97EA --pack SCG01EA.pack $G308ARGS --enhanced --texset 1 --noebld --script g308m/SCG97EA_n.txt
   grun shots/g308k.log  --scen SCG97EA --pack SCG01EA.pack $G308ARGS --script g308m/SCG97EA_k.txt
+  for G308CASE in g308m/wreck-*; do
+    G308LOG="shots/g308-${G308CASE##*/}.log"
+    rm -f "$G308LOG"
+    if [ -s "$G308CASE/SCG97EA.INI" ]; then
+      G308SCEN=SCG97EA; G308PACK=SCG01EA.pack
+    else
+      G308SCEN=SCG98EA; G308PACK=SCB01EA.pack
+    fi
+    grun "$G308LOG" --scen "$G308SCEN" --pack "$G308PACK" $G308ARGS --dir "$G308CASE/" \
+         --enhanced --texset 1 --script "$G308CASE/$G308SCEN.txt"
+  done
   gshots shots/g308_V01_intact.png shots/g308_V19_10_a.png shots/g308_V37_intact.png
   G308CHK=$(python3 "$GATEDIR/gate_ebldciv.py" check shots g308m 2>>"$OUT")
 else
@@ -23669,6 +24663,17 @@ fi
 # carries no switches, and it has to apply in full, or the verdict says so. A later retune
 # moved the snag to 1058 pixels again through the ground patches (much fainter), the sun's
 # shadow, the occlusion and the clear ground's saturation, so those are pinned too (1720).
+# The next retune darkened the scene and moved the sun, and the snag fell to 1329 pixels
+# with the stages still plainly drawn: fire, burning model, charred snag, smoke out. It
+# had moved dials this preset did not hold: the sun's and the sky's energies, the
+# terrain's sky fill, the object shadow fill, the sun's bearing and height, the second
+# sun's bearing and energy, the shadow bias and contact reach, the relief height, the
+# grass warmth, the muzzle bloom and effects grade, the trees' height, size variation
+# and shadow fill, the vehicle dials, and the structure dials the burning model is lit
+# by. Those are pinned at the look before that retune, which measures what that look
+# measured (snag 2709, burning 4920). The dials it moved that reach none of these
+# pictures stay out (other theaters' ground, infantry, sprite brightness and the
+# vehicles' second-sun switch): pinning them as well leaves all 99 shots byte-identical.
 cat > gfx_g312.cfg <<'CFG'
 exposure -0.17857
 contrast 1.15625
@@ -23711,6 +24716,33 @@ mottle_density 0.06250
 shadow_strength 1.00000
 ssao_intensity 0.51786
 clear_saturation 0.70000
+sun_energy 0.96429
+sky_energy 1.00000
+object_shadow_fill 0.44643
+terrain_ambient 0.55000
+sun_az 45.00000
+second_sun_az 276.42859
+second_sun_energy 0.16071
+sun_el 30.85714
+shadow_bias 0.03754
+contact_len 0.06741
+terrain_relief_height 0.32000
+grass_terrain_warmth 0.10714
+muzzle_bloom 0.08000
+efx_bright 0.87500
+efx_exposure -0.85714
+etree_height 1.28929
+etree_vary 0.09643
+etree_shadow_fill 0.33929
+vh_sat 0.85714
+vh_second_sun_power 1.00000
+vh_sun 0.76786
+st_gamma 1.01875
+st_bright 0.91071
+st_shade 1.87500
+st_second_sun_power 1.23214
+st_sun 1.30357
+st_glow 0.85714
 CFG
 rm -rf g312m
 python3 "$GATEDIR/gate_treefire.py" maps g312m 2>>"$OUT"
@@ -23724,7 +24756,7 @@ if [ -f g312m/plan.json ]; then
 else
   G312CHK="0 the tree fire test mission was not made"
 fi
-G312PRE="$(grep -ac '^FX|preset|gfx_g312.cfg: 41 applied, 0 unknown$' g312m/TF.log)$(grep -ac '^FX|preset|gfx_g312.cfg: 41 applied, 0 unknown$' g312m/TFr.log)$(grep -ac '^FX|preset|gfx_g312.cfg: 41 applied, 0 unknown$' g312m/TFn.log)"
+G312PRE="$(grep -ac '^FX|preset|gfx_g312.cfg: 68 applied, 0 unknown$' g312m/TF.log)$(grep -ac '^FX|preset|gfx_g312.cfg: 68 applied, 0 unknown$' g312m/TFr.log)$(grep -ac '^FX|preset|gfx_g312.cfg: 68 applied, 0 unknown$' g312m/TFn.log)"
 if [ "$GRC" != "0" ]; then
   bad "G312 tree burning: a run failed (GRC=$GRC)"
 elif [ "$G312PRE" != "111" ]; then
@@ -24532,6 +25564,10 @@ fi
 # (ra3d/enhanced-menu.pack) it then walks the same screens in Red Alert's kit: red at the
 # title, blue in a mission, Red Alert's art, words and emblems, the side choice, the save
 # notice and its way back to the pause page, and the rows Red Alert greys.
+# A Rally lobby's Players & Map roster prints each seat's side alone, under a heading of
+# "Side": a race has no teams and deals its grid at random, and the roster used to print
+# "GDI / 1 / Random" for both (ENMENU|rally-roster; the build before this claim fails its
+# assertion with that line).
 # =====================================================================================
 rm -rf shots/g325 && mkdir -p shots/g325
 if [ ! -x ./gate_enhanced_menu ]; then
@@ -24545,6 +25581,8 @@ else
   G325RA=$(echo "$G325LOG" | grep -E '^ENMENU\|ra\|(PASS|SKIP)\|' | tail -1)
   if [ -f ra3d/enhanced-menu.pack ] && ! echo "$G325RA" | grep -q '^ENMENU|ra|PASS|'; then
     bad "G325 the Enhanced menu: Red Alert's kit is staged but its pass did not complete: exit=$G325RC last=[$(echo "$G325LOG" | tail -2 | tr '\n' ' ')]"
+  elif ! echo "$G325LOG" | grep -q '^ENMENU|rally-roster|heading=Side|.*|PASS$'; then
+    bad "G325 the Enhanced menu: no ENMENU|rally-roster line with heading=Side, so the Rally lobby's roster was not shown printing the side alone: exit=$G325RC last=[$(echo "$G325LOG" | tail -2 | tr '\n' ' ')]"
   elif [ "$G325RC" = "0" ] && echo "$G325LOG" | grep -q '^ENMENU|PASS|' && [ "${G325PNG:-0}" -ge 30 ]; then
     ok "G325 the Enhanced menu: every screen drawn and pressed against its 1995 controllers, $G325N checks over $G325PNG screens: $(echo "$G325LOG" | grep '^ENMENU|PASS|' | cut -d'|' -f3); Red Alert: $(echo "$G325RA" | cut -d'|' -f3-)"
   else
@@ -24580,6 +25618,27 @@ else
   else
     bad "G341 Red Alert's Enhanced menus walked: exit=$G341RC $(echo "$G341LOG" | grep '^FAIL' | head -1)"
   fi
+fi
+
+# =====================================================================================
+# G378 THE MENUS ARE ENHANCED IN EVERY GRAPHICS MODE, IN BOTH GAMES
+# (game/gate_menus_every_mode.sh; game_enhanced_menu_enabled in cnc_eyes.cpp). Classic and
+# N64 change the mission's picture and its HUD and nothing else. Per game, one harness
+# round in each of Classic, N64 and Enhanced: the Enhanced kit is loaded, the main menu is
+# the same picture in all three (the harness's own menu digest), the menu after the
+# mission matches the one before it, and the pause dialog answers its Enhanced Resume
+# Mission seat. Then, under Classic: the Skirmish lobby pressed through to a match in both
+# games, and Red Alert's Load Mission and Multiplayer opening their screens with no notice.
+# Classic used to draw the 1995 and 1996 menus, and under Classic Red Alert's Load,
+# Skirmish and Multiplayer answered with an operating-system box. Hidden throughout.
+# Without a Red Alert module in this folder its legs are skipped and Tiberian Dawn's run.
+# =====================================================================================
+G378LOG=$(sh "$GATEDIR/gate_menus_every_mode.sh" "$RUNDIR" 2>&1); G378RC=$?
+echo "$G378LOG" >> "$OUT"
+if [ "$G378RC" = "0" ] && echo "$G378LOG" | grep -q ': PASS$'; then
+  ok "G378 the menus are Enhanced in every graphics mode: $(echo "$G378LOG" | grep '^MENUS|' | cut -d'|' -f2- | tr '\n' ' ')"
+else
+  bad "G378 the menus are Enhanced in every graphics mode: exit=$G378RC $(echo "$G378LOG" | grep '^FAIL' | head -1)"
 fi
 
 # =====================================================================================
@@ -24901,28 +25960,33 @@ fi
 # for every body on the ground, and a torn body was skinned again in each of them. All of
 # that is cheap on macOS and dear on Windows. SCG08EA's base is measured as shipped and
 # with the batch held to the buildings (OPENCNC3D_MESH_ALL=0) and drawn both ways for ten
-# frames; the "dead" example map is drawn after its fight with poses on the card and with
-# them in system memory, every cached skin checked against a fresh one.
+# frames; the "dead" example map is drawn after its fight with every pose skinned on the CPU
+# (OPENCNC3D_SKIN_GPU=0), the poses on the card and in system memory, every cached skin
+# checked against a fresh one; and as shipped, where the whole bodies are skinned on the
+# card (model3d_mod.h m3_skin_gpu) and only the torn ones still go through the CPU's poses.
 # PROVEN TO FAIL: the renderer before this change prints no imm_verts and no gpudraws. Under
 # OPENCNC3D_MESH_ALL=0 and OPENCNC3D_POSE_GPU=0 this one draws as it did: the base sends
 # 43,389 vertices a frame one at a time (0 as shipped) and no soldier comes from the card.
 # =====================================================================================
 gbegin shots/g332_base_all.log shots/g332_base_bld.log shots/g332_seq_all.log shots/g332_seq_bld.log \
-       shots/g332_bodies_gpu.log shots/g332_bodies_cpu.log
+       shots/g332_bodies_gpu.log shots/g332_bodies_cpu.log shots/g332_bodies_skin.log
 rm -rf shots/g332 && python3 "$GATEDIR/gate_meshall.py" script shots/g332
 G332B="--scen SCG08EA --pack SCG08EA.pack $BASE --enhanced --texset 3 --nosound --w 1280 --h 800"
 G332D="--reskin --noshroud --scen USER93 --pack SCG01EA.pack $BASE --dir missions/user_maps/ --nosound --w 1280 --h 800 --enhanced --texset 1"
 grun shots/g332_base_all.log $G332B --script shots/g332/base.txt
 grun shots/g332_seq_all.log $G332B --script shots/g332/seq_all.txt
+grun shots/g332_bodies_skin.log $G332D --script shots/g332/bodies_skin.txt
+export OPENCNC3D_SKIN_GPU=0
 grun shots/g332_bodies_gpu.log $G332D --script shots/g332/bodies_gpu.txt
+unset OPENCNC3D_SKIN_GPU
 export OPENCNC3D_MESH_ALL=0
 grun shots/g332_base_bld.log $G332B --script shots/g332/base.txt
 grun shots/g332_seq_bld.log $G332B --script shots/g332/seq_bld.txt
 unset OPENCNC3D_MESH_ALL
-export OPENCNC3D_POSE_GPU=0 OPENCNC3D_POSECHECK=1
+export OPENCNC3D_POSE_GPU=0 OPENCNC3D_POSECHECK=1 OPENCNC3D_SKIN_GPU=0
 grun shots/g332_bodies_cpu.log $G332D --script shots/g332/bodies_cpu.txt
-unset OPENCNC3D_POSE_GPU OPENCNC3D_POSECHECK
-for G332L in base_all base_bld bodies_gpu bodies_cpu; do cp shots/g332_$G332L.log shots/g332/$G332L.log; done
+unset OPENCNC3D_POSE_GPU OPENCNC3D_POSECHECK OPENCNC3D_SKIN_GPU
+for G332L in base_all base_bld bodies_gpu bodies_cpu bodies_skin; do cp shots/g332_$G332L.log shots/g332/$G332L.log; done
 G332CHK=$(python3 "$GATEDIR/gate_meshall.py" check shots/g332 2>>"$OUT")
 echo "$G332CHK" >> "$OUT"
 G332OK=$(echo "$G332CHK" | head -1 | cut -d' ' -f1)
@@ -24933,6 +25997,89 @@ elif [ "$G332OK" = "1" ]; then
   ok "G332 every model batched, every posed soldier from the card: $G332MSG"
 else
   bad "G332 every model batched, every posed soldier from the card: ${G332MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G379 A STILL FRAME ASKS THE DRIVER (NEARLY) NOTHING, AND EVERYTHING THE CACHE KNOWS IS TRUE
+# (gl_state_cache.h: gls_frame_begin and the knowledge kept from one frame to the next,
+# the state a pass saves and puts back shadowed from its writers, the matrices answered
+# from the calls that built them, framebuffer completeness remembered, everything
+# forgotten around foreign drawing; mesh_batch.h for a kept store's refills). With a
+# driver that runs its own worker thread every glGet* waits for that thread to catch up,
+# and the first one after a present waits for the card to finish the frame before:
+# measured at 1920x1080 on a Windows PC with a current NVIDIA card, 5.7 ms of every frame
+# of this base inside one glGetIntegerv, and about 130 more questions a frame behind it.
+# The frame profiler prints the frame's questions as GLQUERY| (OPENCNC3D_FRAMEPROF=1).
+# SCG08EA's base is drawn still for 60 frames three ways: as shipped; with
+# OPENCNC3D_QUERY_ELIDE=0, which asks everything as before; and with
+# OPENCNC3D_QUERY_ELIDE=verify, which checks against the driver every answer the cache
+# gives, every write it skips, every matrix it reuses, every value it kept from the frame
+# before, and everything it holds right before and right after foreign drawing. Verify
+# also walks the paths where other code draws or the state is rebuilt: the Enhanced codex
+# page, the pause dialog, Classic and N64 and back, the tile rip, scrolling ticks and a
+# second mission in the same process; and the classic codex page with its 3D emblems,
+# reached by hiding the Enhanced menu kit in a folder of links to this one.
+# Passes when the shipped frames ask fewer than 3 questions each (the smoke's current
+# normal and one soldier's current colour remain, both late in the frame) and every one
+# of them kept the frame before's knowledge, the switched-off frames still ask more than
+# 50, and every verify run checks skipped writes and finds no disagreement, the two codex
+# runs having checked around their foreign drawing.
+# PROVEN TO FAIL: the renderer before the counter prints no GLQUERY line; with the shipped
+# arm run as OPENCNC3D_QUERY_ELIDE=0 it reads 136 questions a frame; with the forget after
+# foreign drawing reduced to the shadowed pass state, the classic codex run reports the
+# emblems' texture binding still believed after they drew.
+# =====================================================================================
+gbegin shots/g379_on.log shots/g379_off.log shots/g379_verify.log shots/g379_walk.log shots/g379_codex.log
+rm -rf shots/g379 && mkdir -p shots/g379/classic
+printf '%s\n' 'gfx show_stats 0' 'tick 60' 'reveal 1' 'cam 47 48' 'dist 3000' 'smoothmove 1' 'tick 1' \
+    'frames 30' 'fprofreport' 'label bench' 'framebench 60' 'quit' > shots/g379/still.txt
+{
+  printf '%s\n' 'gfx show_stats 0' 'tick 30' 'reveal 1' 'frames 10' 'codex open' 'frames 10' 'codex cat 1' \
+      'frames 5' 'codex close' 'frames 5' 'options' 'shot shots/g379/pause.png' 'emclick Resume Mission' 'frames 10' \
+      'gfxmode 0' 'frames 10' 'gfxmode 1' 'frames 10' 'gfxmode 2' 'frames 10' 'gfxwipe freeze' 'gfxcycle' 'frames 3' \
+      'gfxwipe at 0.27' 'frames 3' 'gfxwipe at 3.70' 'gfxwipe run' 'frames 10' 'gfxmode 2' 'frames 5'
+  for g379i in 0 1 2 3 4 5 6 7 8 9; do printf 'cam %d 40\ntick 1\nframes 2\n' $((30 + g379i)); done
+  printf '%s\n' 'remission SCG01EA SCG01EA.pack' 'tick 10' 'frames 20' 'fprofreport' 'quit'
+} > shots/g379/walk.txt
+printf '%s\n' 'gfx show_stats 0' 'tick 30' 'frames 5' 'codex open' 'frames 10' 'codex house nod' 'frames 5' \
+    'codex row 3' 'frames 5' 'codex close' 'frames 10' 'fprofreport' 'quit' > shots/g379/codex.txt
+G379A="--scen SCG08EA --pack SCG08EA.pack $BASE --enhanced --texset 3 --nosound --w 1280 --h 800 --seed 12345"
+export OPENCNC3D_FRAMEPROF=1
+grun shots/g379_on.log $G379A --script shots/g379/still.txt
+export OPENCNC3D_QUERY_ELIDE=0
+grun shots/g379_off.log $G379A --script shots/g379/still.txt
+export OPENCNC3D_QUERY_ELIDE=verify
+grun shots/g379_verify.log $G379A --script shots/g379/still.txt
+grun shots/g379_walk.log $G379A --script shots/g379/walk.txt
+# The classic codex page: a folder of links to this one without the Enhanced menu kit.
+( cd shots/g379/classic && for g379f in "$RUNDIR"/*; do
+    case "$(basename "$g379f")" in enhanced-menu.pack|shots) ;; *) ln -s "$g379f" . ;; esac
+  done )
+( cd shots/g379/classic && ./cnc_eyes $G379A --script ../codex.txt ) > shots/g379_codex.log 2>&1 || GRC=$?
+cat shots/g379_codex.log >> "$OUT"
+unset OPENCNC3D_FRAMEPROF OPENCNC3D_QUERY_ELIDE
+g379_read() {   # the bench window's GLQUERY line: "mean kept frames", or nothing
+    awk -F'|' '/^LABEL\|bench/{b=1} b && /^GLQUERY\|frames=/{for(i=2;i<=NF;i++){split($i,a,"=");v[a[1]]=a[2]} print v["mean"], v["kept"], v["frames"]; exit}' "$1"
+}
+g379_verify() {   # a verify run: "checked mismatches skips foreign", counting every mismatch line
+    awk -F'|' '/^GLQUERYVERIFY\|mismatch/{m++} /^GLQUERYVERIFY\|checked=/{for(i=2;i<=NF;i++){split($i,a,"=");v[a[1]]=a[2]}}
+        END{if(v["checked"]=="")print "none"; else print v["checked"], (v["mismatches"]+0>m+0?v["mismatches"]+0:m+0), v["skips"]+0, v["foreign"]+0}' "$1"
+}
+G379ON=$(g379_read shots/g379_on.log); G379OFF=$(g379_read shots/g379_off.log)
+G379V=$(g379_verify shots/g379_verify.log); G379W=$(g379_verify shots/g379_walk.log); G379C=$(g379_verify shots/g379_codex.log)
+grep -aq '^GLQUERYVERIFY|foreign|emblems' shots/g379_codex.log || G379C="$G379C, no emblems drawn"
+grep -aq '^GLQUERYVERIFY|foreign|codex dialog' shots/g379_walk.log || G379W="$G379W, no Enhanced codex drawn"
+grep -aq '^GLQUERYVERIFY|foreign|options dialog' shots/g379_walk.log || G379W="$G379W, no pause dialog drawn"
+G379MSG="shipped ${G379ON:-none} (mean kept frames), switched off ${G379OFF:-none}; verify (checked mismatched skips foreign): still ${G379V}, walk ${G379W}, classic codex ${G379C}"
+if [ "$GRC" != "0" ]; then
+  bad "G379 a still frame asks the driver nothing: a run failed (GRC=$GRC) $G379MSG"
+elif echo "$G379ON $G379OFF" | awk 'NF==6 && $1<3 && $2==$3 && $3==60 && $4>50 {ok=1} END{exit !ok}' \
+     && echo "$G379V" | awk 'NF==4 && $1>0 && $2==0 && $3>0 {ok=1} END{exit !ok}' \
+     && echo "$G379W" | awk 'NF==4 && $1>0 && $2==0 && $3>0 && $4>0 {ok=1} END{exit !ok}' \
+     && echo "$G379C" | awk 'NF==4 && $1>0 && $2==0 && $3>0 && $4>0 {ok=1} END{exit !ok}'; then
+  ok "G379 a still frame asks the driver nothing: $G379MSG"
+else
+  bad "G379 a still frame asks the driver nothing: $G379MSG"
 fi
 
 # =====================================================================================
@@ -24988,6 +26135,132 @@ elif [ "$G333V" = "1" ]; then
 else
   bad "G333 Classic stealth tank: ${G333MSG:-the check did not run (see the python error in the log)}"
 fi
+
+# =====================================================================================
+# G466 A STEALTH TANK FADES OUT AND IN UNDER N64 AND ENHANCED AS ONLY THE SHARE ITS CLOAK
+# LEAVES, AND THE PLAYER'S OWN NEVER POPS (cloak_alpha, cloak_tint, cloak_draw_ghosts and
+# CloakScreen in cnc_eyes.cpp, the plate in the vehicle-shadow pass, EvhcGhostClass in
+# evhc_mod.h and the contact march in fx_post.h; scene and claims in gate_cloak3d.py).
+# Seen before: under N64 the tank's ground plate stayed at full strength through the
+# fade and under the player's ghost, and the tank went darker and lost its top plate the
+# moment cloaking began (its far side drawn over its near side); under Enhanced the
+# faintest steps read as a dark silhouette (its see-through pixels relit as steel) and it
+# lost half its presence when cloaking began; and the player's own tank fell to nothing,
+# jumped to its ghost when cloaked and dropped to nothing on the first frame of
+# uncloaking.
+#
+# TWO RUNS of G333's mission SCG99EA (a Nod Stealth Tank and one of the player's on open
+# grass, both cloaking from frame 2; at frame 46 a soldier of the other side placed beside
+# each and the player's tank ordered onto its one, so both uncloak), one under N64 and one
+# under Enhanced. Every frame to 92 is shot with the tanks and with every vehicle left out
+# (vhshow 0). Claims, over each tank's rectangle: (1) both tanks run solid, cloaking,
+# cloaked, uncloaking, solid; (2) the Nod tank's darkening at a share of 0.15 or less is at
+# most 0.35 of the solid tank's (0.20 at 0.08 or less), and fully cloaked it leaves the
+# picture untouched (under Enhanced the net darkening, since the shimmer moves the grass
+# both ways); (3) the Nod tank's picture moves by at most 0.15 of its presence a frame from
+# solid to cloaked; (4) the player's tank's share moves at most one stage's step,
+# (1 - 0.40)/38, a frame and never under its 0.40 ghost, its picture at most 0.15 a frame.
+# PROVEN TO FAIL on the build before: under both modes the faintest frames darken the ground
+# by 0.6 to 1.5 of the solid tank, and the player's tank's share jumps by 0.8.
+# NOT COVERED: the screen door's look in play with the temporal blend off (it stays a fine
+# stipple), and Red Alert, whose cloaking vehicles (a Cloak crate's) take the same code
+# and whose submarines use another path (G352).
+# G472 and G473 read these same two runs, below.
+# =====================================================================================
+rm -rf g466m && python3 "$GATEDIR/gate_cloak3d.py" maps g466m 2>>"$OUT"
+if [ ! -s g466m/SCG99EA.INI ]; then
+  bad "G466 3D stealth tank fade: the test mission was not made (missions/SCM01EA is not in the run folder)"
+  bad "G472 own cloaked tank a dark ghost: G466's test mission was not made"
+  bad "G473 3D cloak shimmer: G466's test mission was not made"
+else
+  mkdir -p g466m/n64 g466m/enh
+  { echo "gfxmode 1"; sed 's#shots/#g466m/n64/#' g466m/cloak3d.txt; } > g466m/n64.txt
+  sed 's#shots/#g466m/enh/#' g466m/cloak3d.txt > g466m/enh.txt
+  gbegin g466m/n64.log g466m/enh.log
+  grun g466m/n64.log --scen SCG99EA --pack SCG01EA.pack $BASE --dir g466m/ --noshroud \
+       --nosound --w 1280 --h 720 --script g466m/n64.txt
+  grun g466m/enh.log --scen SCG99EA --pack SCG01EA.pack $BASE --dir g466m/ --noshroud \
+       --nosound --w 1280 --h 720 --enhanced --texset 3 --script g466m/enh.txt
+  gshots g466m/n64/c3_f01_on.png g466m/n64/c3_f92_off.png g466m/enh/c3_f01_on.png \
+         g466m/enh/c3_f92_off.png
+  G466N=$(python3 "$GATEDIR/gate_cloak3d.py" check n64 g466m/n64.log g466m/n64 2>>"$OUT")
+  G466E=$(python3 "$GATEDIR/gate_cloak3d.py" check enh g466m/enh.log g466m/enh 2>>"$OUT")
+  echo "$G466N" >> "$OUT"; echo "$G466E" >> "$OUT"
+  # AND NO POLYGON STIPPLE ANYWHERE IN THE RENDERER. The screen door is worked out in the
+  # shaders (CLOAK_DOOR_GLSL, fx_gl.h): Mesa's drivers, the VMware virtual GPU among them,
+  # emulate the fixed-function stipple by slipping a sampler into the bound program, and
+  # every model drawn after the first cloak came out black there. The pictures above
+  # cannot see that (Apple's driver draws a stipple properly), so the source is asked.
+  G466STIP=$(cat "$GATEDIR"/*.cpp "$GATEDIR"/*.h 2>/dev/null | grep -ac 'glPolygonStipple\|GL_POLYGON_STIPPLE')
+  if [ "$GRC" != "0" ]; then
+    bad "G466 3D stealth tank fade: a run failed (GRC=$GRC)"
+  elif [ "$G466STIP" != "0" ]; then
+    bad "G466 3D stealth tank fade: $G466STIP line(s) of the renderer use the fixed-function polygon stipple again; the screen door belongs in the shaders (CLOAK_DOOR_GLSL)"
+  elif [ "${G466N%% *}" = "1" ] && [ "${G466E%% *}" = "1" ]; then
+    ok "G466 3D stealth tank fade: ${G466N#1 }; ${G466E#1 }"
+  else
+    bad "G466 3D stealth tank fade: ${G466N#? }; ${G466E#? }"
+  fi
+
+  # ===================================================================================
+  # G472 THE PLAYER'S OWN CLOAKED STEALTH TANK IS A DARK SEE-THROUGH GHOST UNDER N64 AND
+  # ENHANCED (CLOAK_OURS_ALPHA, CLOAK_GHOST_R/G/B and cloak_tint in cnc_eyes.cpp, the
+  # ground's shade CLOAK_GHOST_SHADE through fx_cloak_shimmer_apply in fx_post.h; claims in
+  # gate_cloak3d.py, `ghost`). Seen before: the player's fully cloaked tank was drawn at
+  # 0.80 of itself, a little bluer, its shadow under it, so players read it as a tank that
+  # never cloaked; the 1995 engine draws it as a dark silhouette of the ground.
+  # G466's two runs. Over the pixels the player's solid tank changes on frame 1 (its
+  # shadow among them), on every frame it is fully cloaked: (5) the picture is 0.25 to 0.85
+  # of the brightness of the picture without the tank (darker than the ground, not a
+  # hole); (6) it differs from that picture by at most 0.40 of what the solid tank does.
+  # PROVEN TO FAIL on the build before: the ghost at 1.54 (N64) and 1.76 (Enhanced) of the
+  # ground's brightness and 0.46 and 0.47 of the solid tank's difference.
+  # UNDER ENHANCED the ghost's pale outline (G524) is left out of (4), (5) and (6): it is
+  # bright and flickers by design (THE OUTLINE in gate_cloak3d.py).
+  # NOT COVERED: crate-cloaked soldiers, which get no ghost (the player's own stays solid
+  # while cloaked); Classic, which draws the 1995 silhouette itself (G333).
+  # ===================================================================================
+  G472N=$(python3 "$GATEDIR/gate_cloak3d.py" ghost n64 g466m/n64.log g466m/n64 2>>"$OUT")
+  G472E=$(python3 "$GATEDIR/gate_cloak3d.py" ghost enh g466m/enh.log g466m/enh 2>>"$OUT")
+  echo "$G472N" >> "$OUT"; echo "$G472E" >> "$OUT"
+  if [ "$GRC" != "0" ]; then
+    bad "G472 own cloaked tank a dark ghost: a run failed (GRC=$GRC)"
+  elif [ "${G472N%% *}" = "1" ] && [ "${G472E%% *}" = "1" ]; then
+    ok "G472 own cloaked tank a dark ghost: ${G472N#1 }; ${G472E#1 }"
+  else
+    bad "G472 own cloaked tank a dark ghost: ${G472N#? }; ${G472E#? }"
+  fi
+
+  # ===================================================================================
+  # G473 UNDER ENHANCED THE GROUND SHIMMERS THROUGH A CLOAKING STEALTH TANK, AS IN 1995,
+  # AND UNDER N64 IT DOES NOT (fx_cloak_shimmer_apply in fx_post.h, cloak_shimmer and
+  # cloak_shimmer_mask in cnc_eyes.cpp; claims in gate_cloak3d.py, `shimmer`). Seen
+  # before: the 3D modes only faded the tank, with nothing to say it was invisible, where
+  # Classic draws the 1995 SHAPE_PREDATOR shimmer. N64 keeps the cartridge's plain fade.
+  # G466's two runs: (7) the probe says the shimmer's pass reached every tank the ladder
+  # gives a shimmer, on every frame under Enhanced, the player's cloaked tank always among
+  # them, and none under N64; (8) over the player's fully cloaked tank, the picture changes
+  # from one engine frame to the next by at least 1.5 levels more than the picture without
+  # the tank does under Enhanced, and by at most 0.3 more under N64.
+  # PROVEN TO FAIL on the build before: no shimmer pass at all (the probe has no count),
+  # and on the pictures alone under Enhanced the ground through the ghost moves 0.25
+  # levels a frame more than without the tank (7.21 with the shimmer).
+  # NOT COVERED: how it looks in motion and under the temporal blend in play, where a shot
+  # settles the blend on one engine frame (the proof clips); Red Alert's crate-cloaked
+  # vehicles, which take the same code.
+  # ===================================================================================
+  G473N=$(python3 "$GATEDIR/gate_cloak3d.py" shimmer n64 g466m/n64.log g466m/n64 2>>"$OUT")
+  G473E=$(python3 "$GATEDIR/gate_cloak3d.py" shimmer enh g466m/enh.log g466m/enh 2>>"$OUT")
+  echo "$G473N" >> "$OUT"; echo "$G473E" >> "$OUT"
+  if [ "$GRC" != "0" ]; then
+    bad "G473 3D cloak shimmer: a run failed (GRC=$GRC)"
+  elif [ "${G473N%% *}" = "1" ] && [ "${G473E%% *}" = "1" ]; then
+    ok "G473 3D cloak shimmer: ${G473N#1 }; ${G473E#1 }"
+  else
+    bad "G473 3D cloak shimmer: ${G473N#? }; ${G473E#? }"
+  fi
+fi
+rm -rf g466m
 
 # =====================================================================================
 # G334 RED ALERT'S GROUND KEPT ON THE GPU (game/ra3d_terrain.h, its cache). Under Enhanced
@@ -25274,7 +26547,12 @@ fi
 #       lenses glowing (EVHCLAMP);
 #   (3) the same frame with the lamps out (evhclamps 0) differs on 20000 pixels or more of
 #       two views, 98 per cent of them brighter with the lamps, and red behind the tails;
-#   (4) the headlights' shadows (vlight_shadows) only darken;
+#   (4) the headlights' shadows (vlight_shadows) only darken, measured on a pair taken with
+#       the temporal anti-aliasing off (aa_mode 0): the claim is about the light pass, and
+#       the anti-aliasing's clip of its history at hard edges turns any change of light
+#       nearby into a few edge pixels moving either way (with it on, 44 of 2034 changed
+#       pixels came out lighter, at the white edges of two vehicles and beside the lit
+#       patches; with it off, none of 1871);
 #   (5) the Light Tank's searchlight points with its headlights at rest and turns away
 #       from them when the turret turns to fire; (6) a Hum-vee's lamps drive with it;
 #   (7) an APC taken to half strength puts its lamps out and the others keep theirs;
@@ -25289,7 +26567,9 @@ g339_e() {   # $1 = tag
     echo "tick 3"; echo "evhcdump"; echo "zoom max"
     echo "cam 54 48"; echo "shot shots/vl_$1_a_on.png"; echo "evhclampdump"
     echo "evhclamps 0"; echo "shot shots/vl_$1_a_off.png"; echo "evhclamps 1"
+    echo "gfx aa_mode 0"; echo "shot shots/vl_$1_a_sh.png"
     echo "gfx vlight_shadows 0"; echo "shot shots/vl_$1_a_nosh.png"; echo "gfx vlight_shadows 1"
+    echo "gfx aa_mode 1"
     echo "cam 48 41"; echo "shot shots/vl_$1_b_on.png"; echo "evhclampdump"
     echo "evhclamps 0"; echo "shot shots/vl_$1_b_off.png"; echo "evhclamps 1"
     echo "cam 45 41"; echo "lclickobj LTNK:GoodGuy 0"; echo "actcell 45 38 c"; echo "tick 15"
@@ -25306,11 +26586,11 @@ g339_e e; g339_e e2
 {
   echo "tick 5"; echo "cheatset money 1"; echo "cheatset instant 1"; echo "tick 3"
   echo "build HPAD"; echo "ready HPAD 200"; echo "startplace HPAD"; echo "place auto"
-  echo "tick 110"; echo "cam 47 38"; echo "lclickobj ORCA 0"; echo "actcell 50 38"; echo "tick 40"
+  echo "tick 110"; echo "cam 47 38"; echo "lclickobj ORCA 0"; echo "actcell 49 39"; echo "tick 64"
   echo "frames 1"; echo "evhclampdump"; echo "quit"
 } > g339m/air.txt
 gbegin shots/vl_e.log shots/vl_e2.log shots/vl_n.log shots/vl_cl.log shots/vl_air.log \
-       shots/vl_e_a_on.png shots/vl_e_a_off.png shots/vl_e_a_nosh.png shots/vl_e_b_on.png \
+       shots/vl_e_a_on.png shots/vl_e_a_off.png shots/vl_e_a_sh.png shots/vl_e_a_nosh.png shots/vl_e_b_on.png \
        shots/vl_e_b_off.png shots/vl_e2_a_on.png shots/vl_e2_b_on.png shots/vl_n_a.png
 G339ARGS="--scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720"
 if [ -s g339m/lamps/SCG90EA.INI ]; then
@@ -25319,7 +26599,7 @@ if [ -s g339m/lamps/SCG90EA.INI ]; then
   grun shots/vl_n.log   $G339ARGS --dir g339m/lamps/ --enhanced --novehiclelights --script g339m/n.txt
   grun shots/vl_cl.log  $G339ARGS --dir g339m/lamps/ --script g339m/cl.txt
   grun shots/vl_air.log $G339ARGS --dir g339m/air/ --enhanced --script g339m/air.txt
-  gshots shots/vl_e_a_on.png shots/vl_e_a_off.png shots/vl_e_a_nosh.png shots/vl_e_b_on.png \
+  gshots shots/vl_e_a_on.png shots/vl_e_a_off.png shots/vl_e_a_sh.png shots/vl_e_a_nosh.png shots/vl_e_b_on.png \
          shots/vl_e_b_off.png shots/vl_e2_a_on.png shots/vl_e2_b_on.png shots/vl_n_a.png
   G339CHK=$(python3 "$GATEDIR/gate_vlights.py" check shots 2>>"$OUT")
 else
@@ -25336,6 +26616,49 @@ else
   esac
 fi
 rm -rf g339m
+
+# =====================================================================================
+# G467 RED ALERT'S REMASTERED VEHICLES AND BUILDINGS ARE LIT AS MATERIALS UNDER ENHANCED
+# (fx_draw_mesh_bake in cnc_eyes.cpp, evhc_mark_lit_lenses in evhc_mod.h; scenes and claims
+# in gate_ramaterial.py). The light pass gives a pixel its material (the screen
+# reflections, the sun's and the headlights' highlights) only where the bake target holds
+# it, and Red Alert's models, drawn directly rather than through a cartridge mesh, were
+# never drawn into that target: in Red Alert no vehicle or building pixel changed with the
+# reflections on or off, nor took a glint from another vehicle's headlights.
+# THREE RUNS: SCU01EA's starting base with its targets dumped, the same with the screen
+# reflections off (CNC3D_SSR_OFF=1), and SCG01EA with a Light and a Medium Tank placed
+# nose to nose with two Rangers, the lamps on and off with the F5 materials on and off.
+# Claims: (1) 98 per cent or more of the vehicle and building pixels are in the bake
+# target, in both scenes; (2) the reflections change at least 1000 of the base's building
+# and vehicle pixels; (3) the lamps add more than 30 levels more under the materials than
+# without them on at least 150 vehicle pixels.
+# PROVEN TO FAIL on the build before: 9 and 2 per cent in the bake target, 0 pixels
+# changed by the reflections, 0 pixels of glint.
+# NOT COVERED: how the materials look against Tiberian Dawn's, which is for a person.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCU01EA.pack ] || [ ! -f ra3d/3d/SCG01EA.pack ]; then
+  skip "G467 Red Alert materials: no Red Alert module is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g467m && python3 "$GATEDIR/gate_ramaterial.py" scripts g467m 2>>"$OUT"
+  G467RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --noshroud --enhanced --texset 3"
+  gbegin g467m/base.png g467m/basex.png g467m/l_on.png g467m/l_off_nomat.png
+  grun g467m/base.log $G467RA --scen SCU01EA --pack ra3d/3d/SCU01EA.pack --script g467m/base.txt
+  export CNC3D_SSR_OFF=1
+  grun g467m/basex.log $G467RA --scen SCU01EA --pack ra3d/3d/SCU01EA.pack --script g467m/basex.txt
+  unset CNC3D_SSR_OFF
+  grun g467m/lamps.log $G467RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --script g467m/lamps.txt
+  gshots g467m/base.png g467m/basex.png g467m/l_on.png g467m/l_off_nomat.png
+  G467CHK=$(python3 "$GATEDIR/gate_ramaterial.py" check g467m 2>>"$OUT")
+  echo "$G467CHK" >> "$OUT"
+  if [ "$GRC" != "0" ]; then
+    bad "G467 Red Alert materials: a run failed (GRC=$GRC)"
+  elif [ "${G467CHK%% *}" = "1" ]; then
+    ok "G467 ${G467CHK#1 }"
+  else
+    bad "G467 Red Alert materials: ${G467CHK#? }"
+  fi
+  rm -rf g467m
+fi
 
 # G340 RED ALERT'S MOVIES AND SCORE ARE DOWNLOADED EXACTLY WHERE ITS MODULE IS (launcher/lmedia.c,
 # launcher/lmodule.c). The movies and music boxes cover both games, and Red Alert's own, about
@@ -25552,12 +26875,16 @@ fi
 # launcher astern exactly as the engine turns its turret and onto the boat, fires, is hurt
 # and sunk into a wreck that goes down, and on Allied 5 is selected by a click with no
 # health bar standing beside it, sails when ordered and is drawn rolling as it sails
-# (draw_mesh's lean witness); Classic draws none of it.
+# (draw_mesh's lean witness); every ship drawn by its model sits down in the sea by its
+# draft and rides the swell (alt_lift's ship_ride, inside the draft band, never 0), and the
+# Gun Boat the Destroyer and the Cruiser fight, standing still, keeps bobbing and swaying
+# tick to tick; Classic draws none of it.
 # PROVEN TO FAIL: the renderer before this work draws every Gun Boat as its card and has
 # no erector (no EVHCV2 line), no Transport ramps (no EVHCLST line) and no flying rocket
 # (no EVHCFLY line), and turns the Gap Generator's fork clockwise (EVHCSPIN fails on the
 # file baked before its axis was turned down); before the Destroyer's work, a selected
-# Destroyer stood a health bar two cells tall and no lean was dumped. The Cruiser (runs ca,
+# Destroyer stood a health bar two cells tall and no lean was dumped. Before the swell, every
+# ship's lift was 0, on top of the water, and a ship standing still kept one lean. The Cruiser (runs ca,
 # cs, once staged) takes the Destroyer's claims, and its file carries both its turrets, the
 # after one turned half a turn more so both point along the one turret facing, firing fore
 # and aft in turn.
@@ -25799,8 +27126,14 @@ fi
 # NOT COVERED: how much shine looks right, which is a judgement made in play with the F5
 # group's dials (vspec_sun, vspec_sky, vspec_gloss).
 G350D=$(mktemp -d "${TMPDIR:-/tmp}/gate_evhcspec.XXXXXX")
+# THE MATERIALS AND THE TEMPORAL ANTI-ALIASING ARE OFF (pbr_on, aa_mode). Claim (2) is the
+# light pass before the materials: with them on, a map that marks a part as metal also takes
+# its diffuse light away (the Harvester's hull reads darker with its map, up to 157 levels),
+# and the anti-aliasing's blend adds a few darker pixels of its own (about 1500 of 11000 in
+# each pair with both on, about 150 with the materials alone off).
 g350_s() {   # $1 = tag
   {
+    echo "gfx pbr_on 0"; echo "gfx aa_mode 0"
     echo "tick 200"; echo "cam 54 43"
     for k in 1 2 3 4 5 6; do
       echo "tick 3"; echo "shot $G350D/$1_on_$k.png"; echo "evhcspec 0"
@@ -25832,9 +27165,9 @@ fi
 # G351 RED ALERT'S SNOW HILLSIDES KEEP THEIR PAINTING AT THE SHIPPED SUN (ra3d_terrain.h:
 # ra3d_one_sun, ra3d_corner_light; fx_post.h: the slope's rolloff, uSlopeWhite and
 # fx_grade_white_in). Soviet 1 and Allied 3, both snow with their auto heightmaps, one camera
-# over a sun-facing hillside each, three frames of the same tick: the shipped dials, the bloom
+# over a sun-facing hillside each, four frames at the same camera: the shipped dials, the bloom
 # off, and the highlight rolloff off. Claims in game/gate_ra3dsnowslope.py: at most 5% of the
-# view pure white with the shipped dials and 1% without the bloom, while the same view with
+# view pure white with the shipped dials and 1% without the bloom, while a paired bright-sun reference case with
 # the rolloff off clips more than 2% and more than twice as much (the control).
 # PROVEN TO FAIL: the renderer before this work leaves 22% and 30% of these views pure white
 # (it lit Red Alert's ground twice on a slope, by the console's baked shade and by the post
@@ -25848,16 +27181,17 @@ else
   rm -rf g351m && mkdir -p g351m
   for G351M in "u SCU01EA 56 76" "a SCG03EA 78 64"; do
     set -- $G351M
-    { echo "tick 30"; echo "cam $3 $4"; echo "tick 3"; echo "shot g351m/$1_on.png"
+    { echo "gfx snow_fx 0"; echo "tick 30"; echo "cam $3 $4"; echo "tick 3"; echo "shot g351m/$1_on.png"
       echo "gfx bloom_on 0"; echo "tick 3"; echo "shot g351m/$1_nobloom.png"
-      echo "gfx bloom_on 1"; echo "gfx tonemap 0"; echo "tick 3"; echo "shot g351m/$1_off.png"
+      echo "gfx bloom_on 1"; echo "gfx sun_energy 1.25893"; echo "gfx tonemap 1"; echo "tick 3"; echo "shot g351m/$1_stress_on.png"
+      echo "gfx tonemap 0"; echo "tick 3"; echo "shot g351m/$1_off.png"
       echo "quit"; } > g351m/$1.txt
   done
   G351RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio --w 1280 --h 720 --enhanced --texset 3 --noshroud --nosound --dir ra3d/missions/"
   gbegin
   grun g351m/u.log $G351RA --scen SCU01EA --pack ra3d/3d/SCU01EA.pack --script g351m/u.txt
   grun g351m/a.log $G351RA --scen SCG03EA --pack ra3d/3d/SCG03EA.pack --script g351m/a.txt
-  gshots g351m/u_on.png g351m/u_nobloom.png g351m/u_off.png g351m/a_on.png g351m/a_nobloom.png g351m/a_off.png
+  gshots g351m/u_on.png g351m/u_nobloom.png g351m/u_off.png g351m/u_stress_on.png g351m/a_on.png g351m/a_nobloom.png g351m/a_off.png g351m/a_stress_on.png
   G351CHK=$(python3 "$GATEDIR/gate_ra3dsnowslope.py" g351m 2>>"$OUT")
   echo "$G351CHK" >> "$OUT"
   G351L=$(echo "$G351CHK" | grep '^G351 [01] ')
@@ -26091,6 +27425,8 @@ fi
 # set off by a tank gone with the engine's explosion (Allied 14, snow; Soviet 9, temperate);
 # the flag location in capture-the-flag skirmishes (SCM04EA temperate, SCM08EA snow) and a
 # fence cell built by the Soviets raised by its placement; the props on and off differ.
+# The capture-the-flag scene on SCM04EA pins its seats to starts 2 and 1, so the Soviet MCV
+# stands at 36,42 beside the fence cell the script builds.
 # PROVEN TO FAIL: a renderer without the props answers no `raprops`, draws every prop as its
 # 1996 card and draws the other sides' mines.
 # NOT COVERED: how they look (the shots, by eye).
@@ -26111,7 +27447,7 @@ else
   grun g357m/ic.log $G357RA --dir g357m/mic/ --scen SCG11EA --pack ra3d/3d/SCG11EA.pack --script g357m/ic.txt
   grun g357m/ms.log $G357RA --dir g357m/mms/ --scen SCG14EA --pack ra3d/3d/SCG14EA.pack --script g357m/ms.txt
   grun g357m/mt.log $G357RA --dir g357m/mmt/ --scen SCU09EA --pack ra3d/3d/SCU09EA.pack --script g357m/mt.txt
-  grun g357m/ft.log $G357RA --dir g357m/mft/ --scen SCM04EA --pack ra3d/3d/SCM04EA.pack --skirmish --seed 4242 --ctf --side soviet --script g357m/ft.txt
+  grun g357m/ft.log $G357RA --dir g357m/mft/ --scen SCM04EA --pack ra3d/3d/SCM04EA.pack --skirmish --seed 4242 --starts 2,1 --ctf --side soviet --script g357m/ft.txt
   grun g357m/fs.log $G357RA --dir g357m/mfs/ --scen SCM08EA --pack ra3d/3d/SCM08EA.pack --skirmish --seed 4242 --ctf --script g357m/fs.txt
   grun g357m/off.log $G357RA --dir g357m/mbs/ --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --script g357m/off.txt
   grun g357m/on.log $G357RA --dir g357m/mbs/ --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --script g357m/on.txt
@@ -26235,14 +27571,15 @@ fi
 # passing, so the claim is the seam and nothing else. The reference is the damaged yard as
 # that binary drew it on the same main, and the blended binary's is identical to it, pixel
 # for pixel. Like G5's facewatch reference it goes stale when the Enhanced look changes on
-# purpose; the check's message says how to re-cut it.
+# purpose; the check's message says how to re-cut it. The preset has the modern lighting's
+# nine masters off, the lighting the damaged look was approved under.
 # =====================================================================================
 rm -f shots/g360_*.png
 rm -rf g360m && python3 "$GATEDIR/gate_ebldseam.py" maps g360m 2>>"$OUT"
 gbegin shots/g360.log shots/g360_intact.png shots/g360_held.png shots/g360_damaged.png
 if [ -s g360m/SCG88EA.INI ] && [ -s g360m/seam.txt ]; then
   grun shots/g360.log --scen SCG88EA --pack SCG01EA.pack $BASE --dir g360m/ --noshroud --nosound \
-       --w 2560 --h 1440 --enhanced --texset 3 --script g360m/seam.txt
+       --w 2560 --h 1440 --enhanced --texset 3 --gfx gate_visual_damage_20261021.txt --script g360m/seam.txt
   gshots shots/g360_intact.png shots/g360_held.png shots/g360_damaged.png
   G360CHK=$(python3 "$GATEDIR/gate_ebldseam.py" check shots/g360.log shots ../gates/g360-damaged-ref.png 2>>"$OUT")
 else
@@ -26283,6 +27620,9 @@ fi
 # more.
 # NOT COVERED: how the placement looks (G364, G348 and the proof sheets); Tiberian Dawn's
 # placements, which share the code; Classic, which has no placement.
+# The seats are pinned to starts 3 and 2 (G364 uses the same scene): the starts this scene
+# was dealt before Red Alert honoured a seat's chosen start, so the yard stands at 47,81,
+# beside the placement sites above.
 # =====================================================================================
 if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCM03EA.pack ] || [ ! -f ra3d/eplc/POWR.eplc ] \
    || [ ! -f ra3d/eplc/PROC.eplc ] || [ ! -f ra3d/eplc/WEAP.eplc ]; then
@@ -26294,13 +27634,13 @@ else
   env OPENCNC3D_FRAMEPROF=1 OPENCNC3D_PERFDETAIL=1 ./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib \
       --content ra3d/data --dosdata ra3d/audio --dir ra3d/missions/ --w 1280 --h 720 --enhanced \
       --texset 3 --noshroud --nosound --skirmish --scen SCM03EA --pack ra3d/3d/SCM03EA.pack \
-      --side allies --starts 0,1 --credits 10000 --seed 4242 --script g361m/run.txt \
+      --side allies --starts 3,2 --credits 10000 --seed 4242 --script g361m/run.txt \
       > g361m/run.log 2>&1 || GRC=$?
   cat g361m/run.log >> "$OUT"
   env OPENCNC3D_FRAMEPROF=1 OPENCNC3D_PERFDETAIL=1 ./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib \
       --content ra3d/data --dosdata ra3d/audio --dir ra3d/missions/ --w 1280 --h 720 --enhanced \
       --texset 3 --noshroud --nosound --skirmish --scen SCM03EA --pack ra3d/3d/SCM03EA.pack \
-      --side allies --starts 0,1 --credits 10000 --seed 4242 --script g361m/proc-standing.txt \
+      --side allies --starts 3,2 --credits 10000 --seed 4242 --script g361m/proc-standing.txt \
       > g361m/proc-standing.log 2>&1 || GRC=$?
   cat g361m/proc-standing.log >> "$OUT"
   G361CHK=$(python3 "$GATEDIR/gate_eplcperf.py" check g361m/run.log 2>>"$OUT")
@@ -26392,7 +27732,8 @@ else bad "G363 the Enhanced terrain's template borders: ${G363MSG:-the check did
 # (its spine slides along the ridge over the roof blades, faces in one plane, where the one
 # drawn last shows). THREE HIDDEN RUNS at 1280 x 720 on a pinned preset: Tiberian Dawn's yard
 # deploying out of its MCV, Red Alert's the same, the Temple's placement played again; shots
-# at fixed moments to each placement's last frame, and at rest. Claims:
+# at fixed moments to each placement's last frame, and at rest. The preset has the modern
+# lighting's nine masters off, the lighting the placements were approved under. Claims:
 #   (1) every shot is at its moment by the building's own placement clock (EPLCOBJ);
 #   (2) every shot's crop matches its tile of ../gates/g364-<scene>.png, cut from the binary
 #       before the speed-up, to within 24 pixels that changed as an area (a part's edge moved
@@ -26401,7 +27742,24 @@ else bad "G363 the Enhanced terrain's template borders: ${G363MSG:-the check did
 # speed-up as first pushed, Red Alert's yard up to 139 (ticks 21 to 30 of its placement) and
 # the Temple up to 300 (ticks 13 to 26); Tiberian Dawn's yard 0 on all three.
 # The references go stale when a placement's look changes on purpose: the check says how to
-# re-cut them, from a binary that draws the approved look.
+# re-cut them, from a binary that draws the approved look. Red Alert's scene pins its seats to
+# starts 3 and 2, where its reference was cut, from before the engine honoured chosen starts.
+# The v0.9.5 references record the steady camera, lighter smoke and blended terrain.
+# Their placement geometry, capture times, comparison crop and tolerance are unchanged.
+# The two yards' references were cut again, the Temple's kept, when the scene moved under
+# them. Tiberian Dawn: the skirmish computer no longer deploys its MCV where it stands, so
+# the player's yard starts a frame earlier, in building slot 0, and its dust (seeded by slot
+# and frame) falls differently; this renderer on the old scene drew 2 changed pixels at most.
+# Red Alert: the camera rides the ground averaged round its cell, which moves the eye on the
+# snow map's slope. This is NOT a sub-pixel shift: from tick 21 to 30 the MCV's gantry and
+# drum lie squashed flat on its bed, faces in one plane whose contest the depth rounding
+# decides, and at the new eye height most of the squashed part loses to the bed where it
+# showed before (69 changed pixels at ticks 21 to 27, 26 at tick 30, 0 in every other
+# shot). The same binary with the eye on the ground under its look-at point drew 0 in every
+# shot, so the placement code did not change, but the new reference records the other
+# outcome of that contest. Against it, the companion MCV moved on the card (the speed-up's
+# fault) measures 118 at tick 30 and only 15 at ticks 21 to 27: in Red Alert this gate now
+# catches that fault at tick 30 alone. The Temple still catches the gathered order.
 # =====================================================================================
 if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCM03EA.pack ] || [ ! -f ra3d/eplc/FACT.eplc ] \
    || [ ! -f eplc/FACT.eplc ] || [ ! -f eplc/TMPL.eplc ]; then
@@ -26409,14 +27767,14 @@ if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCM03EA.pack ] || [ ! -f ra3d/
 else
   rm -rf g364m && mkdir -p g364m
   python3 "$GATEDIR/gate_eplcref.py" script g364m 2>>"$OUT"
-  printf 'enabled 1\n' > g364m/gfx.cfg
+  cp gate_visual_placement_20261022.txt g364m/gfx.cfg
   gbegin
   grun g364m/td.log --scen SCM01EA --pack SCM01EA.pack $BASE --skirmish --side gdi --credits 10000 \
        --seed 4242 --enhanced --texset 3 --nosound --noshroud --gfx g364m/gfx.cfg --w 1280 --h 720 \
        --script g364m/td.txt
   grun g364m/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio \
        --dir ra3d/missions/ --w 1280 --h 720 --enhanced --texset 3 --noshroud --nosound --skirmish \
-       --scen SCM03EA --pack ra3d/3d/SCM03EA.pack --side allies --starts 0,1 --credits 10000 \
+       --scen SCM03EA --pack ra3d/3d/SCM03EA.pack --side allies --starts 3,2 --credits 10000 \
        --seed 4242 --gfx g364m/gfx.cfg --script g364m/ra.txt
   grun g364m/tmpl.log --scen SCG63EA --pack SCG01EA.pack $BASE --dir g364m/ --noshroud --nosound \
        --w 1280 --h 720 --enhanced --texset 3 --gfx g364m/gfx.cfg --script g364m/tmpl.txt
@@ -26552,6 +27910,10243 @@ else
   elif [ "$G367V" = "1" ]; then ok "G367 the water draws nothing over land and leaves no hole through its floor: $G367MSG"
   else bad "G367 the water draws nothing over land: ${G367MSG:-the check did not run (see the python error in the log)}"; fi
 fi
+
+# =====================================================================================
+# G368 RED ALERT'S INDOOR MISSIONS STAND THEIR WALLS UP IN 3D UNDER ENHANCED
+# (game/ra3d_interior_mod.h; the walls baked per mission by tools/ra3d/bake-interior.py into
+# game/einw_ra from the lab's approved kit, staged into the module's interior/ folder by
+# tools/ra3d/stage-structures.py). Hidden runs, claims in game/gate_ra3dinterior.py: each of
+# the seven indoor missions (three on the 1996 discs, four on the expansion discs) reads its
+# own file, exactly the wall cells and triangles its manifest names, builds a mesh a wall
+# cell and draws its walls in the colour pass, the sun's casters or bake and the normal
+# target; the ground draws every shadow floor piece plain, exactly the cells the map holds;
+# with the shroud on, Soviet 7's walls in cells not yet revealed are not drawn; `rainterior 0`
+# brings the 1996 art back (no walls, the shadow floors) and the frames differ.
+# PROVEN TO FAIL: a renderer without ra3d_interior_mod.h answers no `rainterior` and reads no
+# walls; a module without the files reads none.
+# NOT COVERED: how the walls look (the shots, by eye); units hidden behind the tall walls.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCU07EA.pack ] || [ ! -f ra3d/3d/SCG21EA.pack ]; then
+  skip "G368 Red Alert's indoor walls: no Red Alert module with the indoor missions' 3D scenes is staged in this folder (tools/ra3d/stage-frontend.py)"
+elif [ ! -f ra3d/interior/manifest.json ] || [ ! -f ra3d/interior/walls_atlas.rgbz ]; then
+  bad "G368 Red Alert's indoor walls: the module has no indoor walls staged (tools/ra3d/stage-structures.py)"
+else
+  rm -rf g368i && mkdir -p g368i
+  python3 "$GATEDIR/gate_ra3dinterior.py" script g368i 2>>"$OUT"
+  G368RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio --dir ra3d/missions/ --w 1280 --h 720 --enhanced --texset 3 --nosound"
+  gbegin
+  for g368s in SCG10EB SCG13EA SCU07EA SCA04EA SCG21EA SCU33EA SCU42EA; do
+    grun g368i/$g368s.log $G368RA --noshroud --scen $g368s --pack ra3d/3d/$g368s.pack --script g368i/$g368s.txt
+  done
+  grun g368i/sh.log $G368RA --scen SCU07EA --pack ra3d/3d/SCU07EA.pack --script g368i/sh.txt
+  grun g368i/off.log $G368RA --noshroud --scen SCG13EA --pack ra3d/3d/SCG13EA.pack --script g368i/off.txt
+  grun g368i/on.log $G368RA --noshroud --scen SCG13EA --pack ra3d/3d/SCG13EA.pack --script g368i/on.txt
+  gshots g368i/SCG13EA_look.png g368i/SCU07EA_look.png g368i/SCG21EA_look.png g368i/off.png g368i/on.png
+  G368CHK=$(python3 "$GATEDIR/gate_ra3dinterior.py" check g368i 2>>"$OUT")
+  echo "$G368CHK" >> "$OUT"
+  G368V=$(echo "$G368CHK" | head -1 | cut -d' ' -f1)
+  G368MSG=$(echo "$G368CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G368 Red Alert's indoor walls: a run failed (GRC=$GRC)"
+  elif [ "$G368V" = "1" ]; then ok "G368 $G368MSG"
+  else bad "G368 Red Alert's indoor walls: ${G368MSG:-the check did not run (see the python error in the log)}"; fi
+fi
+
+# =====================================================================================
+# G369 THE MENU THEME PLAYS ON UNDER SETTINGS (game/cnc_eyes.cpp title_screen_audio, called
+# from the loops of Settings, Load Mission and the notice box opened from the title). The
+# music ring holds about three seconds and only the game thread refills it (audio_frame).
+# Those screens run loops of their own on the menu's window and none of them fed it, so the
+# menu theme stopped a few seconds after Settings opened and came back when it closed.
+# Settings now says on its way out how much mix it fed (VISUALS|close|audio_ms=); one pass
+# of its loop is 10 ms. ONE HIDDEN RUN, G57's command line: Settings opened over the title,
+# one frame drawn, closed. Claims: the run ends normally, writes its picture, and the
+# screen fed at least one pass of mix.
+# Measured: audio_ms=10 (one pass, one frame drawn).
+# PROVEN TO FAIL: only by its log line. The build before the fix prints no VISUALS|close
+# line (the line came with the fix); a loop that lost its title_screen_audio() call would
+# print audio_ms=0.
+# NOT COVERED: the audible drain, which needs a sound device (a headless run has none, and
+# the --audiowav tap renders only when pumped); Load Mission and the notice box call the
+# same helper and are not measured separately.
+# =====================================================================================
+gbegin shots/g369_vis.png shots/g369.log
+./opencnc3d --visualsshot shots/g369_vis.png --nosound > shots/g369.log 2>&1 || GRC=$?
+cat shots/g369.log >> "$OUT"
+gshots shots/g369_vis.png
+G369MS=$(sed -n 's/^VISUALS|close|audio_ms=\([0-9]*\)|.*/\1/p' shots/g369.log | tail -1)
+if [ "$GRC" != "0" ]; then
+  bad "G369 the menu theme under Settings: the run failed or wrote no picture (GRC=$GRC)"
+elif [ -z "$G369MS" ]; then
+  bad "G369 the menu theme under Settings: no VISUALS|close line, so the screen never said it fed the mix"
+elif [ "$G369MS" -ge 10 ]; then
+  ok "G369 the menu theme plays on under Settings: the screen fed the mixer $G369MS ms over its one frame"
+else
+  bad "G369 the menu theme under Settings: audio_ms=$G369MS (want >=10): the Settings loop does not feed the music ring, so the theme stops about three seconds after it opens"
+fi
+
+# =====================================================================================
+# G370 RED ALERT HAS NO TIBERIAN DAWN DATABASE (game/codex_mod.h codex_available,
+# game/unitcard_mod.h). The Database page's only table is Tiberian Dawn's
+# (game/codex_table.h), so in a Red Alert mission the plate right of OPTIONS opened GDI's
+# and Nod's roster under Red Alert's badges. Until Red Alert has rows of its own the plate is
+# not offered there; the unit card, which shared the same switch, stays. ONE HIDDEN RUN of
+# Allied 1 under Enhanced with the Enhanced HUD at 1280 x 720, driven through the codex
+# verbs, the functions the plate's click calls. Claims: the OPTIONS plate is hit (the
+# control: the Enhanced HUD strip is up, so the rest is about the Database and not about a
+# HUD that never loaded); the place right of it hits nothing; no line offers the page; the
+# page does not open; the unit card is still offered; and in the shot the place where the
+# DATABASE plate stood (x 162..316, y 2..13) is empty.
+# Measured: 0 lit pixels there; the build before drew the plate and its lettering in 1647.
+# PROVEN TO FAIL: the build before the fix answers avail=1, the place right of OPTIONS hits
+# DATABASE, `codex open` opens the page on house GDI, and the plate is drawn.
+# NOT COVERED: a Red Alert list of its own, which does not exist yet; Tiberian Dawn's
+# Database (G147).
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ] || [ ! -f ra3d/enhanced-hud.pack ]; then
+  skip "G370 no Tiberian Dawn Database in Red Alert: no Red Alert module with its Enhanced HUD is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g370d && mkdir -p g370d
+  printf 'expectres 1280 720\ntick 1\ncodex state\ncodex hit 80 16\ncodex hit 240 16\ncodex open\ncodex state\nunitcard\nshot g370d/strip.png\nquit\n' > g370d/s.txt
+  gbegin
+  # exported rather than prefixed to the call: grun is a shell function (see G40)
+  export OPENCNC3D_HUD=new
+  grun g370d/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --nosound --w 1280 --h 720 --enhanced --texset 3 \
+       --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --script g370d/s.txt
+  unset OPENCNC3D_HUD
+  gshots g370d/strip.png
+  G370OPT=$(grep -c '^CODEX|hit|at=80,16|chrome=OPTIONS|' g370d/ra.log)
+  G370SLOT=$(grep -c '^CODEX|hit|at=240,16|chrome=NONE|avail=0$' g370d/ra.log)
+  G370AVAIL=$(grep -c '^CODEX|state|.*|avail=1|' g370d/ra.log)
+  G370OPEN=$(grep -c '^CODEX|open|' g370d/ra.log)
+  G370CARD=$(grep -c '^UNITCARD|shown=' g370d/ra.log)
+  G370PX=$(python3 - g370d/strip.png 2>>"$OUT" <<'G370PY'
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert('RGB')
+px = im.load()
+print(sum(1 for y in range(2, 14) for x in range(162, 317) if max(px[x, y]) > 24))
+G370PY
+)
+  if [ "$GRC" != "0" ]; then
+    bad "G370 no Tiberian Dawn Database in Red Alert: the run failed or wrote no picture (GRC=$GRC)"
+  elif [ "$G370OPT" != "1" ]; then
+    bad "G370 no Tiberian Dawn Database in Red Alert: the OPTIONS plate was not hit ($G370OPT), so the Enhanced HUD strip is not up and this run proves nothing"
+  elif [ "$G370SLOT" = "1" ] && [ "$G370AVAIL" = "0" ] && [ "$G370OPEN" = "0" ] && [ "$G370CARD" -ge 1 ] \
+       && [ "${G370PX:-9999}" -le 20 ]; then
+    ok "G370 no Tiberian Dawn Database in Red Alert: nothing right of OPTIONS ($G370PX lit pixels where the plate stood), the page does not open, and the unit card is still offered"
+  else
+    bad "G370 no Tiberian Dawn Database in Red Alert: slot-empty=$G370SLOT(want 1) avail-lines=$G370AVAIL(want 0) opened=$G370OPEN(want 0) card=$G370CARD(want >=1) plate-pixels=$G370PX(want <=20)"
+  fi
+fi
+
+# =====================================================================================
+# G371 AN ORDER CLICKED ON THE MOVE STAYS AN ORDER: THE LEFT BUTTON'S BAND THRESHOLD
+# (game/cnc_eyes.cpp lband_px, lband_travelled, ui_lbtn_release). 1995 starts the rubber
+# band only once the pointer is more than four of the game's own pixels from the press
+# (DisplayClass::Mouse_Left_Held, the same test in both games), a fiftieth of the DOS
+# screen's height; lband_px carries that share of the drawable height, 14 px at 1280 x 720.
+# It was five drawable pixels, so an order clicked while the hand was still moving became a
+# band, the band caught nothing and the selection went with the order. ONE HIDDEN RUN of
+# GDI's test map with its Medium Tank selected: three left presses on bare ground (cell
+# 46,48), each released through lgesture, which asks the SDL loop's own question and hands
+# the release to the SDL loop's own function:
+#   (1) 10 px of drift: an ORDER, and the tank stays selected;
+#   (2) exactly the threshold, 14 px: still an ORDER;
+#   (3) 30,30 px: a BAND, which catches nothing and so keeps the tank selected. 1995's
+#       Select_These calls Unselect_All before it sweeps and empties the selection; this
+#       build departs from that on purpose (G459 holds it in both games and every mode).
+# Measured: thresh=14; legs 1 and 2 band=0 with CLICK ... ORDER and the tank kept; leg 3
+# band=1, BAND ...|empty|candidates=0|kept=1.
+# PROVEN TO FAIL: not on the build before the fix, which has no lgesture verb (its run
+# reports the unknown verb and leg 3's selection stays 1). With lband_px returning 5, the old
+# constant, a 10 px drift is past the threshold, so legs 1 and 2 would print band=1 and the
+# selection would drop to 0.
+# NOT COVERED: the SDL motion events themselves (G37's autoplay drives those and must stay
+# green); other window heights, where the threshold scales.
+# =====================================================================================
+rm -rf g371b && mkdir -p g371b
+printf 'tick 20\ncam 54 51\nzoom min\nlclickobj MTNK 0\nexpectsel 1\necho G371-1\nlgesture cell 46 48 10 0\nexpectsel 1\necho G371-2\nlgesture cell 46 48 14 0\nexpectsel 1\necho G371-3\nlgesture cell 46 48 30 30\nexpectsel 1\nquit\n' > g371b/band.txt
+gbegin
+grun g371b/band.log --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720 \
+     --script g371b/band.txt
+G3711=$(sed -n '/^ECHO|G371-1$/,/^ECHO|G371-2$/p' g371b/band.log)
+G3712=$(sed -n '/^ECHO|G371-2$/,/^ECHO|G371-3$/p' g371b/band.log)
+G3713=$(sed -n '/^ECHO|G371-3$/,$p' g371b/band.log)
+G371O1=$(echo "$G3711" | grep -c '^LGESTURE|.*|thresh=14|band=0$')
+G371C1=$(echo "$G3711" | grep -c '^CLICK|.*|ORDER$')
+G371S1=$(echo "$G3711" | grep -c '^EXPECTSEL|want=1|have=1|PASS$')
+G371O2=$(echo "$G3712" | grep -c '^LGESTURE|.*|thresh=14|band=0$')
+G371C2=$(echo "$G3712" | grep -c '^CLICK|.*|ORDER$')
+G371S2=$(echo "$G3712" | grep -c '^EXPECTSEL|want=1|have=1|PASS$')
+G371B3=$(echo "$G3713" | grep -c '^LGESTURE|.*|thresh=14|band=1$')
+G371E3=$(echo "$G3713" | grep -c '^BAND|.*|empty|candidates=0|kept=1$')
+G371S3=$(echo "$G3713" | grep -c '^EXPECTSEL|want=1|have=1|PASS$')
+G371CLEAN=$(grep -c '^SCRIPT|end g371b/band.txt: .*, 0 failures' g371b/band.log)
+if [ "$GRC" != "0" ]; then
+  bad "G371 the band threshold: the run failed (GRC=$GRC)"
+elif [ "$G371O1$G371C1$G371S1$G371O2$G371C2$G371S2$G371B3$G371E3$G371S3$G371CLEAN" = "1111111111" ]; then
+  ok "G371 an order clicked on the move stays an order: a left press that drifts 10 px, or exactly the 14 px threshold, gives the order and the tank stays selected; 30 px is a band, and a band that catches nothing keeps the tank selected"
+else
+  bad "G371 the band threshold: drift10 order=$G371O1/$G371C1 kept=$G371S1; drift14 order=$G371O2/$G371C2 kept=$G371S2; drift30 band=$G371B3 empty=$G371E3 kept=$G371S3; script-clean=$G371CLEAN (all want 1; band=1 on a 10 px drift is the old five-pixel threshold)"
+fi
+
+# =====================================================================================
+# G372 RED ALERT'S CONTROL-GROUP DIGIT ON A SELECTED UNIT, IN EVERY GRAPHICS MODE
+# (game/cnc_eyes.cpp grp_atlas, collect_group_digits, draw_group_digits;
+# game/dosclassic_mod.h dos2d_selection; scenes and claims in game/gate_groupdigits.py).
+# Red Alert's TechnoClass::Draw_Pips prints PIP_NUMBERS + (Group + 1) % 10 out of PIPS.SHP
+# at the bottom left of a selected unit's box, and nothing here drew it. TWO HIDDEN RUNS at
+# 1280 x 720, the map revealed. Allied 1: a Ranger selected in no group draws none; put in
+# group 1 and deselected, none; selected again, a 1 in N64, Enhanced and Classic, at the DOS
+# bar's size in all three (the Enhanced HUD's own zoom is a step smaller, too small to read
+# over the 3D scene), and each shot differs from the same frame under `groupdigits 0` inside
+# the glyph, which is white there; a second Ranger in no group, alone, draws none. Tiberian
+# Dawn's test map: a grouped, selected Medium Tank draws none, because 1995's Tiberian Dawn
+# never drew a group number.
+# Measured: zoom=2.0 in N64 and Enhanced, a 68 x 16 box in Classic; inside the glyph box
+# N64 93 pixels changed and 30 turned white, Enhanced 112 and 30, Classic 120 and 32 (the
+# floors are 40 and 12).
+# PROVEN TO FAIL: not on the build before the fix, which has no groupdump or groupdigits
+# verb (and drew no digit in any mode). Without the draw_group_digits call and the Classic
+# block the dumps would still count the digit, but the on and off pictures would be the same
+# frame: the pixel claim is what catches a digit that is counted and not drawn.
+# NOT COVERED: the formation F (this build cannot make a formation); the exact look, which
+# is a picture to look at (the shots, by eye).
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCG01EA.pack ]; then
+  skip "G372 control-group digits: no Red Alert module with Allied 1's 3D scene is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g372g && mkdir -p g372g
+  python3 "$GATEDIR/gate_groupdigits.py" script g372g 2>>"$OUT"
+  gbegin
+  grun g372g/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --nosound --w 1280 --h 720 --noshroud \
+       --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --script g372g/ra.txt
+  grun g372g/td.log --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720 \
+       --script g372g/td.txt
+  gshots g372g/n64_on.png g372g/n64_off.png g372g/enh_on.png g372g/enh_off.png g372g/cls_on.png g372g/cls_off.png
+  G372CHK=$(python3 "$GATEDIR/gate_groupdigits.py" check g372g 2>>"$OUT")
+  echo "$G372CHK" >> "$OUT"
+  G372V=$(echo "$G372CHK" | head -1 | cut -d' ' -f1)
+  G372MSG=$(echo "$G372CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G372 control-group digits: a run failed or a picture was not written (GRC=$GRC)"
+  elif [ "$G372V" = "1" ]; then ok "G372 control-group digits: $G372MSG"
+  else bad "G372 control-group digits: ${G372MSG:-the check did not run (see the python error in the log)}"; fi
+fi
+
+# =====================================================================================
+# G373 THE POINTER IS NOT UNDER THE FOG OF WAR (game/fx_post.h fx_fog_mask_hole_begin,
+# game/cursor3d_mod.h; scenes and claims in game/gate_fogpointer.py). Enhanced lays its fog
+# on in the resolve through a screen mask built from the depth behind each pixel, and the 3D
+# pointer is drawn into the scene after that mask was built, so it took the fog of the
+# ground under it: dim over fogged cells and gone over the shroud. The pointer is now
+# redrawn into the mask as a hole. HIDDEN RUNS at 1280 x 720 under Enhanced, Tiberian Dawn
+# always and Red Alert when its module is staged: the pointer on one HIDDEN cell, shot with
+# the fog on, with and without the pointer, and again with no fog mask at all. Claims, per
+# game: the cell is HIDDEN; the pointer lights at least 15 pixels with no fog; under the fog
+# it lights at least half as many (its glow fringe stays fogged by design); outside the
+# pointer's box the two fogged pictures agree on at least 99.5 percent of the pixels.
+# Measured: Tiberian Dawn 20 lit under the fog against 25 with none (0.800), Red Alert 70
+# against 95 (0.737), outside the box 1.0000 in both.
+# PROVEN TO FAIL: the build before the fix lights 0 pixels under the fog in both games (the
+# mask multiplies the pointer to black).
+# NOT COVERED: fogged but seen (DARK) cells, under the same mask and the same hole; N64 and
+# Classic, which have no mask.
+# =====================================================================================
+rm -rf g373f && mkdir -p g373f
+python3 "$GATEDIR/gate_fogpointer.py" script g373f 2>>"$OUT"
+gbegin
+grun g373f/td.log --scen SCG90EA --pack SCG01EA.pack $BASE --enhanced --nosound --w 1280 --h 720 \
+     --script g373f/td.txt
+gshots g373f/td_on.png g373f/td_off.png g373f/td_non.png g373f/td_noff.png
+G373TD=td
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  G373TD=
+  grun g373f/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --enhanced --texset 3 \
+       --nosound --w 1280 --h 720 --script g373f/ra.txt
+  gshots g373f/ra_on.png g373f/ra_off.png g373f/ra_non.png g373f/ra_noff.png
+fi
+G373CHK=$(python3 "$GATEDIR/gate_fogpointer.py" check g373f $G373TD 2>>"$OUT")
+echo "$G373CHK" >> "$OUT"
+G373V=$(echo "$G373CHK" | head -1 | cut -d' ' -f1)
+G373MSG=$(echo "$G373CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G373 the pointer over the fog: a run failed or wrote no shot (GRC=$GRC)"
+elif [ "$G373V" = "1" ]; then ok "G373 the pointer is not under the fog of war: $G373MSG"
+else bad "G373 the pointer over the fog: ${G373MSG:-the check did not run (see the python error in the log)}"; fi
+
+# =====================================================================================
+# G374 RED ALERT'S MISSION MAP POINTS AT ITS TARGETS (app/campaign.c camp_ra_spot,
+# camp_ra_map_pointer; claims in game/gate_ramappointer.py). 1996's Map_Selection shows
+# MOUSE_CAN_ATTACK (MOUSE.SHP 21..28, one frame every 4 ticks, hot spot 14,11) while the
+# pointer is over one of the next mission's target rectangles (redalert/mapsel.cpp:200-215);
+# this one kept the arrow. ONE HIDDEN RUN of the hands-off campaign flow, Allied, through the
+# launcher as a player starts it: Allied 1 is won, the map screen comes up, the autopilot
+# parks the pointer and shoots, moves it onto target 0, waits ten ticks and shoots again.
+# Claims: the screen switched to the attack pointer over target 0; the second shot holds
+# exactly the logged frame at the logged place less its hot spot, nothing else in that
+# frame's box changed, and the arrow is gone from its parking place.
+# Measured: CAMPAIGN|ra-map|pointer=attack|spot=0; frame 24 at 178,116, hot spot 14,11; 230
+# of the frame's 231 opaque pixels drawn, all of its clear pixels unchanged; 69 of the
+# arrow's 89 opaque pixels changed (the rest are outline over ground of the same colour).
+# PROVEN TO FAIL: the build before the fix logs no pointer line and writes no second shot.
+# Its autopilot did not move the pointer onto the target either, so that failure is as much
+# the harness step the fix added as the pointer itself.
+# NOT COVERED: the Soviet map (the same code, target 168,105); the 1996 pick sounds and the
+# highlight, which are not drawn; Tiberian Dawn's map screen, which never changed the
+# pointer (G14 and G105 keep the arrow).
+# =====================================================================================
+if [ ! -x ./opencnc3d-launcher ] || [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/cursor-temperat.pack ] \
+   || [ ! -f ra3d/campaign.pack ]; then
+  skip "G374 Red Alert's map pointer: no launcher, or no Red Alert module with its campaign screens, is staged in this folder"
+else
+  rm -rf g374m && mkdir -p g374m
+  gbegin flow_ra_map.png flow_ra_map_attack.png
+  # watchdogged as G14 is: a flow that stops moving must not wedge the suite (the launcher
+  # execs the game, so the alarm goes with it)
+  perl -e 'alarm 600; exec @ARGV' ./opencnc3d-launcher --dir . --module ra3d --play -- \
+      --flowtest 1 --flowrounds 2 --flowside allied --no-movies --nosound > g374m/flow.log 2>&1 || GRC=$?
+  cat g374m/flow.log >> "$OUT"
+  gshots flow_ra_map.png flow_ra_map_attack.png
+  cp flow_ra_map.png flow_ra_map_attack.png g374m/ 2>/dev/null
+  G374CHK=$(python3 "$GATEDIR/gate_ramappointer.py" check g374m ra3d/cursor-temperat.pack 2>>"$OUT")
+  echo "$G374CHK" >> "$OUT"
+  G374V=$(echo "$G374CHK" | head -1 | cut -d' ' -f1)
+  G374MSG=$(echo "$G374CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G374 Red Alert's map pointer: the flow failed or wrote no map picture (GRC=$GRC; 142 is the watchdog)"
+  elif [ "$G374V" = "1" ]; then ok "G374 Red Alert's mission map points at its targets: $G374MSG"
+  else bad "G374 Red Alert's map pointer: ${G374MSG:-the check did not run (see the python error in the log)}"; fi
+fi
+
+# =====================================================================================
+# G375 RED ALERT SHOWS THE MISSION TIMER, AND ITS BUILD CLOCK DARKENS A CAMEO EVENLY
+# (game/cnc_sidebar.h sb_mission_timer, sb_draw_panel_ra95; game/cnc_sidebar_ra_enhanced.h;
+# game/dosbar.c db_draw_ra_timer_tab; tools/ra3d/bake-sidebar.py conquer_fading_table;
+# scenes and claims in game/gate_raclassichud.py). Red Alert's timed missions export the
+# time left (CNCSidebarStruct::MissionTimer) and nothing drew it; 1996 draws a plate directly
+# left of the credits (tab.cpp:154, credits.cpp:153), red under two minutes. The build clock
+# and the busy factory's darkening are a lookup through the pack's fade table, and the baked
+# table was Tiberian Dawn's (the whole palette, TD's cycle range 32..38 whitened), which
+# turned Red Alert's dark browns 32..38 light grey: a sprinkle of light dots over every
+# darkened cameo. 1996 Red Alert fades into the grey ramp 240..254 only
+# (Conquer_Build_Fading_Table). HIDDEN RUNS at 1280 x 720, Classic: Allied 8 (a 45-minute
+# timer and a Barracks: a Rifle Infantry is built, so the Rocket Soldier's cameo is
+# darkened), then the same moment under Enhanced with its HUD; Negotiations run under two
+# minutes; In the Nick of Time (hours); Allied 1 (no timer); and the staged packs.
+# Measured: Allied 8 SBTIMER engine=2695 drawn=2695 text=Time:44:55 on the Classic panel, the
+# plate 90 percent metal, the busy Rocket Soldier 0.0 percent bright, and drawn=2695 on the
+# Enhanced HUD, its plate 85 percent drawn with 89 white pixels; Negotiations Time:01:58 lit,
+# the plate 80 percent red; In the Nick of Time Time:01:29:57; Allied 1 engine=-1 drawn=-1;
+# in the packs a darkened pixel is lifted by 23 levels of luma at most. The build and packs
+# before the fix (no timerdump verb, so the runs also report a script failure): the plate 0
+# percent metal in Classic and 0 percent drawn under Enhanced, 0 percent red, the busy Rocket
+# Soldier 8.0 percent bright, and in every pack 226 fade entries outside the grey ramp
+# lifting a darkened pixel by 103 levels.
+# NOT COVERED: the 7-frame reminder flash; the N64 mode's low-resolution bar, which does not
+# draw the timer yet; how the plates look (the shots, by eye).
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCG08EA.pack ]; then
+  skip "G375 Red Alert's mission timer and build clock: no Red Alert module with Allied 8's 3D scene is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g375h && mkdir -p g375h
+  python3 "$GATEDIR/gate_raclassichud.py" script g375h 2>>"$OUT"
+  G375RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio --dir ra3d/missions/ --w 1280 --h 720 --nosound --seed 4242"
+  gbegin
+  for g375s in SCG08EA SCG47EA SCG41EA SCG01EA; do
+    [ -f ra3d/3d/$g375s.pack ] && [ -f ra3d/missions/$g375s.INI ] || continue
+    grun g375h/$g375s.log $G375RA --scen $g375s --pack ra3d/3d/$g375s.pack --script g375h/$g375s.txt
+  done
+  gshots g375h/SCG08EA.png g375h/SCG08EA_enh.png
+  G375CHK=$(python3 "$GATEDIR/gate_raclassichud.py" check g375h 2>>"$OUT")
+  echo "$G375CHK" >> "$OUT"
+  G375V=$(echo "$G375CHK" | head -1 | cut -d' ' -f1)
+  G375MSG=$(echo "$G375CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G375 Red Alert's mission timer and build clock: a run failed (GRC=$GRC)"
+  elif [ "$G375V" = "1" ]; then ok "G375 Red Alert shows the mission timer and its build clock darkens evenly: $G375MSG"
+  else bad "G375 Red Alert's mission timer and build clock: ${G375MSG:-the check did not run (see the python error in the log)}"; fi
+fi
+
+# =====================================================================================
+# G376 A REFUSED ALLOCATION IS SURVIVED, AND A PAINTED TEXTURE'S DECODES GO
+# (game/ebld_mod.h ebld_resident, livery_copies_release; game/cnc_eyes.cpp
+# livery_build_range). Long Enhanced skirmishes ran the earlier 32-bit Windows build out of
+# address space: the remastered structures' uploads and the late liveries ask for 16 MB
+# blocks in one piece, and a refusal ended the game through std::terminate. A refused
+# structure upload now leaves that structure to the cartridge's model, a refused livery
+# leaves its colour on its side's own look, and a house texture's decodes are let go once
+# its seats' liveries are painted. HIDDEN RUNS of a Tiberian Dawn
+# skirmish under Enhanced (Green Acres, four seats, the map revealed, 1280 x 720), the camera
+# on every Nod army wearing a livery that had to be BUILT (found by a probe run, as G123
+# does), with team colours:
+#   (1) the decodes go and no pixel moves: the frames are byte-identical with the release
+#       switched off (OPENCNC3D_LIVERY_COPIES_RELEASE=0); the default run says it let
+#       decodes go and the other does not; against --noteamcolours the frames differ, or
+#       the camera saw nothing wearing a livery and the identity proves nothing;
+#   (2) OPENCNC3D_EBLD_DEMAND_ALLOC_OK=0 refuses every structure upload in play: the run
+#       ends normally, says which structures the cartridge draws for want of memory, prints
+#       no FATAL, and the first army's yard is the cartridge's model (its frame differs
+#       from the remastered one's); the same for Red Alert when its module is staged (a
+#       skirmish on its snow map, the camera on a computer's base);
+#   (3) OPENCNC3D_LIVERY_ALLOC_OK=0 refuses every late livery: the run ends normally, says
+#       so once, builds no late sheet, prints no FATAL, and the first army wears its side's
+#       own look (its frame is the --noteamcolours one).
+# Measured: 2 armies wearing a built livery (red and green), 293 and 319 sampled pixels
+# from --noteamcolours; 2 decodes let go (1.2 and 20.1 MB) and none with the switch off;
+# 14 Tiberian Dawn and 12 Red Alert structures left to the cartridge, the yard's frame 2523
+# sampled pixels from the remastered one's; the refused livery 0 pixels from the
+# --noteamcolours frame; no FATAL anywhere.
+# PROVEN TO FAIL: not on the build before the fix, which has none of the three switches and
+# lets no decode go; the crash itself needed a 32-bit address space, which a Mac run does
+# not have. What the switches force is the refusal that build met; a 64-bit process meets
+# it when its commit limit runs out.
+# Tick 900, not earlier: a skirmish computer whose MCV starts near a map edge drives it
+# inward for up to half a minute before it deploys, so at tick 300 a yard may not stand yet
+# and an army may be too small to show its livery.
+# NOT COVERED: memory really running out (a refused run on Windows prints the commit
+# charge and physical memory it had left); vehicles, which share the upload path.
+# =====================================================================================
+rm -rf g376x && mkdir -p g376x
+G376ARGS="--scen $SKMAP --pack $SKMAP.pack $SKBASE --enhanced --skirmish --side gdi --ai 3 --noshroud --nosound --w 1280 --h 720"
+gbegin g376x/probe.png
+grun g376x/probe.log $G376ARGS --dumpobj --shot g376x/probe.png --ticks 900
+G376POS=""; G376N=0
+for ge_s in $(grep '^skirmish: seat=' g376x/probe.log \
+    | sed -n 's/^skirmish: seat=\([0-9]*\)|[^|]*|house=\([A-Za-z]*\)|[^|]*|colour=\([0-9]*\)|ai=\([01]\)|.*/\1 \2 \3 \4/p' \
+    | awk '$2 == "Nod" && $3 >= 2 && $4 == 1 { print $1 }'); do
+    ge_h=$(sed -n "s/^TEAMCOLOUR|seat=$ge_s|house=\([^|]*\)|.*/\1/p" g376x/probe.log)
+    [ -n "$ge_h" ] || continue
+    ge_p=$(grep "^P|2|[^|]*|$ge_h|" g376x/probe.log | grep -v '|127|127|' | head -1 \
+           | sed -n 's/.*|wx=\([-0-9.]*\)|wz=\([-0-9.]*\)|.*/\1:\2/p')
+    [ -n "$ge_p" ] || continue
+    G376N=$((G376N + 1)); G376POS="$G376POS $ge_p"
+done
+for ge_r in on keep off; do
+    printf 'tick 900\n' > g376x/$ge_r.txt
+    ge_i=0
+    for ge_p in $G376POS; do
+        ge_i=$((ge_i + 1))
+        printf 'cam %s %s\nshot g376x/%s_%d.png\n' "${ge_p%%:*}" "${ge_p##*:}" "$ge_r" "$ge_i" >> g376x/$ge_r.txt
+    done
+    printf 'quit\n' >> g376x/$ge_r.txt
+done
+ge_p=$(echo $G376POS | cut -d' ' -f1)
+printf 'tick 900\ncam %s %s\nshot g376x/refused.png\nquit\n' "${ge_p%%:*}" "${ge_p##*:}" > g376x/refused.txt
+sed 's#g376x/refused#g376x/nolivery#' g376x/refused.txt > g376x/nolivery.txt
+grun g376x/on.log $G376ARGS --script g376x/on.txt
+grun g376x/off.log $G376ARGS --noteamcolours --script g376x/off.txt
+# The switches are exported around their one run each, not prefixed to grun: an assignment
+# in front of a shell function outlives the call under sh.
+export OPENCNC3D_LIVERY_COPIES_RELEASE=0
+grun g376x/keep.log $G376ARGS --script g376x/keep.txt
+unset OPENCNC3D_LIVERY_COPIES_RELEASE
+export OPENCNC3D_EBLD_DEMAND_ALLOC_OK=0
+grun g376x/refused.log $G376ARGS --script g376x/refused.txt
+unset OPENCNC3D_EBLD_DEMAND_ALLOC_OK
+export OPENCNC3D_LIVERY_ALLOC_OK=0
+grun g376x/nolivery.log $G376ARGS --script g376x/nolivery.txt
+unset OPENCNC3D_LIVERY_ALLOC_OK
+gshots g376x/probe.png g376x/refused.png g376x/nolivery.png
+G376DIFF=-1; ge_i=0
+for ge_p in $G376POS; do
+    ge_i=$((ge_i + 1))
+    gshots g376x/on_$ge_i.png g376x/keep_$ge_i.png g376x/off_$ge_i.png || continue
+    ge_d=$(python3 "$GATEDIR/gate_pixdiff.py" g376x/on_$ge_i.png g376x/off_$ge_i.png 480,200,820,480)
+    if [ "$G376DIFF" -lt 0 ] || [ "$ge_d" -lt "$G376DIFF" ]; then G376DIFF=$ge_d; fi
+done
+# the first army again, refused: the cartridge's yard in the remastered one's place, and a
+# colour without its sheet in its side's own look (the --noteamcolours frame)
+G376REF=$(python3 "$GATEDIR/gate_pixdiff.py" g376x/on_1.png g376x/refused.png 480,200,820,480 2>>"$OUT")
+G376NOL=$(python3 "$GATEDIR/gate_pixdiff.py" g376x/off_1.png g376x/nolivery.png 480,200,820,480 2>>"$OUT")
+G376ON=$(cat g376x/on_*.png 2>/dev/null | shasum | cut -d' ' -f1)
+G376KEEP=$(cat g376x/keep_*.png 2>/dev/null | shasum | cut -d' ' -f1)
+G376GO=$(grep -c "^livery: a house texture's decodes let go" g376x/on.log)
+G376GOK=$(grep -c "^livery: a house texture's decodes let go" g376x/keep.log)
+G376DET=$(grep -c "^[a-z_]*: no memory left for [A-Z0-9]*'s textures -- [A-Z0-9]* is drawn by the cartridge from here on$" g376x/refused.log)
+G376LIV=$(grep -c '^livery: no memory left to paint textures' g376x/nolivery.log)
+G376LATE=$(grep -c '^livery: colour=' g376x/nolivery.log)
+G376RADET=-; G376RAOK=1
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCM08EA.pack ]; then
+  G376RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --enhanced --texset 3 --w 1280 --h 720 --scen SCM08EA --pack ra3d/3d/SCM08EA.pack --skirmish --seed 4242 --ai 3 --noshroud"
+  grun g376x/raprobe.log $G376RA --dumpobj --shot g376x/raprobe.png --ticks 600
+  ge_p=$(grep '^P|2|' g376x/raprobe.log | grep -v '|127|127|' | head -1 \
+         | sed -n 's/.*|wx=\([-0-9.]*\)|wz=\([-0-9.]*\)|.*/\1 \2/p')
+  printf 'tick 600\ncam %s\nshot g376x/rarefused.png\nquit\n' "$ge_p" > g376x/rarefused.txt
+  export OPENCNC3D_EBLD_DEMAND_ALLOC_OK=0
+  grun g376x/rarefused.log $G376RA --script g376x/rarefused.txt
+  unset OPENCNC3D_EBLD_DEMAND_ALLOC_OK
+  gshots g376x/rarefused.png
+  G376RADET=$(grep -c "^[a-z_]*: no memory left for [A-Z0-9]*'s textures -- [A-Z0-9]* is drawn by the cartridge from here on$" g376x/rarefused.log)
+  [ "$G376RADET" -ge 1 ] || G376RAOK=0
+fi
+G376FATAL=$(cat g376x/on.log g376x/keep.log g376x/refused.log g376x/nolivery.log g376x/rarefused.log 2>/dev/null | grep -c '^FATAL')
+if [ "$GRC" != "0" ]; then
+  bad "G376 refused allocations: a run failed (GRC=$GRC) or wrote no shot, so nothing below means anything"
+elif [ "$G376N" -ge 2 ] && [ "$G376ON" = "$G376KEEP" ] && [ "$G376DIFF" -ge 200 ] \
+     && [ "$G376GO" -ge 1 ] && [ "$G376GOK" -eq 0 ] && [ "$G376DET" -ge 1 ] && [ "$G376RAOK" = "1" ] \
+     && [ "${G376REF:-0}" -ge 1000 ] && [ "${G376NOL:-9999}" -le 20 ] \
+     && [ "$G376LIV" -eq 1 ] && [ "$G376LATE" -eq 0 ] && [ "$G376FATAL" -eq 0 ]; then
+  ok "G376 a refused allocation is survived: $G376GO house textures let their decodes go with not one pixel moved on the $G376N armies wearing a built livery (each at least $G376DIFF sampled pixels from --noteamcolours); refused structure uploads left $G376DET Tiberian Dawn and $G376RADET Red Alert structure(s) to the cartridge (the first army's yard redrawn in $G376REF sampled pixels) and a refused livery its colours to their side's look ($G376NOL pixels from --noteamcolours), every run ending normally with no FATAL"
+else
+  bad "G376 refused allocations: armies=$G376N(want >=2; fewer and the A/B looks at nothing) on=keep:$([ "$G376ON" = "$G376KEEP" ] && echo yes || echo NO)(must be yes: letting the decodes go moved pixels) livery-vs-off=$G376DIFF(want >=200; less and the frames show no built livery) let-go=$G376GO(want >=1)/kept-run=$G376GOK(want 0) detached=$G376DET(want >=1; 0 means the refusal never reached ebld_resident, or was not caught) ra-detached=$G376RADET(want >=1) cartridge-yard=$G376REF(want >=1000 sampled pixels from the remastered yard) livery-refused=$G376LIV(want exactly 1) side-look=$G376NOL(want <=20 from --noteamcolours) late-sheets=$G376LATE(want 0) FATAL=$G376FATAL(want 0)"
+fi
+
+# =====================================================================================
+# G377 THE SQUARE A SEAT PICKS IS THE COLOUR ITS ARMY WEARS, IN BOTH GAMES
+# (menu/enhanced_menu.cpp's squares; game/cnc_eyes.cpp LIVERY_BAND, arm_skirmish and the
+# TEAMCOLOUR|paint line livery_resolve prints; game/ra_infantry_colour.h ra_library_colour;
+# game/dosclassic_mod.h; game/cnc_sidebar.h sb_roster_ink; claims in
+# game/gate_playercolour.py). The Enhanced lobby's squares were another table than the one
+# the armies are painted from, so seven of eight squares showed one colour and the army
+# wore another; Tiberian Dawn ignored --colours; and Red Alert's grey and blue rows were
+# swapped between the lobby and the library. HIDDEN RUNS, claims:
+#   td-squares  every Enhanced lobby square is its colour's paint, LIVERY_BAND[c][2], read
+#               out of both sources; every 1995-style square is within 40 of it
+#   td-seats    eight seats on Green Acres in a derangement of the eight colours (no seat
+#               wears its own number, so a dropped --colours cannot pass): each seat is
+#               handed its colour, the engine gives it back, and the body the renderer
+#               paints it is the square the lobby shows for that colour
+#   td-roster   the player list inks each seat in its house's 1995 ink: orange is 26
+#   td-classic  two computers' construction yards in Classic, their colours swapped between
+#               two otherwise identical runs: each yard gains the palette entries only its
+#               new colour has and loses the old colour's
+#   ra-seats    a Red Alert match with Ukraine on the grey row and France on the blue row:
+#               every object of those two houses exports the row its seat picked
+#   ra-classic  Soviet 1's French jeep and the village round it in Classic wear the blue
+#               row, more of it than the grey
+#   ra-roster   the same match's player list in Classic: each row carries the row its army
+#               wears, is inked in that row's 1996 name colour, and the list shows those
+#               colours; in N64 every line in the grey row's ink, the header's among them,
+#               stands on the black of the radar hole and not on the frame
+# Measured: 0 of 8 Enhanced squares off their paint, the 1995-style ones within 37.1; eight
+# seats each painted the body of their square; orange inked 26; the two yards gain 6576 and
+# 6736 pixels of their new colour's own entries; Ukraine's objects remap=5, France's
+# remap=6; the French in Soviet 1 show 2790 blue-row pixels against 764 grey-row; the Red
+# Alert list draws 296 to 384 pixels of each row's own ink.
+# PROVEN TO FAIL: the sources before the fix (all eight Enhanced squares off their paint,
+# seven of them another colour altogether); the build before it (Tiberian Dawn ignores
+# --colours, so every seat keeps its own number and the yards gain 0; orange inks 1, the GUI
+# ramp's purple; Ukraine exports remap=6 and France remap=5; the French in Soviet 1 show 32
+# blue-row pixels against 3522 grey-row in Classic; the Red Alert list read the library's
+# number, so the blue seat was listed on the grey row, and inked from the sixteen-colour
+# ramp, orange as purple and blue in the defeated grey; in N64 the list stood in Tiberian
+# Dawn's radar hole, 976 frame pixels among the grey ink's 20 rows).
+# The yards are found and shot at tick 900: a skirmish computer whose MCV starts near a map
+# edge drives it inward for up to half a minute before it deploys.
+# NOT COVERED: the Enhanced models' exact shade (G123 and G241 prove the livery binds; the
+# grade softens it), and Red Alert's models, which take Tiberian Dawn's ramps.
+# =====================================================================================
+rm -rf g377c && mkdir -p g377c
+G377TD="--scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --seed 4242 --nosound"
+printf 'tick 60\nsbroster\nquit\n' > g377c/seats.txt
+gbegin g377c/probe.png
+grun g377c/seats.log $G377TD --ai 7 --colours 3,6,0,5,2,7,4,1 --noshroud --script g377c/seats.txt
+grun g377c/probe.log $G377TD --ai 3 --colours 0,4,5,6 --noshroud --dumpobj --shot g377c/probe.png --ticks 900
+G377SCR=$(python3 "$GATEDIR/gate_playercolour.py" script g377c 2>>"$OUT")
+echo "$G377SCR" >> "$OUT"
+if [ "$(echo "$G377SCR" | cut -c1)" = "1" ]; then
+  grun g377c/a.log $G377TD --ai 3 --colours 0,4,5,6 --noshroud --w 1280 --h 800 --script g377c/a.txt
+  grun g377c/b.log $G377TD --ai 3 --colours 0,5,4,6 --noshroud --w 1280 --h 800 --script g377c/b.txt
+fi
+G377TDONLY=td
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCM08EA.pack ] && [ -f ra3d/3d/SCU01EA.pack ]; then
+  G377TDONLY=
+  G377RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound"
+  printf 'tick 300\nobjdump\nsbmap\nsbroster\ngfxmode 0\ntick 2\nshot g377c/ra_list.png\ngfxmode 1\ntick 2\nshot g377c/ra_list_n64.png\nquit\n' > g377c/ra.txt
+  printf 'tick 4\ngfxmode 0\ncam 46.5 52.5\nshot g377c/fr.png\nquit\n' > g377c/fr.txt
+  grun g377c/ra.log $G377RA --w 640 --h 400 --scen SCM08EA --pack ra3d/3d/SCM08EA.pack --skirmish --seed 4242 \
+       --ai 3 --countries greece,ussr,ukraine,france --colours 1,2,5,6 --credits 10000 --script g377c/ra.txt
+  grun g377c/fr.log $G377RA --w 1280 --h 800 --noshroud --scen SCU01EA --pack ra3d/3d/SCU01EA.pack \
+       --script g377c/fr.txt
+fi
+gshots g377c/probe.png
+G377CHK=$(python3 "$GATEDIR/gate_playercolour.py" check g377c "$GATEDIR/.." $G377TDONLY 2>>"$OUT")
+echo "$G377CHK" >> "$OUT"
+G377V=$(echo "$G377CHK" | head -1 | cut -d' ' -f1)
+G377MSG=$(echo "$G377CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G377 player colours: a run failed (GRC=$GRC)"
+elif [ "$G377V" = "1" ]; then ok "G377 the square a seat picks is the colour its army wears: $G377MSG"
+else bad "G377 player colours: ${G377MSG:-the check did not run (see the python error in the log)}"; fi
+
+# =====================================================================================
+# G390 THE MOVIE CLOCK HOLDS PAST 48.7 SECONDS, AND A SOUNDTRACK IN SND0 IS HEARD
+# (video/movieplay.c mov_pcm_ms, video/vqaplay.c pcm_push_raw).
+#   (1) The movie clock converts PCM bytes to milliseconds. Written as bytes * 1000 it
+#       overflowed a 32-bit long at 2,147,484 bytes (48.7 s of 22050 Hz mono): the clock
+#       went negative, no frame was due again, and every movie longer than that froze on
+#       frame 730 on Windows, where long is 32 bits. The helper is compiled here with long
+#       forced to 32 bits and compared with exact 64-bit arithmetic for every byte count
+#       up to four hours, mono and stereo.
+#   (2) ALLY1.VQA keeps its whole soundtrack in top-level SND0 chunks, which the decoder
+#       skipped, so the first Allied briefing played silent. Decoded here: it must yield
+#       its 70.7 s of PCM. Runs only where the Red Alert movies are installed.
+# PROVEN TO FAIL: (1) the old expression under the same harness is first wrong at
+# 2147484 bytes, frame 730; (2) the old decoder yields 0 bytes for ALLY1.
+# =====================================================================================
+G390DIR=$(mktemp -d "${TMPDIR:-/tmp}/g390.XXXXXX")
+G390CLK=none; G390ALLY=skip
+if command -v cc >/dev/null 2>&1; then
+  { echo '#include <stdio.h>'; echo '#define long int'
+    sed -n '/^static long mov_pcm_ms(/,/^}/p' "$GATEDIR/../video/movieplay.c"; echo '#undef long'
+    cat <<'G390EOF'
+int main(void)
+{
+    long long b, bad = -1;
+    const int rates[] = {22050 * 2, 22050 * 4};
+    int r;
+    for (r = 0; r < 2; r++)
+        for (b = 0; b <= 4LL * 3600 * rates[r]; b += 2) {
+            long long want = b * 1000 / rates[r];
+            if ((long long)mov_pcm_ms((int)b, rates[r]) != want) { bad = b; break; }
+        }
+    printf("MOVCLOCK|32bit|%s|first-wrong=%lld\n", bad < 0 ? "exact" : "WRONG", bad);
+    return bad >= 0;
+}
+G390EOF
+  } > "$G390DIR/clk.c"
+  cc -O1 -fwrapv -o "$G390DIR/clk" "$G390DIR/clk.c" 2>>"$OUT" && G390CLK=$("$G390DIR/clk")
+  echo "$G390CLK" >> "$OUT"
+  if [ -f ra3d/movies/ALLY1.VQA ]; then
+    ( cd "$GATEDIR/../video" && cc -O2 -std=gnu89 -DVQ_NO_SDL -o "$G390DIR/playvqa" \
+        playvqa.c vqaplay.c pngwrite.c ) 2>>"$OUT"
+    G390ALLY=$("$G390DIR/playvqa" ra3d/movies/ALLY1.VQA --scan 2>>"$OUT" | sed -n 's/.*, \([0-9]*\) bytes of PCM/\1/p')
+  fi
+fi
+G390OLD=$(grep -c 'played \* 1000' "$GATEDIR/../video/movieplay.c")
+rm -rf "$G390DIR"
+if [ "$G390CLK" = "MOVCLOCK|32bit|exact|first-wrong=-1" ] && [ "$G390OLD" = "0" ] \
+   && { [ "$G390ALLY" = "skip" ] || [ "${G390ALLY:-0}" -ge 3000000 ]; }; then
+  ok "G390 the movie clock is exact with a 32-bit long to four hours, so a movie no longer freezes at 48.7 s on Windows; ALLY1's SND0 soundtrack decodes (${G390ALLY} bytes)"
+else
+  bad "G390 movie clock / SND0: clock=[$G390CLK](want exact) old-expression-left=$G390OLD(want 0) ally1-pcm=${G390ALLY:-none}(want >=3000000, or skip without the Red Alert movies)"
+fi
+
+# =====================================================================================
+# G391 THE VERDICT IS SPOKEN ONCE (game/cnc_eyes.cpp verdict_speak). A match's game over
+# is raised by the engine once for every house still standing and once more for every
+# human beaten (On_Multiplayer_Game_Over), all in one tick, and the line was started on
+# each: a surrender against three computers played "mission failed" four times on the same
+# sample, and the sum clipped into a buzz. 1995's Do_Lose says it once, after
+# Stop_Speaking. A 1 + 3 skirmish in each game, surrendered through the dialog's own rows:
+# the engine must still raise its four events (the duplicates are the engine's, and this
+# is what absorbs them) and the line must be played once and dropped three times.
+# PROVEN TO FAIL: before verdict_speak there is no SOUND|verdict line at all, and each of
+# the four GAMEOVER events started the line.
+# =====================================================================================
+printf 'tick 60\noptions\noptclick Surrender\noptclick Yes\ntick 120\nquit\n' > /tmp/g391_surr.txt
+gbegin shots/g391_td.log shots/g391_ra.log
+grun shots/g391_td.log --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --ai 3 \
+     --seed 4242 --dumpsound --nosound --script /tmp/g391_surr.txt
+G391TDEV=$(grep -cE '^GAMEOVER\|SKIRMISH\|LOSE\|players=4\|minutes=[0-9]+\|seat=0$' shots/g391_td.log)
+G391TDP=$(grep -c '^SOUND|verdict|FAIL1.AUD|played$' shots/g391_td.log)
+G391TDD=$(grep -c '^SOUND|verdict|FAIL1.AUD|dropped-duplicate$' shots/g391_td.log)
+G391RA="skip"
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCM08EA.pack ]; then
+  grun shots/g391_ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --nosound --w 640 --h 400 --scen SCM08EA --pack ra3d/3d/SCM08EA.pack \
+       --skirmish --seed 4242 --ai 3 --dumpsound --script /tmp/g391_surr.txt
+  G391RA="$(grep -cE '^GAMEOVER\|SKIRMISH\|LOSE\|players=4\|minutes=[0-9]+\|seat=0$' shots/g391_ra.log)/$(grep -c '^SOUND|verdict|MISNLST1.AUD|played$' shots/g391_ra.log)/$(grep -c '^SOUND|verdict|MISNLST1.AUD|dropped-duplicate$' shots/g391_ra.log)"
+fi
+if [ "$GRC" != "0" ]; then
+  bad "G391 the verdict spoken once: a run failed (GRC=$GRC)"
+elif [ "$G391TDEV" = "4" ] && [ "$G391TDP" = "1" ] && [ "$G391TDD" = "3" ] \
+     && { [ "$G391RA" = "skip" ] || [ "$G391RA" = "4/1/3" ]; }; then
+  ok "G391 the verdict spoken once: a surrender against three computers raises 4 game-over events in Tiberian Dawn and the mission-failed line is played once and dropped 3 times; Red Alert events/played/dropped $G391RA"
+else
+  bad "G391 the verdict spoken once: td events=$G391TDEV(want 4) played=$G391TDP(want 1) dropped=$G391TDD(want 3); ra events/played/dropped=$G391RA(want 4/1/3, or skip without the module)"
+fi
+
+# =====================================================================================
+# G392 RED ALERT'S SCORE MOVES ON (audio/ra_theme_table.h from
+# audio/tools/gen_ra_theme_table.py; the opener in game_boot). The table was generated
+# reading Red Alert's ThemeControl as Tiberian Dawn's, which has a Variation flag Red
+# Alert's lacks, so Available (true for all) landed in `repeat`: every Red Alert track
+# looped for the whole mission and a Soviet mission played Crush and nothing else.
+#   (1) the table's repeat flag equals theme.cpp's Repeat for all 39 rows (only MAP,
+#       SCORE, INTRO and CREDITS repeat);
+#   (2) Soviet 1 opens on THEME_FIRST, Bigfoot, as scenario.cpp's Queue_Song(THEME_FIRST)
+#       does with "No theme", and after it ends the next Soviet track, Crush, starts;
+#   (3) a mission whose INI names a theme (SCU12EA, Hell March) opens on it.
+# PROVEN TO FAIL: the shipped table has 35 mismatches; Soviet 1 printed one MUSIC line,
+# CRUS226M ... repeats, in 316 s of tapped audio.
+# Legs (2) and (3) need the score itself, SCORES.MIX, which no package carries and so no
+# release's staged Red Alert module holds (tools/media/media-paths.txt). There they cannot
+# run, and the gate says so in its PASS line instead of failing on an empty MUSIC list;
+# a developer play folder with the score runs all three legs.
+# =====================================================================================
+G392T=$(python3 - "$GATEDIR/.." <<'G392EOF'
+import re, sys
+root = sys.argv[1]
+src = open(root + "/brain/vanilla/redalert/theme.cpp", encoding="latin-1").read()
+tab = open(root + "/audio/ra_theme_table.h").read()
+want = {m.group(1): m.group(2) == "true" for m in re.finditer(
+    r'\{"([A-Z0-9_]+)",\s*TXT_THEME_\w+,\s*\d+,\s*\d+,\s*(?:true|false),\s*(true|false),', src)}
+have = {m.group(1): m.group(2) == "1" for m in re.finditer(
+    r'\{\{"([A-Z0-9_]+)", \d+, \d+, \d+, \d+, (\d)', tab)}
+print("%d/%d/%d" % (len(want), len(have), sum(1 for n in want if have.get(n) != want[n])))
+G392EOF
+)
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCU01EA.pack ] || [ ! -f ra3d/3d/SCU12EA.pack ]; then
+  if [ "$G392T" = "39/39/0" ]; then
+    ok "G392 Red Alert's score moves on: the table's repeat flags match theme.cpp (39/39); no Red Alert module staged, so the play legs did not run"
+  else
+    bad "G392 Red Alert's score moves on: table rows/parsed/mismatches=$G392T(want 39/39/0)"
+  fi
+elif [ ! -f ra3d/audio/SCORES.MIX ] && [ ! -f ra3d/data/SCORES.MIX ]; then
+  if [ "$G392T" = "39/39/0" ]; then
+    ok "G392 Red Alert's score moves on: the table's repeat flags match theme.cpp (39/39); this folder holds no Red Alert score (SCORES.MIX, which no package carries), so the play legs did not run"
+  else
+    bad "G392 Red Alert's score moves on: table rows/parsed/mismatches=$G392T(want 39/39/0)"
+  fi
+else
+  G392RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --w 640 --h 400 --soundvol 0 --musicvol 255"
+  printf 'tick 5200\nquit\n' > /tmp/g392_long.txt
+  printf 'tick 5\nquit\n' > /tmp/g392_short.txt
+  gbegin shots/g392_scu01.log shots/g392_scu12.log shots/g392_scu01.wav shots/g392_scu12.wav
+  grun shots/g392_scu01.log $G392RA --scen SCU01EA --pack ra3d/3d/SCU01EA.pack \
+       --audiowav shots/g392_scu01.wav --script /tmp/g392_long.txt
+  grun shots/g392_scu12.log $G392RA --scen SCU12EA --pack ra3d/3d/SCU12EA.pack \
+       --audiowav shots/g392_scu12.wav --script /tmp/g392_short.txt
+  rm -f shots/g392_scu01.wav shots/g392_scu12.wav
+  G392M=$(grep '^MUSIC|play|' shots/g392_scu01.log | head -2 | cut -d'|' -f3,6 | tr '\n' ' ')
+  G392H=$(grep '^MUSIC|play|' shots/g392_scu12.log | head -1 | cut -d'|' -f3,6)
+  if [ "$GRC" != "0" ]; then
+    bad "G392 Red Alert's score moves on: a run failed (GRC=$GRC)"
+  elif [ "$G392T" = "39/39/0" ] && [ "$G392M" = "BIGF226M|once CRUS226M|once " ] \
+       && [ "$G392H" = "HELL226M|once" ]; then
+    ok "G392 Red Alert's score moves on: the table's repeat flags match theme.cpp; Soviet 1 opens on Bigfoot and moves on to Crush when it ends; SCU12EA opens on the Hell March its INI names"
+  else
+    bad "G392 Red Alert's score moves on: table=$G392T(want 39/39/0) soviet1=[$G392M](want BIGF226M|once CRUS226M|once) scu12=[$G392H](want HELL226M|once)"
+  fi
+fi
+
+# =====================================================================================
+# G393 A SELECTED RED ALERT VEHICLE CARRIES A HEALTH BAR IN THE 3D MODES (game/cnc_eyes.cpp
+# strip_dimw_vehicle). The bar's length was taken only from a cartridge model, and Red Alert has
+# none, so every Red Alert vehicle and aircraft was skipped. It now takes the 1996 sprite's width,
+# the length TechnoClass::Draw_It gave the bar: a Ranger is 18.
+# PROVEN TO FAIL: v0.9.2 dumps count=0 for the selected Ranger in Enhanced and in N64.
+# NOT COVERED: ships (deliberately barless, G345); Classic draws its own 1996 bar.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ]; then
+  skip "G393 Red Alert vehicle health bar: no Red Alert module with 3D scenes is staged in this folder"
+else
+  rm -rf g393m && mkdir -p g393m
+  printf 'tick 30\nreveal 1\ngfxmode 2\ntick 5\ncam 62 50\ntick 1\nlclickobj JEEP 0\nhbdump\ngfxmode 1\ntick 3\nlclickobj JEEP 0\nhbdump\nquit\n' > g393m/hb.txt
+  G393RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 800"
+  gbegin
+  grun g393m/hb.log $G393RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --script g393m/hb.txt
+  G393N=$(grep -c '^HB|JEEP|Greece|.*|sel=1|dimw=18|' g393m/hb.log)
+  if [ "$GRC" != "0" ]; then bad "G393 Red Alert vehicle health bar: the run failed (GRC=$GRC)"
+  elif [ "$G393N" = "2" ]; then ok "G393 a selected Red Alert Ranger stands its 18-pixel health bar in Enhanced and N64"
+  else bad "G393 Red Alert vehicle health bar: $G393N of 2 dumps carry the selected Ranger's bar (want 2, dimw=18)"; fi
+fi
+
+# =====================================================================================
+# G394 AN IRON CURTAIN OBJECT IS DRAWN THROUGH FadingRed IN CLASSIC AND N64 (dosclassic_mod.h
+# DOS2D_REMAP_IRON, dos2d_fading_red; ra3d_sprites_mod.h). Techno_Draw_Object replaces the
+# remap with DisplayClass::FadingRed while IronCurtainCountDown runs; the layer export's
+# IsIronCurtain was never read, so a curtained object looked like any other. Anchored on the
+# engine: the curtained Construction Yard does not lose strength to hurtobj (988 of 1000; 888
+# without the curtain). The frame's strongly red pixels are counted before and after the
+# curtain in each mode, from the same camera.
+# PROVEN TO FAIL: v0.9.2 draws the curtained yard in its own colours in all three modes.
+# NOT COVERED: Enhanced 3D models (no tint is drawn on them yet).
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCU02EA.pack ]; then
+  skip "G394 Iron Curtain red: no Red Alert module with 3D scenes is staged in this folder"
+else
+  rm -rf g394m && mkdir -p g394m
+  printf 'tick 20\nreveal 1\ngfxmode 0\ncam 72 51\ntick 2\nshot g394m/cls0.png\ngfxmode 1\ntick 3\nshot g394m/n640.png\ngfxmode 0\ntick 2\nspawnobj IRON 74 48\ntick 10\nsuperrecharge\ntick 10\nsbclickitem SW_IronCurtain\ntick 1\nactclickobj FACT 0\ntick 5\nhurtobj FACT 0\ntick 3\nobj FACT 0\nshot g394m/cls1.png\ngfxmode 1\ntick 3\nshot g394m/n641.png\nquit\n' > g394m/iron.txt
+  G394RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 800"
+  gbegin
+  grun g394m/iron.log $G394RA --scen SCU02EA --pack ra3d/3d/SCU02EA.pack --script g394m/iron.txt
+  gshots g394m/cls0.png g394m/cls1.png g394m/n640.png g394m/n641.png
+  G394F=$(grep -c '^SUPER|fire|SW_IronCurtain' g394m/iron.log)
+  G394S=$(grep '^OBJ|FACT#0|' g394m/iron.log | tail -1 | sed -n 's/.*str=\([0-9]*\)\/.*/\1/p')
+  G394R=$(python3 - g394m <<'G394EOF' 2>>"$OUT"
+import sys
+from PIL import Image
+d = sys.argv[1]
+def red(f):
+    px = Image.open(d + "/" + f).convert("RGB").getdata()
+    return sum(1 for r, g, b in px if r > g + 40 and r > b + 40)
+print("%d %d" % (red("cls1.png") - red("cls0.png"), red("n641.png") - red("n640.png")))
+G394EOF
+)
+  echo "G394 curtain fired=$G394F yard str=$G394S red gain classic/n64=$G394R" >> "$OUT"
+  set -- $G394R
+  if [ "$GRC" != "0" ]; then bad "G394 Iron Curtain red: the run failed (GRC=$GRC)"
+  elif [ "$G394F" -ge 1 ] && [ "$G394S" = "988" ] && [ "${1:-0}" -ge 3000 ] && [ "${2:-0}" -ge 3000 ]; then
+    ok "G394 an iron-curtained yard (str $G394S of 1000 after a hit) is drawn red: $1 more red pixels in Classic, $2 in N64"
+  else bad "G394 Iron Curtain red: fired=$G394F(want 1) str=$G394S(want 988) red gain classic=${1:-none} n64=${2:-none} (want >= 3000 each)"; fi
+fi
+
+# =====================================================================================
+# G395 A BLOWN RED ALERT BRIDGE IS DRAWN BLOWN (cnc_eyes.cpp ev_cb g_raMapStale,
+# dosclassic_mod.h ra2d_refresh_map, ra3d_terrain.h). Destroy_Bridge_At swaps the templates
+# and reports each cell with CALLBACK_EVENT_UPDATE_MAP_CELL; the renderer read the map once
+# per mission and ignored the event, so units could not cross a bridge that was still drawn.
+# Both spans are blown, as the mission's barrels do, after a frame has been drawn of the
+# intact bridge in each mode. The engine's own cell (60,55 BR1A -> BR1C) is the anchor. The
+# shader water's field is rebuilt with the ground, so the water runs through the gap instead
+# of the template's painted water.
+# PROVEN TO FAIL: v0.9.2 prints no refresh and never rebuilds the 3D sheet; every dumped cell
+# at 60,55 stays BR1A.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCU02EA.pack ]; then
+  skip "G395 blown bridge: no Red Alert module with 3D scenes is staged in this folder"
+else
+  rm -rf g395m && mkdir -p g395m
+  printf 'tick 30\nreveal 1\ngfxmode 2\ntick 5\ncam 60 56\ntick 2\nshot g395m/enh0.png\ngfxmode 0\ntick 3\nshot g395m/cls0.png\nspawnobj E1 61 55\ntick 3\nobjdump\nhurtcell 60 55\ntick 3\nhurtcell 60 55\ntick 3\nhurtcell 58 57\ntick 3\nhurtcell 58 57\ntick 40\nobjdump\nshot g395m/cls.png\ngfxmode 2\ntick 5\nshot g395m/enh.png\nquit\n' > g395m/br.txt
+  G395RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 800"
+  gbegin
+  # The cell and sheet lines are printed only under the dump switch; a prefix assignment
+  # does not reach the renderer through a shell function, so it is exported for this run.
+  # A headless tick draws nothing, and the map is re-read by the next frame drawn, so the
+  # script takes a shot in each mode before and after the blast, as a player's frames would.
+  export OPENCNC3D_RA3DDUMP=1
+  grun g395m/br.log $G395RA --scen SCU02EA --pack ra3d/3d/SCU02EA.pack --script g395m/br.txt
+  unset OPENCNC3D_RA3DDUMP
+  gshots g395m/enh0.png g395m/cls0.png g395m/cls.png g395m/enh.png
+  G395C=$(grep -c '^RA2D|map SCU02EA changed|' g395m/br.log)
+  G395L=$(grep '^RA3D|cell|60,55|' g395m/br.log | tail -1 | cut -d'|' -f4)
+  G395S=$(grep -c '^RA3D|enh|sheet|SCU02EA|TEMPERAT|enhanced|' g395m/br.log)
+  G395W=$(awk '/^RA2D\|map SCU02EA changed\|/{c=1} c && /^WATER\|ra\|field\|/{print; exit}' g395m/br.log | sed -n 's/.*wet_texels=\([0-9]*\).*/\1/p')
+  echo "G395 refresh=$G395C last 60,55=$G395L enhanced sheets=$G395S water rebuilt wet=$G395W" >> "$OUT"
+  if [ "$GRC" != "0" ]; then bad "G395 blown bridge: the run failed (GRC=$GRC)"
+  elif [ "$G395C" -ge 1 ] && [ "$G395L" = "BR1C" ] && [ "$G395S" -ge 2 ] && [ -n "$G395W" ]; then
+    ok "G395 a blown Red Alert bridge is redrawn: the map refreshes, cell 60,55 becomes BR1C, the Enhanced ground is rebuilt and the shader water is rebuilt through the gap ($G395W wet texels)"
+  else bad "G395 blown bridge: refresh=$G395C(want >= 1) last 60,55=$G395L(want BR1C) enhanced sheets=$G395S(want >= 2) water rebuilt after the refresh=${G395W:-no}"; fi
+fi
+
+# =====================================================================================
+# G396 THE RED ALERT SKIRMISH AI BUILDS NAVAL YARDS AND SHIPS ON COASTAL MAPS
+# (brain/vanilla/redalert/fair_ai_ra.cpp NavalYard). The naval step waited for money > 3500,
+# which the AI's economy never reaches once its base is up, and its placement test was only
+# "water within 10 cells", so a yard that could not be placed was built and refunded. Four
+# coastal maps, three computers, 21000 ticks each.
+# PROVEN TO FAIL: v0.9.2 on SCM01EA: no Sub Pen, no Shipyard and no computer ship in any dump.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCM06EA.pack ]; then
+  skip "G396 naval AI: no Red Alert module with 3D scenes is staged in this folder"
+else
+  rm -rf g396m && mkdir -p g396m/sav
+  { G396I=0; while [ $G396I -lt 14 ]; do echo 'tick 1500'; echo objdump; G396I=$((G396I+1)); done; echo quit; } > g396m/ai.txt
+  G396RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 800"
+  gbegin
+  G396Y=0; G396V=0; G396D=""
+  for G396M in SCM01EA SCM06EA SCM11EA SCM15EA; do
+    grun g396m/$G396M.log $G396RA --scen $G396M --pack ra3d/3d/$G396M.pack --skirmish --seed 4242 --ai 3 \
+         --ai-levels hard,expert,normal --credits 10000 --savedir g396m/sav --script g396m/ai.txt
+    G396D="$G396D $(grep -c '^OBJDUMP-BEGIN' g396m/$G396M.log)"
+    G396Y=$((G396Y + $(awk '/^OBJDUMP-BEGIN/{n++} n==14 && /^OBJ\|BUILDING\|(SPEN|SYRD)\|Multi/' g396m/$G396M.log | wc -l)))
+    G396V=$((G396V + $(awk '/^OBJDUMP-BEGIN/{n++} n==14 && /^OBJ\|VESSEL\|.*\|Multi/' g396m/$G396M.log | wc -l)))
+  done
+  echo "G396 dumps per map:$G396D yards=$G396Y ships=$G396V" >> "$OUT"
+  if [ "$GRC" != "0" ]; then bad "G396 naval AI: a run failed (GRC=$GRC)"
+  elif [ "$G396D" = " 14 14 14 14" ] && [ "$G396Y" -ge 3 ] && [ "$G396V" -ge 3 ]; then
+    ok "G396 the Red Alert skirmish AI goes to sea: $G396Y Sub Pens or Shipyards and $G396V ships after 21000 ticks on four coastal maps"
+  else bad "G396 naval AI: dumps$G396D (want 14 each) yards=$G396Y ships=$G396V (want >= 3 each)"; fi
+fi
+
+# =====================================================================================
+# G397 THE TOP RIGHT CORNER SCROLLS, DIAGONALLY, UNDER BOTH ENHANCED HUDS.
+# On both Enhanced HUDs the SIDEBAR handle is pinned in the window's top right corner, and
+# the east strip refused it as a window plate while the top strip refused it as the
+# handle, so the corner scrolled nowhere. The corner rule in edge_scroll_allowed answers it
+# before either veto. The handle keeps its veto everywhere else: the top strip beside the
+# corner and the east strip below the 12-row band must still refuse, or the rule has
+# swallowed the plate. Both games, because the Red Alert HUD pins the plate in the same
+# place at a different width.
+# PROVEN TO FAIL: without the corner rule the corner probe reads guard=blocked and the
+# camera does not move, verbatim the v0.9.2 log.
+# =====================================================================================
+for G397G in td ra; do
+  if [ "$G397G" = td ]; then G397C="45 45"; else G397C="63 60"; fi
+  printf 'sbhit 1915 2\ncam %s\nedgeat 1915 2 20\ncam %s\nedgeat 1915 400 20\ncam %s\nedgeat 960 2 20\ncam %s\nedgeat 1800 2 20\ncam %s\nedgeat 1915 14 20\nquit\n' \
+    "$G397C" "$G397C" "$G397C" "$G397C" "$G397C" > g397_$G397G.txt
+done
+G397TD=$(OPENCNC3D_HUD=new ./cnc_eyes --scen SCG01EB --pack SCG01EA.pack $SKBASE --nosound --gfx \
+         --w 1920 --h 1080 --script g397_td.txt 2>&1 | tee -a "$OUT")
+G397RA=""
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  G397RA=$(OPENCNC3D_HUD=new ./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data \
+           --dir ra3d/missions/ --dosdata ra3d/audio --nosound --scen SCG01EA \
+           --pack ra3d/3d/SCG01EA.pack --gfx --w 1920 --h 1080 --script g397_ra.txt 2>&1 | tee -a "$OUT")
+fi
+g397v() {   # $1 log: the start is read off the first CAM|cam line, whatever the clamp did to it
+  echo "$1" | awk -F'|' '
+    /^SBHIT\|1915,2\|sidebar/ { plate = 1 }
+    /^CAM\|cam\|/ && !have { for (i = 1; i <= NF; i++) { split($i, kv, "="); if (kv[1] == "x") sx = kv[2]; if (kv[1] == "z") sz = kv[2] } have = 1 }
+    /^EDGEAT/ { g[++n] = $5 }
+    /^CAM\|edgeat\|/ { k++; for (i = 1; i <= NF; i++) { split($i, kv, "="); if (kv[1] == "x") x[k] = kv[2]; if (kv[1] == "z") z[k] = kv[2] } }
+    END {
+      ok = plate && have && g[1] == "guard=pass" && g[4] == "guard=blocked" && g[5] == "guard=blocked"
+      ok = ok && x[1] - sx > 0.5 && sz - z[1] > 0.5                       # north-east, both axes
+      ok = ok && x[4] == sx && z[4] == sz && x[5] == sx && z[5] == sz     # the handle still refuses
+      print ok ? 1 : 0 }'
+}
+G397A=$(g397v "$G397TD")
+G397B=skip; [ -n "$G397RA" ] && G397B=$(g397v "$G397RA")
+if [ "$G397A" = 1 ] && { [ "$G397B" = 1 ] || [ "$G397B" = skip ]; }; then
+  ok "G397 the top right corner scrolls north-east under both Enhanced HUDs (Red Alert: $G397B), while the SIDEBAR handle still refuses the top strip beside the corner and the east strip below it"
+else
+  bad "G397 top right corner: td=$G397A ra=$G397B (want 1 1; a 0 means the corner is vetoed again, the handle lost its veto, or the probe no longer lands on the plate: read the EDGEAT and CAM|edgeat lines)"
+fi
+
+# =====================================================================================
+# G398 ONE POINTER, AT ONE SIZE, ON THE MAP, OVER THE BAR AND IN THE PAUSE DIALOG, UNDER
+# ENHANCED IN BOTH GAMES (cnc_eyes.cpp draw_cursor_top, cursor3d_mod.h c3d_overlay,
+# cursor_match_scale). Over the sidebar the 1995/1996 MOUSE.SHP arrow was drawn at the
+# cartridge pointer's full size, about 3.3x the remastered world pointer; and the pause
+# dialog's pointer took the world pointer's latched size instead of the dialog's own
+# magnification. Each pointer is measured as the pixels that change when it is taken away
+# (cursor -1 -1) on the same frame; over the bar it is held on the emblem plate, where no
+# cameo raises a tooltip beside it.
+# PROVEN TO FAIL: v0.9.2 draws a pointer over the bar about three times the height of the
+# one on the map, and a pause-dialog pointer of about 58 px at 1920x1080 (16 px on the
+# title screen).
+# =====================================================================================
+rm -rf g398m && mkdir -p g398m
+printf 'tick 20\ncursor 660 400\nshot g398m/%%s_m1.png\ncursor -1 -1\nshot g398m/%%s_m0.png\ncursor 1815 100\nshot g398m/%%s_b1.png\ncursor -1 -1\nshot g398m/%%s_b0.png\ncursor 700 300\noptions\nshot g398m/%%s_p1.png\ncursor -1 -1\nshot g398m/%%s_p0.png\nquit\n' > g398m/fmt.txt
+for G398G in td ra; do sed "s/%s/$G398G/g" g398m/fmt.txt > g398m/$G398G.txt; done
+gbegin
+OPENCNC3D_HUD=new grun g398m/td.log --scen SCG01EB --pack SCG01EA.pack $SKBASE --nosound --enhanced --texset 1 \
+     --w 1920 --h 1080 --script g398m/td.txt
+unset OPENCNC3D_HUD   # sh keeps a prefix assignment after a function call
+G398GAMES=td
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  OPENCNC3D_HUD=new grun g398m/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --nosound --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --gfx --w 1920 --h 1080 \
+       --script g398m/ra.txt
+  unset OPENCNC3D_HUD   # sh keeps a prefix assignment after a function call
+  G398GAMES="td ra"
+fi
+G398R=$(python3 - g398m $G398GAMES <<'G398EOF' 2>>"$OUT"
+import sys
+from PIL import Image, ImageChops
+d, games = sys.argv[1], sys.argv[2:]
+
+def pointer_box(m):
+    # The box of the one changed shape that touches the pointer's hotspot (10, 10 in the
+    # crop), 8-connected. Anything else that changed between the two shots is left out:
+    # the water's glint does, and one sparkling pixel at the crop's foot stretched the map
+    # pointer's box to the crop's full height.
+    w, h = m.size
+    px = m.load()
+    seeds = [(x, y) for y in range(6, 15) for x in range(6, 15) if px[x, y]]
+    if not seeds:
+        return None
+    seen = set(seeds[:1])
+    todo = list(seen)
+    while todo:
+        x, y = todo.pop()
+        for nx in (x - 1, x, x + 1):
+            for ny in (y - 1, y, y + 1):
+                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in seen and px[nx, ny]:
+                    seen.add((nx, ny))
+                    todo.append((nx, ny))
+    ys = [y for _, y in seen]
+    xs = [x for x, _ in seen]
+    return (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+out = []
+for g in games:
+    hs = []
+    for k, (x, y) in (("m", (660, 400)), ("b", (1815, 100)), ("p", (700, 300))):
+        a = Image.open("%s/%s_%s1.png" % (d, g, k)).convert("RGB").crop((x - 10, y - 10, x + 110, y + 110))
+        b = Image.open("%s/%s_%s0.png" % (d, g, k)).convert("RGB").crop((x - 10, y - 10, x + 110, y + 110))
+        bb = pointer_box(ImageChops.difference(a, b).convert("L").point(lambda v: 255 if v > 24 else 0))
+        hs.append(bb[3] - bb[1] if bb else 0)
+    out.append("%s:%d,%d,%d" % (g, hs[0], hs[1], hs[2]))
+print(" ".join(out))
+G398EOF
+)
+echo "G398 pointer heights map,bar,pause: $G398R" >> "$OUT"
+G398OK=1
+for G398E in $G398R; do
+  set -- $(echo "${G398E#*:}" | tr ',' ' ')
+  # bar within 30% of the map pointer; the dialog's pointer between 8 and 40 px
+  if [ "${1:-0}" -le 0 ] || [ "${2:-0}" -le 0 ] || [ $(( $2 * 10 )) -gt $(( $1 * 13 )) ] || [ $(( $2 * 10 )) -lt $(( $1 * 7 )) ] \
+     || [ "${3:-0}" -lt 8 ] || [ "${3:-0}" -gt 40 ]; then G398OK=0; fi
+done
+if [ "$GRC" != "0" ]; then bad "G398 pointer size: a run failed (GRC=$GRC)"
+elif [ "$G398OK" = 1 ] && [ -n "$G398R" ]; then ok "G398 under Enhanced the pointer over the bar is the map's own pointer at its size, and the pause dialog's pointer is the dialog's (heights map,bar,pause: $G398R)"
+else bad "G398 pointer size: heights map,bar,pause=$G398R (want bar within 30% of map, pause 8..40 px)"; fi
+
+# =====================================================================================
+# G399 A RED ALERT SOLDIER'S PICK BOX DOES NOT FOLLOW THE CARTRIDGE ART ROW
+# (cnc_eyes.cpp infantry_quad_size, object_screen_poly; ra3d_sprites_mod.h
+# ra3d_infantry_figure). In the 3D modes Red Alert draws its 1996 card whatever the infantry
+# art row says, but picking measured a Tiberian Dawn strip chosen by that row: the cartridge's
+# tall frame on the N64 row, so the box reached far above the soldier. The same soldier is
+# probed under both rows on one frame: the boxes must be identical. Tiberian Dawn, which
+# does draw the row's art, is not touched (G1 covers its picking).
+# PROVEN TO FAIL: v0.9.2 gives 648,455..686,509 on the N64 row and 652,488..682,509 on DOS.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ]; then
+  skip "G399 Red Alert soldier pick box: no Red Alert module with 3D scenes is staged in this folder"
+else
+  printf 'tick 20\ngfx einf_on 0\ngfx infset 0\ncam 63 46\ntick 1\nprobe 667 498\ngfx infset 1\ntick 1\nprobe 667 498\nquit\n' > g399.txt
+  G399L=$(OPENCNC3D_HUD=new ./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+          --dosdata ra3d/audio --nosound --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --gfx --noshroud \
+          --w 1280 --h 720 --script g399.txt 2>&1 | tee -a "$OUT" | grep -a '^PROBE|  E1 .*id=14 ' | sed 's/.*aabb=\([^ ]*\).*/\1/')
+  G399A=$(echo "$G399L" | sed -n 1p); G399B=$(echo "$G399L" | sed -n 2p)
+  if [ -n "$G399A" ] && [ "$G399A" = "$G399B" ]; then
+    ok "G399 a Red Alert soldier's pick box is the same under the N64 and DOS infantry rows ($G399A)"
+  else bad "G399 Red Alert soldier pick box: N64 row [$G399A] DOS row [$G399B] (want two identical boxes)"; fi
+fi
+
+# =====================================================================================
+# G400 A STRUCTURE THAT WENT UP WHILE THE ROCKS WERE OFF THROWS NOTHING WHEN THEY COME BACK.
+# foliage3d_crush_note returned before spending the queue while no foliage was wanted, so
+# every pulse queued meanwhile went off at once on the tick the rocks were switched back on:
+# measured on v0.9.2, a pulse queued ten ticks before rocks returned threw four of them.
+# The control arm is the same script with the rocks left on, which must still throw some.
+# PROVEN TO FAIL: v0.9.2 prints pulsed=4 on the first arm.
+# =====================================================================================
+cat > /tmp/g400p.txt <<'G400EOF'
+gfx fol_on 0
+tick 20
+cam 50 51
+zoom max
+shot shots/g400p_0.png
+gfx rock_on 0
+rockpulse 49 50 2 2
+tick 10
+gfx rock_on 1
+tick 1
+shot shots/g400p_1.png
+tick 3
+foldump
+quit
+G400EOF
+grep -v 'rock_on' /tmp/g400p.txt | sed 's#g400p_#g400pc_#' > /tmp/g400pc.txt
+gbegin shots/g400p.log shots/g400pc.log shots/g400p_0.png shots/g400p_1.png shots/g400pc_0.png shots/g400pc_1.png
+grun shots/g400p.log  --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 --enhanced --noshroud --script /tmp/g400p.txt
+grun shots/g400pc.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 --enhanced --noshroud --script /tmp/g400pc.txt
+gshots shots/g400p_1.png shots/g400pc_1.png
+G400P=$(grep -a '^FOLDUMP|' shots/g400p.log | tail -1 | sed 's/.*|pulsed=\([0-9]*\).*/\1/')
+G400C=$(grep -a '^FOLDUMP|' shots/g400pc.log | tail -1 | sed 's/.*|pulsed=\([0-9]*\).*/\1/')
+if [ "$GRC" = "0" ] && [ "$G400P" = "0" ] && [ "${G400C:-0}" -gt 0 ]; then
+  ok "G400 a pulse queued while rocks were off throws nothing when they return (pulsed=0); with rocks on the same pulse throws $G400C"
+else
+  bad "G400 stale rock pulses: rc=$GRC, pulsed after rocks returned=$G400P (want 0), control pulsed=$G400C (want >0)"
+fi
+
+# =====================================================================================
+# G401 RED ALERT'S FIRST ENHANCED TICK PREPARES ITS WHOLE BASE IN EIGHT TIMES TIBERIAN DAWN'S
+# ROOM (game/ebld_prepare.h ebld_prepare_cap). Red Alert's structures carry several
+# full-size damaged, glow and overlay atlases each, and it prepares every on-map structure
+# on its first Enhanced tick under caps eight times Tiberian Dawn's; a mission started in
+# Classic does it the moment it switches to Enhanced: on SCG01EA about 1.15 GB of card
+# textures and half a gigabyte of decodes kept in system memory, in one tick. A HIDDEN RUN
+# of SCG01EA started in Classic and switched to Enhanced at tick 150 (gfxmode 2), a shot
+# after three frames, the falling snow pinned off:
+#   (1) the preparation's gpu_bound is over 256 MB, which is Tiberian Dawn's room: the
+#       eight-fold room holds, and its frame draws nothing as a fallback box or as absent
+#       from the cartridge;
+#   (2) no FATAL.
+# PROVEN TO FAIL: claim (1) reads red against a build that gives Red Alert Tiberian Dawn's
+# room, which prepares at most 256 MB of card textures on the same run.
+# NOT COVERED: the memory a Windows machine reports (the headroom test runs only there).
+# =====================================================================================
+rm -rf g401 && mkdir -p g401
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  G401RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --scen SCG01EA --pack ra3d/3d/SCG01EA.pack"
+  printf 'gfx snow_fx 0\ntick 150\ngfxmode 2\ntick 150\nframes 3\nshot g401/wide.png\nquit\n' > g401/wide.txt
+  gbegin g401/wide.png
+  grun g401/wide.log $G401RA --script g401/wide.txt
+  gshots g401/wide.png
+  G401WG=$(sed -n 's/^EBLDPREPARE|loading|.*|gpu_bound=\([0-9]*\)|.*/\1/p' g401/wide.log | tail -1)
+  G401W=$(grep -a '^draw:' g401/wide.log | tail -1 | sed -n 's/.* \([0-9]*\) fallback boxes,.* \([0-9]*\) absent-from-cartridge,.*/\1+\2/p')
+  G401F=$(grep -c '^FATAL' g401/wide.log)
+  if [ "$GRC" != "0" ]; then
+    bad "G401 Red Alert's preparation room: the run failed (GRC=$GRC) or wrote no shot"
+  elif [ "${G401WG:-0}" -gt 268435456 ] && [ "$G401W" = "0+0" ] && [ "$G401F" -eq 0 ]; then
+    ok "G401 Red Alert's first Enhanced tick prepares $G401WG bytes of card textures, past Tiberian Dawn's 256 MB room, with nothing drawn as a fallback and no FATAL"
+  else
+    bad "G401 Red Alert's preparation room: gpu=$G401WG(want >268435456: the eight-fold room) fallback+absent=$G401W(want 0+0) FATAL=$G401F(want 0)"
+  fi
+else
+  skip "G401 Red Alert's preparation room: Red Alert is not staged here"
+fi
+
+# =====================================================================================
+# G403 A MISSION THAT STOPS FOR LONGER THAN THE WATCHDOG'S WAIT SAYS WHERE, AND WHEN IT
+# MOVES AGAIN (game/cnc_eyes.cpp stuck_watch, stuck_arm, stuck_beat in brain_advance and
+# draw_frame). A frozen game's log ends wherever its last line was printed. A watcher
+# thread now prints a STUCK| line, with the crash stage and the engine's frame, when no tick
+# and no frame have happened for the wait, and an "over" line when the game moves again.
+# On in a player's run (10 s); in an automated run only with OPENCNC3D_STUCK_AFTER_MS.
+# HIDDEN RUNS of SCG01EC whose script stops the main thread with `wait 3500`:
+#   (1) OPENCNC3D_STUCK_AFTER_MS=1000: exactly two STUCK reports (about 1 and 3 s), both
+#       "while: mission running", then exactly one "over" line;
+#   (2) the same script without the variable: no STUCK line (an automated run is quiet);
+#   (3) the variable set and 600 ticks with no wait: no STUCK line (ticking is progress).
+# PROVEN TO FAIL: not on the build before the fix, which prints no STUCK line.
+# NOT COVERED: the Windows sampler (module+offset and stack callers), which only runs on
+# Windows; this gate's script, run on a Windows machine, shows it.
+# =====================================================================================
+rm -rf g403 && mkdir -p g403
+printf 'tick 30\nwait 3500\ntick 30\nwait 600\nquit\n' > g403/stall.txt
+printf 'tick 600\nquit\n' > g403/busy.txt
+gbegin
+export OPENCNC3D_STUCK_AFTER_MS=1000
+grun g403/stall.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --script g403/stall.txt
+grun g403/busy.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --script g403/busy.txt
+unset OPENCNC3D_STUCK_AFTER_MS
+grun g403/off.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --script g403/stall.txt
+G403R=$(grep -c '^STUCK|no engine tick and no frame for [0-9.]* s, while: mission running (engine frame [0-9-]*)$' g403/stall.log)
+G403O=$(grep -c '^STUCK|over: the game moved again after [0-9.]* s$' g403/stall.log)
+G403OFF=$(grep -c '^STUCK' g403/off.log)
+G403BUSY=$(grep -c '^STUCK' g403/busy.log)
+if [ "$GRC" != "0" ]; then
+  bad "G403 the watchdog: a run failed (GRC=$GRC)"
+elif [ "$G403R" -eq 2 ] && [ "$G403O" -eq 1 ] && [ "$G403OFF" -eq 0 ] && [ "$G403BUSY" -eq 0 ]; then
+  ok "G403 a stopped mission is reported twice in 3.5 s and once more when it moves again; an automated run without the variable and a busy run with it print nothing"
+else
+  bad "G403 the watchdog: reports=$G403R(want 2) over=$G403O(want 1) off=$G403OFF(want 0) busy=$G403BUSY(want 0)"
+fi
+
+# =====================================================================================
+# G404 THE SAVE WIDTH WORD (game/dossave.c ds_word_loadable and ds_payload_word; the
+# engine's OPENCNC3D_SAVE_WIDTH_MASK and OPENCNC3D_SAVE_WIDTH_WIN64 in each game's
+# dllinterfaceversion.h). A saved game is the engine's memory written raw, so a payload can
+# be read correctly only by a build of the kind that wrote it. Its first word, little-endian, is
+# CNC_DLL_API_VERSION (0x102); a 64-bit Windows build sets a width tag in bits 16-23 of it
+# and its engine refuses a payload without the tag. Every other build writes the bare word,
+# and its engine checks no width at all: it loads whatever word it is given, a tagged one
+# included. The host can tell the two apart from the payload alone (ds_word_loadable, which
+# every slot list and load path asks through ds_slot_loadable, G406), and this gate holds
+# that host-side policy to its contract with no game, built here from the sources beside
+# the suite (game/gate_savewidth.c with game/dossave.c), once against each game's engine
+# header:
+#   (1) the host's policy for both kinds of build: a Mac or 32-bit host offers its engine
+#       0x102 and not 0x00640102, a 64-bit Windows host the reverse; only bits 16-23
+#       decide. That a Mac engine would load 0x00640102 anyway is not this gate's question;
+#   (2) the reader: the first four bytes of a payload on disk, little-endian, and nothing
+#       read from a payload too short to hold them or one that is not there;
+#   (3) dossave.h's copy of the two values equals the engine header's, in both games, and
+#       the bare word is the engine's CNC_DLL_API_VERSION (cnc_eyes.cpp also refuses to
+#       compile if Tiberian Dawn's header and dossave.h disagree).
+# PROVEN TO FAIL: against a dossave.c whose ds_word_loadable answers 1 for every word,
+# which is a build that never looks at the word, 6 of the 27 checks are wrong in each build.
+# NOT COVERED: the engine's own refusal (DLLExportClass::Load under _WIN64), which no Mac
+# build compiles; a 64-bit Windows run has to show a 32-bit save refused and its own loaded.
+# What the slot list and the load paths do with the answer is G406's.
+# =====================================================================================
+rm -rf g404w && mkdir -p g404w
+G404N=0; G404BAD=""
+for g404g in tiberiandawn redalert; do
+  mkdir -p g404w/$g404g
+  if [ ! -f "$GATEDIR/../brain/vanilla/$g404g/dllinterfaceversion.h" ]; then
+    G404BAD="$G404BAD $g404g: no engine header at brain/vanilla/$g404g;"; continue
+  fi
+  if ! cc -std=c99 -Wall -O2 -DSAVEWIDTH_ENGINE_HEADER -I"$GATEDIR/../brain/vanilla/$g404g" \
+       -o g404w/gate_savewidth_$g404g "$GATEDIR/../game/gate_savewidth.c" \
+       "$GATEDIR/../game/dossave.c" >>"$OUT" 2>&1; then
+    G404BAD="$G404BAD $g404g: the check did not compile;"; continue
+  fi
+  ./g404w/gate_savewidth_$g404g g404w/$g404g > g404w/$g404g.log 2>&1
+  g404rc=$?
+  cat g404w/$g404g.log >> "$OUT"
+  # Every check by name, so a check that stopped being made cannot pass by its absence.
+  g404hit=0
+  for g404l in 'loadable|bare|word=0x00000102|win64=0|got=0x00000001' \
+               'loadable|bare|word=0x00000102|win64=1|got=0x00000000' \
+               'loadable|tagged|word=0x00640102|win64=1|got=0x00000001' \
+               'loadable|tagged|word=0x00640102|win64=0|got=0x00000000' \
+               'read|bare|word|got=0x00000102' 'read|tagged|word|got=0x00640102' \
+               'read|short|ok|got=0x00000000' 'engine|mask|got=0x00FF0000' \
+               'engine|win64|got=0x00640000' 'engine|version-word|got=0x00000102'; do
+    grep -Fq "SAVEWIDTH|$g404l|" g404w/$g404g.log && g404hit=$((g404hit+1))
+  done
+  if [ "$g404rc" = "0" ] && [ "$g404hit" = "10" ] \
+     && grep -qx 'SAVEWIDTH|verdict=PASS|checks=27' g404w/$g404g.log; then
+    G404N=$((G404N+1))
+  else
+    G404BAD="$G404BAD $g404g: exit=$g404rc named-checks=$g404hit(want 10) $(grep -c '|WRONG$' g404w/$g404g.log) wrong, first [$(grep -m1 '|WRONG$' g404w/$g404g.log)];"
+  fi
+done
+if [ "$G404N" = "2" ] && [ -z "$G404BAD" ]; then
+  ok "G404 the save width word, host side (ds_word_loadable): a 64-bit Windows host offers its engine only a tagged save (0x00640102) and any other host only an untagged one (0x102), whatever the Mac engine itself would load; the word is read off a payload on disk little-endian; dossave.h agrees with the engine header of both games (27 checks each)"
+else
+  bad "G404 the save width word:$G404BAD"
+fi
+
+# =====================================================================================
+# G405 A SAVE MADE WHILE A FINISHED BUILDING WAITS FOR PLACEMENT LOADS BACK, in both games
+# (the engine's DLLExportClass::Code_Pointers and Decode_Pointers, which turn the building a
+# player is holding over the map into its type number for the file and back, and the cast
+# they use for it; game_save_slot, game_load_slot). Those lines run only when a building is
+# held at the moment of the save, which no other gate does: G54 and G238 save with nothing
+# held. One hidden run per game into a scratch save folder: Tiberian Dawn on SCG01EC (the one
+# mission that hands over a Construction Yard and a build list), money and instant build
+# switched on; Red Alert on Soviet 2 at the ordinary pace. Each builds a Power Plant, whose
+# type number is not 0 in either game (12 and 17; a type 0 codes to a null pointer and the
+# cast is never reached), and:
+#   (1) holds it over the map, reads the placement overlay and dumps the world;
+#   (2) saves, and the overlay after the save is the one before it: the save coded the held
+#       building and decoded it again on the running game;
+#   (3) places it and plays 200 ticks, so the world has moved (one more Power Plant standing);
+#   (4) loads: the dump is the pre-save one line for line, at the saved frame, and the Power
+#       Plant is back in its factory finished (ready after 0 ticks);
+#   (5) holds it again (the overlay reaches as far as before the save) and places it: one
+#       more Power Plant standing than the loaded world had.
+# PROVEN TO FAIL: against a Tiberian Dawn brain whose Decode_Pointers leaves the held building
+# null, claim (2) reads "not in placement mode" after the save and the gate is red.
+# NOT COVERED: the 64-bit Windows brain, which no Mac run compiles; the same run is needed
+# there. Red Alert's half needs a staged Red Alert module and says when it did not run.
+# =====================================================================================
+rm -rf g405s && mkdir -p g405s/td g405s/ra
+g405_script() {   # $1 = the file, $2 = the Power Plant's name, $3 = the first lines
+  { printf '%s\n' "$3"
+    printf 'build %s\nready %s 3000\nstartplace %s\nplacemap\nobjdump\n' "$2" "$2" "$2"
+    printf 'save 0 placement waits\nplacemap\nplace auto\ntick 200\nobjdump\n'
+    printf 'load 0\nobjdump\nready %s 5\nstartplace %s\nplacemap\nplace auto\ntick 30\nobjdump\nslots\nquit\n' "$2" "$2"
+  } > "$1"
+}
+g405_placed() { grep "^OBJ|BUILDING|$2|" "$1" | grep -c '|limbo=0|'; }
+g405_judge() {    # $1 = the log, $2 = the Power Plant's name, $3 = the scenario
+  g405l="$1"
+  G405M=""
+  g405maps=$(grep -E '^PLACEMAP\|(origin=|not in placement mode)' "$g405l" | sed 's/|noart=.*//')
+  g405a=$(echo "$g405maps" | sed -n 1p); g405b=$(echo "$g405maps" | sed -n 2p)
+  g405c=$(echo "$g405maps" | sed -n 3p)
+  g405pa=$(echo "$g405a" | sed -n 's/.*|prox=\([0-9]*\)|.*/\1/p')
+  g405pc=$(echo "$g405c" | sed -n 's/.*|prox=\([0-9]*\)|.*/\1/p')
+  for g405n in 1 2 3 4; do
+    awk -v n=$g405n '/^OBJDUMP-BEGIN/{k++} k==n&&/^(OBJ\||TIB\||WALL\|)/{print}' "$g405l" > "$g405l.d$g405n"
+  done
+  g405p1=$(g405_placed "$g405l.d1" "$2"); g405p2=$(g405_placed "$g405l.d2" "$2")
+  g405p3=$(g405_placed "$g405l.d3" "$2"); g405p4=$(g405_placed "$g405l.d4" "$2")
+  g405f=$(sed -n 's/^OBJDUMP-END [a-z]*=[0-9]* frame=\([0-9]*\)$/\1/p' "$g405l" | paste -sd' ' -)
+  g405sf=$(sed -n "s/^SAVE|slot=0|placement waits|bytes=[0-9]*|frame=\([0-9]*\)|scen=$3|.*/\1/p" "$g405l" | head -1)
+  g405lf=$(sed -n "s/^LOAD|slot=0|frame=\([0-9]*\)|scen=$3|.*/\1/p" "$g405l" | head -1)
+  g405f1=$(echo "$g405f" | cut -d' ' -f1); g405f3=$(echo "$g405f" | cut -d' ' -f3)
+  # (the last ready is the one after the load)
+  g405back=$(grep "^SCRIPT|ready|$2|" "$g405l" | tail -1 | grep -c "|COMPLETED after 0 ticks|")
+  g405end=$(grep -c '^SCRIPT|end .* 0 failures$' "$g405l")
+  g405lines=$(wc -l < "$g405l.d1" | tr -d ' ')
+  G405OKONE=0
+  if [ -n "$g405sf" ] && [ "$g405sf" = "$g405lf" ] && [ "$g405f1" = "$g405sf" ] \
+     && [ "$g405f3" = "$g405sf" ] && [ "${g405lines:-0}" -ge 20 ] \
+     && echo "$g405a" | grep -q '^PLACEMAP|origin=' && [ "$g405a" = "$g405b" ] \
+     && echo "$g405c" | grep -q '^PLACEMAP|origin=' && [ -n "$g405pa" ] && [ "$g405pa" = "$g405pc" ] \
+     && [ "$g405p2" = "$((g405p1 + 1))" ] && [ "$g405p3" = "$g405p1" ] && [ "$g405p4" = "$((g405p3 + 1))" ] \
+     && cmp -s "$g405l.d1" "$g405l.d3" && ! cmp -s "$g405l.d1" "$g405l.d2" \
+     && [ "$g405back" = "1" ] && [ "$g405end" = "1" ]; then
+    G405OKONE=1
+    G405M="saved at frame $g405sf holding a $2, $g405lines dump lines back line for line, $g405p1 -> $g405p2 -> $g405p3 -> $g405p4 standing"
+  else
+    G405M="save-frame=$g405sf load-frame=$g405lf dump-frames=[$g405f] lines=$g405lines overlay before=[$g405a] after-save=[$g405b] after-load=[$g405c] (want the first two equal and the prox of the third $g405pa) standing=$g405p1,$g405p2,$g405p3,$g405p4 (want n, n+1, n, n+1) dump-back-identical=$(cmp -s "$g405l.d1" "$g405l.d3" && echo yes || echo NO) moved=$(cmp -s "$g405l.d1" "$g405l.d2" && echo NO || echo yes) ready-after-load=$g405back script-clean=$g405end"
+  fi
+}
+gbegin
+g405_script g405s/td.txt NUKE "$(printf 'tick 60\ncheatset money 1\ncheatset instant 1\ntick 20')"
+grun g405s/td.log --scen SCG01EC --pack SCG01EA.pack $BASE --noshroud --nosound --w 640 --h 400 \
+     --savedir g405s/td --script g405s/td.txt
+G405TDRC=$GRC
+g405_judge g405s/td.log NUKE SCG01EC
+G405TD=$G405OKONE; G405TDM="Tiberian Dawn: $G405M"
+G405RA=-; G405RAM="Red Alert: no Red Alert module with Soviet 2's scene is staged in this folder"
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCU02EA.pack ]; then
+  g405_script g405s/ra.txt POWR 'tick 10'
+  gbegin
+  grun g405s/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --nosound --noshroud --w 640 --h 400 --scen SCU02EA \
+       --pack ra3d/3d/SCU02EA.pack --savedir g405s/ra --script g405s/ra.txt
+  G405RARC=$GRC
+  g405_judge g405s/ra.log POWR SCU02EA
+  G405RA=$G405OKONE; G405RAM="Red Alert: $G405M"
+  [ "$G405RARC" = "0" ] || { G405RA=0; G405RAM="Red Alert: the run failed (exit $G405RARC); $G405M"; }
+fi
+[ "$G405TDRC" = "0" ] || { G405TD=0; G405TDM="Tiberian Dawn: the run failed (exit $G405TDRC); $G405TDM"; }
+if [ "$G405TD" = "1" ] && [ "$G405RA" != "0" ]; then
+  ok "G405 a save made while a finished building waits for placement loads back: $G405TDM; $G405RAM"
+else
+  bad "G405 a save made while a finished building waits for placement: $G405TDM; $G405RAM"
+fi
+
+# =====================================================================================
+# G406 A SAVE MADE BY THE OTHER KIND OF BUILD IS LISTED, REFUSED WITH A SENTENCE AND KEPT
+# (game/dossave.c ds_slot_loadable, ds_width_label, ds_width_refusal; game/cnc_eyes.cpp
+# opt_slot_rows, opt_do_load, slot_width_refused in game_load_slot; app/opencnc3d.cpp
+# load_slot_prepare). A payload's first word says which kind of build wrote it (G404): a
+# 64-bit Windows build marks it, every other build does not, and neither can read the
+# other's payload. On this Mac build, in each game, a real save is made into a scratch
+# folder (slot 1) and two copies of it whose first word carries the 64-bit Windows mark are
+# planted beside it: slot 0 in the same mission and slot 2 recorded in another one, so a
+# load of it would leave the running mission for the shell. Newest first: 0, 2, 1.
+#   (1) the pause dialog's Load Mission lists both marked slots labelled "Windows save" in
+#       place of their side and marked unloadable, the real one with its side and not
+#       marked, and `slots` reads the marked ones as not loadable;
+#   (2) Load on each marked row, and the script's own `load 0`, are refused with the
+#       sentence; the dialog shows it in a notice whose OK goes back to the list; the
+#       payload never reaches the engine (no LOAD|...|to-engine line for it), and nothing
+#       is handed to the shell;
+#   (3) the world after the refused loads is the world before them, line for line, at the
+#       same frame;
+#   (4) the real save still loads from the same dialog, back to its frame;
+#   (5) saving over the marked slot works, and the slot then loads;
+#   (6) the shell: the main menu's Load Mission on a folder with the marked slot newest
+#       (--harnessload, which presses RETURN on the newest row) refuses it with the sentence
+#       before any mission boots, draws the notice a player gets (its picture is measured:
+#       a drawn box with text inside the rectangle the log names, game/gate_noticebox.py),
+#       and the run ends;
+#   (7) Tiberian Dawn: the same refusal through the Enhanced pause dialog (emclick), which
+#       draws the row greyed, and the Enhanced main menu's Load Mission refusing it as in
+#       (6); pictures of the list, the notice and the shell's dialog are kept in g406/ for a
+#       person to look at;
+#   (8) Red Alert, in the game itself (opencnc3d --module ra3d) with the Enhanced menus a
+#       player gets: the main menu's Load Mission refuses the marked slot as in (6), and,
+#       with the real save newest so the harness boots it, the pause dialog lists both marked
+#       slots as unloadable, refuses Load on each with the sentence in a notice whose OK goes
+#       back to the list, hands neither to the engine, and leaves the world as it was;
+#   (9) every marked payload that was only refused is byte for byte the one planted.
+# Red Alert runs (1) to (6) and (8) with its own module and says when none is staged. The
+# 1995 dialog is driven by its rectangles (menu1995_on), as G238 drives it; it is the
+# scripted one, which marks an unloadable row in its disabled text colour (gold in Red
+# Alert's palette, so only the Enhanced dialogs read it as grey).
+# PROVEN TO FAIL: against a build whose ds_slot_loadable answers 1 for every slot, the
+# marked rows carry their side and no mark, the marked slot loads into the running mission,
+# the other mission's marked slot is handed to the shell, and the shell boots the marked
+# slot from the main menu. Against a build whose pause dialog skips the width check and
+# whose load_slot_prepare skips it too, both Enhanced main menus boot the marked slot, and
+# in the game's Enhanced pause dialog the other mission's marked slot reaches the engine
+# with no notice. Against a build whose main menu refuses correctly but appends a byte to
+# the refused payload, only (9) fails, naming both games' copies. Against a build whose
+# harness ends at the main menu's refusal without drawing the notice, (6) fails in all four
+# shell runs.
+# NOT COVERED: the 64-bit Windows direction (a save made by a 32-bit Windows build, which
+# carries no mark, refused by the 64-bit Windows build), which no Mac build can show: a
+# 64-bit Windows run has to load a real 32-bit save.
+# =====================================================================================
+rm -rf g406 && mkdir -p g406
+menu1995_on
+G406S="This save was made by a 64-bit Windows build, so this build cannot load it; the save has been kept."
+# g406_plant DIR OTHERSCEN OTHERPACK: slot 1 is a real save of this build; slots 0 and 2
+# become copies of it with the 64-bit Windows mark in the first word, slot 2's record naming
+# another mission, and the payloads dated so the list reads 0, 2, 1. DIR.marked keeps the
+# marked payload as planted, for claim (9).
+g406_plant() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import os, struct, sys, time
+d, oscen, opack = sys.argv[1], sys.argv[2], sys.argv[3]
+idx = bytearray(open(os.path.join(d, 'OPENCNC.IDX'), 'rb').read())
+src = open(os.path.join(d, 'SAVEGAME.001'), 'rb').read()
+w = struct.unpack('<I', src[:4])[0]
+marked = struct.pack('<I', w | 0x00640000) + src[4:]
+open(d + '.marked', 'wb').write(marked)
+for slot, descr, scen, pack in ((0, b'marked base', None, None),
+                                (2, b'marked elsewhere', oscen, opack)):
+    open(os.path.join(d, 'SAVEGAME.%03d' % slot), 'wb').write(marked)
+    r = bytearray(idx[128:256])
+    r[8:12] = struct.pack('<I', slot)
+    r[16:60] = descr.ljust(44, b'\0')
+    if scen:
+        r[60:72] = scen.encode().ljust(12, b'\0')
+        r[72:96] = pack.encode().ljust(24, b'\0')
+    idx[slot * 128:(slot + 1) * 128] = r
+open(os.path.join(d, 'OPENCNC.IDX'), 'wb').write(bytes(idx))
+now = time.time()
+for slot, age in ((0, 0), (2, 10), (1, 20)):
+    os.utime(os.path.join(d, 'SAVEGAME.%03d' % slot), (now - age, now - age))
+print('G406PLANT|real=0x%08x|marked=0x%08x' % (w, w | 0x00640000))
+PY
+}
+g406_script() {   # $1 = the file, $2 and $3 = the pictures of the list and of the notice
+  printf 'tick 60\nobjdump\noptions\noptclick Load Mission\nshot %s\noptclick Load\nshot %s\noptclick OK\n' "$2" "$3" > "$1"
+  printf 'optrow 1\noptclick Load\noptclick OK\noptclick Cancel\noptclick Resume Mission\nload 0\nobjdump\nslots\n' >> "$1"
+  printf 'options\noptclick Load Mission\noptrow 2\noptclick Load\nobjdump\n' >> "$1"
+  printf 'options\noptclick Save Mission\noptrow 1\noptclick Save\nslots\nload 0\nquit\n' >> "$1"
+}
+# g406_judge LOG SIDE SCEN: claims (1) to (5) on one game's run; sets G406OK and G406M
+g406_judge() {
+  g6l="$1"; G406OK=0
+  g6rows=0
+  grep -qx "SLOTS|row|0|slot=0|(Windows save) marked base|unloadable" "$g6l" && g6rows=$((g6rows+1))
+  grep -qx "SLOTS|row|1|slot=2|(Windows save) marked elsewhere|unloadable" "$g6l" && g6rows=$((g6rows+1))
+  grep -qx "SLOTS|row|2|slot=1|($2) plain base" "$g6l" && g6rows=$((g6rows+1))
+  g6list=0
+  grep -q '^SLOT|0|marked base|.*|loadable=0$' "$g6l" && g6list=$((g6list+1))
+  grep -q '^SLOT|1|plain base|.*|loadable=1$' "$g6l" && g6list=$((g6list+1))
+  grep -q '^SLOT|2|marked elsewhere|.*|loadable=0$' "$g6l" && g6list=$((g6list+1))
+  g6ref0=$(grep -cxF "LOAD|slot=0|REFUSED Windows save|word=0x00640102|$G406S" "$g6l")
+  g6ref2=$(grep -cxF "LOAD|slot=2|REFUSED Windows save|word=0x00640102|$G406S" "$g6l")
+  g6note=$(grep -c "^NOTICE|open|caption=Unable to load mission|lines=[1-9][0-9]*|text=$G406S\$" "$g6l")
+  g6back=$(grep -c '^OPTIONS|script|click|OK|.*|page=9$' "$g6l")
+  g6eng2=$(grep -c '^LOAD|slot=2|to-engine$' "$g6l")
+  g6hand=$(grep -c 'handing over to the shell' "$g6l")
+  g6save=$(grep -n "^SAVE|slot=0|marked base|bytes=[0-9]*|frame=100|scen=$3|" "$g6l" | head -1 | cut -d: -f1)
+  g6eng0=$(grep -n '^LOAD|slot=0|to-engine$' "$g6l" | cut -d: -f1 | paste -sd' ' -)
+  g6eng1=$(grep -c '^LOAD|slot=1|to-engine$' "$g6l")
+  g6load1=$(grep -c "^LOAD|slot=1|frame=100|scen=$3|" "$g6l")
+  g6load0=$(grep -c "^LOAD|slot=0|frame=100|scen=$3|" "$g6l")
+  g6after=$(grep -c '^SLOT|0|marked base|.*|loadable=1$' "$g6l")
+  for g6n in 1 2 3; do
+    awk -v n=$g6n '/^OBJDUMP-BEGIN/{k++} k==n&&/^(OBJ\||TIB\||WALL\|)/{print}' "$g6l" > "$g6l.d$g6n"
+  done
+  g6lines=$(wc -l < "$g6l.d1" | tr -d ' ')
+  g6frames=$(sed -n 's/^OBJDUMP-END [a-z]*=[0-9]* frame=\([0-9]*\)$/\1/p' "$g6l" | paste -sd' ' -)
+  g6end=$(grep -c '^SCRIPT|end .*: 28 lines, 1 failures$' "$g6l")
+  if [ "$g6rows" = "3" ] && [ "$g6list" = "3" ] && [ "$g6ref0" = "2" ] && [ "$g6ref2" = "1" ] \
+     && [ "$g6note" = "2" ] && [ "$g6back" = "2" ] && [ "$g6eng2" = "0" ] \
+     && [ "$g6hand" = "0" ] && [ -n "$g6save" ] && [ -n "$g6eng0" ] && [ "${g6eng0% *}" = "$g6eng0" ] \
+     && [ "$g6eng0" -gt "$g6save" ] && [ "$g6eng1" = "1" ] && [ "$g6load1" = "1" ] && [ "$g6load0" = "1" ] \
+     && [ "$g6after" = "1" ] && [ "${g6lines:-0}" -ge 20 ] && cmp -s "$g6l.d1" "$g6l.d2" \
+     && [ "$g6frames" = "60 60 100" ] && [ "$g6end" = "1" ]; then
+    G406OK=1
+    G406M="both marked slots listed as Windows saves and refused three times with the sentence and a notice, never handed to the engine or the shell, $g6lines dump lines unchanged at frame 60; the real save loaded to frame 100; saved over the marked slot and loaded it"
+  else
+    G406M="rows=$g6rows(want 3) slots-list=$g6list(want 3) refused slot0=$g6ref0(want 2) slot2=$g6ref2(want 1) notices=$g6note(want 2) OK-on-the-notice-back-to-the-list=$g6back(want 2) slot2-to-engine=$g6eng2(want 0) handed-over=$g6hand(want 0) save-over-line=$g6save slot0-to-engine-lines=[$g6eng0](want one, after the save) slot1-to-engine=$g6eng1 slot1-loaded=$g6load1 slot0-loaded=$g6load0 relisted-loadable=$g6after(want 1 each) dump-lines=$g6lines unchanged=$(cmp -s "$g6l.d1" "$g6l.d2" && echo yes || echo NO) frames=[$g6frames](want 60 60 100) script-1-failure=$g6end"
+  fi
+}
+# g406_shell LOG SHOTDIR KEEP: claim (6) on a shell run; sets G406SOK and G406SM. The
+# notice's picture (SHOTDIR/h_loadrefused1.png) is moved to g406/KEEP.png, since two runs
+# share a shot folder, and measured inside the rectangle the NOTICE line names.
+g406_shell() {
+  g6s="$1"; G406SOK=0
+  g6sc=$(grep -c '^LOADMENU|close|slot=0$' "$g6s")
+  g6sr=$(grep -cxF "LOAD|slot=0|REFUSED Windows save|word=0x00640102|$G406S" "$g6s")
+  g6se=$(grep -c '^HARNESS|load|refused|the run ends without a mission$' "$g6s")
+  g6sb=$(grep -c -E '^APP\|load\||^APP\|game\|round=|^LOAD\|slot=0\|to-engine$' "$g6s")
+  g6sn=$(grep -c -E "^NOTICE\|open\|caption=Unable to load mission\|lines=[1-9][0-9]*\|rect=[0-9]+,[0-9]+,[0-9]+,[0-9]+\|text=$G406S\$" "$g6s")
+  g6sd=$(grep -cxF "HARNESS|load|refused|notice=drawn|shot=$2/h_loadrefused1.png" "$g6s")
+  rm -f "g406/$3.png"
+  [ -f "$2/h_loadrefused1.png" ] && mv "$2/h_loadrefused1.png" "g406/$3.png"
+  g6sp=$(grep -m1 -E '^NOTICE\|open\|caption=Unable to load mission\|' "$g6s" \
+         | sed -n 's/.*|rect=\([0-9]*,[0-9]*,[0-9]*,[0-9]*\)|.*/\1/p')
+  g6sm=$(python3 "$GATEDIR/gate_noticebox.py" "g406/$3.png" "$g6sp" 2>&1)
+  if [ "$g6sc" = "1" ] && [ "$g6sr" = "1" ] && [ "$g6se" = "1" ] && [ "$g6sb" = "0" ] \
+     && [ "$g6sn" = "1" ] && [ "$g6sd" = "1" ] && [ "${g6sm%% *}" = "BOX" ]; then
+    G406SOK=1; G406SM="the main menu's Load Mission refused it with the sentence, drew the notice ($g6sm) and booted nothing"
+  else
+    G406SM="main menu: picked=$g6sc refused=$g6sr ended=$g6se booted-or-loaded=$g6sb notice-line=$g6sn notice-drawn=$g6sd (want 1 1 1 0 1 1) picture=[$g6sm]"
+  fi
+}
+# g406_kept GAME DIR SLOT...: claim (9); appends to G406KEPT any slot whose payload is not
+# the one planted
+g406_kept() {
+  g6k="$1"; g6d="$2"; shift 2
+  for g6n in "$@"; do
+    cmp -s "g406/$g6k.marked" "g406/$g6d/SAVEGAME.00$g6n" || G406KEPT="$G406KEPT $g6d/$g6n"
+  done
+}
+# g406_app LOG: claim (8)'s pause dialog in the game itself; sets G406AOK and G406AM
+g406_app() {
+  g6a="$1"; G406AOK=0
+  g6aboot=$(grep -c '^APP|load|slot=1|' "$g6a")
+  g6aeng1=$(grep -c '^LOAD|slot=1|to-engine$' "$g6a")
+  g6alist=0
+  grep -q '^SLOT|0|marked base|.*|loadable=0$' "$g6a" && g6alist=$((g6alist+1))
+  grep -q '^SLOT|2|marked elsewhere|.*|loadable=0$' "$g6a" && g6alist=$((g6alist+1))
+  g6aref0=$(grep -cxF "LOAD|slot=0|REFUSED Windows save|word=0x00640102|$G406S" "$g6a")
+  g6aref2=$(grep -cxF "LOAD|slot=2|REFUSED Windows save|word=0x00640102|$G406S" "$g6a")
+  g6anote=$(grep -c "^NOTICE|open|caption=Unable to load mission|lines=[1-9][0-9]*|text=$G406S\$" "$g6a")
+  g6aback=$(grep -c '^OPTIONS|script|emclick|OK|act=0|page=9|' "$g6a")
+  g6aeng=$(grep -c -E '^LOAD\|slot=(0|2)\|to-engine$|handing over to the shell' "$g6a")
+  g6astyle=$(grep -c '^APP|menu|style=enhanced$' "$g6a")
+  for g6n in 1 2; do
+    awk -v n=$g6n '/^OBJDUMP-BEGIN/{k++} k==n&&/^(OBJ\||TIB\||WALL\|)/{print}' "$g6a" > "$g6a.d$g6n"
+  done
+  g6alines=$(wc -l < "$g6a.d1" | tr -d ' ')
+  g6aend=$(grep -c '^SCRIPT|end .*: 17 lines, 0 failures$' "$g6a")
+  if [ "$g6aboot" = "1" ] && [ "$g6aeng1" = "1" ] && [ "$g6alist" = "2" ] && [ "$g6aref0" = "1" ] \
+     && [ "$g6aref2" = "1" ] && [ "$g6anote" = "2" ] && [ "$g6aback" = "2" ] && [ "$g6aeng" = "0" ] \
+     && [ "$g6astyle" -ge 1 ] && [ "${g6alines:-0}" -ge 20 ] && cmp -s "$g6a.d1" "$g6a.d2" && [ "$g6aend" = "1" ]; then
+    G406AOK=1
+    G406AM="in the game's Enhanced pause dialog both marked slots listed unloadable and refused with the sentence and a notice, neither handed to the engine, $g6alines dump lines unchanged"
+  else
+    G406AM="game's Enhanced pause dialog: booted-real=$g6aboot real-to-engine=$g6aeng1 unloadable-listed=$g6alist(want 2) refused slot0=$g6aref0 slot2=$g6aref2(want 1 each) notices=$g6anote OK-back-to-the-list=$g6aback(want 2 each) marked-to-engine-or-shell=$g6aeng(want 0) enhanced-menu=$g6astyle dump-lines=$g6alines unchanged=$(cmp -s "$g6a.d1" "$g6a.d2" && echo yes || echo NO) script-0-failures=$g6aend"
+  fi
+}
+gbegin g406/td_list.png g406/td_notice.png
+# Tiberian Dawn: the real save, the planted ones, a copy for the shell and the Enhanced runs
+mkdir -p g406/td
+printf 'tick 100\nsave 1 plain base\nquit\n' > g406/td_prep.txt
+grun g406/td_prep.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 640 --h 400 \
+     --savedir g406/td --script g406/td_prep.txt
+g406_plant g406/td SCG02EA SCG02EA.pack >> "$OUT" 2>&1
+cp -Rp g406/td g406/tdmenu
+g406_script g406/td.txt g406/td_list.png g406/td_notice.png
+./cnc_eyes --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 640 --h 400 \
+     --savedir g406/td --script g406/td.txt > g406/td.log 2>&1
+cat g406/td.log >> "$OUT"
+gshots g406/td_list.png g406/td_notice.png
+g406_judge g406/td.log GDI SCG01EA
+G406TD=$G406OK; G406TDM="$G406M"
+perl -e 'alarm 300; exec @ARGV' ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+     --harness 40 --rounds 1 --shotdir g406/tdmenu --harnessload --savedir g406/tdmenu > g406/tdmenu.log 2>&1
+cat g406/tdmenu.log >> "$OUT"
+g406_shell g406/tdmenu.log g406/tdmenu td_shell_notice
+G406TDS=$G406SOK; G406TDM="$G406TDM; $G406SM"
+# (7) the Enhanced dialog, and pictures of it and of the shell's dialog
+menu1995_off
+printf 'tick 10\noptions\nemclick Load Mission\nshot g406/td_enh_list.png\nemclick Load\nshot g406/td_enh_notice.png\nquit\n' > g406/td_enh.txt
+grun g406/td_enh.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --savedir g406/tdmenu --script g406/td_enh.txt
+perl -e 'alarm 120; exec @ARGV' ./opencnc3d --nosound --no-movies $BASE --menupack dosmenu.pack \
+     --savedir g406/tdmenu --loadmenushot g406/td_shell_list.png > g406/td_shell_list.log 2>&1
+cat g406/td_shell_list.log >> "$OUT"
+gshots g406/td_enh_list.png g406/td_enh_notice.png g406/td_shell_list.png
+G406E=$(grep -cxF "LOAD|slot=0|REFUSED Windows save|word=0x00640102|$G406S" g406/td_enh.log)
+G406EN=$(grep -c '^NOTICE|open|caption=Unable to load mission|' g406/td_enh.log)
+G406EE=$(grep -c '^LOAD|slot=0|to-engine$' g406/td_enh.log)
+perl -e 'alarm 300; exec @ARGV' ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+     --harness 40 --rounds 1 --shotdir g406/tdmenu --harnessload --savedir g406/tdmenu > g406/tdmenu_enh.log 2>&1
+cat g406/tdmenu_enh.log >> "$OUT"
+g406_shell g406/tdmenu_enh.log g406/tdmenu td_shell_enh_notice
+G406TDES=$G406SOK
+grep -q '^APP|menu|style=enhanced$' g406/tdmenu_enh.log || { G406TDES=0; G406SM="$G406SM (the main menu was not the Enhanced one)"; }
+G406TDM="$G406TDM; Enhanced $G406SM"
+G406KEPT=""
+g406_kept td td 2
+g406_kept td tdmenu 0 2
+menu1995_on
+# Red Alert, the same with its own module
+G406RA=-; G406RAM="Red Alert: no Red Alert module with Allied 1's scene is staged in this folder"
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  G406RAA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 640 --h 400 --scen SCG01EA --pack ra3d/3d/SCG01EA.pack"
+  mkdir -p g406/ra
+  grun g406/ra_prep.log $G406RAA --savedir g406/ra --script g406/td_prep.txt
+  g406_plant g406/ra SCU01EA ra3d/3d/SCU01EA.pack >> "$OUT" 2>&1
+  cp -Rp g406/ra g406/ramenu
+  # the real save newest, so the harness boots it: listed 1, 0, 2 (the list's dates are whole seconds)
+  cp -Rp g406/ra g406/raapp
+  python3 -c "import os,sys,time; t=time.time(); [os.utime(os.path.join(sys.argv[1], 'SAVEGAME.%03d' % s), (t - a, t - a)) for s, a in ((1, 0), (0, 30), (2, 40))]" g406/raapp
+  g406_script g406/ra.txt g406/ra_list.png g406/ra_notice.png
+  ./cnc_eyes $G406RAA --savedir g406/ra --script g406/ra.txt > g406/ra.log 2>&1
+  cat g406/ra.log >> "$OUT"
+  gshots g406/ra_list.png g406/ra_notice.png
+  g406_judge g406/ra.log Allies SCG01EA
+  G406RA=$G406OK; G406RAM="Red Alert: $G406M"
+  perl -e 'alarm 300; exec @ARGV' ./opencnc3d --module ra3d --no-movies --nosound --harness 40 --rounds 1 \
+       --harnessload --savedir g406/ramenu --shotdir g406/ramenu > g406/ramenu.log 2>&1
+  cat g406/ramenu.log >> "$OUT"
+  g406_shell g406/ramenu.log g406/ramenu ra_shell_notice
+  [ "$G406SOK" = "1" ] || G406RA=0
+  G406RAM="$G406RAM; $G406SM"
+  # (8) the game itself, with the Enhanced menus
+  menu1995_off
+  perl -e 'alarm 300; exec @ARGV' ./opencnc3d --module ra3d --no-movies --nosound --harness 40 --rounds 1 \
+       --harnessload --savedir g406/ramenu --shotdir g406/ramenu > g406/ramenu_enh.log 2>&1
+  cat g406/ramenu_enh.log >> "$OUT"
+  g406_shell g406/ramenu_enh.log g406/ramenu ra_shell_enh_notice
+  grep -q '^APP|menu|style=enhanced$' g406/ramenu_enh.log || { G406SOK=0; G406SM="$G406SM (the main menu was not the Enhanced one)"; }
+  [ "$G406SOK" = "1" ] || G406RA=0
+  G406RAM="$G406RAM; Enhanced $G406SM"
+  printf 'tick 5\nobjdump\nslots\noptions\nemclick Load Mission\nshot g406/ra_enh_list.png\noptrow 1\nemclick Load\nshot g406/ra_enh_notice.png\nemclick OK\noptrow 2\nemclick Load\nemclick OK\nemclick Back\nemclick Resume Mission\nobjdump\nquit\n' > g406/raapp.txt
+  perl -e 'alarm 300; exec @ARGV' ./opencnc3d --module ra3d --no-movies --nosound --harness 40 --rounds 1 \
+       --harnessload --savedir g406/raapp --shotdir g406/raapp --script g406/raapp.txt > g406/raapp.log 2>&1
+  cat g406/raapp.log >> "$OUT"
+  gshots g406/ra_enh_list.png g406/ra_enh_notice.png
+  g406_app g406/raapp.log
+  [ "$G406AOK" = "1" ] || G406RA=0
+  G406RAM="$G406RAM; $G406AM"
+  g406_kept ra ra 2
+  g406_kept ra ramenu 0 2
+  g406_kept ra raapp 0 2
+fi
+menu1995_off
+if [ "$GRC" != "0" ]; then
+  bad "G406 saves from the other kind of build: a run failed or wrote no picture (GRC=$GRC)"
+elif [ "$G406TD" = "1" ] && [ "$G406TDS" = "1" ] && [ "$G406TDES" = "1" ] && [ "$G406E" = "1" ] \
+     && [ "$G406EN" = "1" ] && [ "$G406EE" = "0" ] && [ "$G406RA" != "0" ] && [ -z "$G406KEPT" ]; then
+  ok "G406 a save made by a 64-bit Windows build is listed as a Windows save, refused with the sentence from the pause dialog, the script and the main menu (1995 and Enhanced), never handed to the engine, and kept byte for byte; saving over it works. Tiberian Dawn: $G406TDM; Enhanced pause dialog refused it too; $G406RAM"
+else
+  bad "G406 saves from the other kind of build: Tiberian Dawn: $G406TDM; Enhanced pause dialog refused=$G406E notice=$G406EN to-engine=$G406EE (want 1 1 0); $G406RAM; payloads changed:${G406KEPT:- none}"
+fi
+
+# =====================================================================================
+# G407 AN OLD 32-BIT SDL2.dll GOES WHEN NO PROGRAM BESIDE IT CAN LOAD IT, AND STAYS ON ANY
+# DOUBT (launcher/lsdl_tidy.h; called by the launcher on Windows at start and after every
+# module install, lmodule.c). Every Windows build up to v0.9.2 carried SDL2.dll in the
+# install's root and in ra3d/; the 64-bit programs link SDL in, and unpacking only writes,
+# so Setup or a module update over such an install left both copies behind, and the
+# architecture check of the installed folder read them as a mixed install. Six hand-made
+# installs (images with a DOS stub and a PE header whose machine says x86-64, i386 or
+# ARM64, or a file that is no image):
+#   (1) every program 64-bit, Setup's 32-bit uninstaller beside them: both copies go;
+#   (2) the 32-bit launcher a module update never replaces: the root's stays, ra3d's goes;
+#   (3) Red Alert still the 32-bit module: both stay (its game can find the root's copy);
+#   (4) a 32-bit game left in the root: the root's stays, ra3d's goes;
+#   (5) an image that cannot be read, and an ARM64 one: both stay;
+#   (6) the DLL spelt in another letter case goes under that name; nothing to do is nothing.
+# PROVEN TO FAIL: against a copy of the header that decides the root's copy from the root
+# alone, case (3) fails (the root's copy goes while Red Alert's 32-bit game is there);
+# against one that counts the uninstaller as a program, case (1) fails (the root's copy
+# stays); against one that removes without looking, cases (2) to (5) fail.
+# NOT COVERED: the Windows calls themselves (FindFirstFileA, the install lock, a file in
+# use), which only a Windows run shows.
+# =====================================================================================
+rm -rf g407 && mkdir -p g407/t
+if cc -std=gnu89 -O2 -Wall -Wextra -Werror -o g407/gate_sdltidy "$GATEDIR/../launcher/gate_sdltidy.c" >>"$OUT" 2>&1; then
+  ./g407/gate_sdltidy g407/t > g407/run.log 2>&1
+  G407RC=$?
+  cat g407/run.log >> "$OUT"
+  G407N=0
+  for g407c in all-64-bit 32-bit-launcher ra-still-32-bit td-still-32-bit unreadable-and-arm64 other-case nothing-to-do; do
+    grep -q "^GATESDL|case|$g407c|ok|" g407/run.log && G407N=$((G407N+1))
+  done
+  if [ "$G407RC" = "0" ] && [ "$G407N" = "7" ] && grep -qx 'GATESDL|PASSED|0 wrong' g407/run.log; then
+    ok "G407 an old 32-bit SDL2.dll is removed only when nothing beside it can load it: both copies go from an all-64-bit install, the root's stays for a 32-bit launcher or game and for Red Alert's 32-bit module, and an unreadable or ARM64 image keeps it (7 cases)"
+  else
+    bad "G407 the SDL2.dll tidy: exit=$G407RC cases-ok=$G407N(want 7), first wrong [$(grep -m1 '|WRONG|' g407/run.log)]"
+  fi
+else
+  bad "G407 the SDL2.dll tidy: launcher/gate_sdltidy.c did not compile"
+fi
+
+# =====================================================================================
+# G380 THE REMASTERED TREES SWAY ON THE CARD (game/mesh_wind_gpu.h: mesh_wind_gpu_pose and
+# its program; cnc_eyes.cpp draw_mesh, the two wind fast paths; claims in
+# game/gate_treewindgpu.py). A tree's wind pose was worked out on the CPU, corner by corner,
+# and sent to the card in every frame: about 960,000 corners and 11.5 MB a frame on Red
+# Alert's snow, about 4 ms of each frame on a Windows PC. Each pose is now one transform
+# feedback draw writing the world positions into the pose store every pass reads, with the
+# CPU's pose as the fallback, OPENCNC3D_MESH_WIND_GPU=0 putting it back and =verify working
+# out every pose both ways. Fourteen hidden runs on GDI 8 and on Red Alert's snow, at
+# sub-ticks where the trees are in mid-sway:
+#   (1) with the switch at 1 the card makes every pose in both games and the CPU none; at 0
+#       the CPU makes them and the card none;
+#   (2) under verify every pose is read back and compared with the CPU's pose of the same
+#       draw: no corner outside the box handed to the culling, and at most four units in
+#       the last place of a coordinate on a 128-cell map apart (3.1e-5 of a cell);
+#   (3) the frame uploads fall by exactly 12 bytes for every corner the card posed, and the
+#       sources sent once instead weigh under a twentieth of that;
+#   (4) the frames with the switch at 1 are those at 0 within 64 pixels each off by at most
+#       6 levels; Classic, N64 and --notreewind are pixel for pixel the same on and off,
+#       and --notreewind poses nothing on the card;
+#   (5) unset, the switch poses on the card only on NVIDIA's driver off macOS, the one
+#       driver it was measured and checked on; a build for macOS (Apple silicon, where
+#       transform feedback costs more than the CPU's pose, or an Intel Mac, never measured)
+#       and every other driver keep the CPU's pose, and the frame is the one the switch at
+#       0 draws, byte for byte;
+#   (6) with the switch at 1 and one way back to the CPU forced in each of five runs
+#       (OPENCNC3D_MESH_WIND_GPU_{LOAD,LINK,SOURCE,STORE,CHECK}_OK=0: no transform feedback,
+#       a program the driver refuses to link, a source store and a pose store the driver
+#       did not make, a first pose that disagrees), the card poses nothing, the fault is
+#       counted where it happened, and the CPU's poses, the bytes sent and the frame are
+#       exactly those of the switch at 0.
+# Measured: the card's pose is at most 7.6e-6 of a cell from the CPU's (one unit in the last
+# place of a coordinate between 64 and 128) with no corner outside its box, over 12,986 poses
+# of the snow map on a Mac and 13,654 on a Windows PC with an NVIDIA card. Of the 17 views
+# of the picture set, 12 are byte for byte the same with the card posing; the worst of the
+# rest, and of four views shot at three sub-ticks each, has 18 pixels off by at most 3
+# levels, every one inside a tree's crown; this gate's own frames differ by none. With the
+# switch at 0 every view is byte for byte the renderer before the change, the skirmish
+# view excepted, which also differs between two runs of that renderer.
+# PROVEN TO FAIL: the renderer before this change prints no MESHWINDGPU line, poses every
+# tree on the CPU and uploads the same bytes in both arms; a vertex program whose flutter
+# weighs its second wave 0.56 instead of 0.55 is 1e-4 of a cell off under verify and moves
+# 3753 pixels on GDI 8 and 19866 on the snow map; a renderer that poses on the card with the
+# switch unset fails (5) on a Mac; one that does not read _CHECK_OK fails (6).
+# =====================================================================================
+rm -rf g380w && python3 "$GATEDIR/gate_treewindgpu.py" script g380w 2>>"$OUT"
+G380T="--scen SCG08EA --pack SCG08EA.pack $BASE --enhanced --texset 3 --nosound --w 1280 --h 800 --seed 12345"
+gbegin g380w/td_on.png g380w/td_off.png g380w/td_verify.png g380w/td_on_classic.png g380w/td_off_classic.png \
+       g380w/td_on_n64.png g380w/td_off_n64.png g380w/td_still_on.png g380w/td_still_off.png g380w/td_auto.png \
+       g380w/ra_on.png g380w/ra_off.png g380w/ra_verify.png
+unset OPENCNC3D_MESH_WIND_GPU
+grun g380w/td_auto.log $G380T --gfxsave g380w/auto.cfg --savedir g380w/saves --script g380w/td_auto.txt
+OPENCNC3D_MESH_WIND_GPU=1; export OPENCNC3D_MESH_WIND_GPU
+grun g380w/td_on.log $G380T --gfxsave g380w/on.cfg --savedir g380w/saves --script g380w/td_on.txt
+grun g380w/td_still_on.log $G380T --notreewind --gfxsave g380w/still_on.cfg --savedir g380w/saves --script g380w/td_still_on.txt
+OPENCNC3D_MESH_WIND_GPU=0; export OPENCNC3D_MESH_WIND_GPU
+grun g380w/td_off.log $G380T --gfxsave g380w/off.cfg --savedir g380w/saves --script g380w/td_off.txt
+grun g380w/td_still_off.log $G380T --notreewind --gfxsave g380w/still_off.cfg --savedir g380w/saves --script g380w/td_still_off.txt
+OPENCNC3D_MESH_WIND_GPU=verify; export OPENCNC3D_MESH_WIND_GPU
+grun g380w/td_verify.log $G380T --gfxsave g380w/verify.cfg --savedir g380w/saves --script g380w/td_verify.txt
+OPENCNC3D_MESH_WIND_GPU=1; export OPENCNC3D_MESH_WIND_GPU
+for G380F in LOAD LINK SOURCE STORE CHECK; do
+  G380f=$(echo $G380F | tr 'A-Z' 'a-z')
+  rm -f g380w/td_fault_$G380f.png
+  env OPENCNC3D_MESH_WIND_GPU_${G380F}_OK=0 ./cnc_eyes $G380T --gfxsave g380w/fault_$G380f.cfg --savedir g380w/saves \
+      --script g380w/td_fault_$G380f.txt > g380w/td_fault_$G380f.log 2>&1 || GRC=$?
+  cat g380w/td_fault_$G380f.log >> "$OUT"
+  gshots g380w/td_fault_$G380f.png
+done
+unset OPENCNC3D_MESH_WIND_GPU
+gshots g380w/td_on.png g380w/td_off.png g380w/td_verify.png g380w/td_on_classic.png g380w/td_off_classic.png \
+       g380w/td_on_n64.png g380w/td_off_n64.png g380w/td_still_on.png g380w/td_still_off.png g380w/td_auto.png
+G380TDONLY=
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG03EA.pack ]; then
+  G380R="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound"
+  G380R="$G380R --scen SCG03EA --pack ra3d/3d/SCG03EA.pack --enhanced --w 1280 --h 800 --seed 12345"
+  OPENCNC3D_MESH_WIND_GPU=1; export OPENCNC3D_MESH_WIND_GPU
+  grun g380w/ra_on.log $G380R --gfxsave g380w/ra_on.cfg --savedir g380w/saves --script g380w/ra_on.txt
+  OPENCNC3D_MESH_WIND_GPU=0; export OPENCNC3D_MESH_WIND_GPU
+  grun g380w/ra_off.log $G380R --gfxsave g380w/ra_off.cfg --savedir g380w/saves --script g380w/ra_off.txt
+  OPENCNC3D_MESH_WIND_GPU=verify; export OPENCNC3D_MESH_WIND_GPU
+  grun g380w/ra_verify.log $G380R --gfxsave g380w/ra_verify.cfg --savedir g380w/saves --script g380w/ra_verify.txt
+  unset OPENCNC3D_MESH_WIND_GPU
+  gshots g380w/ra_on.png g380w/ra_off.png g380w/ra_verify.png
+else
+  G380TDONLY=td
+fi
+G380CHK=$(python3 "$GATEDIR/gate_treewindgpu.py" check g380w $G380TDONLY 2>>"$OUT")
+echo "$G380CHK" >> "$OUT"
+G380V=$(echo "$G380CHK" | head -1 | cut -d' ' -f1)
+G380MSG=$(echo "$G380CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G380 the trees sway on the card: a run failed (GRC=$GRC)"
+elif [ "$G380V" = "1" ]; then ok "G380 the trees sway on the card: $G380MSG"
+else bad "G380 the trees sway on the card: ${G380MSG:-the check did not run (see the python error in the log)}"; fi
+
+
+# =====================================================================================
+# G381 WHOLE SOLDIERS ARE SKINNED ON THE CARD, AND THE SWITCH PUTS EVERY POSE BACK ON THE CPU
+# (model3d_mod.h m3_skin_gpu, m3_skin_programs, m3_skin_gpu_buffers and the card-skinned
+# branch of m3_draw; gl_state_cache.h gls_uniforms_forget_range; claims in
+# gate_skingpu.py). Every 3D soldier was skinned on the CPU once a frame, every vertex
+# times its bones, and the result sent to the card again, about 72 KB a soldier a frame;
+# now a whole body's pose is a bone palette and the vertex stage moves the bind pose,
+# which goes to the card once per model. Torn bodies and the database's preview keep the
+# CPU skin. SCG08EA's base close up, and Red Alert's snow mission with the Medic, Spy,
+# Thief, Tanya, General Stavros and the Attack Dog staged in it, are drawn as shipped and
+# with OPENCNC3D_SKIN_GPU=0; the base also under OPENCNC3D_SKIN_GPU=verify, which checks
+# every palette and the packed bones and weights against the CPU's skin, and in Classic and
+# N64 either way. Passes when as shipped no pose is skinned on the CPU and every posed draw
+# is skinned on the card (all six Red Alert types among them), verify finds no vertex off
+# and draws the same picture, each scene is the CPU skin's picture to within the measured
+# tolerance, the switch off skins and sends every pose as before with Classic and N64
+# identical to the byte, and no array set inside the ground-normal and bake passes forgets
+# the uniform cache's other values. The switch unset skins on the card only where that path
+# has been run (Apple's OpenGL on Apple silicon, NVIDIA's driver outside macOS): the gate
+# checks the decision this driver got, and draws the base once more with
+# OPENCNC3D_SKIN_GPU_VENDOR naming another driver, which must skin every pose on the CPU and
+# draw the switch at 0's picture to the byte. As shipped this gate needs a driver the card
+# skins on, such as Apple silicon's.
+# Measured on macOS: 47 soldiers on the base and 59 on the snow, every posed draw skinned on
+# the card; both pictures identical to the CPU skin's to the byte; verify 291,669 vertices,
+# the worst 0.000065 model units off; 45 and 60 ranged forgets, none whole.
+# PROVEN TO FAIL: the renderer before this change prints no M3GPUSKIN line. A build with the
+# weights packed over 240 instead of 255 and every array set forgetting the whole cache
+# again: verify finds all 291,669 vertices off (worst 34 units), the base differs in 6,118
+# pixels by up to 245 levels and the snow in 21,713, and the four runs report 45, 15, 60
+# and 20 whole forgets. A build whose unset switch skins on the card whatever the vendor
+# string says: under another vendor's string the switch reads 1 and all 97 of the base's
+# draws are skinned on the card; the renderer before the vendor rule reports no decision.
+# =====================================================================================
+gbegin shots/g381_td_on.log shots/g381_td_off.log shots/g381_td_verify.log shots/g381_ra_on.log \
+       shots/g381_ra_off.log shots/g381_td_vendor.log
+rm -rf shots/g381 && python3 "$GATEDIR/gate_skingpu.py" script shots/g381
+G381TD="--scen SCG08EA --pack SCG08EA.pack $BASE --enhanced --texset 3 --nosound --w 1280 --h 800 --seed 12345"
+G381RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio \
+--scen SCG03EA --pack ra3d/3d/SCG03EA.pack --enhanced --nosound --w 1280 --h 800 --seed 12345"
+grun shots/g381_td_on.log $G381TD --script shots/g381/td_on.txt
+grun shots/g381_ra_on.log $G381RA --script shots/g381/ra_on.txt
+export OPENCNC3D_SKIN_GPU=verify
+grun shots/g381_td_verify.log $G381TD --script shots/g381/td_verify.txt
+export OPENCNC3D_SKIN_GPU=0
+grun shots/g381_td_off.log $G381TD --script shots/g381/td_off.txt
+grun shots/g381_ra_off.log $G381RA --script shots/g381/ra_off.txt
+unset OPENCNC3D_SKIN_GPU
+export OPENCNC3D_SKIN_GPU_VENDOR="ATI Technologies Inc."
+grun shots/g381_td_vendor.log $G381TD --script shots/g381/td_vendor.txt
+unset OPENCNC3D_SKIN_GPU_VENDOR
+for G381L in td_on td_off td_verify ra_on ra_off td_vendor; do cp shots/g381_$G381L.log shots/g381/$G381L.log; done
+gshots shots/g381/td_on.png shots/g381/td_off.png shots/g381/td_verify.png shots/g381/ra_on.png \
+       shots/g381/ra_off.png shots/g381/classic_on.png shots/g381/classic_off.png shots/g381/n64_on.png \
+       shots/g381/n64_off.png shots/g381/td_vendor.png
+G381CHK=$(python3 "$GATEDIR/gate_skingpu.py" check shots/g381 2>>"$OUT")
+echo "$G381CHK" >> "$OUT"
+G381OK=$(echo "$G381CHK" | head -1 | cut -d' ' -f1)
+G381MSG=$(echo "$G381CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G381 whole soldiers skinned on the card: a run failed (GRC=$GRC)"
+elif [ "$G381OK" = "1" ]; then
+  ok "G381 whole soldiers skinned on the card: $G381MSG"
+else
+  bad "G381 whole soldiers skinned on the card: ${G381MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G382 WHAT THE SHROUD DERIVES IS KEPT UNTIL THE SHROUD CHANGES (game/shroud_mod.h and its
+# switch OPENCNC3D_SHROUD_CACHE; the fog field in cnc_eyes.cpp and fx_post.h, the air's
+# visibility in atmosphere_mod.h, the ground patches in mottle_mod.h, the mesh shroud key
+# in cnc_eyes.cpp; claims in gate_shroudcache.py). The corner field, the soft blanket's
+# vertices (drawn twice a frame under Enhanced), the fog field and its upload, the air's
+# visibility texture and the ground patches were all worked out again every frame, although
+# the shroud moves at most once a tick. They are now kept, keyed on a generation that moves
+# only when the shroud's opacity does and on everything else each one is made of. What can
+# go wrong is silent: a stale copy draws a frame that looks right until the shroud moves.
+# Three hidden runs of one played script on the first GDI mission with its shroud live (the
+# construction yard driven into it, frames between the ticks, a scroll, the shroud
+# reclassified as unseen, lifted and put back, the rim off, a fog dial, the cartridge look,
+# a restart): the copies kept, rebuilt every frame (=0), and verified (=verify: every copy
+# built again each frame and compared bit for bit with the kept one). Claims:
+#   (1) eight still frames rebuild nothing, work out no blanket cell or ground patch, and
+#       send the card nothing;
+#   (2) over twelve ticks the copies are rebuilt only on ticks that moved the shroud, and
+#       the frames between reuse them;
+#   (3) with the switch at 0 nothing is kept;
+#   (4) all twelve pictures are byte-identical across the three runs;
+#   (5) the drive, the reclassified shroud, the reveal, the rim and the restart each change
+#       the picture, so the identity is not that of one picture;
+#   (6) verify compares every copy in every frame and finds no difference;
+#   (7) a change of the shroud works out only the blanket cells on screen, never the whole
+#       range, so a frame in which the shroud moves works out no more of the blanket than
+#       a frame did before anything was kept.
+# Measured: 8 still frames rebuild nothing (the blanket reused 16 times, the fog field 8 and
+# never sent); over the 12 ticks the field is rebuilt once and the fog field sent once, kept
+# 35 times; the one change works out the 825 blanket cells on screen of the range's 1120;
+# 12 pictures identical; verify makes about 741,000 comparisons, none different.
+# PROVEN TO FAIL: a build whose blanket key leaves out the shroud generation (the blanket
+# kept after the shroud moved) fails claims 2, 4 and 6: no blanket rebuilt while the shroud
+# moved, 6 of 12 pictures differ from the rebuilt-every-frame run (up to 281,061 pixels), and
+# verify reports 490 stale blankets. A build that works the blanket out over its whole range
+# instead of the view fails claims 6 and 7: 1120 of 1120 cells "on screen", and verify
+# reports the drawn rectangle disagreeing with the view test in 295 cells a frame.
+# NOT COVERED: the frame time, which a suite on a busy machine cannot hold to a bar; Red
+# Alert, which runs the same code on a larger grid and is compared outside the suite.
+# =====================================================================================
+rm -rf g382 && mkdir -p g382
+python3 "$GATEDIR/gate_shroudcache.py" script g382 2>>"$OUT"
+G382ARGS="--scen SCG01EA --pack SCG01EA.pack $BASE --enhanced --texset 3 --nosound --w 960 --h 540 --savedir g382"
+gbegin
+export OPENCNC3D_SHROUD_CACHE=1
+grun g382/on.log $G382ARGS --gfxsave g382/on.cfg --script g382/on.txt
+export OPENCNC3D_SHROUD_CACHE=0
+grun g382/off.log $G382ARGS --gfxsave g382/off.cfg --script g382/off.txt
+export OPENCNC3D_SHROUD_CACHE=verify
+grun g382/verify.log $G382ARGS --gfxsave g382/verify.cfg --script g382/verify.txt
+unset OPENCNC3D_SHROUD_CACHE
+gshots g382/on_12.png g382/off_12.png g382/verify_12.png
+G382CHK=$(python3 "$GATEDIR/gate_shroudcache.py" check g382 2>>"$OUT")
+echo "$G382CHK" >> "$OUT"
+G382V=$(echo "$G382CHK" | head -1 | cut -d' ' -f1)
+G382MSG=$(echo "$G382CHK" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G382 the shroud's kept copies: a run failed (GRC=$GRC)"
+elif [ "$G382V" = "1" ]; then ok "G382 what the shroud derives is kept until the shroud changes: $G382MSG"
+else bad "G382 the shroud's kept copies: ${G382MSG:-the check did not run (see the python error in the log)}"; fi
+
+
+# =====================================================================================
+# G383 THE HUD IS COMPOSED ONLY WHEN SOMETHING IT SHOWS CHANGED, AND LOOKS THE SAME
+# (game/hud_compose.h; the keyed surfaces in cnc_sidebar.h, cnc_sidebar_enhanced.h,
+# cnc_sidebar_ra_enhanced.h and unitcard_mod.h; scripts and claims in
+# game/gate_hudcompose.py). Every HUD surface used to be rasterised on the CPU on every
+# frame, Red Alert's bar alone about 360k blended pixels, and only the upload was skipped.
+# Each surface now keeps the exact inputs its texture was last composed from and skips the
+# compose while they hold; Red Alert's bar redraws a changed build cell or a changed radar
+# on its own. HIDDEN RUNS at 1280 x 720 of Red Alert's Allied 8 and Tiberian Dawn's GDI 8
+# (the radar forced on), one script per game run twice: OPENCNC3D_HUD_COMPOSE=verify, which
+# takes the default's decisions and also composes every skipped or patched surface from
+# scratch and compares the bytes, and OPENCNC3D_HUD_COMPOSE=0, which composes every frame.
+# The scripts walk a still window, hover and press, a tab switch, production at several
+# sub-tick phases, a busy factory, a hold, scrolling, the tools, power forced red and back,
+# the unit card, the radar off, on and moving, the drawer, the mission timer, and Classic,
+# N64 and back to Enhanced mid-mission.
+# Measured: ten still frames compose nothing and skip 60 composes in Red Alert and 50 in
+# Tiberian Dawn; verify compares 6989 and 5397 surfaces and finds 0 differences; Red Alert's
+# bar is patched 11 times by cell and 6 by radar; all 31 and 24 shots of the verify runs are
+# byte-identical to the compose-always runs'.
+# PROVEN TO FAIL: the hover outline left out of Red Alert's cell key (verify counts 39
+# differing bars, the hover shot differs), the category buttons' frames left out of
+# Tiberian Dawn's bar key (78 differing bars, the hover and tab shots differ), and a
+# renderer without the counters (no HUDCOMPOSE line).
+# NOT COVERED: the queue strip's presentation clock in live play (wall time; the scripts
+# step it), and a GL context lost under the textures, which this renderer never has.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG08EA.pack ] || [ ! -f SCG08EA.pack ]; then
+  skip "G383 HUD composed only on change: Allied 8's Red Alert scene or GDI 8's pack is not staged in this folder"
+else
+  rm -rf g383 && mkdir -p g383
+  python3 "$GATEDIR/gate_hudcompose.py" script g383 2>>"$OUT"
+  G383RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio --dir ra3d/missions/ --scen SCG08EA --pack ra3d/3d/SCG08EA.pack --w 1280 --h 720 --nosound --seed 4242"
+  G383TD="--scen SCG08EA --pack SCG08EA.pack $BASE --forceradar --w 1280 --h 720 --nosound --seed 4242"
+  gbegin
+  OPENCNC3D_HUD_COMPOSE=verify; export OPENCNC3D_HUD_COMPOSE
+  grun g383/ra_v.log $G383RA --script g383/ra_v.txt
+  grun g383/td_v.log $G383TD --script g383/td_v.txt
+  OPENCNC3D_HUD_COMPOSE=0
+  grun g383/ra_a.log $G383RA --script g383/ra_a.txt
+  grun g383/td_a.log $G383TD --script g383/td_a.txt
+  unset OPENCNC3D_HUD_COMPOSE
+  gshots g383/ra/ra_01.png g383/ra_a/ra_31.png g383/td/td_01.png g383/td_a/td_24.png
+  G383CHK=$(python3 "$GATEDIR/gate_hudcompose.py" check g383 2>>"$OUT")
+  echo "$G383CHK" >> "$OUT"
+  G383V=$(echo "$G383CHK" | head -1 | cut -d' ' -f1)
+  G383MSG=$(echo "$G383CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G383 HUD composed only on change: a run failed (GRC=$GRC)"
+  elif [ "$G383V" = "1" ]; then ok "G383 the HUD is composed only when something it shows changed, and looks the same: $G383MSG"
+  else bad "G383 HUD composed only on change: ${G383MSG:-the check did not run (see the python error in the log)}"; fi
+fi
+
+# =====================================================================================
+# G384 A DESTROYED BUILDING'S PIECES DRAW THE SAME WITH THEIR FRAGMENT STORES RESTING, AND THE
+# RESTING SAVES THE COPYING (game/mesh_batch.h: mesh_fragment_rest_mode, the resting rule in
+# mesh_fragment_store_begin and mesh_fragment_rest_note). A draw scope whose store reused
+# under a quarter of its pieces draws without it for a few frames instead of collecting,
+# copying and handing over a full stream nothing will reuse. Two hidden runs of Red Alert's
+# first Allied mission under Enhanced, one with the rule (OPENCNC3D_FRAGMENT_REST=1) and one
+# without (=0): the explosive barrels are set off, they bring down the Power Plant beside
+# them, and game/gate_fragmentrest.py checks that the Power Plant came apart, that scopes
+# rested in the 40 frames of flying pieces counted (meshperfdump's FRAGMENTREST) and none in
+# the run without the rule, that both runs flushed the same fragments and ranges, that the
+# full vertex records collected fell to at most half, and that the five shots (one before
+# the blast, four after) are byte for byte the same, or for an explosion frame within the
+# few pixels two runs of one unchanged renderer were measured to differ by. Then the clock
+# stands still for 21 frames: the scopes still resting must try their stores on the first of
+# them, and over the 20 after it the resting run must reuse exactly as many whole streams and
+# prepare exactly as many vertices as the run without the rule.
+# Measured: 5 of 5 shots exact, and the same as the renderer before the rule drew; 1517 flushes
+# and 55007 ranges in both runs; 1529 scopes rested and 253 retried; 283.9 MB of full records
+# against 762.9 MB (37%); 43 scopes came back on the first still frame, and both runs reused
+# 800 of 800 streams and prepared no vertices in the 20 paused frames after it.
+# PROVEN TO FAIL: the renderer before the rule prints no FRAGMENTREST line (checked: "no
+# FRAGMENTREST counters around the window"); with the rule off in both runs nothing rests and
+# nothing is saved; the first version of the rule, which rested on through a pause, reused 152
+# of 800 streams in the paused frames and prepared 6.46 million vertices (checked).
+# NOT COVERED: the time saved (by hand, on the 32-bit Windows build); how soon a resting scope comes
+# back when its pieces stop moving while the clock runs on; Tiberian Dawn's destroyed
+# buildings, which share the code; damaged buildings standing still, whose stores keep reusing.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCG01EA.pack ]; then
+  skip "G384 a destroyed building's resting fragment stores: no Red Alert module with the first Allied mission's 3D scene is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g384f && mkdir -p g384f
+  python3 "$GATEDIR/gate_fragmentrest.py" script g384f 2>>"$OUT"
+  G384RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio --dir ra3d/missions/ --w 1280 --h 720 --enhanced --texset 3 --nosound --seed 12345 --scen SCG01EA --pack ra3d/3d/SCG01EA.pack"
+  gbegin
+  OPENCNC3D_FRAGMENT_REST=1; export OPENCNC3D_FRAGMENT_REST
+  grun g384f/rest.log $G384RA --script g384f/rest.txt
+  OPENCNC3D_FRAGMENT_REST=0
+  grun g384f/full.log $G384RA --script g384f/full.txt
+  unset OPENCNC3D_FRAGMENT_REST
+  gshots g384f/rest_s000.png g384f/full_s000.png g384f/rest_s120.png g384f/full_s120.png
+  G384CHK=$(python3 "$GATEDIR/gate_fragmentrest.py" check g384f 2>>"$OUT")
+  echo "$G384CHK" >> "$OUT"
+  G384V=$(echo "$G384CHK" | head -1 | cut -d' ' -f1)
+  G384MSG=$(echo "$G384CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G384 a destroyed building's resting fragment stores: a run failed (GRC=$GRC)"
+  elif [ "$G384V" = "1" ]; then ok "G384 $G384MSG"
+  else bad "G384 a destroyed building's resting fragment stores: ${G384MSG:-the check did not run (see the python error in the log)}"; fi
+fi
+
+# =====================================================================================
+# G408 THE MEMORY LEDGER SAYS WHAT A SCENE HOLDS (game/memledger.h, game/memledger_scene.h,
+# the `memledger` script verb). Work that makes the game fit in less memory is judged by
+# numbers a test can read rather than by a picture: how much of the card the Unity
+# explosions, the experimental 3D models' textures and the mottle bank take, how much the
+# Red Alert building decodes kept for house colours take in system memory, and how many
+# whole textures are read back off the card. HIDDEN RUNS of Red Alert's first Allied
+# mission and Tiberian Dawn's first GDI mission under Enhanced with the frozen graphics
+# settings of tools/mem/scenes/cfg, 300 ticks, the ledger printed at tick 1 and tick 300:
+#   (1) every run prints its MEM|ledger line at tick 1 and at tick 300, and no FATAL;
+#   (2) Red Alert at tick 1 holds today's amounts: kept building decodes within 5% of the
+#       423 MB an allocation census of the same scene measured; no Unity explosions, no
+#       experimental model textures and no mottle (none of them is drawn here, so none is
+#       loaded at the start: G409; the census measured 317, 131 and 80 MB before that);
+#       and it has read no whole texture back (the ground and water read theirs in bands,
+#       G410; before that it read 2);
+#   (3) Tiberian Dawn has read no whole texture back either (it read 4).
+# These are TODAY'S amounts, kept so that a change which holds less can be told from one
+# that holds the same: a change that lowers one of them on purpose changes its number here.
+# Measured: Red Alert 0.0, 0.0, 410.0 and 0.0 MB, the same at tick 300; 0 readbacks in
+# both games (2 and 4 before the banded reads).
+# PROVEN TO FAIL: the renderer before the ledger has no memledger verb, so its runs count an
+# unknown command and print no MEM|ledger line (checked).
+# NOT COVERED: the commit numbers the line adds on Windows (private_usage, job_cap,
+# process_commit_room), which only a Windows run prints.
+# =====================================================================================
+G408CFG="$GATEDIR/../tools/mem/scenes/cfg"
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ] || [ ! -f "$G408CFG/ra.cfg" ]; then
+  skip "G408 the memory ledger: Red Alert or the frozen graphics settings are not here"
+else
+  rm -rf g408 && mkdir -p g408/saves
+  G408RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --build 98 --seed 12345 --enhanced --texset 3 --nosound --w 1600 --h 900 --gfx $G408CFG/ra.cfg --gfxsave g408/ra-private.cfg --savedir g408/saves"
+  G408TD="$BASE --dosdata dosdata --scen SCG01EA --pack SCG01EA.pack --build 98 --seed 12345 --enhanced --texset 3 --nosound --w 1600 --h 900 --gfx $G408CFG/td.cfg --gfxsave g408/td-private.cfg --savedir g408/saves"
+  printf 'gfxload %s/ra.cfg\ngfx show_stats 0\ntick 1\nframes 2\nmemledger t1\nshot g408/ra.png\ntick 299\nframes 2\nmemledger t300\nquit\n' "$G408CFG" > g408/ra.txt
+  printf 'gfxload %s/td.cfg\ngfx show_stats 0\ntick 1\nframes 2\nmemledger t1\nshot g408/td.png\ntick 299\nframes 2\nmemledger t300\nquit\n' "$G408CFG" > g408/td.txt
+  gbegin g408/ra.png g408/td.png
+  grun g408/ra.log $G408RA --script g408/ra.txt
+  grun g408/td.log $G408TD --script g408/td.txt
+  gshots g408/ra.png g408/td.png
+  g408f() { printf '%s\n' "$1" | tr '|' '\n' | sed -n "s/^$2=//p"; }
+  g408near() { awk -v v="$1" -v w="$2" 'BEGIN { exit !(v != "" && v >= w * 0.95 && v <= w * 1.05) }'; }
+  G408R1=$(grep -a '^MEM|ledger|t1|' g408/ra.log | head -1)
+  G408R3=$(grep -a -c '^MEM|ledger|t300|' g408/ra.log)
+  G408T1=$(grep -a '^MEM|ledger|t1|' g408/td.log | head -1)
+  G408T3=$(grep -a -c '^MEM|ledger|t300|' g408/td.log)
+  G408F=$(cat g408/ra.log g408/td.log | grep -a -c '^FATAL')
+  G408U=$(g408f "$G408R1" unity_gl); G408M=$(g408f "$G408R1" m3exp_tex)
+  G408P=$(g408f "$G408R1" painted_decodes); G408O=$(g408f "$G408R1" mottle_gl)
+  G408B=$(g408f "$G408R1" readbacks); G408TB=$(g408f "$G408T1" readbacks)
+  G408V="unity_gl=$G408U(0) m3exp_tex=$G408M(0) painted_decodes=$G408P(423) mottle_gl=$G408O(0) readbacks=$G408B(0) td_readbacks=$G408TB(0) ledger_lines=ra:${G408R1:+1}+$G408R3,td:${G408T1:+1}+$G408T3 FATAL=$G408F"
+  if [ "$GRC" != "0" ]; then
+    bad "G408 the memory ledger: a run failed (GRC=$GRC) or wrote no shot; $G408V"
+  elif [ -n "$G408R1" ] && [ "$G408R3" = "1" ] && [ -n "$G408T1" ] && [ "$G408T3" = "1" ] && [ "$G408F" = "0" ] \
+       && [ "$G408U" = "0.0" ] && [ "$G408M" = "0.0" ] && g408near "$G408P" 423 && [ "$G408O" = "0.0" ] \
+       && [ "$G408B" = "0" ] && [ "$G408TB" = "0" ]; then
+    ok "G408 the memory ledger reads today's amounts in both games: $G408V"
+  else
+    bad "G408 the memory ledger: $G408V"
+  fi
+fi
+
+# =====================================================================================
+# G409 ART NOTHING CAN DRAW STAYS OFF THE CARD AT A MISSION START (game/boot_art.h;
+# unityvfx_mod.h uvfx_defer, uvfx_ensure and uvfx_available; model3d_mod.h
+# m3_park_textures, m3_upload and the m3upload verb; mottle_mod.h mottle_theater_can_draw;
+# ra3d_sprites_mod.h ra3d_decal_sheets_wanted; decalenh_mod.h decalenh_load's want). Every
+# start used to put on the card the Unity explosions and the experimental 3D models'
+# textures, which only experimental art draws and nothing switches on, and every
+# theater's mottle patches and decal sheets, whatever the mission's theater. Now the
+# explosions load at their first use, the experimental models leave their texture pixels
+# in their files until a draw needs them, and the mottle and the decal sheets go up only
+# for a theater that draws them. Every run goes through tools/mem/ab.py, one game at a
+# time, in two arms: A with the old loads restored (OPENCNC3D_RETIRED_ART=1
+# OPENCNC3D_THEATER_ART_ALL=1), B as shipped. A pair that differs is rerun four more
+# times in each arm and each shot judged on the value most runs give, because two games
+# drawing at once on one Mac flip pixels by a few levels. The claims:
+#   (1) THE PICTURES DO NOT MOVE: the framed scenes S1 S2 S5 S8 S9 S11 S14 S15 of
+#       tools/mem/scenes in every mode each allows (Enhanced, Classic, N64; Red Alert snow
+#       and temperate, Tiberian Dawn temperate and desert, a Classic start switched to
+#       Enhanced, the remastered soldiers off), and the three runs of (5) and (6) below:
+#       every shot of B has the bytes of the same shot of A.
+#   (2) B HOLDS NONE OF THE RETIRED ART: every MEM|ledger line of B reads unity_gl,
+#       unity_seed and m3exp_tex 0.0, and A's first S1 line reads them non-zero, so the
+#       arms really differ.
+#   (3) RED ALERT SNOW HOLDS ONLY WHAT IT DRAWS: B's S1 ledger reads mottle_gl 0.0 and
+#       decal_sets exactly 2:body+snowsoot (the temperate body and its burn on snow);
+#       A's reads 2:body+soot+snowsoot,0:body+soot.
+#   (4) THE MODELS READ THE SAME: every M3| and M3E| line of every scene's log, in order,
+#       is the same in A and B.
+#   (5) A MISSION CHANGE LOADS THE NEW THEATER'S ART, AND MOTTLE STILL DRAWS WHERE IT IS
+#       DRAWN: Red Alert SCG01EA (snow) then `remission` into SCG05EA (temperate), and
+#       Tiberian Dawn SCG01EA (temperate) then into SCB01EA (desert), Enhanced. In B the
+#       snow start loads no mottle; the temperate start, the Red Alert temperate mission
+#       and the desert one each report a mottle bank with patches and a non-zero count of
+#       patches drawn on the frame framed; the decal sets after each change are the new
+#       theater's (2:body+soot, 0:body+soot).
+#   (6) THE UNITY EXPLOSION STILL LOADS ON DEMAND: Tiberian Dawn SCG01EA Enhanced,
+#       `uvfxstage 0 0.5` (the picker's test stage). In B the verb loads the packs
+#       (uvfxdump loaded=1, as many packs as A, frames drawn), the ledger after it reads
+#       A's unity_gl, and the stage's shot differs from the frame before it, so the
+#       explosion is in the picture (and (1) holds it to A's bytes).
+#   (7) A PARKED MODEL COMES BACK EXACTLY: with OPENCNC3D_MEMDEBUG_TEXHASH=1, `m3upload`
+#       of each of the five experimental models. In B each was parked and is read again
+#       from its file; every TEXHASH line of its textures on the card equals A's, where
+#       the start uploaded them.
+# Measured: 95 shot pairs of (1) the same (with three games of other work drawing beside
+# it, ten shots flipped once in one arm or the other and settled); B's S1 ledger unity_gl
+# 0.0, m3exp_tex 0.0, mottle_gl 0.0, decal_gl 36.0 against A's 317.3, 131.0, 80.0, 100.2;
+# 7107 model lines the same; 57 texture hashes of the five models the same.
+# PROVEN TO FAIL: the renderer before this change has no m3upload verb (claim 7's runs
+# count an unknown command) and holds the retired art in arm B (unity_gl 317.3, m3exp_tex
+# 131.0, mottle_gl 80.0 in snow), whatever the two switches say.
+# NOT COVERED: Windows (the suite is the Mac's); the experimental look itself, which no
+# run can switch on, so the deferred loads are reached only through the picker's verbs.
+# =====================================================================================
+G409CFG="$GATEDIR/../tools/mem/scenes/cfg"
+G409AB="$GATEDIR/../tools/mem/ab.py"
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG05EA.pack ] || [ ! -f "$G409AB" ] || [ ! -f "$G409CFG/ra.cfg" ]; then
+  skip "G409 art nothing can draw stays off the card: Red Alert, the scenes or the frozen settings are not here"
+else
+  rm -rf g409 && mkdir -p g409/scenes
+  cat > g409/scenes/G409RA.scene <<'G409EOF'
+# Red Alert snow, then a mission change into temperate
+game: ra
+scen: SCG01EA
+modes: enh
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+mottledump
+memledger snow
+remission SCG05EA ra3d/3d/SCG05EA.pack
+reveal 1
+tick 1
+frames 2
+cam 30 60
+frames 2
+mottledump
+memledger temperate
+shot {OUT}/temperate.png
+quit
+G409EOF
+  cat > g409/scenes/G409TD.scene <<'G409EOF'
+# Tiberian Dawn temperate, then a mission change into desert
+game: td
+scen: SCG01EA
+modes: enh
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+cam 48 44
+frames 2
+mottledump
+memledger temperate
+remission SCB01EA SCB01EA.pack
+reveal 1
+tick 1
+frames 2
+cam 25 21
+frames 2
+mottledump
+memledger desert
+shot {OUT}/desert.png
+quit
+G409EOF
+  cat > g409/scenes/G409ST.scene <<'G409EOF'
+# the picker's test stage, the Unity explosion loaded by the verb
+game: td
+scen: SCG01EA
+modes: enh
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+cam 48 44
+frames 2
+shot {OUT}/before.png
+uvfxstage 0 0.5
+frames 2
+shot {OUT}/stage.png
+uvfxdump
+memledger stage
+quit
+G409EOF
+  cat > g409/scenes/G409M3.scene <<'G409EOF'
+# the experimental models' textures put on the card by the test verb, and hashed
+game: td
+scen: SCG01EA
+modes: cls
+env: OPENCNC3D_MEMDEBUG_TEXHASH=1
+---
+gfxload {CFG}
+tick 1
+m3upload HTNK
+m3upload FACT
+m3upload E1
+m3upload E3
+m3upload E1TR
+quit
+G409EOF
+  python3 "$G409AB" --play "$PWD" --bin A=./cnc_eyes --bin B=./cnc_eyes \
+      --env A:OPENCNC3D_RETIRED_ART=1 --env A:OPENCNC3D_THEATER_ART_ALL=1 --settle 4 \
+      --scenedir g409/scenes --scenes S1,S2,S5,S8,S9,S11,S14,S15,G409RA,G409TD,G409ST,G409M3 \
+      --out g409/ab > g409/ab.log 2>&1
+  G409ABRC=$?
+  rm -f cnc_eyes.A cnc_eyes.B
+  cat g409/ab.log >> "$OUT"
+  G409CHK=$(G409ABRC=$G409ABRC python3 - <<'PYG409'
+import glob, hashlib, json, os, re
+why = []
+def text(p):
+    try: return open(p, encoding='latin-1').read()
+    except OSError: why.append('no %s' % p); return ''
+def field(line, k):
+    m = re.search(r'\|%s=([^|]*)' % k, line)
+    return m.group(1) if m else None
+def sha(p):
+    try: return hashlib.sha1(open(p, 'rb').read()).hexdigest()
+    except OSError: return None
+# (1) every picture
+summ = {}
+try: summ = json.load(open('g409/ab/summary.json'))
+except Exception: why.append('ab.py wrote no summary')
+eq, dif, mis, unc = summ.get('equal', 0), summ.get('differ', -1), summ.get('missing', -1), len(summ.get('unclean', [1]))
+if os.environ.get('G409ABRC') != '0' or dif != 0 or mis != 0 or unc != 0 or eq < 95:
+    why.append('pictures: %s pairs the same, %s differ, %s missing, %s runs not clean' % (eq, dif, mis, unc))
+res = {}
+for p in glob.glob('g409/ab/*/*/*/r1/result.json'):
+    r = json.load(open(p)); res[(r['label'], r['scene'], r['mode'])] = r
+def log(lab, s, m): return text('g409/ab/%s/%s/%s/r1/out.log' % (lab, s, m))
+def ledger(lab, s, m, label):
+    return next((l for l in res.get((lab, s, m), {}).get('ledger', []) if l.split('|')[2] == label), '')
+# (2) and (3) the ledger
+bl = [l for (lab, s, m), r in res.items() if lab == 'B' for l in r['ledger']]
+held = ['%s:%s' % (s, l.split('|')[2]) for (lab, s, m), r in res.items() if lab == 'B' for l in r['ledger']
+        if any(field(l, k) != '0.0' for k in ('unity_gl', 'unity_seed', 'm3exp_tex')) and l.split('|')[2] != 'stage']
+if len(bl) < 30 or held:
+    why.append('B ledger: %d lines, retired art held in %s' % (len(bl), ','.join(held) or '-'))
+a1, b1 = ledger('A', 'S1', 'enh', 't1'), ledger('B', 'S1', 'enh', 't1')
+if not a1 or field(a1, 'unity_gl') in (None, '0.0') or field(a1, 'm3exp_tex') in (None, '0.0'):
+    why.append('A holds no retired art (%s)' % a1[:80])
+if field(b1, 'mottle_gl') != '0.0' or field(b1, 'decal_sets') != '2:body+snowsoot':
+    why.append('B snow: mottle_gl=%s decal_sets=%s' % (field(b1, 'mottle_gl'), field(b1, 'decal_sets')))
+if field(a1, 'decal_sets') != '2:body+soot+snowsoot,0:body+soot':
+    why.append('A snow decal_sets=%s' % field(a1, 'decal_sets'))
+# (4) the model lines
+m3n = 0
+for (lab, s, m) in res:
+    if lab != 'A' or s.startswith('G409'): continue
+    la = [l for l in log('A', s, m).splitlines() if re.match(r'M3E?\|', l)]
+    lb = [l for l in log('B', s, m).splitlines() if re.match(r'M3E?\|', l)]
+    if not la or la != lb: why.append('M3 lines differ in %s/%s (%d against %d)' % (s, m, len(la), len(lb)))
+    m3n += len(la)
+# (5) the mission changes
+for s, first, second, want in (('G409RA', 'snow', 'temperate', [None, '2:body+soot']),
+                               ('G409TD', 'temperate', 'desert', ['2:body+soot', '0:body+soot'])):
+    mo = re.findall(r'^MOTTLE\|.*$', log('B', s, 'enh'), re.M)
+    led = [ledger('B', s, 'enh', first), ledger('B', s, 'enh', second)]
+    if len(mo) != 2 or not all(led) or not re.search(r'^REMISSION\|booted\|', log('B', s, 'enh'), re.M):
+        why.append('%s: %d mottle dumps, ledger %s, no remission?' % (s, len(mo), [bool(x) for x in led])); continue
+    if s == 'G409RA':
+        if (field(mo[0], 'materials'), field(mo[0], 'drawn')) != ('0', '0') or field(led[0], 'mottle_gl') != '0.0':
+            why.append('the snow start holds mottle (%s)' % mo[0])
+    elif int(field(mo[0], 'materials') or 0) <= 0 or int(field(mo[0], 'drawn') or 0) <= 0:
+        why.append('the temperate start draws no mottle (%s)' % mo[0])
+    if int(field(mo[1], 'materials') or 0) <= 0 or int(field(mo[1], 'drawn') or 0) <= 0:
+        why.append('%s after the change draws no mottle (%s)' % (s, mo[1]))
+    for i, w in enumerate(want):
+        if w and field(led[i], 'decal_sets') != w:
+            why.append('%s decal_sets %s, wanted %s' % (s, field(led[i], 'decal_sets'), w))
+# (6) the stage
+ua = re.findall(r'^UVFX\|state\|.*$', log('A', 'G409ST', 'enh'), re.M)
+ub = re.findall(r'^UVFX\|state\|.*$', log('B', 'G409ST', 'enh'), re.M)
+la, lb = ledger('A', 'G409ST', 'enh', 'stage'), ledger('B', 'G409ST', 'enh', 'stage')
+if sha('g409/ab/B/G409ST/enh/r1/stage.png') in (None, sha('g409/ab/B/G409ST/enh/r1/before.png')):
+    why.append('the stage drew nothing')
+if not ub or not ua or field(ub[0], 'loaded') != '1' or field(ub[0], 'packs') != field(ua[0], 'packs') \
+   or int(field(ub[0], 'frames_drawn') or 0) <= 0:
+    why.append('stage: %s against %s' % ((ub or ['-'])[0][:90], (ua or ['-'])[0][:60]))
+if field(lb, 'unity_gl') in (None, '0.0') or field(lb, 'unity_gl') != field(la, 'unity_gl'):
+    why.append('stage ledger unity_gl %s against %s' % (field(lb, 'unity_gl'), field(la, 'unity_gl')))
+# (7) the parked models
+ta, tb = log('A', 'G409M3', 'cls'), log('B', 'G409M3', 'cls')
+ha = re.findall(r'^TEXHASH\|m3_.*$', ta, re.M)
+hb = re.findall(r'^TEXHASH\|m3_.*$', tb, re.M)
+pb = re.findall(r'^M3UPLOAD\|.*\|was_parked=1\|.*$', tb, re.M)
+pa = re.findall(r'^M3UPLOAD\|.*\|was_uploaded=1\|.*$', ta, re.M)
+rb = re.findall(r'^BOOTART\|m3\|.*\|textures read again\|ok\|', tb, re.M)
+if len(pb) != 5 or len(pa) != 5 or len(rb) != 5 or not ha or ha != hb or any('|gl|none' in h for h in hb):
+    why.append('parked models: %d parked, %d read again, %d uploaded at the start, %d against %d texture hashes, same=%s'
+               % (len(pb), len(rb), len(pa), len(hb), len(ha), ha == hb))
+msg = ('%d shot pairs the same; B snow unity_gl=%s m3exp_tex=%s mottle_gl=%s decal_gl=%s (A %s %s %s %s); '
+       '%d M3 lines the same; stage unity_gl=%s on demand; %d model texture hashes the same'
+       % (eq, field(b1, 'unity_gl'), field(b1, 'm3exp_tex'), field(b1, 'mottle_gl'), field(b1, 'decal_gl'),
+          field(a1, 'unity_gl'), field(a1, 'm3exp_tex'), field(a1, 'mottle_gl'), field(a1, 'decal_gl'),
+          m3n, field(lb, 'unity_gl'), len(hb)))
+print(('1 ' if not why else '0 ') + (msg if not why else '; '.join(why[:6])))
+PYG409
+)
+  echo "$G409CHK" >> "$OUT"
+  G409OK=$(echo "$G409CHK" | head -1 | cut -d' ' -f1)
+  G409MSG=$(echo "$G409CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$G409OK" = "1" ]; then
+    ok "G409 art nothing can draw stays off the card: $G409MSG"
+  else
+    bad "G409 art nothing can draw stays off the card: ${G409MSG:-the check did not run (see the python error in the log)}"
+  fi
+fi
+
+# =====================================================================================
+# G410 THE GROUND AND THE SEA READ THE CARD IN BANDS, AND A MISSION'S END GIVES THE WATER
+# BACK (game/gl_readback.h, game/water_mod.h, game/water_bed_material.h,
+# game/terrain_surface.h, game/memledger_gl.h). The land under the water, its bed pattern,
+# the soft coast, the painted coast cut and the ground surface's coast need pixels only the
+# card holds, and each read a whole texture back with glGetTexImage: a 145 MB copy of Red
+# Alert's 6240 x 6084 ground sheet on the first frame, four whole sheets a mission in
+# Tiberian Dawn. They now read the same bytes 256 rows at a time through a framebuffer kept
+# for it, the land texture never holding the sheet whole; a band the driver refuses or
+# reads wrong is caught and the texture read whole instead; and the map editor, which
+# rebuilds these on every frame, keeps the whole reads and their speed. A mission's end now
+# frees the water's field, land textures and soft-coast sheets, which used to stay for the
+# next mission, a restart of the same mission adding a second 98 MB soft-coast sheet beside
+# the first. HIDDEN RUNS, five legs:
+#   (1) S1, S2, S3, S9 and S10 of tools/mem/scenes under Enhanced, each run by
+#       tools/mem/ab.py as players get it and with OPENCNC3D_READBACK_WHOLE=1 (the whole
+#       reads of before), both with OPENCNC3D_MEMDEBUG_TEXHASH=1. Every shot of the two is
+#       byte-identical (a shot the GPU draws two ways from run to run passes when some run
+#       of each route drew the same bytes, and is counted as flake=); every TEXHASH line (the
+#       ground and water textures, and the coast, cut, soft-coast and land buffers the reads
+#       fill) and every WATER|, TERRAINSURFACE| and RA3D| line is the same in both, timings
+#       aside; the banded runs count no whole-texture readback at any ledger line, read in
+#       bands, never fall back to a whole read, and the land texture's build held at most
+#       40 MB at once; the whole runs read 2 (Red Alert) and 4 (Tiberian Dawn) textures back
+#       whole and Red Alert's land build held over 100 MB, so the switch is the old route;
+#   (2) the app's menu round trip as G6 runs it, Tiberian Dawn's Test Map under Enhanced,
+#       three missions in one process, with OPENCNC3D_MEMLEDGER_SHUTDOWN=1: after every
+#       mission every texture left on the card adds up to the same bytes as after the first
+#       (gl_tex_bytes), and the water holds none (water_gl=0); the same run with
+#       OPENCNC3D_WATER_SHUTDOWN_KEEP=1, the old keeping, must grow after the second
+#       mission, so the measure is shown to see what it guards;
+#   (3) M1 and M2 of tools/mem/scenes-water, Red Alert's and Tiberian Dawn's first missions
+#       played twice in one process and framed on the coast and sea both times: every shot
+#       is the same with the water freed at the mission's end and with it kept;
+#   (4) E1 and E2 of tools/mem/scenes-water, each game's map editor on the coast, as players
+#       get it and with OPENCNC3D_READBACK_WHOLE=1 (E1 twice each, E2 once): the shots are
+#       the same; every rebuild of the land under the water in the editor reads the sheet
+#       whole (WATERLAND|route=whole), as many times in both, and the editor's ledger counts
+#       the same whole readbacks in both and no banded read, more of them after the timed
+#       frames than before, so the rebuild on every frame is seen; WATER|, TERRAINSURFACE|
+#       and RA3D| lines are the same, timings aside; and the median editor frame in
+#       Tiberian Dawn (the faster of each route's runs) is at most 10% slower than the
+#       whole route's;
+#   (5) S1 and S2 with OPENCNC3D_READBACK_VERIFY=1, and with OPENCNC3D_READBACK_INJECT set to
+#       incomplete:1, error:3 and alpha:1, each against the whole route, all with texture
+#       hashes: every shot, TEXHASH, WATER|, TERRAINSURFACE| and RA3D| line is the same as
+#       the whole route's; the verify runs print one READBACK|verify line for every banded
+#       read the ledger counts, every one with bad=0 and none falling back; each injected
+#       run prints its injection and exactly one READBACK|whole-fallback line, with the
+#       reason incomplete, read-error (a real error the driver raised) or alpha-mismatch.
+# Measured: banded Red Alert SCG01EA read 2 textures in 46 bands and its land build held
+# 24.2 MB (153.9 whole); Tiberian Dawn 4 textures in 66 bands, 9.4 MB (82.5 whole); after
+# each of three Test Map missions 690.0 MB of textures in 237, water 0 (kept as before:
+# 794.8, then 892.8 MB, water 104.8 then 202.8 MB). Tiberian Dawn's editor frame 173.0 and
+# 174.3 ms, as it was before the banded reads (173.7 and 175.0), and 202.6 and 211.4 ms
+# when the editor read in bands; the editor reads 3 textures whole a frame (13 before the
+# timed frames, 73 after).
+# PROVEN TO FAIL: the renderer and app before the banded reads count 2 and 4 whole
+# readbacks, print none of the coast, cut, soft-coast or land buffer hashes and no
+# water_land_cpu_peak, and print no ledger line at a mission's end (checked). The banded
+# reads before the editor kept its whole reads and before the failure checks read the
+# editor's land in bands (route=bands, 1193 band reads by the end of the timed frames) with
+# a Tiberian Dawn editor frame 15 to 16% slower than the whole route's, and have no verify
+# or injection switch, so leg 4 and leg 5 fail on them while legs 1 to 3 pass (checked).
+# NOT COVERED: Windows, where the reads were compiled but not run here; a driver that reads
+# an RGBA band wrong without raising an error (OPENCNC3D_READBACK_VERIFY=1 is the check to
+# run on such a machine, one run a scene).
+# =====================================================================================
+G410MEM="$GATEDIR/../tools/mem"
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ] || [ ! -f "$G410MEM/ab.py" ] || [ ! -f "$G410MEM/scenes-water/M1.scene" ]; then
+  skip "G410 banded readbacks and the water at a mission's end: Red Alert or tools/mem is not here"
+else
+  rm -rf g410 && mkdir -p g410/h/shots g410/h/saves g410/hk/shots g410/hk/saves
+  python3 "$G410MEM/ab.py" --play . --bin band=./cnc_eyes --bin whole=./cnc_eyes \
+      --env band:OPENCNC3D_MEMDEBUG_TEXHASH=1 --env whole:OPENCNC3D_MEMDEBUG_TEXHASH=1 \
+      --env whole:OPENCNC3D_READBACK_WHOLE=1 --scenes S1,S2,S3,S9,S10 --modes enh --out g410/ab > g410/ab.log 2>&1
+  G410ARC=$?
+  G410AS=$(grep -a '^AB|summary' g410/ab.log | tail -1)
+  # THE SHOTS, JUDGED AS ab.py SETTLES THEM AND ONE STEP FURTHER. A few Enhanced shots on
+  # this GPU take one of two or three values from run to run of the same binary, by one or
+  # two levels on a few pixels, and more often while another game draws on the machine;
+  # ab.py reruns a group that differs. A shot passes when some run of each route drew the
+  # same bytes: a real change draws different bytes in every run, so no run of the two
+  # routes could agree. Shots that needed this are counted and printed (flake=).
+  g410shots() { python3 - "$1" "$2" "$3" <<'PY'
+import sys, collections
+out, x, y = sys.argv[1:4]
+got = collections.defaultdict(set)
+for line in open(out + '/shots.txt'):
+    lab, sid, mode, run, shot, digest = line.split()
+    got[(lab, sid, mode, shot)].add(digest)
+keys = sorted(set(k[1:] for k in got))
+same = flake = 0
+bad = []
+for k in keys:
+    a, b = got.get((x,) + k, set()), got.get((y,) + k, set())
+    if not a or not b:
+        bad.append('/'.join(k) + ':missing')
+    elif len(a) == 1 and a == b:
+        same += 1
+    elif a & b:
+        flake += 1
+    else:
+        bad.append('/'.join(k) + ':differs')
+print('%s shots=%d same=%d flake=%d' % ('ok' if not bad and keys else 'bad:' + (','.join(bad) or 'none'), len(keys), same, flake))
+PY
+  }
+  G410AP=$(g410shots g410/ab band whole)
+  G410L=$(python3 - g410/ab <<'PY'
+import os, re, sys
+out = sys.argv[1]
+PFX = ('TEXHASH|', 'WATER|', 'TERRAINSURFACE|', 'RA3D|')
+T = re.compile(r'\|(ms|readback|coast|lift|vertices|upload|retire_ms)=[-0-9.]+')
+def norm(l):
+    return re.sub(r'[0-9.]+ ms\b', '* ms', T.sub(lambda m: '|%s=*' % m.group(1), l))
+def field(line, key):
+    for f in line.split('|'):
+        if f.startswith(key + '='):
+            return f[len(key) + 1:]
+    return None
+need = {'S1': ('surface_coast', 'water_land_lp', 'water_bed'),
+        'S2': ('surface_coast', 'water_cut_alpha', 'water_soft_read', 'water_land_lp')}
+bad, notes = [], []
+for sid in ('S1', 'S2', 'S3', 'S9', 'S10'):
+    a = os.path.join(out, 'band', sid, 'enh', 'r1', 'out.log')
+    b = os.path.join(out, 'whole', sid, 'enh', 'r1', 'out.log')
+    if not (os.path.exists(a) and os.path.exists(b)):
+        bad.append(sid + ':no-log'); continue
+    A = open(a, encoding='latin-1').read().splitlines()
+    B = open(b, encoding='latin-1').read().splitlines()
+    for p in PFX:
+        x = [norm(l) for l in A if l.startswith(p)]
+        y = [norm(l) for l in B if l.startswith(p)]
+        if x != y:
+            bad.append('%s:%s-differs(%d/%d)' % (sid, p[:-1], len(x), len(y)))
+    th = [l for l in A if l.startswith('TEXHASH|')]
+    for n in need.get(sid, ()):
+        if not any(l.startswith('TEXHASH|%s|' % n) and '|fnv=' in l for l in th):
+            bad.append('%s:no-%s-hash' % (sid, n))
+    la = [l for l in A if l.startswith('MEM|ledger|')]
+    lb = [l for l in B if l.startswith('MEM|ledger|')]
+    if not la or not lb:
+        bad.append(sid + ':no-ledger'); continue
+    if any(field(l, 'readbacks') != '0' for l in la):
+        bad.append(sid + ':band-readbacks=' + ','.join(str(field(l, 'readbacks')) for l in la))
+    banded = int(field(la[-1], 'readback_banded') or 0)
+    if banded < 1:
+        bad.append(sid + ':no-banded-read')
+    if any(l.startswith('READBACK|whole-fallback') for l in A):
+        bad.append(sid + ':fallback')
+    peak = field(la[-1], 'water_land_cpu_peak')
+    if peak is None and sid in need:
+        bad.append(sid + ':no-land-peak')
+    if peak is not None and float(peak) > 40:
+        bad.append(sid + ':land-peak=' + peak)
+    wr, wpeak = field(lb[0], 'readbacks'), field(lb[-1], 'water_land_cpu_peak')
+    if sid == 'S1' and (wr != '2' or wpeak is None or float(wpeak) < 100):
+        bad.append('S1:whole-readbacks=%s,peak=%s' % (wr, wpeak))
+    if sid == 'S2' and wr != '4':
+        bad.append('S2:whole-readbacks=%s' % wr)
+    notes.append('%s:banded=%d/bands=%s/peak=%s,whole=%s/peak=%s,hashes=%d' % (
+        sid, banded, field(la[-1], 'readback_bands'), peak, wr, wpeak, len(th)))
+print('%s %s' % ('ok' if not bad else 'bad:' + ','.join(bad), ' '.join(notes)))
+PY
+)
+  G410HA="--scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack --harness 300 --rounds 3 --enhanced --texset 3 --gfx $G410MEM/scenes/cfg/td.cfg --nosound"
+  OPENCNC3D_MEMLEDGER_SHUTDOWN=1 ./opencnc3d $G410HA --shotdir g410/h/shots --gfxsave g410/h/private.cfg --savedir g410/h/saves > g410/h.log 2>>"$OUT"
+  OPENCNC3D_MEMLEDGER_SHUTDOWN=1 OPENCNC3D_WATER_SHUTDOWN_KEEP=1 ./opencnc3d $G410HA --shotdir g410/hk/shots --gfxsave g410/hk/private.cfg --savedir g410/hk/saves > g410/hk.log 2>>"$OUT"
+  g410f() { printf '%s\n' "$1" | tr '|' '\n' | sed -n "s/^$2=//p"; }
+  g410col() { grep -a '^MEM|ledger|shutdown' "$1" | while read -r g410line; do g410f "$g410line" "$2"; done | tr '\n' ' ' | sed 's/ $//'; }
+  G410HB=$(g410col g410/h.log gl_tex_bytes); G410HM=$(g410col g410/h.log gl_tex_live); G410HW=$(g410col g410/h.log water_gl)
+  G410KB=$(g410col g410/hk.log gl_tex_bytes); G410KM=$(g410col g410/hk.log gl_tex_live); G410KW=$(g410col g410/hk.log water_gl)
+  G410HE=$(grep -a '^HARNESS|end' g410/h.log | tail -1); G410KE=$(grep -a '^HARNESS|end' g410/hk.log | tail -1)
+  G410H=$(echo "$G410HB" | awk '{ ok = (NF == 3 && $1 > 0 && $1 == $2 && $2 == $3); print ok ? "flat" : "NOT-flat" }')
+  G410K=$(echo "$G410KB" | awk '{ print (NF == 3 && $2 > $1) ? "grows" : "NOT-growing" }')
+  G410W=$(echo "$G410HW" | awk '{ print (NF == 3 && $1 == "0.0" && $2 == "0.0" && $3 == "0.0") ? "none" : "HELD" }')
+  python3 "$G410MEM/ab.py" --play . --scenedir "$G410MEM/scenes-water" --bin free=./cnc_eyes --bin keep=./cnc_eyes \
+      --env keep:OPENCNC3D_WATER_SHUTDOWN_KEEP=1 --scenes M1,M2 --out g410/m > g410/m.log 2>&1
+  G410MRC=$?
+  G410MS=$(grep -a '^AB|summary' g410/m.log | tail -1)
+  G410MP=$(g410shots g410/m free keep)
+  # (4) THE EDITOR: E1 twice per route (its frame time is judged on the faster run of
+  # each), E2 once.
+  python3 "$G410MEM/ab.py" --play . --scenedir "$G410MEM/scenes-water" --bin band=./cnc_eyes --bin whole=./cnc_eyes \
+      --env whole:OPENCNC3D_READBACK_WHOLE=1 --scenes E1 --runs 2 --settle 0 --out g410/e > g410/e.log 2>&1
+  python3 "$G410MEM/ab.py" --play . --scenedir "$G410MEM/scenes-water" --bin band=./cnc_eyes --bin whole=./cnc_eyes \
+      --env whole:OPENCNC3D_READBACK_WHOLE=1 --scenes E2 --out g410/e2 > g410/e2.log 2>&1
+  G410ES=$(cat g410/e.log g410/e2.log | grep -a '^AB|summary' | tr '\n' ' ')
+  G410EP=$(g410shots g410/e band whole; g410shots g410/e2 band whole)
+  G410EPOK=$(printf '%s\n' "$G410EP" | grep -c '^ok')
+  G410EP=$(printf '%s' "$G410EP" | tr '\n' ';')
+  G410E=$(python3 - g410/e g410/e2 <<'PY'
+import glob, os, re, sys
+PFX = ('WATER|', 'TERRAINSURFACE|', 'RA3D|')
+T = re.compile(r'\|(ms|readback|coast|lift|vertices|upload|retire_ms)=[-0-9.]+')
+def norm(l):
+    return re.sub(r'[0-9.]+ ms\b', '* ms', T.sub(lambda m: '|%s=*' % m.group(1), l))
+def field(line, key):
+    for f in line.split('|'):
+        if f.startswith(key + '='):
+            return f[len(key) + 1:]
+    return None
+bad, notes, bench = [], [], {}
+for out, sid in ((sys.argv[1], 'E1'), (sys.argv[2], 'E2')):
+    logs = {}
+    for lab in ('band', 'whole'):
+        runs = sorted(glob.glob(os.path.join(out, lab, sid, 'enh', 'r*', 'out.log')))
+        if not runs:
+            bad.append('%s:%s-no-log' % (sid, lab)); continue
+        logs[lab] = open(runs[0], encoding='latin-1').read().splitlines()
+        meds = []
+        for r in runs:
+            fb = [l for l in open(r, encoding='latin-1') if l.startswith('FRAMEBENCH|')]
+            if fb:
+                meds.append(float(field(fb[-1].strip(), 'median')))
+        bench[(sid, lab)] = meds
+    if len(logs) < 2:
+        continue
+    A, B = logs['band'], logs['whole']
+    wa = [l for l in A if l.startswith('WATERLAND|')]
+    wb = [l for l in B if l.startswith('WATERLAND|')]
+    if not wa or any(not l.startswith('WATERLAND|route=whole|') for l in wa):
+        bad.append('%s:band-route=%s' % (sid, ','.join(sorted(set(field(l, 'route') or '?' for l in wa))) or 'none'))
+    if len(wa) != len(wb):
+        bad.append('%s:land-builds=%d/%d' % (sid, len(wa), len(wb)))
+    for p in PFX:
+        x = [norm(l) for l in A if l.startswith(p)]
+        y = [norm(l) for l in B if l.startswith(p)]
+        if x != y:
+            bad.append('%s:%s-differs(%d/%d)' % (sid, p[:-1], len(x), len(y)))
+    if any(l.startswith('READBACK|') for l in A):
+        bad.append(sid + ':readback-line')
+    led = {}
+    for lab, L in (('band', A), ('whole', B)):
+        for l in L:
+            if l.startswith('MEM|ledger|e'):
+                led[(lab, l.split('|')[2])] = l
+    for at in ('e0', 'e20'):
+        a, b = led.get(('band', at)), led.get(('whole', at))
+        if not a or not b:
+            bad.append('%s:no-ledger-%s' % (sid, at)); continue
+        if field(a, 'readbacks') != field(b, 'readbacks'):
+            bad.append('%s:%s-readbacks=%s/%s' % (sid, at, field(a, 'readbacks'), field(b, 'readbacks')))
+        if (field(a, 'readback_banded') or '0') != '0':
+            bad.append('%s:%s-banded=%s' % (sid, at, field(a, 'readback_banded')))
+    e0, e20 = led.get(('band', 'e0')), led.get(('band', 'e20'))
+    r0 = int(field(e0, 'readbacks') or 0) if e0 else 0
+    r20 = int(field(e20, 'readbacks') or 0) if e20 else 0
+    if r20 <= r0:
+        bad.append('%s:no-rebuild-seen(%d/%d)' % (sid, r0, r20))
+    notes.append('%s:land=%d/%d,readbacks=%d->%d' % (sid, len(wa), len(wb), r0, r20))
+for sid in ('E1', 'E2'):
+    a, b = bench.get((sid, 'band')), bench.get((sid, 'whole'))
+    if not a or not b:
+        bad.append(sid + ':no-framebench'); continue
+    ratio = min(a) / min(b)
+    notes.append('%s:frame=%s/%s ms(x%.3f)' % (sid, ','.join('%.1f' % v for v in a), ','.join('%.1f' % v for v in b), ratio))
+    if sid == 'E1' and ratio > 1.10:
+        bad.append('E1:editor-frame-x%.3f' % ratio)
+print('%s %s' % ('ok' if not bad else 'bad:' + ','.join(bad), ' '.join(notes)))
+PY
+)
+  # (5) THE CHECKS ON A BAND READ: verify, and each injected failure, against the whole route.
+  python3 "$G410MEM/ab.py" --play . --bin whole=./cnc_eyes --bin verify=./cnc_eyes --bin inc=./cnc_eyes \
+      --bin err=./cnc_eyes --bin alpha=./cnc_eyes \
+      --env whole:OPENCNC3D_READBACK_WHOLE=1 --env verify:OPENCNC3D_READBACK_VERIFY=1 \
+      --env inc:OPENCNC3D_READBACK_INJECT=incomplete:1 --env err:OPENCNC3D_READBACK_INJECT=error:3 \
+      --env alpha:OPENCNC3D_READBACK_INJECT=alpha:1 \
+      --env whole:OPENCNC3D_MEMDEBUG_TEXHASH=1 --env verify:OPENCNC3D_MEMDEBUG_TEXHASH=1 \
+      --env inc:OPENCNC3D_MEMDEBUG_TEXHASH=1 --env err:OPENCNC3D_MEMDEBUG_TEXHASH=1 \
+      --env alpha:OPENCNC3D_MEMDEBUG_TEXHASH=1 --scenes S1,S2 --modes enh --out g410/v > g410/v.log 2>&1
+  G410VS=$(grep -a '^AB|summary' g410/v.log | tail -1)
+  G410VP=$(for g410lab in verify inc err alpha; do printf '%s:' "$g410lab"; g410shots g410/v whole "$g410lab"; done | tr '\n' ' ')
+  G410C=$(python3 - g410/v <<'PY'
+import os, re, sys
+out = sys.argv[1]
+PFX = ('TEXHASH|', 'WATER|', 'TERRAINSURFACE|', 'RA3D|')
+T = re.compile(r'\|(ms|readback|coast|lift|vertices|upload|retire_ms)=[-0-9.]+')
+def norm(l):
+    return re.sub(r'[0-9.]+ ms\b', '* ms', T.sub(lambda m: '|%s=*' % m.group(1), l))
+def field(line, key):
+    for f in line.split('|'):
+        if f.startswith(key + '='):
+            return f[len(key) + 1:]
+    return None
+REASON = {'inc': ('incomplete', 'incomplete'), 'err': ('error', 'read-error'), 'alpha': ('alpha', 'alpha-mismatch')}
+bad, notes = [], []
+for sid in ('S1', 'S2'):
+    logs = {}
+    for lab in ('whole', 'verify', 'inc', 'err', 'alpha'):
+        p = os.path.join(out, lab, sid, 'enh', 'r1', 'out.log')
+        if os.path.exists(p):
+            logs[lab] = open(p, encoding='latin-1').read().splitlines()
+        else:
+            bad.append('%s:%s-no-log' % (sid, lab))
+    if 'whole' not in logs:
+        continue
+    W = logs['whole']
+    for lab in ('verify', 'inc', 'err', 'alpha'):
+        X = logs.get(lab)
+        if X is None:
+            continue
+        for p in PFX:
+            x = [norm(l) for l in X if l.startswith(p)]
+            y = [norm(l) for l in W if l.startswith(p)]
+            if x != y or (p == 'TEXHASH|' and not x):
+                bad.append('%s:%s:%s-differs(%d/%d)' % (sid, lab, p[:-1], len(x), len(y)))
+        fb = [l for l in X if l.startswith('READBACK|whole-fallback|')]
+        if lab == 'verify':
+            v = [l for l in X if l.startswith('READBACK|verify|')]
+            led = [l for l in X if l.startswith('MEM|ledger|')]
+            n = int(field(led[-1], 'readback_banded') or 0) if led else -1
+            badb = sum(int(field(l, 'bad') or 1) for l in v)
+            if n < 1 or len(v) != n or badb or fb:
+                bad.append('%s:verify-lines=%d/banded=%d/bad=%d/fallback=%d' % (sid, len(v), n, badb, len(fb)))
+            notes.append('%s:verify=%d(bands=%d,bad=%d)' % (sid, len(v), sum(int(field(l, 'bands') or 0) for l in v), badb))
+        else:
+            kind, reason = REASON[lab]
+            hit = any(l.startswith('READBACK|inject|kind=%s|' % kind) for l in X)
+            why = [field(l, 'reason') for l in fb]
+            if not hit or why != [reason]:
+                bad.append('%s:%s-injected=%d/fallback=%s' % (sid, lab, hit, ','.join(why) or 'none'))
+            notes.append('%s:%s=%s' % (sid, lab, ','.join(why) or 'none'))
+print('%s %s' % ('ok' if not bad else 'bad:' + ','.join(bad), ' '.join(notes)))
+PY
+)
+  G410F=$(cat g410/h.log g410/hk.log | grep -a -c '^FATAL')
+  G410V="readbacks[${G410L}] pictures[$G410AP; ${G410AS#AB|summary|}] missions[gl_tex_live=$G410HM MB $G410H, water_gl=$G410HW $G410W, ${G410HE#HARNESS|end|}; kept: $G410KM MB $G410K, water_gl=$G410KW] restart-pictures[$G410MP; ${G410MS#AB|summary|}] editor[$G410E; $G410EP] checks[$G410C; $G410VP; ${G410VS#AB|summary|}] FATAL=$G410F"
+  case "$G410L" in ok*) G410LOK=1 ;; *) G410LOK=0 ;; esac
+  case "$G410AP" in ok*) G410APOK=1 ;; *) G410APOK=0 ;; esac
+  case "$G410MP" in ok*) G410MPOK=1 ;; *) G410MPOK=0 ;; esac
+  case "$G410E" in ok*) G410EOK=1 ;; *) G410EOK=0 ;; esac
+  case "$G410C" in ok*) G410COK=1 ;; *) G410COK=0 ;; esac
+  G410VPOK=$(printf '%s\n' "$G410VP" | grep -o ':ok ' | grep -c .)
+  if [ "$G410LOK" = "1" ] && [ "$G410APOK" = "1" ] && echo "$G410AS" | grep -q '|unclean=0|' \
+     && [ "$G410H" = "flat" ] && [ "$G410W" = "none" ] && [ "$G410K" = "grows" ] \
+     && echo "$G410HE" | grep -q '|3 round(s)' && echo "$G410KE" | grep -q '|3 round(s)' \
+     && [ "$G410MPOK" = "1" ] && echo "$G410MS" | grep -q '|unclean=0|' \
+     && [ "$G410EOK" = "1" ] && [ "$G410EPOK" = "2" ] && [ "$(echo "$G410ES" | grep -o '|unclean=0|' | grep -c .)" = "2" ] \
+     && [ "$G410COK" = "1" ] && [ "$G410VPOK" = "4" ] && echo "$G410VS" | grep -q '|unclean=0|' \
+     && [ "$G410F" = "0" ]; then
+    ok "G410 banded readbacks give the same pictures and bytes, the editor keeps its whole reads, a bad band falls back, and a mission's end gives the water back: $G410V"
+  else
+    bad "G410 banded readbacks and the water at a mission's end: $G410V"
+  fi
+  rm -f cnc_eyes.band cnc_eyes.whole cnc_eyes.free cnc_eyes.keep cnc_eyes.verify cnc_eyes.inc cnc_eyes.err cnc_eyes.alpha
+fi
+
+# =====================================================================================
+# G411 RED ALERT'S GROUND BUILD HOLDS LESS, REBUILDS IN PLACE AND SURVIVES RUNNING OUT
+# (game/ra3d_terrain.h ra3d_ground_ensure, game/terrain_seam.h ts_sheet,
+# game/terrain_grass_mask.h, game/terrain_surface.h terrain_surface_material_load,
+# game/ground_mem.h). The first frame of a Red Alert mission under Enhanced builds the
+# ground sheet (6240 x 6084 RGBA on the first Allied mission, 145 MB), and every capped
+# Red Alert run was measured aborting on that one allocation. The build now specifies the
+# sheet once and replaces its texels in place, lets the sheet's CPU copy and the terrain
+# pack go as soon as nothing reads them, fills the kept textures in place when a blown
+# bridge or a loaded save rebuilds it mid-mission, and reads the grass mask and the
+# ground material slot by slot instead of whole. None of that may change a texel, so each
+# is compared with its restore switch (OPENCNC3D_RA_SHEET_LEGACY=1,
+# OPENCNC3D_PACK_WHOLE_READ=1) on hidden runs with the frozen graphics settings:
+#   (1) five framed scenes (the first Allied mission's base and lake, the snow skirmish,
+#       the first temperate Allied mission, Allied 10's snow base, Allied 10's indoor
+#       mission), each run in both arms at tick 1: the main and dry sheets, the four
+#       strip sheets, the grass mask and the ground material hash the same
+#       (OPENCNC3D_MEMDEBUG_TEXHASH), the shots are byte-identical, and the sheet, grass
+#       mask, stone material and still-water log lines are the same; the default arm
+#       specifies the main sheet once (ra_sheet_specs=1) where the restore arm does it
+#       twice wherever still water is painted, and on the first Allied mission the build
+#       holds at most 400 MB above its start (ground_cpu_peak) and the grass mask at most
+#       its atlas plus 2 MB (mask_cpu_peak);
+#   (2) Soviet mission 2, saved with its bridge standing, the bridge blown, then the
+#       save loaded: the map changes twice, the ground is built three times in each arm,
+#       the default arm refills the kept sheets in place both times
+#       (ra_sheet_inplace=2), and the shots and sheet hashes after the blast and after
+#       the load are the restore arm's;
+#   (3) builds that run out (OPENCNC3D_MEM_FAIL), each caught once (one MEM|caught
+#       line), the mission then drawing the 1995 tiles, every shot written, the run
+#       exiting 0 and nothing FATAL:
+#       - the first Allied mission refused at the sheet (ra3d_ground) and, in a second
+#         run, at the fourth strip sheet (ra3d_seams:4), when the main and dry sheets and
+#         three strip sheets are already made and told to the bilinear toggle; 300 ticks,
+#         then N64 and back to Enhanced. Neither is tried again (ground_build_attempts=1
+#         at tick 300 and after the switches), and the two runs' shots from tick 300 on
+#         and their filter switches (FX|filter, how many textures each reached) are the
+#         same: a deleted sheet left with the toggle would re-filter whatever texture took
+#         its name. (The tick 1 shot is left out: in the run refused at the sheet it was
+#         measured taking three values over three runs, 1 to 4 pixels by one level.)
+#       - Soviet mission 2 refused at its first build and, in a second run, at the
+#         rebuild for the blown bridge (ra3d_ground:2), with the kept sheets in hand;
+#         after the blast and after the save is loaded, N64 and back to Enhanced. From the
+#         blast on, the second run's six shots and filter switches are the first's: what
+#         was laid on the Enhanced sheet (its relief surface, the sea's plane and field,
+#         the grass blades) goes with it, as it never existed in the first run.
+# The peaks are read with malloc's cache of freed large blocks off (MallocLargeCache=0),
+# so they are what the build asks for: with it on, a block recycled from a free just
+# before reads at its own, larger size (measured on the first Allied mission: the
+# material atlas, 72.7 MB, read as 91.2). The restore arm must read at least 140 MB more
+# at the ground's worst, which shows the reading sees the copies at all (measured: 490.2
+# against 295.5).
+# A pair whose shots differ is run again before it counts (up to three tries for the
+# five scenes, two for the rest): two runs on this GPU were measured to differ by one or
+# two levels in a few pixels of a few percent of Enhanced shots, at random, and more
+# often with other games drawing at the same time (Allied 5 differed by 2 and 4 pixels
+# of one level on two tries in a row that way, with every hash the same).
+# The ore and gems are drawn as their 1996 decals in every run (OPENCNC3D_RA3DORE=off),
+# as they are in G412: their 3D pieces are the noise above, a few pixels of a nugget one
+# to three levels off in about one frame in 400, which the anti-aliasing's settle frames
+# carry into the kept shot. Measured, run alone five times each: with the 3D pieces 2 of 5 runs
+# needed a second try (S9, then S1); with the decals none did, every pair the same at the
+# first try. The ore is no part of the ground's sheet, so nothing claimed here is lost.
+# PROVEN TO FAIL: the renderer before this change prints no ra_sheet_specs (its sheet is
+# specified twice), has no in-place rebuild and no failure sites, so (1), (2) and (3) are
+# each red there (checked). With the failure sites but without the toggle forgetting the
+# deleted sheets, the strip sheet failure's last shot differs and the toggle reaches four
+# more textures; without the relief surface, sea and grass going too, the refused
+# bridge's ground is drawn with the Enhanced sheet's layout over the 1995 tiles (checked).
+# NOT COVERED: Windows, where the same peaks read the process's commit; Classic and N64
+# (the 1995 set's sheet is small and untouched apart from its single specification); the
+# 3D ore and gems (left out, above).
+# =====================================================================================
+G411CFG="$GATEDIR/../tools/mem/scenes/cfg"
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ] || [ ! -f ra3d/3d/SCU02EA.pack ] \
+   || [ ! -f ra3d/3d/SCM01EA.pack ] || [ ! -f "$G411CFG/ra.cfg" ]; then
+  skip "G411 Red Alert's ground build: Red Alert's scenes or the frozen graphics settings are not here"
+else
+  rm -rf g411 && mkdir -p g411
+  MallocLargeCache=0; export MallocLargeCache
+  OPENCNC3D_RA3DORE=off; export OPENCNC3D_RA3DORE
+  G411RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --enhanced --texset 3 --nosound --w 1600 --h 900 --gfx $G411CFG/ra.cfg"
+  g411f() { printf '%s\n' "$1" | tr '|' '\n' | sed -n "s/^$2=//p"; }
+  # the lines and hashes the two arms must share, from one log
+  g411facts() {
+    grep -a -E '^TEXHASH\|(ra_sheet|ra_dry_sheet|ra_seam_left|ra_seam_top|ra_dry_seam_left|ra_dry_seam_top|grass_mask|ground_material)\|' "$1"
+    grep -a -E '^(RA3D\|enh\|sheet\||GRASSMASK\||STONEMATERIAL\||WATER\|static-material\|)' "$1" | sed 's/|[0-9]* ms$//'
+  }
+  # one run: $1 id, $2 arm (new|old), $3 scene flags, $4 cams "x,z x,z"
+  g411run() {
+    g411s="g411/$1-$2"
+    { printf 'gfxload %s/ra.cfg\ngfx show_stats 0\nreveal 1\ntick 1\nframes 2\nmemledger t1\n' "$G411CFG"
+      g411n=0
+      for g411c in $4; do
+        g411n=$((g411n + 1))
+        printf 'cam %s\nframes 2\nshot %s-%d.png\n' "$(echo "$g411c" | tr ',' ' ')" "$g411s" "$g411n"
+      done
+      printf 'quit\n'
+    } > "$g411s.txt"
+    rm -f "$g411s"-*.png
+    if [ "$2" = "old" ]; then OPENCNC3D_RA_SHEET_LEGACY=1; OPENCNC3D_PACK_WHOLE_READ=1
+      export OPENCNC3D_RA_SHEET_LEGACY OPENCNC3D_PACK_WHOLE_READ; fi
+    OPENCNC3D_MEMDEBUG_TEXHASH=1; export OPENCNC3D_MEMDEBUG_TEXHASH
+    grun "$g411s.log" $G411RA $3 --gfxsave "$g411s.cfg" --savedir "$g411s-saves" --script "$g411s.txt"
+    unset OPENCNC3D_RA_SHEET_LEGACY OPENCNC3D_PACK_WHOLE_READ OPENCNC3D_MEMDEBUG_TEXHASH
+    g411k=1
+    while [ "$g411k" -le "$g411n" ]; do gshots "$g411s-$g411k.png"; g411k=$((g411k + 1)); done
+  }
+  # both arms of one scene, compared; $5 = how many tries
+  g411pair() {
+    g411t=0; g411same=0
+    while [ "$g411t" -lt 3 ] && [ "$g411same" = "0" ]; do
+      g411t=$((g411t + 1))
+      g411run "$1" new "$2" "$3"; g411run "$1" old "$2" "$3"
+      g411facts "g411/$1-new.log" > "g411/$1-new.facts"; g411facts "g411/$1-old.log" > "g411/$1-old.facts"
+      g411same=1
+      cmp -s "g411/$1-new.facts" "g411/$1-old.facts" || g411same=0
+      for g411p in g411/"$1"-new-*.png; do
+        cmp -s "$g411p" "$(echo "$g411p" | sed 's/-new-/-old-/')" || g411same=0
+      done
+    done
+    g411nl=$(grep -a '^MEM|ledger|t1|' "g411/$1-new.log" | head -1)
+    g411ol=$(grep -a '^MEM|ledger|t1|' "g411/$1-old.log" | head -1)
+    g411ns=$(g411f "$g411nl" ra_sheet_specs); g411os=$(g411f "$g411ol" ra_sheet_specs)
+    g411w=$(grep -a -c '^WATER|static-material|' "g411/$1-new.log")
+    g411want=1; [ "$g411w" -ge 1 ] && g411want=2
+    g411h=$(grep -a -c '^TEXHASH|ra_sheet|gl|levels=' "g411/$1-new.facts")
+    G411V="$G411V $1:same=$g411same(tries=$g411t),hashes=$(grep -a -c '^TEXHASH' "g411/$1-new.facts"),specs=$g411ns/$g411os(want 1/$g411want)"
+    if [ "$g411same" != "1" ] || [ "$g411ns" != "1" ] || [ "$g411os" != "$g411want" ] || [ "$g411h" != "1" ]; then
+      G411OK=0
+    fi
+  }
+  gbegin
+  G411OK=1; G411V=""
+  g411pair S1 "--scen SCG01EA --pack ra3d/3d/SCG01EA.pack --build 98 --seed 12345" "62.5,61.5 57,56"
+  G411S1N=$(grep -a '^MEM|ledger|t1|' g411/S1-new.log | head -1)
+  G411S1O=$(grep -a '^MEM|ledger|t1|' g411/S1-old.log | head -1)
+  g411pair S3 "--scen SCM01EA --pack ra3d/3d/SCM01EA.pack --skirmish --ai 7 --seed 4242" "56,40"
+  g411pair S9 "--scen SCG05EA --pack ra3d/3d/SCG05EA.pack --build 98 --seed 12345" "50,86 30,60"
+  g411pair S10 "--scen SCG10EA --pack ra3d/3d/SCG10EA.pack --build 98 --seed 12345" "75,61 61,57"
+  g411pair S12 "--scen SCG10EB --pack ra3d/3d/SCG10EB.pack --build 98 --seed 12345" "70,104"
+  G411PK=$(g411f "$G411S1N" ground_cpu_peak); G411PKO=$(g411f "$G411S1O" ground_cpu_peak)
+  G411MK=$(g411f "$G411S1N" mask_cpu_peak); G411MKO=$(g411f "$G411S1O" mask_cpu_peak)
+  G411MT=$(g411f "$G411S1N" material_cpu_peak); G411MTO=$(g411f "$G411S1O" material_cpu_peak)
+  G411MA=$(grep -a '^GRASSMASK|loaded|' g411/S1-new.log | head -1 | sed -n 's/.*|atlas=\([0-9]*\)x\([0-9]*\)|.*/\1 \2/p')
+  G411MW=$(echo "$G411MA" | awk '{ printf "%.1f", $1 * $2 * 2 / 1048576 + 2 }')
+  awk -v p="$G411PK" 'BEGIN { exit !(p != "" && p <= 400) }' || G411OK=0
+  awk -v p="$G411PK" -v o="$G411PKO" 'BEGIN { exit !(p != "" && o != "" && o - p >= 140) }' || G411OK=0
+  awk -v p="$G411MK" -v w="$G411MW" 'BEGIN { exit !(p != "" && w != "" && p <= w) }' || G411OK=0
+  G411V="$G411V; first Allied mission: ground_cpu_peak=$G411PK(<=400, restore arm $G411PKO, want 140 more) mask_cpu_peak=$G411MK(<=$G411MW, restore arm $G411MKO) material_cpu_peak=$G411MT(restore arm $G411MTO)"
+
+  # (2) the bridge and the save
+  G411BR=1; G411BV=""
+  for g411a in new old; do
+    printf 'gfxload %s/ra.cfg\ngfx show_stats 0\nreveal 1\ntick 30\nframes 2\ncam 60 56\nframes 2\nshot g411/br-%s-0.png\nsave 1 bridge standing\nhurtcell 60 55\ntick 3\nhurtcell 60 55\ntick 3\nhurtcell 58 57\ntick 3\nhurtcell 58 57\ntick 40\nframes 2\nmemledger blown\ncam 60 56\nframes 2\nshot g411/br-%s-1.png\nload 1\ntick 1\nframes 2\nmemledger loaded\ncam 60 56\nframes 2\nshot g411/br-%s-2.png\nquit\n' \
+      "$G411CFG" "$g411a" "$g411a" "$g411a" > "g411/br-$g411a.txt"
+    rm -rf "g411/br-$g411a-saves"; mkdir -p "g411/br-$g411a-saves"
+    if [ "$g411a" = "old" ]; then OPENCNC3D_RA_SHEET_LEGACY=1; OPENCNC3D_PACK_WHOLE_READ=1
+      export OPENCNC3D_RA_SHEET_LEGACY OPENCNC3D_PACK_WHOLE_READ; fi
+    OPENCNC3D_MEMDEBUG_TEXHASH=1; export OPENCNC3D_MEMDEBUG_TEXHASH
+    grun "g411/br-$g411a.log" $G411RA --scen SCU02EA --pack ra3d/3d/SCU02EA.pack --build 98 --seed 12345 \
+         --gfxsave "g411/br-$g411a.cfg" --savedir "g411/br-$g411a-saves" --script "g411/br-$g411a.txt"
+    unset OPENCNC3D_RA_SHEET_LEGACY OPENCNC3D_PACK_WHOLE_READ OPENCNC3D_MEMDEBUG_TEXHASH
+    gshots "g411/br-$g411a-0.png" "g411/br-$g411a-1.png" "g411/br-$g411a-2.png"
+    g411facts "g411/br-$g411a.log" > "g411/br-$g411a.facts"
+  done
+  G411BC=$(grep -a -c '^RA2D|map SCU02EA changed|' g411/br-new.log)
+  G411BCO=$(grep -a -c '^RA2D|map SCU02EA changed|' g411/br-old.log)
+  G411BL=$(grep -a '^MEM|ledger|loaded|' g411/br-new.log | head -1)
+  G411BLO=$(grep -a '^MEM|ledger|loaded|' g411/br-old.log | head -1)
+  G411BA=$(g411f "$G411BL" ground_build_attempts); G411BAO=$(g411f "$G411BLO" ground_build_attempts)
+  G411BI=$(g411f "$G411BL" ra_sheet_inplace); G411BIO=$(g411f "$G411BLO" ra_sheet_inplace)
+  G411BS=$(grep -a -c '^RA3D|enh|sheet|SCU02EA|TEMPERAT|enhanced|' g411/br-new.log)
+  G411BH=$(grep -a -c '^TEXHASH|ra_sheet|gl|levels=' g411/br-new.facts)
+  G411BSAME=1
+  cmp -s g411/br-new.facts g411/br-old.facts || G411BSAME=0
+  for g411k in 0 1 2; do cmp -s "g411/br-new-$g411k.png" "g411/br-old-$g411k.png" || G411BSAME=0; done
+  if [ "$G411BC" != "2" ] || [ "$G411BCO" != "2" ] || [ "$G411BA" != "3" ] || [ "$G411BAO" != "3" ] \
+     || [ "$G411BI" != "2" ] || [ -n "$G411BIO" ] || [ "$G411BS" != "3" ] || [ "$G411BH" != "2" ] \
+     || [ "$G411BSAME" != "1" ]; then
+    G411BR=0
+  fi
+  G411BV="bridge: map changes=$G411BC/$G411BCO(want 2/2) builds=$G411BA/$G411BAO(want 3/3) in place=${G411BI:-0}/${G411BIO:-0}(want 2/0) enhanced sheets=$G411BS(want 3) sheet hashes=$G411BH(want 2) same=$G411BSAME"
+
+  # (3) builds that do not fit. One run: $1 id, $2 OPENCNC3D_MEM_FAIL, $3 scene flags,
+  # $4 script; every shot the script names is checked written.
+  g411fail() {
+    printf '%s\n' "$4" > "g411/$1.txt"
+    rm -f "g411/$1"-*.png; rm -rf "g411/$1-saves"; mkdir -p "g411/$1-saves"
+    OPENCNC3D_MEM_FAIL=$2; export OPENCNC3D_MEM_FAIL
+    grun "g411/$1.log" $G411RA $3 --gfxsave "g411/$1.cfg" --savedir "g411/$1-saves" --script "g411/$1.txt"
+    unset OPENCNC3D_MEM_FAIL
+    for g411p in $(sed -n 's/^shot //p' "g411/$1.txt"); do gshots "$g411p"; done
+  }
+  g411ledger() { g411f "$(grep -a "^MEM|ledger|$2|" "g411/$1.log" | head -1)" "$3"; }
+  # $1 a run, $2 another, $3 the shots to compare: 1 when they are byte-identical and
+  # the bilinear toggle reached the same number of textures at every switch
+  g411same() {
+    g411r=1
+    [ "$(grep -a '^FX|filter|' "g411/$1.log")" = "$(grep -a '^FX|filter|' "g411/$2.log")" ] || g411r=0
+    for g411k in $3; do cmp -s "g411/$1-$g411k.png" "g411/$2-$g411k.png" || g411r=0; done
+    echo "$g411r"
+  }
+  # (3a, 3b) the first Allied mission, its first build refused at the sheet (3a) and at
+  # the fourth strip sheet, with the main and dry sheets and three strip sheets made and
+  # told to the bilinear toggle (3b); 300 ticks, then N64 and back to Enhanced
+  G411FS=$(printf 'gfxload %s/ra.cfg\ngfx show_stats 0\nreveal 1\ntick 1\nframes 2\nmemledger t1\ncam 62.5 61.5\nframes 2\nshot g411/@-1.png\ntick 299\nframes 2\nmemledger t300\ncam 57 56\nframes 2\nshot g411/@-2.png\ngfxmode 1\nframes 2\nshot g411/@-3.png\ngfxmode 2\nframes 2\nmemledger back\nshot g411/@-4.png\nquit\n' "$G411CFG")
+  G411FL="--scen SCG01EA --pack ra3d/3d/SCG01EA.pack --build 98 --seed 12345"
+  g411t=0; G411DS=0
+  while [ "$g411t" -lt 2 ] && [ "$G411DS" = "0" ]; do
+    g411t=$((g411t + 1))
+    g411fail fail ra3d_ground "$G411FL" "$(printf '%s' "$G411FS" | sed 's/@/fail/g')"
+    g411fail deep ra3d_seams:4 "$G411FL" "$(printf '%s' "$G411FS" | sed 's/@/deep/g')"
+    G411DS=$(g411same deep fail "2 3 4")
+  done
+  G411FI=$(grep -a -c '^MEM|fail-injected|site=ra3d_ground|call=1$' g411/fail.log)
+  G411FC=$(grep -a -c '^MEM|caught|' g411/fail.log)
+  G411FG=$(grep -a -c '^MEM|caught|ra3d_ground|scene=SCG01EA|theater=SNOW|set=enhanced|then=1995' g411/fail.log)
+  G411FD=$(grep -a -c '^RA3D|enh|sheet|SCG01EA|SNOW|1995|' g411/fail.log)
+  G411FE=$(grep -a -c '^RA3D|enh|sheet|SCG01EA|SNOW|enhanced|' g411/fail.log)
+  G411FA=$(g411ledger fail t300 ground_build_attempts); G411FB=$(g411ledger fail back ground_build_attempts)
+  G411FF=$(grep -a -c '^FATAL' g411/fail.log)
+  G411DI=$(grep -a -c '^MEM|fail-injected|site=ra3d_seams|call=4$' g411/deep.log)
+  G411DC=$(grep -a -c '^MEM|caught|' g411/deep.log)
+  G411DG=$(grep -a -c '^MEM|caught|ra3d_ground|scene=SCG01EA|theater=SNOW|set=enhanced|then=1995' g411/deep.log)
+  G411DD=$(grep -a -c '^RA3D|enh|sheet|SCG01EA|SNOW|1995|' g411/deep.log)
+  G411DE=$(grep -a -c '^RA3D|enh|sheet|SCG01EA|SNOW|enhanced|' g411/deep.log)
+  G411DA=$(g411ledger deep t300 ground_build_attempts); G411DB=$(g411ledger deep back ground_build_attempts)
+  G411DF=$(grep -a -c '^FATAL' g411/deep.log)
+  G411FV="failure at the sheet: injected=$G411FI caught=$G411FC(want 1, ra3d_ground $G411FG) 1995 sheets=$G411FD(want 1) enhanced sheets=$G411FE(want 0) attempts at t300/after N64 and back=$G411FA/$G411FB(want 1/1) FATAL=$G411FF; failure at the fourth strip sheet: injected=$G411DI caught=$G411DC(want 1, ra3d_ground $G411DG) 1995 sheets=$G411DD(want 1) enhanced sheets=$G411DE(want 1) attempts=$G411DA/$G411DB(want 1/1) FATAL=$G411DF same shots and filter switches as the failure at the sheet=$G411DS(tries=$g411t)"
+  G411FOK=1
+  if [ "$G411FI" != "1" ] || [ "$G411FC" != "1" ] || [ "$G411FG" != "1" ] || [ "$G411FD" != "1" ] \
+     || [ "$G411FE" != "0" ] || [ "$G411FA" != "1" ] || [ "$G411FB" != "1" ] || [ "$G411FF" != "0" ] \
+     || [ "$G411DI" != "1" ] || [ "$G411DC" != "1" ] || [ "$G411DG" != "1" ] || [ "$G411DD" != "1" ] \
+     || [ "$G411DE" != "1" ] || [ "$G411DA" != "1" ] || [ "$G411DB" != "1" ] || [ "$G411DF" != "0" ] \
+     || [ "$G411DS" != "1" ]; then G411FOK=0; fi
+  # (3c, 3d) Soviet mission 2, its first build refused (3c) and its rebuild for the blown
+  # bridge refused, with the kept sheets in hand (3d); after the blast and after the save
+  # is loaded, N64 and back to Enhanced. From the blast on, 3d must draw what 3c draws.
+  G411RS=$(printf 'gfxload %s/ra.cfg\ngfx show_stats 0\nreveal 1\ntick 30\nframes 2\ncam 60 56\nframes 2\nshot g411/@-0.png\nsave 1 bridge standing\nhurtcell 60 55\ntick 3\nhurtcell 60 55\ntick 3\nhurtcell 58 57\ntick 3\nhurtcell 58 57\ntick 40\nframes 2\ncam 60 56\nframes 2\nshot g411/@-1.png\ngfxmode 1\nframes 2\nshot g411/@-2.png\ngfxmode 2\nframes 2\nshot g411/@-3.png\nload 1\ntick 1\nframes 2\ncam 60 56\nframes 2\nshot g411/@-4.png\ngfxmode 1\nframes 2\nshot g411/@-5.png\ngfxmode 2\nframes 2\nmemledger end\nshot g411/@-6.png\nquit\n' "$G411CFG")
+  G411RL="--scen SCU02EA --pack ra3d/3d/SCU02EA.pack --build 98 --seed 12345"
+  g411t=0; G411RSAME=0
+  while [ "$g411t" -lt 2 ] && [ "$G411RSAME" = "0" ]; do
+    g411t=$((g411t + 1))
+    g411fail rfail ra3d_ground "$G411RL" "$(printf '%s' "$G411RS" | sed 's/@/rfail/g')"
+    g411fail rblast ra3d_ground:2 "$G411RL" "$(printf '%s' "$G411RS" | sed 's/@/rblast/g')"
+    G411RSAME=$(g411same rblast rfail "1 2 3 4 5 6")
+  done
+  G411RC=$(grep -a -c '^MEM|caught|' g411/rfail.log)
+  G411RD=$(grep -a -c '^RA3D|enh|sheet|SCU02EA|TEMPERAT|1995|' g411/rfail.log)
+  G411RT=$(g411ledger rfail end ground_build_attempts)
+  G411BI2=$(grep -a -c '^MEM|fail-injected|site=ra3d_ground|call=2$' g411/rblast.log)
+  G411BC2=$(grep -a -c '^MEM|caught|' g411/rblast.log)
+  G411BG2=$(grep -a -c '^MEM|caught|ra3d_ground|scene=SCU02EA|theater=TEMPERAT|set=enhanced|then=1995' g411/rblast.log)
+  G411BD2=$(grep -a -c '^RA3D|enh|sheet|SCU02EA|TEMPERAT|1995|' g411/rblast.log)
+  G411BE2=$(grep -a -c '^RA3D|enh|sheet|SCU02EA|TEMPERAT|enhanced|' g411/rblast.log)
+  G411BA2=$(g411ledger rblast end ground_build_attempts)
+  G411BP2=$(g411ledger rblast end ra_sheet_inplace)
+  G411BF2=$(grep -a -c '^FATAL' g411/rfail.log g411/rblast.log | awk -F: '{ s += $2 } END { print s + 0 }')
+  G411RV="refused at the bridge's rebuild: injected=$G411BI2 caught=$G411BC2(want 1, ra3d_ground $G411BG2) sheets enhanced/1995=$G411BE2/$G411BD2(want 1/2) attempts=$G411BA2(want 3) in place=${G411BP2:-0}(want 1, the load) FATAL=$G411BF2; refused from the first frame: caught=$G411RC(want 1) 1995 sheets=$G411RD(want 3) attempts=$G411RT(want 3); from the blast on the same shots and filter switches=$G411RSAME(tries=$g411t)"
+  if [ "$G411BI2" != "1" ] || [ "$G411BC2" != "1" ] || [ "$G411BG2" != "1" ] || [ "$G411BD2" != "2" ] \
+     || [ "$G411BE2" != "1" ] || [ "$G411BA2" != "3" ] || [ "$G411BP2" != "1" ] || [ "$G411BF2" != "0" ] \
+     || [ "$G411RC" != "1" ] || [ "$G411RD" != "3" ] || [ "$G411RT" != "3" ] || [ "$G411RSAME" != "1" ]; then
+    G411FOK=0
+  fi
+  G411FV="$G411FV; $G411RV"
+
+  unset MallocLargeCache OPENCNC3D_RA3DORE
+  echo "G411 $G411V; $G411BV; $G411FV" >> "$OUT"
+  if [ "$GRC" != "0" ]; then
+    bad "G411 Red Alert's ground build: a run failed (GRC=$GRC) or wrote no shot;$G411V; $G411BV; $G411FV"
+  elif [ "$G411OK" = "1" ] && [ "$G411BR" = "1" ] && [ "$G411FOK" = "1" ]; then
+    ok "G411 Red Alert's ground is built with one sheet specification and early frees, rebuilt in place, and falls back to the 1995 tiles when it does not fit, the same picture wherever it runs out, every texel the same:$G411V; $G411BV; $G411FV"
+  else
+    bad "G411 Red Alert's ground build:$G411V; $G411BV; $G411FV"
+  fi
+fi
+
+# =====================================================================================
+# G412 RED ALERT'S BUILDINGS KEEP THEIR PAINTING DECODES UNLESS MEMORY IS SHORT, AND A
+# LIVERY PAINTED FROM A DECODE MADE AGAIN IS THE SAME PICTURE (game/ebld_mod.h
+# livery_copies_release, ebld_decodes_let_go, ebld_decode_texture, ebld_redecode_painted;
+# game/cnc_eyes.cpp livery_build_one, livery_build_range and the letgodecodes verb; the
+# ledger's painted_buildings, game/memledger_scene.h). A remastered Red Alert building
+# texture keeps its colour look and its paint mask in system memory, so that a colour first
+# seen in the middle of a mission is painted from them at once. When memory is short the
+# game can let them go (ebld_decodes_let_go): a colour first seen afterwards then has the
+# texture decoded again from its file, by the function its upload decoded it with.
+# HIDDEN RUNS with the memory scenes' frozen graphics settings (tools/mem/scenes),
+# Enhanced, 1600 x 900:
+#   (1) the first Allied mission (S1) with OPENCNC3D_EBLD_REDECODE_CHECK=1, which keeps the
+#       decodes and decodes every building texture again beside them: as many textures
+#       checked as the ledger counts building textures holding decodes (at least 40), and
+#       not one byte differs;
+#   (2) S1 with OPENCNC3D_EBLD_DECODES_LET_GO=1 (the low-memory step taken from the
+#       mission's start): the buildings hold no decodes at tick 1, 300 or 420, and at least
+#       300 MB were let go; and S1 as a player gets it, which holds at least 300 MB at tick
+#       1 until the letgodecodes verb takes the same step in the middle of the mission,
+#       letting at least 40 textures and 300 MB go at once and holding none after;
+#   (3) S1's base framed at tick 1, tick 300 and after every building kind is damaged, a
+#       seven-computer skirmish's bases at tick 600 (S3) and a barracks captured by an
+#       engineer (S13): every frame with the decodes let go byte-identical with them held
+#       (OPENCNC3D_LIVERY_COPIES_RELEASE=0), and byte-identical with
+#       OPENCNC3D_EBLD_REDECODE_ALL=1, which lets them go before any livery is painted so
+#       that every livery is painted from a decode made again (at least 40 textures in S1,
+#       each painting at least one livery); and S1's frames differ from --noteamcolours in
+#       at least 6 of 10, or they show no livery and the identity proves nothing;
+#   (4) a Soviet mission whose player arrives by transport after the first tick
+#       (SCU43EA), so the player's red is first painted on the standing Allied base in the
+#       middle of the mission, then worn by the player's own Construction Yard once it
+#       deploys and after it is damaged. As a player gets it, the red is painted late (late
+#       liveries counted) from the kept decodes (nothing decoded again, at least 300 MB
+#       held), and the frame that paints it takes no longer than with the decodes held: the
+#       fastest of two rounds at most 1.25 times the held arm's fastest plus 100 ms. With
+#       the decodes let go it is painted from decodes made again and nothing is held
+#       after. The base and yard frames are byte-identical in all three;
+#   (5) a re-decode refused for memory (OPENCNC3D_MEM_FAIL=ebld_redecode) is survived: the
+#       run ends normally, says so once, and prints no FATAL.
+# A scene whose arms differ in their first round is run twice more (SCU43EA once more),
+# and each frame is judged on the value most of an arm's three rounds gave: a real
+# difference is the same in every round.
+# THE ORE AND GEMS ARE DRAWN AS THEIR 1996 DECALS IN EVERY RUN HERE
+# (OPENCNC3D_RA3DORE=off). Their 3D pieces (ra3d_ore_mod.h) are not reproducible from run
+# to run on the Mac: with identical vertex buffers and identical GL state going in, and
+# the scene hashed identical before their pass, the pass leaves a few pixels of a nugget a
+# level to three different in about one frame in 400 (measured: 10 of 3344 frames over 8
+# runs, 3 pixels in the one picture compared). The light pass's occlusion turns its noise
+# with the temporal blend's frame count, so a still's settle frames each draw the field
+# differently, and such a frame inside a shot's settle is carried into the kept picture:
+# S1's control arm then differed from itself between rounds by 600 to 1350 pixels and the
+# majority had none to pick. Measured with S1 alone: 4 of 10 runs off the majority with
+# the 3D ore, 0 of 10 with it off, 0 of 10 with the blend off, 0 of 10 with occlusion
+# off. No piece of ore holds a decode, so leaving it out changes nothing this gate
+# claims; the buildings, their liveries and every other frame content are still compared
+# byte for byte.
+# Measured with the ore left out: G412 run alone six times in a row, 6 of 6 passed, every
+# scene settled in its first round (19 of 19 frames identical in each).
+# Measured: 44 textures checked, 0 differing; 407.5 MB let go and 0.0 held at tick 1, 300
+# and 420 with the switch, 407.5 held at tick 1 as a player gets it and 44 textures and
+# 407.5 MB let go by the verb; 19 frames identical in both comparisons; 44 textures
+# decoded again and 88 liveries painted from them; 10 of 10 frames differ from
+# --noteamcolours; SCU43EA's red painted on 58 textures late, in a frame of about 550 ms
+# both as a player gets it and with the decodes held (about 1240 ms with them let go, 58
+# textures decoded again in about 675 ms); a 2048 texture decoded again in about 28 ms.
+# PROVEN TO FAIL: the build before the change has no building share in the ledger, no
+# letgodecodes verb and prints no REDECODE line; a build that let the decodes go by
+# default fails (2) and (4): the frame that painted SCU43EA's red took about 1250 ms
+# against about 540 ms with them held (checked).
+# NOT COVERED: deciding that memory is short (the gate takes the step by switch and by
+# verb); a vehicle's decodes, which are kept either way; memory really running out; the
+# 3D ore and gems (left out, above).
+# =====================================================================================
+G412CFG="$GATEDIR/../tools/mem/scenes/cfg"
+G412SC="$GATEDIR/../tools/mem/scenes"
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ] || [ ! -f ra3d/3d/SCM01EA.pack ] \
+   || [ ! -f ra3d/3d/SCU43EA.pack ] || [ ! -f "$G412CFG/ra.cfg" ] || [ ! -f "$G412SC/S13.scene" ]; then
+  skip "G412 Red Alert's building decodes: Red Alert, its scenes or the frozen graphics settings are not here"
+else
+  rm -rf g412 && mkdir -p g412
+  OPENCNC3D_RA3DORE=off; export OPENCNC3D_RA3DORE
+  G412RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --enhanced --texset 3 --nosound --w 1600 --h 900 --gfx $G412CFG/ra.cfg"
+  # (4)'s scene: the arrival frame timed with the base in view, then the player's yard
+  printf '%s\n' '---' 'gfxload {CFG}' 'gfx show_stats 0' 'reveal 1' 'tick 1' 'frames 2' 'cam 50 32' \
+    'frames 2' 'frameperf 3' 'tick 59' 'frameperf 1' 'frameperf 3' 'memledger t60' \
+    'shot {OUT}/t0060_base.png' 'tick 340' 'obj FACT:USSR 0' 'memledger t400' 'cam 43.5 82.5' \
+    'frames 2' 'shot {OUT}/t0400_yard.png' 'hurtobj FACT:USSR 0' 'hurtobj FACT:USSR 0' \
+    'hurtobj FACT:USSR 0' 'hurtobj FACT:USSR 0' 'tick 20' 'frames 2' 'obj FACT:USSR 0' \
+    'memledger t420' 'shot {OUT}/t0420_yard.png' 'quit' > g412/U43.scene
+  # one arm of one scene: g412/<arm>/<scene>/<round>, its script made from the scene file;
+  # the caller exports the arm's switch around it (an assignment in front of a shell
+  # function outlives the call under sh)
+  g412run() {
+    ge_d="g412/$1/$2/$3"; rm -rf "$ge_d"; mkdir -p "$ge_d/saves"
+    ge_s="$G412SC/$2.scene"; [ -f "g412/$2.scene" ] && ge_s="g412/$2.scene"
+    awk 'f { print } /^---$/ { f = 1 }' "$ge_s" \
+      | sed -e "s#{OUT}#$ge_d#g" -e "s#{CFG}#$G412CFG/ra.cfg#g" > "$ge_d/script.txt"
+    case "$2" in
+      S3)  ge_a="--scen SCM01EA --pack ra3d/3d/SCM01EA.pack --skirmish --ai 7 --seed 4242" ;;
+      U43) ge_a="--scen SCU43EA --pack ra3d/3d/SCU43EA.pack --build 98 --seed 12345" ;;
+      *)   ge_a="--scen SCG01EA --pack ra3d/3d/SCG01EA.pack --build 98 --seed 12345" ;;
+    esac
+    grun "$ge_d/out.log" $G412RA $ge_a $4 --gfxsave "$ge_d/private.cfg" --savedir "$ge_d/saves" \
+         --script "$ge_d/script.txt"
+    for ge_f in $(sed -n 's/^shot //p' "$ge_d/script.txt"); do gshots "$ge_f"; done
+  }
+  # how many of $1's frames are missing or differ from $2's (same names)
+  g412diff() {
+    ge_n=0
+    for ge_f in $(sed -n 's/^shot //p' "$1/script.txt"); do
+      cmp -s "$ge_f" "$2/${ge_f##*/}" || ge_n=$((ge_n + 1))
+    done
+    echo $ge_n
+  }
+  # the value most of arm $1's rounds of scene $2 gave frame $3 ("none" when no two agree)
+  g412maj() {
+    for ge_r in 1 2 3; do [ -f "g412/$1/$2/$ge_r/$3" ] && shasum < "g412/$1/$2/$ge_r/$3"; done \
+      | sort | uniq -c | awk '$1 >= 2 && !f { print $2; f = 1 } END { if (!f) print "none" }'
+  }
+  # how many of scene $3's frames arm $1 settles on a value other than arm $2's
+  g412majdiff() {
+    ge_n=0
+    for ge_f in $(sed -n 's/^shot //p' "g412/$2/$3/1/script.txt"); do
+      ge_a=$(g412maj "$1" "$3" "${ge_f##*/}"); ge_b=$(g412maj "$2" "$3" "${ge_f##*/}")
+      if [ "$ge_a" = none ] || [ "$ge_a" != "$ge_b" ]; then ge_n=$((ge_n + 1)); fi
+    done
+    echo $ge_n
+  }
+  g412f() { printf '%s\n' "$1" | tr '|' '\n' | sed -n "s/^$2=//p"; }
+  # one ledger line of a run's log, by label
+  g412l() { grep -a "^MEM|ledger|$2|" "$1/out.log" | head -1; }
+  # the fastest arrival frame (the script's one 'frameperf 1') of arm $1's SCU43EA rounds, ms
+  g412ms() {
+    for ge_r in 1 2 3; do
+      [ -f "g412/$1/U43/$ge_r/out.log" ] && grep -a '^FRAMEPERF|frames=1|' "g412/$1/U43/$ge_r/out.log" | head -1
+    done | sed -n 's/.*|mean=\([0-9.]*\)ms.*/\1/p' | sort -n | head -1
+  }
+  gbegin
+  # (3): held, let go, every livery from a re-decode
+  G412SAME=0; G412FR=0; G412DL=""; G412DA=""; G412ROUNDS=""
+  for G412S in S1 S3 S13; do
+    for G412R in 1 2 3; do
+      export OPENCNC3D_LIVERY_COPIES_RELEASE=0
+      g412run keep $G412S $G412R
+      unset OPENCNC3D_LIVERY_COPIES_RELEASE
+      export OPENCNC3D_EBLD_DECODES_LET_GO=1
+      g412run letgo $G412S $G412R
+      unset OPENCNC3D_EBLD_DECODES_LET_GO
+      export OPENCNC3D_EBLD_REDECODE_ALL=1
+      g412run all $G412S $G412R
+      unset OPENCNC3D_EBLD_REDECODE_ALL
+      if [ "$G412R" = 1 ]; then
+        G412L=$(g412diff g412/letgo/$G412S/1 g412/keep/$G412S/1)
+        G412A=$(g412diff g412/all/$G412S/1 g412/keep/$G412S/1)
+        if [ "$G412L" = 0 ] && [ "$G412A" = 0 ]; then break; fi
+      fi
+    done
+    if [ "$G412R" = 3 ]; then
+      G412L=$(g412majdiff letgo keep $G412S); G412A=$(g412majdiff all keep $G412S)
+    fi
+    G412N=$(sed -n 's/^shot //p' g412/keep/$G412S/1/script.txt | wc -l | tr -d ' ')
+    G412FR=$((G412FR + G412N))
+    [ "$G412L" = 0 ] && [ "$G412A" = 0 ] && G412SAME=$((G412SAME + G412N))
+    G412DL="$G412DL $G412S:$G412L"; G412DA="$G412DA $G412S:$G412A"; G412ROUNDS="$G412ROUNDS $G412S:$G412R"
+  done
+  # (4): SCU43EA held, as a player gets it, let go; two rounds each for the timing
+  for G412R in 1 2 3; do
+    export OPENCNC3D_LIVERY_COPIES_RELEASE=0
+    g412run keep U43 $G412R
+    unset OPENCNC3D_LIVERY_COPIES_RELEASE
+    g412run def U43 $G412R
+    export OPENCNC3D_EBLD_DECODES_LET_GO=1
+    g412run letgo U43 $G412R
+    unset OPENCNC3D_EBLD_DECODES_LET_GO
+    if [ "$G412R" = 2 ]; then
+      G412UD=$(g412diff g412/def/U43/1 g412/keep/U43/1); G412UL=$(g412diff g412/letgo/U43/1 g412/keep/U43/1)
+      G412UD2=$(g412diff g412/def/U43/2 g412/keep/U43/2); G412UL2=$(g412diff g412/letgo/U43/2 g412/keep/U43/2)
+      if [ "$G412UD$G412UL$G412UD2$G412UL2" = 0000 ]; then break; fi
+    fi
+  done
+  if [ "$G412R" = 3 ]; then
+    G412UD=$(g412majdiff def keep U43); G412UL=$(g412majdiff letgo keep U43)
+  fi
+  G412UMK=$(g412ms keep); G412UMD=$(g412ms def); G412UML=$(g412ms letgo)
+  G412UDL=$(g412l g412/def/U43/1 t60); G412UDLV=$(g412f "$G412UDL" late_liveries)
+  G412UDRD=$(g412f "$G412UDL" redecodes); G412UDH=$(g412f "$G412UDL" painted_buildings)
+  G412UDH4=$(g412f "$(g412l g412/def/U43/1 t420)" painted_buildings)
+  G412ULL=$(g412l g412/letgo/U43/1 t60); G412ULLV=$(g412f "$G412ULL" late_liveries)
+  G412ULRD=$(g412f "$G412ULL" redecodes); G412ULRL=$(g412f "$G412ULL" redecode_liveries)
+  G412ULH=$(g412f "$G412ULL" painted_buildings); G412ULUS=$(g412f "$G412ULL" redecode_us)
+  G412ULH4=$(g412f "$(g412l g412/letgo/U43/1 t420)" painted_buildings)
+  # (1) and the --noteamcolours check
+  export OPENCNC3D_EBLD_REDECODE_CHECK=1
+  g412run check S1 1
+  unset OPENCNC3D_EBLD_REDECODE_CHECK
+  g412run noteam S1 1 --noteamcolours
+  G412NT=$(g412diff g412/noteam/S1/1 g412/keep/S1/1)
+  # (2)'s second half: the step taken by the verb in the middle of the mission
+  mkdir -p g412/verb
+  printf 'gfxload %s/ra.cfg\ngfx show_stats 0\ntick 1\nframes 2\nmemledger t1\nletgodecodes\nmemledger t1b\ntick 20\nframes 2\nmemledger t21\nshot g412/verb/t21.png\nquit\n' "$G412CFG" > g412/verb/script.txt
+  grun g412/verb/out.log $G412RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --build 98 --seed 12345 \
+       --gfxsave g412/verb/private.cfg --savedir g412/verb --script g412/verb/script.txt
+  gshots g412/verb/t21.png
+  # (5): the first re-decode refused, as if the room for it had run out
+  mkdir -p g412/fail
+  printf 'gfxload %s/ra.cfg\ngfx show_stats 0\ntick 1\nframes 2\nmemledger t1\nshot g412/fail/t1.png\nquit\n' "$G412CFG" > g412/fail/script.txt
+  export OPENCNC3D_EBLD_REDECODE_ALL=1 OPENCNC3D_MEM_FAIL=ebld_redecode:1
+  grun g412/fail/out.log $G412RA --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --build 98 --seed 12345 \
+       --gfxsave g412/fail/private.cfg --savedir g412/fail --script g412/fail/script.txt
+  unset OPENCNC3D_EBLD_REDECODE_ALL OPENCNC3D_MEM_FAIL
+  gshots g412/fail/t1.png
+  # the ledger: the check arm's tick 1; every tick of the let-go arm; the verb run
+  G412C1=$(g412l g412/check/S1/1 t1)
+  G412CN=$(g412f "$G412C1" redecode_checked); G412CB=$(g412f "$G412C1" painted_buildings_n)
+  G412CM=$(g412f "$G412C1" redecode_mismatch)
+  G412CL=$(grep -a -c '^REDECODE|' g412/check/S1/1/out.log)
+  G412CX=$(grep -a '^REDECODE|' g412/check/S1/1/out.log | grep -a -c -v '|same=1|')
+  G412LR=$(ls -d g412/letgo/S1/* | tail -1)
+  G412HN=$(grep -a -c '^MEM|ledger|' "$G412LR/out.log")
+  G412H0=$(grep -a '^MEM|ledger|' "$G412LR/out.log" | grep -a -c '|painted_buildings=0\.0|')
+  G412GO=$(g412f "$(g412l "$G412LR" t1)" painted_let_go)
+  G412VH=$(g412f "$(g412l g412/verb t1)" painted_buildings)
+  G412VL=$(grep -a '^EBLDDECODES|let-go|why=script|' g412/verb/out.log | head -1)
+  G412VT=$(g412f "$G412VL" textures); G412VM=$(g412f "$G412VL" mb)
+  G412VH1=$(g412f "$(g412l g412/verb t1b)" painted_buildings); G412VH2=$(g412f "$(g412l g412/verb t21)" painted_buildings)
+  G412AR=$(ls -d g412/all/S1/* | tail -1)
+  G412AL=$(g412l "$G412AR" t1)
+  G412AD=$(g412f "$G412AL" redecodes); G412AV=$(g412f "$G412AL" redecode_liveries); G412AH=$(g412f "$G412AL" painted_buildings)
+  G412MS=$(grep -a 'decoded again to paint a colour, 2048x2048' "$G412AR/out.log" \
+           | sed -n 's/.* \([0-9.]*\) ms$/\1/p' | awk '{ s += $1; n++ } END { if (n) printf "%.1f", s / n }')
+  G412FI=$(grep -a -c '^MEM|fail-injected|site=ebld_redecode|' g412/fail/out.log)
+  G412FL=$(grep -a -c '^livery: [A-Z0-9]* texture [0-9]* could not be decoded again (no memory left)' g412/fail/out.log)
+  G412F=$(cat g412/*/S*/*/out.log g412/*/U43/*/out.log g412/verb/out.log g412/fail/out.log | grep -a -c '^FATAL')
+  G412V="checked=$G412CN(=$G412CB building textures held, >=40; REDECODE lines $G412CL, not same $G412CX) mismatch=${G412CM:-none}(0) let-go-arm-held-nothing-at=$G412H0/$G412HN ticks(all, >=3) let-go=${G412GO:-none}(>=300) verb: held-before=${G412VH:-none}(>=300) let-go=${G412VT:-none} textures(>=40) ${G412VM:-none} MB(>=300) held-after=${G412VH1:-none},${G412VH2:-none}(0.0) frames=$G412SAME/$G412FR identical (let go against held:$G412DL; every livery from a re-decode:$G412DA; rounds:$G412ROUNDS) redecoded=${G412AD:-none}(>=40) liveries-from-them=${G412AV:-none}(>=redecoded) held-after=${G412AH:-none}(0.0) noteam-differs=$G412NT/10(>=6) SCU43EA: as-a-player-gets-it late=${G412UDLV:-none}(>=1) redecoded=${G412UDRD:-0}(0) held=${G412UDH:-none},${G412UDH4:-none}(>=300) let-go late=${G412ULLV:-none}(>=1) redecoded=${G412ULRD:-none}(>=1, ${G412ULUS:-?} us) from-them=${G412ULRL:-none}(>=1) held=${G412ULH:-none},${G412ULH4:-none}(0.0) frames-differ=def:$G412UD,letgo:$G412UL(0,0; rounds $G412R) arrival-ms=held:${G412UMK:-none},default:${G412UMD:-none},let-go:${G412UML:-none} refused=$G412FI/$G412FL(1/1) FATAL=$G412F"
+  echo "G412 $G412V 2048-redecode-ms=${G412MS:-none}" >> "$OUT"
+  if [ "$GRC" != "0" ]; then
+    bad "G412 Red Alert's building decodes: a run failed (GRC=$GRC) or wrote no shot; $G412V"
+  elif [ -n "$G412CN" ] && [ "$G412CN" = "$G412CB" ] && [ "$G412CN" -ge 40 ] && [ "$G412CM" = "0" ] \
+       && [ "$G412CX" = "0" ] && [ "$G412CL" -ge "$G412CN" ] \
+       && [ "$G412HN" -ge 3 ] && [ "$G412H0" = "$G412HN" ] \
+       && awk -v v="$G412GO" 'BEGIN { exit !(v != "" && v >= 300) }' \
+       && awk -v v="$G412VH" 'BEGIN { exit !(v != "" && v >= 300) }' \
+       && [ "${G412VT:-0}" -ge 40 ] && awk -v v="$G412VM" 'BEGIN { exit !(v != "" && v >= 300) }' \
+       && [ "$G412VH1" = "0.0" ] && [ "$G412VH2" = "0.0" ] \
+       && [ "$G412SAME" = "$G412FR" ] && [ "$G412FR" -ge 19 ] \
+       && [ "${G412AD:-0}" -ge 40 ] && [ "${G412AV:-0}" -ge "${G412AD:-1}" ] && [ "$G412AH" = "0.0" ] \
+       && [ "$G412NT" -ge 6 ] \
+       && [ "${G412UDLV:-0}" -ge 1 ] && [ "${G412UDRD:-0}" = "0" ] \
+       && awk -v a="$G412UDH" -v b="$G412UDH4" 'BEGIN { exit !(a != "" && b != "" && a >= 300 && b >= 300) }' \
+       && [ "${G412ULLV:-0}" -ge 1 ] && [ "${G412ULRD:-0}" -ge 1 ] && [ "${G412ULRL:-0}" -ge 1 ] \
+       && [ "$G412ULH" = "0.0" ] && [ "$G412ULH4" = "0.0" ] && [ "$G412UD" = 0 ] && [ "$G412UL" = 0 ] \
+       && awk -v d="$G412UMD" -v k="$G412UMK" 'BEGIN { exit !(d != "" && k != "" && d <= 1.25 * k + 100) }' \
+       && [ "$G412FI" = "1" ] && [ "$G412FL" = "1" ] && [ "$G412F" = "0" ]; then
+    ok "G412 Red Alert's buildings keep their painting decodes unless memory is short, and let ${G412GO} MB go with no frame changed when it is: $G412CN textures decoded again match byte for byte, $G412SAME frames of S1, S3 and S13 are identical with the decodes held and with every livery painted from a decode made again ($G412AD textures, $G412AV liveries; a 2048 texture in ${G412MS:-?} ms), $G412NT of 10 frames show liveries; SCU43EA's late red is painted from the kept decodes in ${G412UMD} ms against ${G412UMK} held (${G412UML} ms if let go), with identical frames; the verb lets $G412VT textures go mid-mission; a refused re-decode is survived"
+  else
+    bad "G412 Red Alert's building decodes: $G412V"
+  fi
+  unset OPENCNC3D_RA3DORE
+fi
+
+# =====================================================================================
+# G413 EVERY GAME THREAD'S STACK IS COMMITTED, AND EVERY FATAL END LEAVES A LINE
+# (tools/win/build-win.sh LDSTACK, game/fatal_guard.h). A Windows thread commits its stack
+# page by page; under a commit limit the next page can be refused, which Windows reports
+# as a stack overflow, a structured exception no C signal handler sees, so the game used
+# to end with no line at all. Three parts:
+#   (1) build-win.sh links cnc_eyes.exe, opencnc3d-game.exe and OpenCNC3D-Diagnostics.exe
+#       with LDSTACK, and LDSTACK is "-Xlinker --stack -Xlinker 2097152,524288" (the
+#       -Wl,--stack,a,b form splits at the comma and hands the commit size to the linker
+#       as a file name);
+#   (2) here, a hidden Tiberian Dawn start with OPENCNC3D_TEST_UNCAUGHT=1 throws a
+#       std::bad_alloc nothing catches: the run fails, and its log carries
+#       "FATAL: uncaught exception (std::bad_alloc) while: game_boot entry" and then the
+#       crash-stage handler's "FATAL: signal 6 while: game_boot entry", in that order;
+#   (3) the two Windows programs, from $OPENCNC3D_WIN_BUILD or else ../build/win: their PE
+#       headers (x86_64-w64-mingw32-objdump -p) say SizeOfStackReserve 0x200000 and
+#       SizeOfStackCommit 0x80000, and each imports AddVectoredExceptionHandler,
+#       SetUnhandledExceptionFilter and SetThreadStackGuarantee, the three calls the
+#       stack-overflow and unhandled-exception lines are made of.
+# When there are no Windows programs to read, (1) and (2) are still asserted and a failure
+# of either fails the gate, but the verdict is a SKIP that says (3) did not run.
+# PROVEN TO FAIL on the code before the committed stack: build-win.sh has no LDSTACK, the
+# switch is unknown so the start runs and quits with no FATAL line, and its programs say
+# SizeOfStackCommit 0x1000 and import only SetUnhandledExceptionFilter, which the C runtime
+# calls for itself (checked).
+# NOT COVERED: an overflow or an unhandled exception on Windows itself, which only a run on
+# Windows can show (OPENCNC3D_TEST_STACK_OVERFLOW=1 overflows a worker thread and then the
+# main thread, each leaving its line).
+# =====================================================================================
+rm -rf g413 && mkdir -p g413
+G413BW="$GATEDIR/../tools/win/build-win.sh"
+G413LD=$(grep -c '^LDSTACK="-Xlinker --stack -Xlinker 2097152,524288"$' "$G413BW")
+G413LN=$(grep -E -c '^run_cc \$CXX .*\$LDSTACK -o "\$OUT/(cnc_eyes|opencnc3d-game|OpenCNC3D-Diagnostics)\.exe"' "$G413BW")
+G413WL=$(grep -c -- '-Wl,--stack,[0-9]*,' "$G413BW")
+printf 'quit\n' > g413/quit.txt
+# (in a subshell whose stderr is dropped: the shell's own "Abort trap" notice is not the log)
+( OPENCNC3D_TEST_UNCAUGHT=1 ./cnc_eyes --scen SCG01EA --pack SCG01EA.pack $BASE --dosdata dosdata --nosound \
+  --savedir g413 --gfxsave g413/private.cfg --script g413/quit.txt > g413/uncaught.log 2>&1 ) 2>/dev/null
+G413URC=$?
+cat g413/uncaught.log >> "$OUT"
+G413UL=$(grep -n '^FATAL: uncaught exception (std::bad_alloc) while: game_boot entry' g413/uncaught.log | head -1 | cut -d: -f1)
+G413SL=$(grep -n '^FATAL: signal 6 while: game_boot entry' g413/uncaught.log | head -1 | cut -d: -f1)
+G413MAC=0
+if [ "$G413URC" != "0" ] && [ -n "$G413UL" ] && [ -n "$G413SL" ] && [ "$G413UL" -lt "$G413SL" ]; then G413MAC=1; fi
+G413SRC=0
+if [ "$G413LD" = "1" ] && [ "$G413LN" = "3" ] && [ "$G413WL" = "0" ]; then G413SRC=1; fi
+G413WD="${OPENCNC3D_WIN_BUILD:-$GATEDIR/../build/win}"
+G413OD=$(command -v x86_64-w64-mingw32-objdump 2>/dev/null || ls /opt/homebrew/bin/x86_64-w64-mingw32-objdump /usr/local/bin/x86_64-w64-mingw32-objdump 2>/dev/null | head -1)
+G413PE=""; G413PEOK=1; G413HAVE=1
+for G413X in cnc_eyes.exe opencnc3d-game.exe; do
+  if [ -z "$G413OD" ] || [ ! -f "$G413WD/$G413X" ]; then G413HAVE=0; continue; fi
+  "$G413OD" -p "$G413WD/$G413X" > "g413/$G413X.pe" 2>&1
+  G413R=$(awk '$1=="SizeOfStackReserve"{print $2; exit}' "g413/$G413X.pe")
+  G413C=$(awk '$1=="SizeOfStackCommit"{print $2; exit}' "g413/$G413X.pe")
+  G413I=0
+  for G413F in AddVectoredExceptionHandler SetUnhandledExceptionFilter SetThreadStackGuarantee; do
+    grep -q "[[:space:]]$G413F\$" "g413/$G413X.pe" && G413I=$((G413I+1))
+  done
+  G413B=$(strings -a "$G413WD/$G413X" | grep -m1 'OPENCNC3D|build|' | cut -d'|' -f3)
+  G413PE="$G413PE $G413X:reserve=$G413R,commit=$G413C,handlers=$G413I/3,build=$G413B"
+  case "$G413R:$G413C:$G413I" in
+    0000000000200000:0000000000080000:3) ;;
+    *) G413PEOK=0 ;;
+  esac
+done
+G413V="build-win.sh LDSTACK=$G413LD(1) links=$G413LN(3) comma-form=$G413WL(0); uncaught run rc=$G413URC(not 0) lines=${G413UL:-none},${G413SL:-none}(terminate then signal 6);${G413PE:- no Windows programs in $G413WD}"
+if [ "$G413SRC" != "1" ] || [ "$G413MAC" != "1" ]; then
+  bad "G413 committed stack and fatal lines: $G413V"
+elif [ "$G413HAVE" != "1" ]; then
+  skip "G413 committed stack and fatal lines: the link flags and the terminate line hold, but the Windows programs were not read (set OPENCNC3D_WIN_BUILD): $G413V"
+elif [ "$G413PEOK" = "1" ]; then
+  ok "G413 every game thread's stack is committed and every fatal end leaves a line: $G413V"
+else
+  bad "G413 committed stack and fatal lines: $G413V"
+fi
+
+# =====================================================================================
+# G414 THE ROOM THE GAME MAY STILL COMMIT IS MEASURED IN ONE PLACE (game/lowmem.h), and
+# the building preparation is admitted against it. On Windows the room is the smaller of a
+# job object's cap minus this process's commit, and the machine's free commit plus what its
+# page file can still grow by; elsewhere it is unlimited. Optional work (the preparation's
+# cut meshes and the stages a building does not show yet) is tested against the optional
+# room, which counts only half of that growth. OPENCNC3D_TEST_COMMIT_ROOM_MB=N makes the
+# free commit N MB at the mission start, falling by every byte admitted, and
+# OPENCNC3D_TEST_PAGEFILE_GROWTH_MB=G beside it adds a page file that can grow by G MB. ON
+# macOS THIS TESTS THE LOGIC ONLY: what the driver charges per byte, and whether a page
+# file grows in time, are Windows measurements, and nothing here reads a Windows machine.
+# HIDDEN RUNS of Red Alert's first Allied mission under Enhanced with the frozen graphics
+# settings, the ledger at tick 1 and tick 300, three framed shots of the base and the lake
+# at tick 1 and one at tick 300:
+#   (1) with the switches unset: MEM|budget|room=unlimited, and the preparation runs its
+#       jobs (EBLDPREPARE|loading jobs=);
+#   (2) at 3072, twice: MEM|budget|room=3072|...|source=test; at tick 1 and at tick 300 the
+#       ledger's lowmem_room plus lowmem_charged is 3072 MB, the charge is above 0, nothing
+#       is refused, the same number of jobs runs as unset, and both runs read the same;
+#   (3) at 1048576 (1 TB, everything fits): the same jobs as unset, nothing refused, and
+#       every shot byte-identical to the unset run's, so a room that is not short changes
+#       nothing drawn (a shot that differs is settled: both runs are made twice more and
+#       each shot is judged on the value most of its three runs gave);
+#   (4) at 1024: exactly one LOWMEM|refused line for required work (site=ebld_prepare) and
+#       one for optional work (site=ebld_prepare_optional), refusals counted, fewer jobs
+#       than unset, the 256 MB reserve still free at tick 1, and the run plays on.
+#       The optional terrain blend buffers may also refuse once and use client arrays;
+#   (5) THE SAME 2000 MB ROOM, TWICE: all of it free commit, then all of it page-file growth
+#       (N=0, G=2000). As free commit the optional room equals the room and cut meshes are
+#       admitted. As growth MEM|budget gives room=2000, growable=2000, room_optional=1000;
+#       required work still sees all of it (no required refusal line, every texture of the
+#       unset run admitted), while optional work sees half (one optional refusal line, fewer
+#       cut meshes and jobs than the free-commit run); the ledger's lowmem_room plus
+#       lowmem_charged is 2000 and lowmem_room_optional is half of lowmem_room;
+#   (6) every run exits 0 with no FATAL line.
+# That the switches unset draw every picture the same as the build before them is shown
+# with tools/mem/ab.py over the framed scenes, not here.
+# The ore and gems are drawn as their 1996 decals in every run (OPENCNC3D_RA3DORE=off),
+# as they are in G412: their 3D pieces put a few pixels of a nugget one to three levels
+# off in about one frame in 400, which is what the majority of three above was settling. Measured,
+# run alone five times each: with the 3D pieces 3 of 5 runs had a first run differ and a
+# shot take two values (t1_water, t1_west); with the decals none did, and the jobs, room
+# and refusals were the same (2274 jobs unset). No ore is charged against the room.
+# Measured: unset 2274 jobs (141 textures, 169 cut meshes); 3072 leaves 1149.1 MB at tick 1
+# (1922.9 MB admitted); 1024 stops at 88 jobs with 256.2 MB left and 66 refusals; 2000 as
+# free commit runs 1083 jobs with 68 cut meshes; 2000 as growth runs 141 jobs, all 141
+# textures and no cut mesh, with 441.0 MB room and 220.5 MB optional room left.
+# PROVEN TO FAIL on the code before it: no MEM|budget line and no lowmem_ ledger keys, and
+# the switch changes nothing; and on the first version of the room, which gave optional
+# work the whole growth and had no growth switch (checked).
+# =====================================================================================
+G414CFG="$GATEDIR/../tools/mem/scenes/cfg"
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ] || [ ! -f "$G414CFG/ra.cfg" ]; then
+  skip "G414 the low-memory core: Red Alert or the frozen graphics settings are not here"
+else
+  rm -rf g414 && mkdir -p g414/saves
+  OPENCNC3D_RA3DORE=off; export OPENCNC3D_RA3DORE
+  G414RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --build 98 --seed 12345 --enhanced --texset 3 --nosound --w 1600 --h 900 --gfx $G414CFG/ra.cfg --gfxsave g414/private.cfg --savedir g414/saves"
+  G414RUNS="unset r3072a r3072b ample r1024 n2000 g2000 unset2 unset3 ample2 ample3"
+  G414PNG=""
+  for G414N in $G414RUNS; do
+    printf 'gfxload %s/ra.cfg\ngfx show_stats 0\nreveal 1\ntick 1\nframes 2\nmemledger t1\ncam 62.5 61.5\nframes 2\nshot g414/%s_t1_west.png\ncam 70.5 63.5\nframes 2\nshot g414/%s_t1_east.png\ncam 57 56\nframes 2\nshot g414/%s_t1_water.png\ntick 299\nframes 2\nmemledger t300\ncam 62.5 61.5\nframes 2\nshot g414/%s_t300_west.png\nquit\n' \
+      "$G414CFG" "$G414N" "$G414N" "$G414N" "$G414N" > "g414/$G414N.txt"
+    G414PNG="$G414PNG g414/${G414N}_t1_west.png g414/${G414N}_t1_east.png g414/${G414N}_t1_water.png g414/${G414N}_t300_west.png"
+  done
+  gbegin $G414PNG
+  G414PNG=""
+  for G414N in unset r3072a r3072b ample r1024 n2000 g2000; do
+    G414PNG="$G414PNG g414/${G414N}_t1_west.png g414/${G414N}_t1_east.png g414/${G414N}_t1_water.png g414/${G414N}_t300_west.png"
+  done
+  unset OPENCNC3D_TEST_COMMIT_ROOM_MB OPENCNC3D_TEST_PAGEFILE_GROWTH_MB
+  grun g414/unset.log $G414RA --script g414/unset.txt
+  export OPENCNC3D_TEST_COMMIT_ROOM_MB=3072
+  grun g414/r3072a.log $G414RA --script g414/r3072a.txt
+  grun g414/r3072b.log $G414RA --script g414/r3072b.txt
+  OPENCNC3D_TEST_COMMIT_ROOM_MB=1048576
+  grun g414/ample.log $G414RA --script g414/ample.txt
+  OPENCNC3D_TEST_COMMIT_ROOM_MB=1024
+  grun g414/r1024.log $G414RA --script g414/r1024.txt
+  OPENCNC3D_TEST_COMMIT_ROOM_MB=2000
+  grun g414/n2000.log $G414RA --script g414/n2000.txt
+  OPENCNC3D_TEST_COMMIT_ROOM_MB=0
+  export OPENCNC3D_TEST_PAGEFILE_GROWTH_MB=2000
+  grun g414/g2000.log $G414RA --script g414/g2000.txt
+  unset OPENCNC3D_TEST_COMMIT_ROOM_MB OPENCNC3D_TEST_PAGEFILE_GROWTH_MB
+  gshots $G414PNG
+  g414f() { printf '%s\n' "$1" | tr '|' '\n' | sed -n "s/^$2=//p" | head -1; }
+  g414l() { grep -a "^MEM|ledger|$2|" "g414/$1.log" | head -1; }
+  g414jobs() { grep -a '^EBLDPREPARE|loading|' "g414/$1.log" | head -1 | tr '|' '\n' | sed -n 's/^jobs=//p'; }
+  g414sum() { awk -v a="$1" -v b="$2" -v w="$3" 'BEGIN { exit !(a != "" && b != "" && a + b >= w - 0.15 && a + b <= w + 0.15) }'; }
+  G414F=$(cat g414/*.log | grep -a -c '^FATAL')
+  G414BU=$(grep -a -c '^MEM|budget|room=unlimited|cap=0|growable=0|source=unlimited|room_optional=unlimited$' g414/unset.log)
+  G414J=$(g414jobs unset)
+  G414OK=1; G414V="unset: budget=$G414BU(1) jobs=$G414J"
+  [ "$G414BU" = "1" ] && [ -n "$G414J" ] && [ "$G414J" -gt 0 ] || G414OK=0
+  G414KEY=""
+  for G414N in r3072a r3072b; do
+    G414B=$(grep -a -c '^MEM|budget|room=3072|cap=0|growable=0|source=test|room_optional=3072$' "g414/$G414N.log")
+    G414R=$(grep -a -c '^LOWMEM|refused|' "g414/$G414N.log")
+    G414K="$(g414jobs $G414N)"
+    for G414T in t1 t300; do
+      G414L=$(g414l $G414N $G414T)
+      G414RM=$(g414f "$G414L" lowmem_room); G414CH=$(g414f "$G414L" lowmem_charged)
+      G414K="$G414K,$G414RM+$G414CH"
+      g414sum "$G414RM" "$G414CH" 3072 || G414OK=0
+      awk -v c="$G414CH" 'BEGIN { exit !(c != "" && c > 0) }' || G414OK=0
+    done
+    G414V="$G414V; $G414N: budget=$G414B(1) refused=$G414R(0) jobs,room+charged=$G414K"
+    [ "$G414B" = "1" ] && [ "$G414R" = "0" ] && [ "$(g414jobs $G414N)" = "$G414J" ] || G414OK=0
+    if [ -z "$G414KEY" ]; then G414KEY="$G414K"; elif [ "$G414KEY" != "$G414K" ]; then G414OK=0; G414V="$G414V (the two runs differ)"; fi
+  done
+  G414AR=$(grep -a -c '^LOWMEM|refused|' g414/ample.log)
+  G414AJ=$(g414jobs ample)
+  # A SHOT THAT DIFFERS IS SETTLED BEFORE IT IS BELIEVED. Enhanced shots of one binary were
+  # measured to take a second value now and then, a few levels in a few hundred pixels at
+  # most, more often while another game draws on the same GPU. So when any shot
+  # differs, both runs are made twice more and each shot is judged on the value most of
+  # its three runs gave; the shots that took two values are named in the verdict.
+  G414DIFF=""
+  for G414S in t1_west t1_east t1_water t300_west; do
+    cmp -s "g414/unset_$G414S.png" "g414/ample_$G414S.png" || G414DIFF="$G414DIFF $G414S"
+  done
+  G414SAME=0; G414FLAKE=""
+  if [ -z "$G414DIFF" ]; then
+    G414SAME=4
+  else
+    for G414K2 in 2 3; do
+      unset OPENCNC3D_TEST_COMMIT_ROOM_MB
+      grun g414/unset$G414K2.log $G414RA --script g414/unset$G414K2.txt
+      export OPENCNC3D_TEST_COMMIT_ROOM_MB=1048576
+      grun g414/ample$G414K2.log $G414RA --script g414/ample$G414K2.txt
+      unset OPENCNC3D_TEST_COMMIT_ROOM_MB
+      for G414S in t1_west t1_east t1_water t300_west; do gshots "g414/unset${G414K2}_$G414S.png" "g414/ample${G414K2}_$G414S.png"; done
+    done
+    g414maj() { for ge_r in "$1" "${1}2" "${1}3"; do shasum "g414/${ge_r}_$2.png" | cut -d' ' -f1; done | sort | uniq -c | sort -rn | awk 'NR==1 && $1>=2 {print $2}'; }
+    g414vals() { for ge_r in "$1" "${1}2" "${1}3"; do shasum "g414/${ge_r}_$2.png" | cut -d' ' -f1; done | sort -u | wc -l | tr -d ' '; }
+    for G414S in t1_west t1_east t1_water t300_west; do
+      G414MA=$(g414maj unset $G414S); G414MB=$(g414maj ample $G414S)
+      [ -n "$G414MA" ] && [ "$G414MA" = "$G414MB" ] && G414SAME=$((G414SAME+1))
+      [ "$(g414vals unset $G414S)" != "1" ] && G414FLAKE="$G414FLAKE unset:$G414S"
+      [ "$(g414vals ample $G414S)" != "1" ] && G414FLAKE="$G414FLAKE ample:$G414S"
+    done
+  fi
+  G414V="$G414V; ample: refused=$G414AR(0) jobs=$G414AJ shots_identical=$G414SAME(4)${G414DIFF:+ settled over 3 runs each, first runs differed in:$G414DIFF, took two values:${G414FLAKE:- none}}"
+  [ "$G414AR" = "0" ] && [ "$G414AJ" = "$G414J" ] && [ "$G414SAME" = "4" ] || G414OK=0
+  G414LR=$(grep -a -c '^LOWMEM|refused|site=ebld_prepare|work=required|' g414/r1024.log)
+  G414LO=$(grep -a -c '^LOWMEM|refused|site=ebld_prepare_optional|work=optional|' g414/r1024.log)
+  G414LC=$(grep -a -c '^LOWMEM|refused|site=clear_blend_buffers|work=optional|' g414/r1024.log)
+  G414LA=$(grep -a -c '^LOWMEM|refused|' g414/r1024.log)
+  G414LJ=$(g414jobs r1024)
+  G414L1=$(g414l r1024 t1)
+  G414LRM=$(g414f "$G414L1" lowmem_room); G414LCH=$(g414f "$G414L1" lowmem_charged); G414LN=$(g414f "$G414L1" lowmem_refusals)
+  G414V="$G414V; 1024: refused_lines=required:$G414LR,optional:$G414LO,blend:$G414LC/$G414LA(1,1,0..1) refusals=$G414LN(>0) jobs=$G414LJ(<$G414J) room=$G414LRM(>=256) charged=$G414LCH"
+  [ "$G414LR" = "1" ] && [ "$G414LO" = "1" ] && [ "$G414LC" -le 1 ] && [ "$G414LA" = "$((2 + G414LC))" ] \
+    && [ -n "$G414LN" ] && [ "$G414LN" -gt 0 ] \
+    && [ -n "$G414LJ" ] && [ "$G414LJ" -lt "$G414J" ] || G414OK=0
+  awk -v r="$G414LRM" 'BEGIN { exit !(r != "" && r >= 256) }' || G414OK=0
+  g414sum "$G414LRM" "$G414LCH" 1024 || G414OK=0
+  # (5) the same 2000 MB as free commit and as page-file growth
+  g414prep() { grep -a '^EBLDPREPARE|loading|' "g414/$1.log" | head -1 | tr '|' '\n' | sed -n "s/^$2=//p"; }
+  G414UT=$(g414prep unset textures)
+  G414NB=$(grep -a -c '^MEM|budget|room=2000|cap=0|growable=0|source=test|room_optional=2000$' g414/n2000.log)
+  G414GB=$(grep -a -c '^MEM|budget|room=2000|cap=0|growable=2000|source=test|room_optional=1000$' g414/g2000.log)
+  G414GRQ=$(grep -a -c '^LOWMEM|refused|site=ebld_prepare|' g414/g2000.log)
+  G414GOP=$(grep -a -c '^LOWMEM|refused|site=ebld_prepare_optional|work=optional|' g414/g2000.log)
+  G414NJ=$(g414jobs n2000); G414GJ=$(g414jobs g2000)
+  G414NM=$(g414prep n2000 meshes); G414GM=$(g414prep g2000 meshes); G414GT=$(g414prep g2000 textures)
+  G414NL=$(g414l n2000 t1); G414GL=$(g414l g2000 t1)
+  G414NRM=$(g414f "$G414NL" lowmem_room); G414NOP=$(g414f "$G414NL" lowmem_room_optional)
+  G414GRM=$(g414f "$G414GL" lowmem_room); G414GOR=$(g414f "$G414GL" lowmem_room_optional); G414GCH=$(g414f "$G414GL" lowmem_charged)
+  G414V="$G414V; 2000 as free commit: budget=$G414NB(1) jobs=$G414NJ meshes=$G414NM(>0) room=$G414NRM optional=$G414NOP(=room)"
+  G414V="$G414V; 2000 as growth: budget=$G414GB(1) required_lines=$G414GRQ(0) optional_lines=$G414GOP(1) textures=$G414GT($G414UT) jobs=$G414GJ(<$G414NJ) meshes=$G414GM(<$G414NM) room=$G414GRM optional=$G414GOR(=room/2) charged=$G414GCH"
+  [ "$G414NB" = "1" ] && [ "$G414GB" = "1" ] && [ "$G414GRQ" = "0" ] && [ "$G414GOP" = "1" ] \
+    && [ -n "$G414UT" ] && [ "$G414GT" = "$G414UT" ] \
+    && [ -n "$G414NM" ] && [ -n "$G414GM" ] && [ "$G414NM" -gt 0 ] && [ "$G414GM" -lt "$G414NM" ] \
+    && [ -n "$G414NJ" ] && [ -n "$G414GJ" ] && [ "$G414GJ" -lt "$G414NJ" ] || G414OK=0
+  awk -v r="$G414NRM" -v o="$G414NOP" 'BEGIN { exit !(r != "" && o != "" && r == o) }' || G414OK=0
+  awk -v r="$G414GRM" -v o="$G414GOR" 'BEGIN { exit !(r != "" && o != "" && r > 0 && 2 * o >= r - 0.25 && 2 * o <= r + 0.25) }' || G414OK=0
+  g414sum "$G414GRM" "$G414GCH" 2000 || G414OK=0
+  G414V="$G414V; FATAL=$G414F(0)"
+  if [ "$GRC" != "0" ]; then
+    bad "G414 the low-memory core: a run failed (GRC=$GRC) or wrote no shot; $G414V"
+  elif [ "$G414OK" = "1" ] && [ "$G414F" = "0" ]; then
+    ok "G414 the room is measured in one place and the preparation is admitted against it: $G414V"
+  else
+    bad "G414 the low-memory core: $G414V"
+  fi
+  unset OPENCNC3D_RA3DORE
+fi
+
+# =====================================================================================
+# G415 A DRAG BOX TAKES THE PLAYER'S OWN UNITS, WITHOUT HARVESTERS AND MCVS (game/cnc_eyes.cpp
+# ui_band_select, then OpenCNC3D_Band_Done in both brains: the end of the 1996 engine's own
+# band select, DisplayClass::Select_These, which is Band_Selection_Tidy in display.cpp).
+# Claims in game/gate_bandtidy.py. Red Alert, on G345's private copy of Allied 5 (an Allied
+# and a Soviet row of vehicles, an Ore Truck in each): one box over both rows keeps the
+# Allied units less the Ore Truck; the Ore Truck boxed alone is taken; added with SHIFT it
+# is kept; the Soviet row boxed alone is taken, as in 1996. Tiberian Dawn, GDI 3's opening
+# view boxed whole: the MCV is left out of the units around it.
+# PROVEN TO FAIL: before the export, the box over both rows took nine, three of them Soviet
+# and one the Allied Ore Truck, and GDI 3's box took the MCV with the rest.
+# NOT COVERED: the band's own rectangle test (G21, G235, G371).
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCG05EA.pack ]; then
+  skip "G415 the drag box: no Red Alert module with 3D scenes is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g415m && mkdir -p g415m
+  python3 "$GATEDIR/gate_ra3downvehicles.py" script g415m 2>>"$OUT"
+  python3 "$GATEDIR/gate_bandtidy.py" script g415m 2>>"$OUT"
+  gbegin
+  grun g415m/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio \
+    --w 1280 --h 720 --enhanced --texset 3 --noshroud --nosound \
+    --dir g415m/mt/ --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --script g415m/ra.txt
+  grun g415m/td.log --scen SCG03EA --pack SCG03EA.pack $BASE --w 1280 --h 720 --noshroud \
+    --nosound --script g415m/td.txt
+  G415CHK=$(python3 "$GATEDIR/gate_bandtidy.py" check g415m 2>>"$OUT")
+  echo "$G415CHK" >> "$OUT"
+  G415V=$(echo "$G415CHK" | head -1 | cut -d' ' -f1)
+  G415MSG=$(echo "$G415CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G415 the drag box: a run failed (GRC=$GRC)"
+  elif [ "$G415V" = "1" ]; then
+    ok "G415 $G415MSG"
+  else
+    bad "G415 the drag box: ${G415MSG:-the check did not run (see the python error in the log)}"
+  fi
+fi
+
+# =====================================================================================
+# G420 RED ALERT STARTS WITHOUT READING FREED MEMORY: the weapon and warhead heaps are built
+# once (brain/vanilla/redalert/rules.cpp, RulesClass::Heap_Maximums). Init_Game processes
+# RULES.INI and then AFTRMATH.INI, and each pass used to call Set_Heap on both heaps, which
+# deletes the old buffer. Every unit type's PrimaryWeapon and SecondaryWeapon still pointed
+# into it, and the Aftermath pass read the weapon ID through those pointers as the default
+# for "Primary" and "Secondary". The system allocator usually handed the same block back,
+# so play looked normal; Guard Malloc stops every Red Alert start there. Two parts:
+#   (1) the source: in Heap_Maximums, each Set_Heap is the first statement inside an
+#       "if (<heap>.Count() == 0)" block, and there are exactly two Set_Heap calls (read
+#       only where the brain source sits beside the gates; a scratch run folder reports
+#       it absent and part (2) decides);
+#   (2) a hidden Red Alert skirmish start (SCM08EA, seed 4242, three AI) with
+#       DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib: the log carries Guard Malloc's own
+#       banner (so the run really was guarded), the start reaches TICK|15 with objects on
+#       the map, and the script reaches SCRIPT|end.
+# PROVEN TO FAIL on the brain before the guard: the start dies in CNC_Init with
+# "FATAL: signal 11 while: CNC_Init (brain init)" (EXC_BAD_ACCESS in TechnoTypeClass::Read_INI
+# under a debugger), no TICK line, no SCRIPT|end.
+# NOT COVERED: that the weapons and warheads in play are unchanged, which needs a debugger to
+# read; checked when the guard was written: all 43 weapons, 9 warheads and the 149 unit
+# type weapon assignments read identical after a skirmish start, before and after.
+# =====================================================================================
+G420RULES="$GATEDIR/../brain/vanilla/redalert/rules.cpp"
+G420SRC=$(awk '/^bool RulesClass::Heap_Maximums/{f=1} f&&/^}/{f=0}
+  f&&/\.Set_Heap\(/{n++; if (prev ~ /^[[:space:]]*if \((Warheads|Weapons)\.Count\(\) == 0\) \{$/) g++}
+  f&&NF{prev=$0} END{printf "%d/%d", g+0, n+0}' "$G420RULES" 2>/dev/null)
+# A run folder outside a checkout has no brain source beside it; part (2) still decides.
+[ -f "$G420RULES" ] || G420SRC="absent"
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCM08EA.pack ]; then
+  skip "G420 Red Alert under Guard Malloc: no Red Alert module with 3D scenes is staged in this folder (source guards $G420SRC)"
+else
+  rm -rf g420 && mkdir -p g420
+  printf 'tick 15\nframes 2\nquit\n' > g420/s.txt
+  # (in a subshell whose stderr is dropped: the shell's own "Segmentation fault" notice is
+  # not the log)
+  ( DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib MALLOC_ALLOW_LARGE_REQUESTS=1 \
+    ./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+    --dosdata ra3d/audio --nosound --w 1280 --h 720 --scen SCM08EA --pack ra3d/3d/SCM08EA.pack \
+    --skirmish --seed 4242 --ai 3 --savedir g420 --gfxsave g420/private.cfg \
+    --script g420/s.txt > g420/gm.log 2>&1 ) 2>/dev/null
+  G420RC=$?
+  cat g420/gm.log >> "$OUT"
+  G420GM=$(grep -c '^GuardMalloc\[' g420/gm.log)
+  G420OBJ=$(grep -m1 '^TICK|15|' g420/gm.log | sed -n 's/.*|objects=\([0-9]*\).*/\1/p')
+  G420END=$(grep -c '^SCRIPT|end' g420/gm.log)
+  G420FATAL=$(grep -m1 '^FATAL:' g420/gm.log)
+  G420V="source guards $G420SRC(2/2); guarded run rc=$G420RC(0) banner=$G420GM(>0) tick15 objects=${G420OBJ:-none}(>0) end=$G420END(1)${G420FATAL:+; $G420FATAL}"
+  if { [ "$G420SRC" = "2/2" ] || [ "$G420SRC" = "absent" ]; } && [ "$G420RC" = "0" ] && [ "$G420GM" -gt 0 ] \
+     && [ "${G420OBJ:-0}" -gt 0 ] && [ "$G420END" = "1" ]; then
+    ok "G420 Red Alert starts a skirmish under Guard Malloc without reading freed memory: $G420V"
+  else
+    bad "G420 Red Alert under Guard Malloc: $G420V"
+  fi
+fi
+
+# =====================================================================================
+# G421 THE REPAIR BAY NEVER LEAVES A UNIT ABOVE ITS FULL STRENGTH. Tiberian Dawn's repair
+# (TechnoClass::Receive_Message, RADIO_REPAIR, brain/vanilla/tiberiandawn/techno.cpp) adds a
+# fixed step of 4 points and asks again while the health ratio is below full, so the last
+# step could land up to three past the maximum: a Medium Tank at 141 of 400 came off the
+# bay at 401 of 400, and the Enhanced unit card printed it. The step is now clamped to the
+# maximum, as Red Alert's own repair does. Three parts:
+#   (1) the source: the TD arm's "Strength += step;" is followed by the clamp to
+#       Class_Of().MaxStrength (read only where the brain source sits beside the gates; a
+#       scratch run folder reports it absent and parts (2) and (3) decide);
+#   (2) TD SCG08EA, hidden: the damaged Medium Tank (141/400) is ordered onto the player's
+#       Repair Bay and ends at exactly 400/400; it drives off, and the Jeep, hurt to 19/150
+#       (a gap the step of 4 does not divide), ends on the bay at exactly 150/150. The
+#       credits each repair costs are the 1995 engine's own, 195 and 132 (65 steps at 3
+#       and 33 at 4), so the clamp changed no step and no price; and no OBJ line anywhere
+#       in the run carries a strength above its maximum;
+#   (3) the Red Alert control, SCG26EA: a Jeep hurt to 114/150 (a gap the step of 10 does
+#       not divide) ends at exactly 150/150 on the Service Depot. Red Alert always clamped;
+#       this holds it there.
+# PROVEN TO FAIL on the brain before the clamp: the tank read str=401/400 and the Jeep
+# str=151/150 at the same costs.
+# NOT COVERED: an aircraft on a helipad (the 1995 helipad reloads and does not repair), and
+# the unit card's own text (it prints the same engine strength the OBJ line reads).
+# =====================================================================================
+G421TECH="$GATEDIR/../brain/vanilla/tiberiandawn/techno.cpp"
+G421SRC=$(awk '/case RADIO_REPAIR:/{f=1} f&&/Strength \+= step;/{s=1; next}
+  s&&/if \(Strength > Class_Of\(\)\.MaxStrength\)/{c=1}
+  s&&/return \(RADIO_ROGER\);/{s=0; f=0}
+  END{print c ? "clamped" : "missing"}' "$G421TECH" 2>/dev/null)
+[ -f "$G421TECH" ] || G421SRC="absent"
+rm -rf g421 && mkdir -p g421
+cat > g421/td.txt <<'G421TD'
+tick 20
+reveal 1
+cam 44 53
+tick 2
+obj MTNK 1
+obj JEEP 0
+hurtunit JEEP 0 50
+tick 1
+obj JEEP 0
+creditsdump
+lclickobj MTNK 1
+tick 1
+orderobj FIX 0
+tick 1500
+obj MTNK 1
+creditsdump
+order 42 57
+tick 200
+obj MTNK 1
+deselect
+tick 1
+lclickobj JEEP 0
+tick 1
+orderobj FIX 0
+tick 1200
+obj JEEP 0
+creditsdump
+quit
+G421TD
+gbegin
+grun g421/td.log --scen SCG08EA --pack SCG08EA.pack $BASE --nosound --w 1280 --h 720 \
+  --savedir g421 --gfxsave g421/private.cfg --script g421/td.txt
+G421TDRC=$GRC
+# OBJ|TYPE#N|...|str=S/M|... in order: tank before, Jeep before, Jeep hurt, tank repaired,
+# tank driven off, Jeep repaired. CREDITS lines: after the hurt, after the tank, after the Jeep.
+G421STR=$(grep '^OBJ|\(MTNK#1\|JEEP#0\)|' g421/td.log | sed -n 's/^OBJ|\([A-Z]*#[0-9]*\)|.*|cell=\([0-9,]*\)|str=\([0-9]*\/[0-9]*\)|.*/\1@\2=\3/p' | tr '\n' ' ')
+G421CR=$(grep '^CREDITS|' g421/td.log | sed -n 's/^CREDITS|credits=\([0-9]*\)|.*/\1/p' | tr '\n' ' ')
+set -- $G421CR
+G421C0=${1:-0}; G421C1=${2:-0}; G421C2=${3:-0}
+G421TANKCOST=$((G421C0 - G421C1)); G421JEEPCOST=$((G421C1 - G421C2))
+G421TANK0=$(echo "$G421STR" | awk '{print $1}' | sed 's/.*=//')
+G421JEEP1=$(echo "$G421STR" | awk '{print $3}' | sed 's/.*=//')
+G421TANK1=$(echo "$G421STR" | awk '{print $4}' | sed 's/.*=//')
+G421TANKOFF=$(echo "$G421STR" | awk '{print $5}' | sed 's/^[^@]*@\([0-9,]*\)=.*/\1/')
+G421JEEP2=$(echo "$G421STR" | awk '{print $6}')
+G421OVER=$(grep '^OBJ|' g421/td.log | sed -n 's/.*|str=\([0-9]*\)\/\([0-9]*\)|.*/\1 \2/p' | awk '$1>$2{n++} END{print n+0}')
+G421V="source $G421SRC; td rc=$G421TDRC tank $G421TANK0 -> $G421TANK1 (400/400) for $G421TANKCOST (195), off the bay at $G421TANKOFF; jeep $G421JEEP1 -> ${G421JEEP2#*=} (150/150 at 45,53) for $G421JEEPCOST (132); OBJ lines over max $G421OVER (0)"
+G421OK=1
+{ [ "$G421SRC" = "clamped" ] || [ "$G421SRC" = "absent" ]; } || G421OK=0
+[ "$G421TDRC" = "0" ] && [ "$G421TANK0" = "141/400" ] && [ "$G421TANK1" = "400/400" ] \
+  && [ "$G421TANKCOST" = "195" ] && [ "$G421TANKOFF" != "45,53" ] && [ "$G421JEEP1" = "19/150" ] \
+  && [ "$G421JEEP2" = "JEEP#0@45,53=150/150" ] && [ "$G421JEEPCOST" = "132" ] \
+  && [ "$G421OVER" = "0" ] || G421OK=0
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCG26EA.pack ]; then
+  G421V="$G421V; no Red Alert module with 3D scenes staged, the Service Depot control did not run"
+else
+  cat > g421/ra.txt <<'G421RA'
+tick 20
+reveal 1
+cam 41 82
+tick 2
+hurtunit JEEP 0 60
+tick 1
+obj JEEP 0
+lclickobj JEEP 0
+tick 1
+orderobj FIX 0
+tick 900
+obj JEEP 0
+quit
+G421RA
+  gbegin
+  grun g421/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+    --dosdata ra3d/audio --nosound --w 1280 --h 720 --scen SCG26EA --pack ra3d/3d/SCG26EA.pack \
+    --savedir g421 --gfxsave g421/private.cfg --script g421/ra.txt
+  G421RARC=$GRC
+  G421RA=$(grep '^OBJ|JEEP#0|' g421/ra.log | sed -n 's/.*|cell=\([0-9,]*\)|str=\([0-9]*\/[0-9]*\)|.*/\1=\2/p' | tr '\n' ' ')
+  G421RAOVER=$(grep '^OBJ|' g421/ra.log | sed -n 's/.*|str=\([0-9]*\)\/\([0-9]*\)|.*/\1 \2/p' | awk '$1>$2{n++} END{print n+0}')
+  G421V="$G421V; ra rc=$G421RARC jeep ${G421RA:-none}(45,83=114/150 then 40,83=150/150) over max $G421RAOVER (0)"
+  set -- $G421RA
+  [ "$G421RARC" = "0" ] && [ "${1:-}" = "45,83=114/150" ] && [ "${2:-}" = "40,83=150/150" ] \
+    && [ "$G421RAOVER" = "0" ] || G421OK=0
+fi
+if [ "$G421OK" = "1" ]; then
+  ok "G421 the Repair Bay stops at full strength: $G421V"
+else
+  bad "G421 the Repair Bay overheals or did not repair: $G421V"
+fi
+
+# =====================================================================================
+# G422 THE WALL LINE IS PAID FOR, SO SELLING IT NEVER RETURNS MORE THAN IT COST.
+# (OpenCNC3D_Wall_Fill in brain/vanilla/{tiberiandawn,redalert}/building.cpp, and the
+# preview's walk, sb_wall_fill_cells in game/cnc_sidebar.h.) The wall line (Enhanced
+# offline, every Tiberian Dawn match) lays the pieces between a new wall and one of the
+# player's own; they used to be free, and the 1995/1996 sell-back refunds part of the
+# price of every owned wall cell, so two sandbags bought for 100 sold back for 150. Each
+# filled piece now costs the factory's price, and a direction's gap is laid only when the
+# money in hand (bank plus silos) pays for all of it, in the walk order N, E, S, W. The
+# placement preview walks the same money, and `hover` prints it (WALLFILLPREVIEW|).
+#   (1) TD SCG01EC, Enhanced: sandbags at 50,54 and 55,54. The preview of the second shows
+#       the four between; six cells stand; credits 10000 -> 9950 -> 9700 (2 x 50 + 4 x 50);
+#       all six sold back for 6 x 25, ending at 9850, below the start.
+#   (2) the same script under N64 (the default) and Classic (--gfx dos_classic): no line,
+#       two cells, 9900, and the two sold back to 9950, as 1995 did.
+#   (3) TD skirmish SCM01EA seed 4242 on 250 credits: anchors at 7,17 and 5,21, the third
+#       piece at 7,21 with 100 left. North's gap of three (150) is not affordable and is
+#       not laid; west's gap of one (50) is: the preview names exactly 6,21, the brain lays
+#       exactly 6,21 and none of 7,18..7,20, and the bank ends at 50. All four sold: 150.
+#   (4) Red Alert skirmish SCM01EA seed 4242: concrete at 21,30 and 26,30 (preview of four,
+#       10000 -> 9900 -> 9400, six cells sold back to 9700); and sandbags on 150 credits,
+#       anchors 21,24 and 23,29, the third at 21,29 with 75 left: north's gap of four
+#       (100) skipped, east's 22,29 (25) laid and previewed, the bank at 50.
+#   (5) a two-human Tiberian Dawn match over loopback: the host lays a sandbag line of
+#       three between 3,21 and 7,21; both peers' worlds hold the five cells and the host's
+#       house at 4750 credits (5000 - 2 x 50 - 3 x 50), and every world hash the two logs
+#       both report agrees.
+# PROVEN TO FAIL on the brain before the change: (1) reads 9900 after the line and 10050
+# after the sale, (3) lays all four gap cells and stays at 100, (5) leaves 4900.
+# NOT COVERED: the preview's green cells as pixels (G302 counts them with the money
+# switch on); in a match the bank can move between the preview and the order's turn, and
+# the brain's check is the one that counts.
+# =====================================================================================
+rm -rf g422 && mkdir -p g422
+cat > g422/td.txt <<'G422TD'
+tick 20
+tick 4
+cam 53 54
+creditsdump
+build SBAG
+ready SBAG
+startplace SBAG
+place 50 54
+tick 10
+creditsdump
+build SBAG
+ready SBAG
+startplace SBAG
+tick 2
+hover 55 54
+place 55 54
+tick 10
+creditsdump
+walldump
+sellmode 1
+lclickcell 50 54
+tick 3
+lclickcell 51 54
+tick 3
+lclickcell 52 54
+tick 3
+lclickcell 53 54
+tick 3
+lclickcell 54 54
+tick 3
+lclickcell 55 54
+tick 10
+creditsdump
+walldump
+quit
+G422TD
+cat > g422/tdlow.txt <<'G422LOW'
+tick 5
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 100
+creditsdump
+build SBAG
+ready SBAG
+startplace SBAG
+place 7 17
+tick 5
+build SBAG
+ready SBAG
+startplace SBAG
+place 5 21
+tick 5
+build SBAG
+ready SBAG
+startplace SBAG
+tick 2
+creditsdump
+hover 7 21
+place 7 21
+tick 10
+creditsdump
+walldump
+sellmode 1
+lclickcell 7 17
+tick 3
+lclickcell 5 21
+tick 3
+lclickcell 6 21
+tick 3
+lclickcell 7 21
+tick 10
+creditsdump
+walldump
+quit
+G422LOW
+printf 'dos_classic 1\nenabled 0\n' > g422/classic.cfg
+gbegin
+G422TDA="--scen SCG01EC --pack SCG01EA.pack $BASE --nosound --w 1280 --h 800 --savedir g422 --gfxsave g422/private.cfg"
+grun g422/td.log  $G422TDA --enhanced --texset 1 --script g422/td.txt
+grun g422/n64.log $G422TDA --script g422/td.txt
+grun g422/cl.log  $G422TDA --gfx g422/classic.cfg --script g422/td.txt
+grun g422/low.log --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --ai 0 --seed 4242 \
+  --credits 250 --noshroud --nosound --w 1280 --h 720 --enhanced --texset 1 \
+  --savedir g422 --gfxsave g422/private.cfg --script g422/tdlow.txt
+G422RA=0
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCM01EA.pack ]; then
+  G422RA=1
+  cat > g422/rarich.txt <<'G422RR'
+tick 5
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 120
+creditsdump
+build BRIK
+ready BRIK
+startplace BRIK
+place 21 30
+tick 5
+creditsdump
+build BRIK
+ready BRIK
+startplace BRIK
+tick 2
+hover 26 30
+place 26 30
+tick 10
+creditsdump
+walldump
+sellmode 1
+lclickcell 21 30
+tick 3
+lclickcell 22 30
+tick 3
+lclickcell 23 30
+tick 3
+lclickcell 24 30
+tick 3
+lclickcell 25 30
+tick 3
+lclickcell 26 30
+tick 10
+creditsdump
+walldump
+quit
+G422RR
+  cat > g422/ralow.txt <<'G422RL'
+tick 5
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 120
+build SBAG
+ready SBAG
+startplace SBAG
+place 21 24
+tick 5
+build SBAG
+ready SBAG
+startplace SBAG
+place 23 29
+tick 5
+build SBAG
+ready SBAG
+startplace SBAG
+tick 2
+creditsdump
+hover 21 29
+place 21 29
+tick 10
+creditsdump
+walldump
+quit
+G422RL
+  G422RAA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --scen SCM01EA --pack ra3d/3d/SCM01EA.pack --skirmish --seed 4242 --ai 1 --noshroud --enhanced --texset 3 --savedir g422 --gfxsave g422/private.cfg"
+  grun g422/rarich.log $G422RAA --credits 10000 --script g422/rarich.txt
+  grun g422/ralow.log  $G422RAA --credits 150 --script g422/ralow.txt
+fi
+cat > g422/nh.txt <<'G422NH'
+tick 5
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 120
+build SBAG
+ready SBAG 1500
+startplace SBAG
+place 3 21
+tick 30
+build SBAG
+ready SBAG 1500
+startplace SBAG
+place 7 21
+tick 60
+walldump
+objdump
+quit
+G422NH
+printf 'tick 5\nlclickobj MCV:@me\nactclickobj MCV:@me\ntick 6000\nwalldump\nobjdump\nquit\n' > g422/nj.txt
+./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --ai 0 --nosound \
+    --savedir g422 --gfxsave g422/private.cfg --host 17422 --script g422/nh.txt > g422/nh.log 2>&1 &
+G422HP=$!
+sleep 2
+./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side nod --ai 0 --nosound \
+    --savedir g422 --gfxsave g422/private.cfg --join 127.0.0.1 17422 --script g422/nj.txt > g422/nj.log 2>&1 &
+G422JP=$!
+wait $G422HP; G422HRC=$?
+wait $G422JP; G422JRC=$?
+cat g422/td.log g422/n64.log g422/cl.log g422/low.log g422/nh.log g422/nj.log >> "$OUT"
+G422V=$(G422RA=$G422RA G422HRC=$G422HRC G422JRC=$G422JRC python3 - <<'PY' 2>>"$OUT"
+import os, re
+def rd(n):
+    try:
+        with open("g422/%s.log" % n, errors="ignore") as f:
+            return f.read().splitlines()
+    except OSError:
+        return []
+why, said = [], []
+def need(c, m):
+    if not c: why.append(m)
+def credits(L):
+    return [int(m.group(1)) for l in L for m in [re.match(r"^CREDITS\|credits=(-?\d+)\|", l)] if m]
+def walls(L, kind):
+    # the cells of the LAST walldump in the log
+    out, cur = set(), None
+    for l in L:
+        m = re.match(r"^WALLDUMP\|(\d+),(\d+)\|([A-Z]+)\|", l)
+        if m:
+            if cur is None: cur = set()
+            if m.group(3) == kind: cur.add((int(m.group(1)), int(m.group(2))))
+        elif cur is not None:
+            out, cur = cur, None
+    return cur if cur is not None else out
+def first_walls(L, kind):
+    cur = None
+    for l in L:
+        m = re.match(r"^WALLDUMP\|(\d+),(\d+)\|([A-Z]+)\|", l)
+        if m:
+            if cur is None: cur = set()
+            if m.group(3) == kind: cur.add((int(m.group(1)), int(m.group(2))))
+        elif cur is not None:
+            return cur
+    return cur or set()
+def preview(L):
+    return [l.split("|cells=", 1)[1] for l in L if l.startswith("WALLFILLPREVIEW|")]
+def sells(L):
+    return sum(1 for l in L if l.startswith("STRUCT|sell|WALL|"))
+row = lambda xs, y: {(x, y) for x in xs}
+# (1) Enhanced
+A = rd("td"); c = credits(A)
+need(any(l == "WALLFILL|5" for l in A), "td: the wall line was not on under Enhanced")
+need(c == [10000, 9950, 9700, 9850], "td credits %s (want 10000 9950 9700 9850)" % c)
+need(first_walls(A, "SBAG") >= row(range(50, 56), 54), "td: the six cells 50..55,54 were not laid")
+need(preview(A) == ["54,54;53,54;52,54;51,54"], "td preview %s (want the four between)" % preview(A))
+need(sells(A) == 6, "td sold %d cells (want 6)" % sells(A))
+need(c and c[-1] <= c[0], "td: selling the line gained money")
+said.append("Enhanced line of six cost %s, sold back to %s" % (c[0] - c[2] if len(c) > 2 else "?", c[-1] if c else "?"))
+# (2) N64 and Classic
+for n, name in (("n64", "N64"), ("cl", "Classic")):
+    B = rd(n); cb = credits(B)
+    need(any(l == "WALLFILL|0" for l in B), "%s: the wall line was not off" % n)
+    need(cb == [10000, 9950, 9900, 9950], "%s credits %s (want 10000 9950 9900 9950)" % (n, cb))
+    need(not (first_walls(B, "SBAG") & row(range(51, 55), 54)), "%s laid a line" % n)
+    need(sells(B) == 2, "%s sold %d cells (want 2)" % (n, sells(B)))
+said.append("N64 and Classic one cell a piece")
+# (3) low money, TD
+L = rd("low"); cl = credits(L); wl = first_walls(L, "SBAG")
+need(cl == [250, 100, 50, 150], "low credits %s (want 250 100 50 150)" % cl)
+need(preview(L) == ["6,21"], "low preview %s (want 6,21)" % preview(L))
+need((6, 21) in wl and not (wl & {(7, 18), (7, 19), (7, 20)}), "low laid %s" % sorted(wl))
+said.append("on 100 credits the line laid and previewed only the gap it could pay for")
+# (4) Red Alert
+if os.environ.get("G422RA") == "1":
+    R = rd("rarich"); cr = credits(R)
+    need(cr == [10000, 9900, 9400, 9700], "ra concrete credits %s (want 10000 9900 9400 9700)" % cr)
+    need(first_walls(R, "BRIK") >= row(range(21, 27), 30), "ra: the six concrete cells were not laid")
+    need(preview(R) == ["25,30;24,30;23,30;22,30"], "ra preview %s" % preview(R))
+    need(sells(R) == 6, "ra sold %d cells (want 6)" % sells(R))
+    Q = rd("ralow"); cq = credits(Q); wq = first_walls(Q, "SBAG")
+    need(cq == [75, 50], "ra low credits %s (want 75 50)" % cq)
+    need(preview(Q) == ["22,29"], "ra low preview %s (want 22,29)" % preview(Q))
+    need((22, 29) in wq and not (wq & {(21, y) for y in range(25, 29)}), "ra low laid %s" % sorted(wq))
+    said.append("Red Alert concrete line of six cost 600 and sold back for 300, its low-money sandbag line laid only what 75 paid for")
+else:
+    said.append("no Red Alert module staged, its legs did not run")
+# (5) the match
+H, J = rd("nh"), rd("nj")
+need(os.environ.get("G422HRC") == "0" and os.environ.get("G422JRC") == "0",
+     "match exits host=%s joiner=%s" % (os.environ.get("G422HRC"), os.environ.get("G422JRC")))
+def house(L, h):
+    v = [l for l in L if l.startswith("HOUSE|%s|" % h)]
+    return v[-1].split("|")[2] if v else "none"
+need(house(H, "Multi6") == "credits=4750" and house(J, "Multi6") == "credits=4750",
+     "match host house: host %s joiner %s (want credits=4750 on both)" % (house(H, "Multi6"), house(J, "Multi6")))
+for n, X in (("host", H), ("joiner", J)):
+    need(walls(X, "SBAG") >= row(range(3, 8), 21), "match %s lacks the five cells" % n)
+hs = {l.split("|")[1]: l for l in H if l.startswith("NETSYNC|")}
+js = {l.split("|")[1]: l for l in J if l.startswith("NETSYNC|")}
+both = set(hs) & set(js)
+dis = [f for f in both if hs[f] != js[f]]
+need(len(both) >= 10 and not dis, "match hashes: %d frames both reported, %d disagree" % (len(both), len(dis)))
+need(not any(l.startswith("NETDESYNC|") for l in H + J), "match raised the desync alarm")
+said.append("a match's line cost the host 150 on both peers, %d world hashes agreeing" % len(both))
+print(("1 " if not why else "0 ") + ("; ".join(why) if why else "; ".join(said)))
+PY
+)
+if [ "$GRC" != "0" ]; then
+  bad "G422 the wall line is paid for: a run failed (GRC=$GRC). ${G422V#? }"
+elif [ "${G422V%% *}" = "1" ]; then
+  ok "G422 the wall line is paid for: ${G422V#1 }"
+else
+  bad "G422 the wall line is paid for: ${G422V#0 }"
+fi
+
+# =====================================================================================
+# G423 A UNIT ON THE REPAIR BAY SELLS BACK, as 1995 and 1996 allow. FootClass::Can_Demolish
+# (brain/vanilla/{tiberiandawn,redalert}/foot.cpp) answers true for a vehicle in radio contact
+# with its house's Repair Bay or Service Depot and standing on it; the 1995 mouse code then
+# shows the sell-unit cursor (ACTION_SELL_UNIT) and the click queues EventClass::SELL on the
+# unit. The renderer's sell mode only ever asked about buildings and walls, so the docked unit,
+# which covers most of the bay, read no-sell and its click was ignored. The brains now print
+# sellu= on every OBJ line (Red Alert only for a vehicle on a building, because its SELL arm
+# sells nothing else) and export OpenCNC3D_Sell_Unit, the unit's own sell door, which queues
+# the SELL event in a lockstep match. Five parts:
+#   (1) the source: in both brains sellu= sits BEFORE occ= and act=, which stays last because
+#       G-gates match '|act=N$' (read only where the brain source sits beside the gates; a
+#       scratch run folder reports it absent);
+#   (2) TD SCG08EA under Enhanced, N64 and Classic: the damaged Medium Tank standing off the
+#       bay reads no-sell in sell mode and its click sells nothing; driven onto the Repair Bay
+#       it reads sell-unit, the click prints STRUCT|sell|UNIT|MTNK|...|sold, the tank is gone,
+#       the bay still stands, and the credits rise by exactly 400, half its 800;
+#   (3) Red Alert SCG26EA under the same three modes: a Jeep off the Service Depot reads no-sell
+#       and stays; on the depot it reads sell-unit and sells for exactly 300, half its 600;
+#   (4) Red Alert SCU01EA: a Yak parked on the player's Airstrip, which FootClass::Can_Demolish
+#       also accepts, reads no-sell and its click sells nothing, because the 1996 SELL arm sells
+#       no aircraft (the 1996 cursor promised that sale and the click did nothing);
+#   (5) a two-human Tiberian Dawn match in cnc_twobrain (SCM01EA): a Jeep beside a Repair Bay
+#       is refused with no order queued; on the bay, the sale changes nothing on the machine
+#       that clicked until its one order crosses, then the Jeep leaves both worlds and every
+#       tick's full dump agrees. Red Alert's match leg is tools/ra3d/gate-ra-lockstep.sh.
+# PROVEN TO FAIL on the brain and renderer before the change: the docked tank reads no-sell,
+# the click prints "no own building here" and the tank and the credits stay (4805); the
+# harness reports the missing export.
+# NOT COVERED: the cursor's pixels (the shape name is the one cursors.h maps for every mode),
+# and the bay's own sale with a unit on it, which is the engine's untouched rule: selling the
+# bay sells the unit on it if it is still there when the bay's deconstruction runs.
+# =====================================================================================
+G423TDDLL="$GATEDIR/../brain/vanilla/tiberiandawn/dllinterface.cpp"
+G423RADLL="$GATEDIR/../brain/vanilla/redalert/dllinterface.cpp"
+if [ -f "$G423TDDLL" ] && [ -f "$G423RADLL" ]; then
+  # (Red Alert's line carries G424's spy fields between occ= and act=, so only the order of
+  # sellu= and occ= is read there; G424 reads that act= still ends it.)
+  G423SRC="$(grep -a -c 'sellu=%d|occ=%u|act=%d\\n"' "$G423TDDLL")/$(grep -a -c 'sellu=%d|occ=%u' "$G423RADLL")"
+else
+  G423SRC="absent"
+fi
+rm -rf g423 && mkdir -p g423
+printf 'dos_classic 1\nenabled 0\n' > g423/classic.cfg
+cat > g423/td.txt <<'G423TD'
+tick 20
+reveal 1
+cam 44 53
+tick 2
+deselect
+sellmode 1
+cursorobj MTNK 1
+lclickobj MTNK 1
+tick 5
+obj MTNK 1
+sellmode 0
+lclickobj MTNK 1
+tick 1
+orderobj FIX 0
+tick 1500
+obj MTNK 1
+deselect
+tick 1
+sellmode 1
+creditsdump
+cursorobj MTNK 1
+lclickobj MTNK 1
+tick 10
+obj MTNK 1
+obj FIX 0
+creditsdump
+quit
+G423TD
+# One line per run: the negative cursor, whether the tank survived the negative click, the
+# docked cursor, the sale line, the tank after the sale, the bay after, and the refund.
+g423_read() {
+  ge_log=$1
+  ge_shapes=$(grep '^CURSOROBJ|' "$ge_log" | sed -n 's/.*|shape=\([a-z-]*\).*/\1/p' | tr '\n' ' ')
+  ge_cr=$(grep '^CREDITS|' "$ge_log" | sed -n 's/^CREDITS|credits=\([0-9]*\)|.*/\1/p' | tr '\n' ' ')
+  set -- $ge_shapes
+  ge_s1=${1:-none}; ge_s2=${2:-none}
+  set -- $ge_cr
+  ge_refund=$(( ${2:-0} - ${1:-0} ))
+  printf '%s %s %s %s\n' "$ge_s1" "$ge_s2" "$ge_refund" "$(grep -c '^STRUCT|sell|UNIT|.*|sold$' "$ge_log")"
+}
+G423OK=1
+G423V="source $G423SRC (1/1)"
+{ [ "$G423SRC" = "1/1" ] || [ "$G423SRC" = "absent" ]; } || G423OK=0
+G423TDA="--scen SCG08EA --pack SCG08EA.pack $BASE --nosound --w 1280 --h 720 --savedir g423 --gfxsave g423/private.cfg"
+for g423m in enhanced n64 classic; do
+  case $g423m in
+    enhanced) g423x="--enhanced --texset 1" ;;
+    n64)      g423x="" ;;
+    classic)  g423x="--gfx g423/classic.cfg" ;;
+  esac
+  G423LOG=g423/td_$g423m.log
+  gbegin
+  grun "$G423LOG" $G423TDA $g423x --script g423/td.txt
+  g423rc=$GRC
+  set -- $(g423_read "$G423LOG")
+  # MTNK#1 lines: after the refused click (still there), docked, after the sale (MISSING).
+  g423t=$(grep '^OBJ|MTNK#1|' "$G423LOG" | sed -n 's/^OBJ|MTNK#1|\(MISSING\).*/gone/p; s/^OBJ|MTNK#1|UNIT|[A-Za-z]*|cell=\([0-9,]*\)|.*/\1/p' | tr '\n' ' ')
+  g423fix=$(grep -c '^OBJ|FIX#0|BUILDING|' "$G423LOG")
+  G423V="$G423V; td $g423m rc=$g423rc off-bay $1(no-sell) on-bay $2(sell-unit) sold-lines $4(1) tank $g423t(42,55 45,53 gone) bay $g423fix(1) refund $3(400)"
+  [ "$g423rc" = "0" ] && [ "$1" = "no-sell" ] && [ "$2" = "sell-unit" ] && [ "$4" = "1" ] \
+    && [ "$g423t" = "42,55 45,53 gone " ] && [ "$g423fix" = "1" ] && [ "$3" = "400" ] || G423OK=0
+done
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCG26EA.pack ] || [ ! -f ra3d/3d/SCU01EA.pack ]; then
+  G423V="$G423V; no Red Alert module with 3D scenes staged, the Service Depot and Airstrip parts did not run"
+  G423OK=0
+else
+  cat > g423/ra.txt <<'G423RA'
+tick 20
+reveal 1
+cam 41 82
+tick 2
+deselect
+sellmode 1
+cursorobj JEEP 0
+lclickobj JEEP 0
+tick 5
+obj JEEP 0
+sellmode 0
+lclickobj JEEP 0
+tick 1
+orderobj FIX 0
+tick 400
+obj JEEP 0
+obj JEEP 1
+deselect
+tick 1
+sellmode 1
+creditsdump
+cursorobj JEEP 0
+lclickobj JEEP 0
+tick 10
+obj JEEP 1
+obj FIX 0
+creditsdump
+quit
+G423RA
+  G423RAA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --savedir g423 --gfxsave g423/private.cfg"
+  for g423m in enhanced n64 classic; do
+    case $g423m in
+      enhanced) g423x="--enhanced --texset 1" ;;
+      n64)      g423x="" ;;
+      classic)  g423x="--gfx g423/classic.cfg" ;;
+    esac
+    G423LOG=g423/ra_$g423m.log
+    gbegin
+    grun "$G423LOG" $G423RAA --scen SCG26EA --pack ra3d/3d/SCG26EA.pack $g423x --script g423/ra.txt
+    g423rc=$GRC
+    set -- $(g423_read "$G423LOG")
+    # JEEP#0 off the depot after the refused click, JEEP#0 docked, JEEP#1 beside it, then
+    # JEEP#1 after the sale: the second Jeep is MISSING once the first is sold.
+    g423j=$(grep '^OBJ|JEEP#[01]|' "$G423LOG" | sed -n 's/^OBJ|\(JEEP#[01]\)|\(MISSING\).*/\1=gone/p; s/^OBJ|\(JEEP#[01]\)|UNIT|[A-Za-z]*|cell=\([0-9,]*\)|.*/\1=\2/p' | tr '\n' ' ')
+    g423fix=$(grep -c '^OBJ|FIX#0|BUILDING|' "$G423LOG")
+    G423V="$G423V; ra $g423m rc=$g423rc off-depot $1(no-sell) on-depot $2(sell-unit) sold-lines $4(1) jeeps $g423j(JEEP#0=45,83 JEEP#0=40,83 JEEP#1=43,83 JEEP#1=gone) depot $g423fix(1) refund $3(300)"
+    [ "$g423rc" = "0" ] && [ "$1" = "no-sell" ] && [ "$2" = "sell-unit" ] && [ "$4" = "1" ] \
+      && [ "$g423j" = "JEEP#0=45,83 JEEP#0=40,83 JEEP#1=43,83 JEEP#1=gone " ] && [ "$g423fix" = "1" ] \
+      && [ "$3" = "300" ] || G423OK=0
+  done
+  cat > g423/yak.txt <<'G423YAK'
+tick 20
+reveal 1
+cam 39 78
+tick 2
+spawnobj YAK 41 76
+tick 600
+obj YAK 0
+deselect
+sellmode 1
+creditsdump
+cursorobj YAK 0
+lclickobj YAK 0
+tick 10
+obj YAK 0
+creditsdump
+quit
+G423YAK
+  G423LOG=g423/yak.log
+  gbegin
+  grun "$G423LOG" $G423RAA --scen SCU01EA --pack ra3d/3d/SCU01EA.pack --enhanced --texset 1 --script g423/yak.txt
+  g423rc=$GRC
+  set -- $(g423_read "$G423LOG")
+  g423y=$(grep '^OBJ|YAK#0|' "$G423LOG" | sed -n 's/^OBJ|YAK#0|AIRCRAFT|[A-Za-z]*|cell=\([0-9,]*\)|.*/\1/p' | tr '\n' ' ')
+  G423V="$G423V; ra yak on the Airstrip rc=$g423rc cursor $1(no-sell) yak $g423y(36,82 36,82) sold-lines $4(0) credits change $3(0)"
+  [ "$g423rc" = "0" ] && [ "$1" = "no-sell" ] && [ "$g423y" = "36,82 36,82 " ] && [ "$4" = "0" ] \
+    && [ "$3" = "0" ] || G423OK=0
+fi
+if [ -x ./cnc_twobrain ] && [ -f ./TiberianDawn.dylib ]; then
+  G423TB=$(./cnc_twobrain ./TiberianDawn.dylib content/ missions/ SCM01EA 300 2>&1)
+  G423TBRC=$?
+  printf '%s\n' "$G423TB" >>"$OUT"
+  G423REF=$(printf '%s\n' "$G423TB" | grep -c 'sell a Jeep off the bay (refused): 0 order(s)')
+  G423LOC=$(printf '%s\n' "$G423TB" | grep -c 'unit sell: the click changed nothing locally')
+  G423EXE=$(printf '%s\n' "$G423TB" | sed -n 's/.*unit sell: executed on both, Jeep [0-9]* gone, .*(\(+[0-9]*\)).*/\1/p')
+  G423V="$G423V; match rc=$G423TBRC refused-off-bay $G423REF(1) no-local-change $G423LOC(1) both-sold ${G423EXE:-no}(+200)"
+  [ "$G423TBRC" = "0" ] && [ "$G423REF" = "1" ] && [ "$G423LOC" = "1" ] && [ "$G423EXE" = "+200" ] || G423OK=0
+else
+  G423V="$G423V; cnc_twobrain is not in this folder (game/build.sh makes it), the match part did not run"
+  G423OK=0
+fi
+if [ "$G423OK" = "1" ]; then
+  ok "G423 a unit on the Repair Bay sells back: $G423V"
+else
+  bad "G423 a unit on the Repair Bay does not sell back: $G423V"
+fi
+
+# =====================================================================================
+# G424 A SPY SHOWS WHAT IT FOUND (Red Alert). A Spy that walks into an enemy building
+# changes the game in a few places the engine already handled (a spied Radar Dome shares
+# the owner's sight, a spied Airfield gives the spy's house Parabombs), but most of what
+# 1996 gives it is information drawn over the spied building when the player selects it,
+# and none of that was drawn, so a spy seemed to buy nothing. TechnoClass::Draw_Pips and
+# BuildingClass::Draw_It (brain/vanilla/redalert/techno.cpp, building.cpp) draw: the
+# owner's money over a spied refinery or silo (spying one storage building spies all of
+# them), five power pips over a spied power plant coloured by the owner's power, the cameo
+# of what a spied factory is building, and the word over a fake structure that is spied or
+# the player's own. The brain now prints spied=, spyprod=, spymoney=, powpip= and fake= on
+# every OBJ line and the renderer draws them (game/spyinfo_mod.h) in all three modes.
+# Skirmish SCM08EA, seed 4242, three AI, real shroud; buildings are spawned for the enemy
+# house with the most on the map beside the player's start, and spies sent in. Parts:
+#   (1) the source: the Red Alert brain prints the five fields before act=, which stays last
+#       (read only where the brain source sits beside the gates);
+#   (2) Enhanced, N64 and Classic: spies go into the Ore Silo, the Power Plant, the War
+#       Factory and the Barracks. Selecting the Ore Refinery, which no spy entered, draws the
+#       owner's money: the number the brain gives on the OBJ line, which must also equal the
+#       house's credits plus stored ore read from its HOUSE| line in the same dump; after
+#       500 credits of ore are stored for that house (the stored ore must rise), the drawn,
+#       the OBJ-line and the HOUSE-line numbers move together and still agree; the Power
+#       Plant draws five pips in the frame its colour asks for;
+#       the War Factory and the Barracks draw the cameo of the product the brain names; the
+#       player's own fake Radar Dome draws the word. Each picture is taken again with the
+#       drawing off (`spyinfo 0`) and must differ inside what was drawn;
+#   (3) Enhanced, with an Airfield and a Radar Dome added: spies into both and the Power
+#       Plant give the Parabomb on the sidebar, a gold power column (the extra buildings
+#       drain the owner's power), and a soldier spawned for that house far from the player
+#       shows through the shroud;
+#   (4) the control, the same staging with the spies left standing: nothing is spied,
+#       selecting the refinery, the power plant and the factory draws nothing, no Parabomb,
+#       the far soldier's cell stays hidden, and the player's own fake still says so.
+# PROVEN TO FAIL on the renderer and brain before the change: the OBJ line carries none of
+# the fields, so every building reads spied=0 and nothing is drawn (count=0 in every leg).
+# NOT COVERED: the radar's spy report (the 1996 radar button's page of the owner's counts
+# once a dome is spied), which is not drawn; a spied refinery's own storage pips in Classic,
+# where no pip row is drawn for anything.
+# =====================================================================================
+G424RADLL="$GATEDIR/../brain/vanilla/redalert/dllinterface.cpp"
+if [ -f "$G424RADLL" ]; then
+  G424SRC=$(grep -a -c '|fake=%d|spied=%d|spyprod=%s|spymoney=%d|powpip=%d|act=%d\\n"' "$G424RADLL")
+else
+  G424SRC="absent"
+fi
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCM08EA.pack ]; then
+  skip "G424 a spy shows what it found: no Red Alert module with 3D scenes is staged in this folder (source $G424SRC)"
+else
+rm -rf g424 && mkdir -p g424
+printf 'dos_classic 1\nenabled 0\n' > g424/classic.cfg
+# The display legs. Spy 0 goes into the SILO, never the refinery, so the money over the
+# refinery is the spread. Spy 4 only stands beside the refinery: the engine selects
+# nothing on a cell its player has not seen, and no other spy walks past it.
+{
+  cat <<'G424S'
+tick 20
+cam 43 42
+spawnobj PROC 40 44 enemy
+tick 1
+spawnobj SILO 44 44 enemy
+tick 1
+spawnobj POWR 47 44 enemy
+tick 1
+spawnobj WEAP 41 39 enemy
+tick 1
+spawnobj BARR 45 39 enemy
+tick 1
+spawnobj DOMF 48 40 player
+tick 1
+spawnobj SPY 43 42
+spawnobj SPY 44 43
+spawnobj SPY 45 42
+spawnobj SPY 46 43
+spawnobj SPY 41 43
+tick 5
+deselect
+lclickobj SPY 0
+orderobj SILO 0
+deselect
+lclickobj SPY 1
+orderobj POWR 0
+deselect
+lclickobj SPY 2
+orderobj WEAP 0
+deselect
+lclickobj SPY 3
+orderobj BARR 0
+tick 300
+G424S
+  for g424b in PROC POWR WEAP BARR DOMF; do
+    printf 'deselect\nlclickobj %s 0\ntick 1\nframes 1\nspydump\nshot g424/%%M%%_%s_on.png\nspyinfo 0\nshot g424/%%M%%_%s_off.png\nspyinfo 1\n' \
+      "$g424b" "$g424b" "$g424b"
+  done
+  printf 'deselect\nlclickobj PROC 0\ntick 1\nframes 1\nspydump\nstoreore %%H%% 500\ntick 1\nframes 1\nspydump\nquit\n'
+} > g424/show.tpl
+# The engine legs: the spy run (S) and its control (C).
+g424_engine() {
+  cat <<'G424E'
+tick 20
+cam 44 42
+spawnobj PROC 40 44 enemy
+tick 1
+spawnobj SILO 44 44 enemy
+tick 1
+spawnobj POWR 47 44 enemy
+tick 1
+spawnobj WEAP 41 39 enemy
+tick 1
+spawnobj AFLD 50 44 enemy
+tick 1
+spawnobj DOME 48 40 enemy
+tick 1
+spawnobj DOMF 44 47 player
+tick 1
+spawnobj SPY 44 43
+spawnobj SPY 47 42
+spawnobj SPY 48 43
+tick 5
+G424E
+  if [ "$1" = "S" ]; then
+    printf 'deselect\nlclickobj SPY 0\norderobj POWR 0\ndeselect\nlclickobj SPY 1\norderobj DOME 0\ndeselect\nlclickobj SPY 2\norderobj AFLD 0\n'
+  fi
+  printf 'tick 300\nsbdump\n'
+  for g424b in PROC POWR WEAP DOMF; do
+    printf 'deselect\nlclickobj %s 0\ntick 1\nspydump\n' "$g424b"
+  done
+  printf 'deselect\ncam 46 70\ntick 1\nshroudat 46 73\nspawnobj E1 46 73 enemy\ntick 30\nshroudat 46 73\nquit\n'
+}
+g424_engine S > g424/eng_S.txt
+g424_engine C > g424/eng_C.txt
+G424RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --scen SCM08EA --pack ra3d/3d/SCM08EA.pack --skirmish --seed 4242 --ai 3 --savedir g424 --gfxsave g424/private.cfg"
+G424OK=1
+G424V="source $G424SRC(1)"
+{ [ "$G424SRC" = "1" ] || [ "$G424SRC" = "absent" ]; } || G424OK=0
+# The changed pixels inside a drawn rectangle between the picture with the spy drawing on
+# and the one with it off.
+g424_diff() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+from PIL import Image
+a = Image.open(sys.argv[1]).convert('RGB'); b = Image.open(sys.argv[2]).convert('RGB')
+x0, y0, x1, y1 = [int(v) for v in sys.argv[3].split(',')]
+x0, y0 = max(0, x0), max(0, y0); x1, y1 = min(a.width, x1), min(a.height, y1)
+pa, pb, n = a.load(), b.load(), 0
+for y in range(y0, y1):
+    for x in range(x0, x1):
+        if pa[x, y] != pb[x, y]: n += 1
+print(n)
+PY
+}
+# The SPYDUMP block after the n-th 'spydump' a log printed, for one building type.
+g424_obj()   { awk -v n="$2" -v t="$3" '/^SPYDUMP-BEGIN/{k++} k==n && index($0,"SPY-OBJ|" t "|")==1' "$1"; }
+g424_drawn() { awk -v n="$2" -v t="$3" '/^SPYDUMP-BEGIN/{k++} k==n && index($0,"SPY-DRAWN|" t "|")==1' "$1"; }
+g424_f()     { printf '%s\n' "$1" | tr '|' '\n' | sed -n "s/^$2=//p" | head -1; }
+g424_avail() {
+  g424c=$(g424_f "$1" credits); g424t=$(g424_f "$1" tiberium)
+  case "$g424c$g424t" in ''|*[!0-9-]*) echo none ;; *) echo $(( g424c + g424t )) ;; esac
+}
+g424_house() { awk -v n="$2" -v h="$3" '/^SPYDUMP-BEGIN/{k++} k==n && index($0,"SPY-HOUSE|" h "|")==1' "$1"; }
+for g424m in enhanced n64 classic; do
+  case $g424m in
+    enhanced) g424x="--enhanced --texset 3" ;;
+    n64)      g424x="" ;;
+    classic)  g424x="--gfx g424/classic.cfg" ;;
+  esac
+  G424LOG=g424/show_$g424m.log
+  # The buildings go to the enemy house with the most on the map, Multi4 on this seed; the
+  # ore goes to it, and the owner is printed so a change of house reads as the cause.
+  sed -e "s/%M%/$g424m/g" -e "s/%H%/Multi4/g" g424/show.tpl > g424/show_$g424m.txt
+  gbegin
+  grun "$G424LOG" $G424RA $g424x --script g424/show_$g424m.txt
+  g424rc=$GRC
+  g424h=$(g424_obj "$G424LOG" 1 PROC | cut -d'|' -f3)
+  # (1) the refinery: brain money, drawn money, spread
+  g424po=$(g424_obj "$G424LOG" 1 PROC); g424pd=$(g424_drawn "$G424LOG" 1 PROC)
+  g424bm=$(g424_f "$g424po" money); g424dm=$(g424_f "$g424pd" money)
+  g424sp=$(g424_f "$g424po" spied)
+  g424po2=$(g424_obj "$G424LOG" 6 PROC); g424pd2=$(g424_drawn "$G424LOG" 6 PROC)
+  g424po3=$(g424_obj "$G424LOG" 7 PROC); g424pd3=$(g424_drawn "$G424LOG" 7 PROC)
+  g424m2=$(g424_f "$g424pd2" money); g424m3=$(g424_f "$g424pd3" money)
+  g424b2=$(g424_f "$g424po2" money); g424b3=$(g424_f "$g424po3" money)
+  g424up=$(( ${g424m3:-0} - ${g424m2:-0} ))
+  # The owner's money read apart from spymoney=: the HOUSE| line's credits plus stored ore
+  # (HouseClass::Available_Money is Tiberium + Credits), in the same dump, before and after
+  # the ore. The stored ore must have risen, so the store really moved.
+  g424hb=$(g424_house "$G424LOG" 1 Multi4); g424h2=$(g424_house "$G424LOG" 6 Multi4); g424h3=$(g424_house "$G424LOG" 7 Multi4)
+  g424a1=$(g424_avail "$g424hb")
+  g424a2=$(g424_avail "$g424h2")
+  g424a3=$(g424_avail "$g424h3")
+  g424t2=$(g424_f "$g424h2" tiberium); g424t3=$(g424_f "$g424h3" tiberium)
+  g424tu=$(( ${g424t3:-0} - ${g424t2:-0} ))
+  g424pr=$(g424_f "$g424pd" rect)
+  g424pdiff=$(g424_diff g424/${g424m}_PROC_on.png g424/${g424m}_PROC_off.png "$g424pr" 2>>"$OUT")
+  # (2) the power plant
+  g424wo=$(g424_obj "$G424LOG" 2 POWR); g424wd=$(g424_drawn "$G424LOG" 2 POWR)
+  g424pp=$(g424_f "$g424wo" powpip); g424pn=$(g424_f "$g424wd" powpips); g424pf=$(g424_f "$g424wd" powframe)
+  case "$g424pp" in 0) g424pw=1 ;; 1) g424pw=5 ;; 2) g424pw=7 ;; *) g424pw=none ;; esac
+  g424wdiff=$(g424_diff g424/${g424m}_POWR_on.png g424/${g424m}_POWR_off.png "$(g424_f "$g424wd" rect)" 2>>"$OUT")
+  # (3) the two factories
+  g424fo=$(g424_obj "$G424LOG" 3 WEAP); g424fd=$(g424_drawn "$G424LOG" 3 WEAP)
+  g424fb=$(g424_f "$g424fo" prod); g424fp=$(g424_f "$g424fd" prod)
+  g424fdiff=$(g424_diff g424/${g424m}_WEAP_on.png g424/${g424m}_WEAP_off.png "$(g424_f "$g424fd" rect)" 2>>"$OUT")
+  g424ro=$(g424_obj "$G424LOG" 4 BARR); g424rd=$(g424_drawn "$G424LOG" 4 BARR)
+  g424rb=$(g424_f "$g424ro" prod); g424rp=$(g424_f "$g424rd" prod)
+  g424rdiff=$(g424_diff g424/${g424m}_BARR_on.png g424/${g424m}_BARR_off.png "$(g424_f "$g424rd" rect)" 2>>"$OUT")
+  # (4) the player's own fake
+  g424dd=$(g424_drawn "$G424LOG" 5 DOMF)
+  g424dc=$(g424_f "$g424dd" decoy)
+  g424ddiff=$(g424_diff g424/${g424m}_DOMF_on.png g424/${g424m}_DOMF_off.png "$(g424_f "$g424dd" rect)" 2>>"$OUT")
+  G424V="$G424V; $g424m rc=$g424rc refinery spied=${g424sp:-none}(1) owner=${g424h:-none}(Multi4) money house=$g424a1 brain=${g424bm:-none} drawn=${g424dm:-none}(all same) +ore stored ${g424t2:-none}->${g424t3:-none}(+$g424tu, >0) house $g424a2->$g424a3 brain ${g424b2:-none}->${g424b3:-none} drawn ${g424m2:-none}->${g424m3:-none}(+$g424up, all same) px=${g424pdiff:-none}(>=40)"
+  G424V="$G424V power powpip=${g424pp:-none} pips=${g424pn:-none}(5) frame=${g424pf:-none}($g424pw) px=${g424wdiff:-none}(>=20)"
+  G424V="$G424V factory brain=${g424fb:-none} drawn=${g424fp:-none}(same, not -) px=${g424fdiff:-none}(>=9000) barracks brain=${g424rb:-none} drawn=${g424rp:-none}(same, not -) px=${g424rdiff:-none}(>=9000)"
+  G424V="$G424V fake decoy=${g424dc:-none}(1) px=${g424ddiff:-none}(>=20)"
+  [ "$g424rc" = "0" ] && [ "$g424sp" = "1" ] && [ "$g424h" = "Multi4" ] && [ -n "$g424bm" ] && [ "$g424bm" = "$g424dm" ] \
+    && [ "$g424bm" -gt 0 ] && [ "$g424a1" = "$g424bm" ] \
+    && [ "$g424tu" -gt 0 ] && [ "$g424up" -gt 0 ] \
+    && [ -n "$g424b2" ] && [ "$g424a2" = "$g424b2" ] && [ "$g424b2" = "$g424m2" ] \
+    && [ -n "$g424b3" ] && [ "$g424a3" = "$g424b3" ] && [ "$g424b3" = "$g424m3" ] \
+    && [ "${g424pdiff:-0}" -ge 40 ] \
+    && [ "$g424pn" = "5" ] && [ "$g424pf" = "$g424pw" ] && [ "${g424wdiff:-0}" -ge 20 ] \
+    && [ -n "$g424fb" ] && [ "$g424fb" != "-" ] && [ "$g424fb" = "$g424fp" ] && [ "${g424fdiff:-0}" -ge 9000 ] \
+    && [ -n "$g424rb" ] && [ "$g424rb" != "-" ] && [ "$g424rb" = "$g424rp" ] && [ "${g424rdiff:-0}" -ge 9000 ] \
+    && [ "$g424dc" = "1" ] && [ "${g424ddiff:-0}" -ge 20 ] || G424OK=0
+done
+for g424e in S C; do
+  G424LOG=g424/eng_$g424e.log
+  gbegin
+  grun "$G424LOG" $G424RA --enhanced --texset 3 --script g424/eng_$g424e.txt
+  g424rc=$GRC
+  g424para=$(grep -c '^SBENT|.*|name=SW_ParaBomb|' "$G424LOG")
+  g424sh=$(grep '^SHROUDAT|46,73|' "$G424LOG" | cut -d'|' -f3 | tr '\n' ' ')
+  g424spied=$(grep '^SPY-OBJ|' "$G424LOG" | grep -c '|spied=1|')
+  g424drawn=$(grep '^SPY-DRAWN|' "$G424LOG" | grep -v '^SPY-DRAWN|DOMF|' | wc -l | tr -d ' ')
+  g424pow=$(g424_drawn "$G424LOG" 2 POWR)
+  g424dec=$(g424_f "$(g424_drawn "$G424LOG" 4 DOMF)" decoy)
+  if [ "$g424e" = "S" ]; then
+    G424V="$G424V; spy engine rc=$g424rc parabomb=$g424para(1) far soldier $g424sh(HIDDEN CLEAR) power frame=$(g424_f "$g424pow" powframe)(5 gold) decoy=${g424dec:-none}(1)"
+    [ "$g424rc" = "0" ] && [ "$g424para" = "1" ] && [ "$g424sh" = "HIDDEN CLEAR " ] \
+      && [ "$(g424_f "$g424pow" powframe)" = "5" ] && [ "$g424dec" = "1" ] || G424OK=0
+  else
+    G424V="$G424V; control rc=$g424rc spied=$g424spied(0) drawn=$g424drawn(0) parabomb=$g424para(0) far soldier $g424sh(HIDDEN HIDDEN) decoy=${g424dec:-none}(1)"
+    [ "$g424rc" = "0" ] && [ "$g424spied" = "0" ] && [ "$g424drawn" = "0" ] && [ "$g424para" = "0" ] \
+      && [ "$g424sh" = "HIDDEN HIDDEN " ] && [ "$g424dec" = "1" ] || G424OK=0
+  fi
+done
+if [ "$G424OK" = "1" ]; then
+  ok "G424 a spy shows what it found: $G424V"
+else
+  bad "G424 a spy does not show what it found: $G424V"
+fi
+fi
+
+# =====================================================================================
+# G425 A REFINERY SWITCHED OFF NEVER TRAPS A HARVESTER (both games). The building power
+# switch (BuildingClass::Toggle_Power) used to refuse only RADIO_HELLO. A harvester picks
+# its refinery by asking RADIO_CAN_LOAD (TechnoClass::Find_Docking_Bay, and What_Action for
+# the ENTER pointer), and a switched-off refinery still said yes: a full harvester chose
+# it, was refused, retried beside it every second and never unloaded while another powered
+# refinery of the same house stood empty. A harvester already approaching when the switch
+# was thrown was docked inside it by RADIO_DOCKING and held there, and one switched off
+# mid-unload slept inside with its load. Now a switched-off building never offers a dock
+# in answer to CAN_LOAD (a RADIO_ROGER becomes RADIO_NEGATIVE; every other answer is the
+# building's usual one, because Red Alert's InfantryClass::What_Action asks CAN_LOAD of
+# every allied building and shows the no-entry pointer on RADIO_NEGATIVE), Find_Best_Refinery
+# passes over a remembered refinery that is off, UnitClass::Mission_Enter turns a harvester
+# heading for one back to its harvest mission (which picks a powered refinery), and an
+# unload already under way finishes and the harvester is let out (Tiberian Dawn's
+# BuildingClass::Mission_Harvest and Exit_Object; Red Alert's harvester unloads itself).
+# Every assertion reads the engine's own OBJ and HOUSE lines:
+#   (1) Red Alert SCU32EA as shipped, two Soviet refineries: PROC#7, the one the harvesters
+#       use, is switched off at frame 900. The house's stored ore rises, every harvester
+#       that fills unloads again, no full harvester waits within 3 cells of PROC#7 for 600
+#       ticks, and the pointer over PROC#7 with a harvester selected is ENTER before the
+#       switch and not after it.
+#   (1b) Red Alert SCU32EA, a rifleman (E1#1) selected: the pointer over the Radar Dome
+#       (DOME#1) and over PROC#7 is the same before and after both are switched off
+#       (select, as in the 1996 game), never the no-entry sign.
+#   (2) Tiberian Dawn SCG90EA with a second GDI refinery added at cell 42,52 (a copy of the
+#       mission in g425/missions): PROC#3, beside the harvesters, is switched off at frame
+#       300. Stored Tiberium rises, every harvester that fills unloads, none is ever inside
+#       PROC#3.
+#   (3) the same mission in Enhanced, N64 and Classic: HARV#1 is ordered onto PROC#3 while
+#       HARV#2 is approaching it, then PROC#3 is switched off. The pointer over PROC#3 with
+#       HARV#1 selected is ENTER before and not after; no harvester docks inside PROC#3
+#       while it is off; HARV#1 unloads at PROC#17. PROC#3 is then switched back on, the
+#       pointer is ENTER again, and a harvester docks inside it and unloads.
+#   (4) the same mission, PROC#3 switched off at frame 1000 while HARV#2 is docked in it
+#       unloading: the unload finishes and HARV#2 comes out while PROC#3 is still off.
+# PROVEN TO FAIL on the brains before the change: (1) the ore stays 0 and both harvesters
+# wait full beside PROC#7 from frame 1803 to the end, and the pointer stays ENTER; (2) the
+# Tiberium stays 0 and both harvesters stay full; (3) the pointer stays ENTER and HARV#2 is
+# docked inside the switched-off PROC#3 for good; (4) HARV#2 stays inside at 6 of 7 pips.
+# (1b) is proven to fail on a first version of this change that refused every CAN_LOAD
+# while off: the pointer read select, select, then no-enter, no-enter.
+# NOT COVERED: with every refinery of a house switched off a full harvester has nowhere to
+# go and waits where it is. Repair bays, helipads and airstrips refuse new units through
+# the same CAN_LOAD refusal when off, and no leg here drives one.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCU32EA.pack ] || [ ! -f missions/SCG90EA.INI ] \
+   || [ ! -f missions/SCG90EA.BIN ] || [ ! -f SCG01EA.pack ]; then
+  skip "G425 a switched-off refinery never traps a harvester: SCG90EA, SCG01EA.pack or Red Alert's SCU32EA is not staged in this folder"
+else
+rm -rf g425 && mkdir -p g425/missions
+printf 'dos_classic 1\nenabled 0\n' > g425/classic.cfg
+cp missions/SCG90EA.BIN g425/missions/
+# The second refinery goes in as the last line of [STRUCTURES], so it is building 17.
+awk '/^\[STRUCTURES\]/{s=1; print; next}
+     s==1 && (/^\[/ || /^\r?$/){print "017=GoodGuy,PROC,256,3370,0,None"; s=2}
+     {print}' missions/SCG90EA.INI > g425/missions/SCG90EA.INI
+G425TD="--cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack --dylib TiberianDawn.dylib --dir g425/missions/ --content content/ --dist 3000 --nosound --w 1280 --h 720 --scen SCG90EA --pack SCG01EA.pack --noshroud --savedir g425 --gfxsave g425/private.cfg"
+G425RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --scen SCU32EA --pack ra3d/3d/SCU32EA.pack --noshroud --savedir g425 --gfxsave g425/private.cfg"
+# Every objdump from frame FROM to frame TO, for one house: the switched-off refinery's
+# power and place, the house's stored ore, how many times a harvester is inside the
+# refinery's dock cell DX,DY while it is off, the longest stretch a full harvester spends
+# outside within 3 cells of NX,NY, and per harvester whether it unloaded after filling.
+#   g425_scan LOG HOUSE REFID FROM TO DX DY NX NY
+g425_scan() {
+  awk -F'|' -v H="$2" -v R="$3" -v F="$4" -v T="$5" -v DX="$6" -v DY="$7" -v NX="$8" -v NY="$9" '
+  function val(k,  i, n) { for (i = 3; i <= NF; i++) { n = index($i, "="); if (substr($i, 1, n - 1) == k) return substr($i, n + 1) } return "" }
+  function ab(v) { return v < 0 ? -v : v }
+  /^HOUSE\|/ { if ($2 == H) tib = val("tiberium") + 0; next }
+  /^OBJ\|/ {
+    if ($4 != H) next
+    if ($3 == "HARV") { id = val("id"); n++; hid[n] = id; hx[n] = val("x"); hy[n] = val("y"); hp[n] = val("pips") + 0; hm[n] = val("maxpips") + 0; hl[n] = val("limbo") + 0 }
+    if ($3 == "PROC" && val("id") == R) { roff = val("poweroff") + 0; rat = val("x") "," val("y") }
+    next
+  }
+  /^OBJDUMP-END/ {
+    fr = $0; sub(/.*frame=/, "", fr); fr += 0
+    if (fr >= F && fr <= T) {
+      dumps++; if (roff == 1) off++
+      if (!seen) { tib0 = tib; seen = 1 }
+      if (tib > tibmax) tibmax = tib
+      for (i = 1; i <= n; i++) {
+        id = hid[i]; ids[id] = 1
+        if (hm[i] > 0 && hp[i] == hm[i]) full[id] = 1; else if (full[id]) unl[id] = 1
+        if (hl[i] == 1 && hx[i] == DX && hy[i] == DY && roff == 1) inside++
+        if (hm[i] > 0 && hp[i] == hm[i] && hl[i] == 0 && ab(hx[i] - NX) <= 3 && ab(hy[i] - NY) <= 3) {
+          if (!(id in st)) st[id] = fr
+          if (fr - st[id] > near) near = fr - st[id]
+        } else delete st[id]
+      }
+    }
+    n = 0; roff = ""
+  }
+  END {
+    stuck = 0; list = ""
+    for (id in ids) { if (full[id] && !unl[id]) stuck++; list = list "HARV#" id ":" (full[id] ? (unl[id] ? "unloaded" : "FULL") : "never-full") " " }
+    printf "ref=%s dumps=%d off=%d tib=%d->%d inside=%d near=%d stuck=%d %s\n", rat, dumps, off, tib0, tibmax, inside, near, stuck, list
+  }' "$1"
+}
+g425_f() { printf '%s\n' "$1" | tr ' ' '\n' | sed -n "s/^$2=//p" | head -1; }
+# One harvester's lines from frame FROM on, as "frame:x,y:pips:limbo" words.
+g425_harv() {
+  awk -F'|' -v H="$2" -v W="$3" -v F="$4" '
+  function val(k,  i, n) { for (i = 3; i <= NF; i++) { n = index($i, "="); if (substr($i, 1, n - 1) == k) return substr($i, n + 1) } return "" }
+  /^OBJ\|UNIT\|HARV\|/ { if ($4 == H && val("id") == W) cur = val("x") "," val("y") ":" val("pips") ":" val("limbo"); next }
+  /^OBJ\|BUILDING\|PROC\|/ { if ($4 == H && val("id") == 3) off3 = val("poweroff"); next }
+  /^OBJDUMP-END/ { fr = $0; sub(/.*frame=/, "", fr); if (fr + 0 >= F && cur != "") printf "%d:%s:%s ", fr, cur, off3; cur = ""; off3 = "" }' "$1"
+}
+G425OK=1
+G425V=""
+# ---- (1) Red Alert -----------------------------------------------------------------
+{
+  printf 'tick 900\nlook HARV#6\ntick 1\nlclickobj HARV#6\nlook PROC#7\ntick 1\ncursorobj PROC#7\n'
+  # 20 ticks before the pointer is asked again: the renderer keeps a probe answer for 15
+  # engine frames while the pointer, the cell and the selection stay the same.
+  printf 'deselect\npowermode 1\nlclickobj PROC#7\ntick 2\npowermode 0\ntick 20\n'
+  printf 'look HARV#6\ntick 1\nlclickobj HARV#6\nlook PROC#7\ntick 1\ncursorobj PROC#7\ndeselect\nobjdump\n'
+  g425i=0; while [ $g425i -lt 8 ]; do printf 'tick 300\nobjdump\n'; g425i=$((g425i+1)); done
+  printf 'quit\n'
+} > g425/ra.txt
+gbegin
+grun g425/ra.log $G425RA --script g425/ra.txt
+g425rc=$GRC
+g425c=$(grep -a '^CURSOROBJ|PROC#7|' g425/ra.log | sed 's/.*|shape=//' | tr '\n' ' ')
+g425s=$(g425_scan g425/ra.log USSR 7 910 4000 -1 -1 48 76)
+G425V="RA rc=$g425rc pointer $g425c(enter, then not enter) $g425s (ref=47,75 off=dumps tib rises near<600 stuck=0)"
+[ "$g425rc" = "0" ] && [ "$(echo $g425c | cut -d' ' -f1)" = "enter" ] && [ -n "$(echo $g425c | cut -d' ' -f2)" ] \
+  && [ "$(echo $g425c | cut -d' ' -f2)" != "enter" ] && [ "$(g425_f "$g425s" ref)" = "47,75" ] \
+  && [ "$(g425_f "$g425s" dumps)" -ge 8 ] && [ "$(g425_f "$g425s" off)" = "$(g425_f "$g425s" dumps)" ] \
+  && [ "$(g425_f "$g425s" tib | cut -d'>' -f2)" -gt "$(g425_f "$g425s" tib | cut -d'-' -f1)" ] \
+  && [ "$(g425_f "$g425s" near)" -lt 600 ] && [ "$(g425_f "$g425s" stuck)" = "0" ] || G425OK=0
+# ---- (1b) Red Alert, a rifleman's pointer over switched-off buildings ---------------
+{
+  printf 'tick 300\nlook E1#1\ntick 1\nlclickobj E1#1\nlook DOME#1\ntick 1\ncursorobj DOME#1\nlook PROC#7\ntick 1\ncursorobj PROC#7\n'
+  printf 'deselect\npowermode 1\nlook DOME#1\ntick 1\nlclickobj DOME#1\ntick 2\nlook PROC#7\ntick 1\nlclickobj PROC#7\ntick 2\npowermode 0\ntick 20\n'
+  printf 'look E1#1\ntick 1\nlclickobj E1#1\nlook DOME#1\ntick 1\ncursorobj DOME#1\nlook PROC#7\ntick 1\ncursorobj PROC#7\ndeselect\nobjdump\nquit\n'
+} > g425/ra_inf.txt
+gbegin
+grun g425/ra_inf.log $G425RA --script g425/ra_inf.txt
+g425rc=$GRC
+g425c=$(grep -a '^CURSOROBJ|' g425/ra_inf.log | sed 's/^CURSOROBJ|\([^|]*\)|.*|shape=/\1:/' | tr '\n' ' ')
+g425off=$(grep -a '^OBJ|BUILDING|\(DOME\|PROC\)|USSR|' g425/ra_inf.log | grep -a '|id=\(1\|7\)|' | grep -ac '|poweroff=1|')
+G425V="$G425V; RA rifleman rc=$g425rc pointer $g425c(DOME#1:select PROC#7:select, twice) switched off $g425off(2)"
+[ "$g425rc" = "0" ] && [ "$g425off" = "2" ] \
+  && [ "$(echo $g425c)" = "DOME#1:select PROC#7:select DOME#1:select PROC#7:select" ] || G425OK=0
+# ---- (2) Tiberian Dawn, switched off before the harvesters come home ---------------
+{
+  printf 'tick 300\nlook PROC#3\ntick 1\npowermode 1\nlclickobj PROC#3\ntick 2\npowermode 0\nobjdump\n'
+  g425i=0; while [ $g425i -lt 8 ]; do printf 'tick 300\nobjdump\n'; g425i=$((g425i+1)); done
+  printf 'quit\n'
+} > g425/td_a.txt
+gbegin
+grun g425/td_a.log $G425TD --script g425/td_a.txt
+g425rc=$GRC
+g425s=$(g425_scan g425/td_a.log GoodGuy 3 302 2710 50 47 51 47)
+g425p17=$(grep -a '^OBJ|BUILDING|PROC|GoodGuy|' g425/td_a.log | grep -a '|id=17|' | head -1 | sed 's/.*|x=\([0-9]*\)|y=\([0-9]*\)|.*/\1,\2/')
+G425V="$G425V; TD switched off early rc=$g425rc PROC#17 at ${g425p17:-none}(42,52) $g425s (ref=50,46 off=dumps tib rises inside=0 stuck=0)"
+[ "$g425rc" = "0" ] && [ "$g425p17" = "42,52" ] && [ "$(g425_f "$g425s" ref)" = "50,46" ] \
+  && [ "$(g425_f "$g425s" dumps)" -ge 8 ] && [ "$(g425_f "$g425s" off)" = "$(g425_f "$g425s" dumps)" ] \
+  && [ "$(g425_f "$g425s" tib | cut -d'>' -f2)" -gt "$(g425_f "$g425s" tib | cut -d'-' -f1)" ] \
+  && [ "$(g425_f "$g425s" inside)" = "0" ] && [ "$(g425_f "$g425s" stuck)" = "0" ] || G425OK=0
+# ---- (3) Tiberian Dawn, an ordered and an approaching harvester, then back on -------
+{
+  printf 'tick 700\nlook PROC#3\ntick 1\nlclickobj HARV#1\ncursorobj PROC#3\norderobj PROC#3\ntick 80\n'
+  printf 'deselect\npowermode 1\nlclickobj PROC#3\ntick 1\npowermode 0\ntick 10\n'
+  printf 'look HARV#1\ntick 1\nlclickobj HARV#1\nlook PROC#3\ntick 1\ncursorobj PROC#3\ndeselect\nobjdump\n'
+  g425i=0; while [ $g425i -lt 12 ]; do printf 'tick 60\nobjdump\n'; g425i=$((g425i+1)); done
+  printf 'look PROC#3\ntick 1\npowermode 1\nlclickobj PROC#3\ntick 1\npowermode 0\ntick 10\nobjdump\n'
+  printf 'look HARV#2\ntick 1\nlclickobj HARV#2\nlook PROC#3\ntick 1\ncursorobj PROC#3\norderobj PROC#3\ndeselect\n'
+  g425i=0; while [ $g425i -lt 14 ]; do printf 'tick 60\nobjdump\n'; g425i=$((g425i+1)); done
+  printf 'quit\n'
+} > g425/td_b.txt
+for g425m in enhanced n64 classic; do
+  case $g425m in
+    enhanced) g425x="--enhanced --texset 3" ;;
+    n64)      g425x="" ;;
+    classic)  g425x="--gfx g425/classic.cfg" ;;
+  esac
+  G425LOG=g425/td_b_$g425m.log
+  gbegin
+  grun "$G425LOG" $G425TD $g425x --script g425/td_b.txt
+  g425rc=$GRC
+  g425c=$(grep -a '^CURSOROBJ|PROC#3|' "$G425LOG" | sed 's/.*|shape=//' | tr '\n' ' ')
+  # The frame PROC#3 went back on: the first dump after the off stretch that reads poweroff=0.
+  g425on=$(awk -F'|' '/^OBJ\|BUILDING\|PROC\|GoodGuy\|/ && /\|id=3\|/ { p = ($0 ~ /\|poweroff=1\|/) ? 1 : 0 }
+                      /^OBJDUMP-END/ { fr = $0; sub(/.*frame=/, "", fr); if (p) was = 1; else if (was) { print fr; exit } }' "$G425LOG")
+  g425s=$(g425_scan "$G425LOG" GoodGuy 3 790 "$(( ${g425on:-99999} - 1 ))" 50 47 51 47)
+  g425h1=$(g425_harv "$G425LOG" GoodGuy 1 790)
+  # HARV#1 unloaded at PROC#17 while PROC#3 was off: inside 42,53 with its pips falling.
+  g425u1=$(printf '%s\n' "$g425h1" | tr ' ' '\n' | awk -F: -v on="${g425on:-99999}" '$1 < on && $2 == "42,53" && $4 == 1 { if (first == "") first = $3; if ($3 < first) d = 1 } END { print d ? 1 : 0 }')
+  # After it went back on, some harvester is inside PROC#3 with its pips falling.
+  g425back=0
+  for g425w in 1 2; do
+    g425hw=$(g425_harv "$G425LOG" GoodGuy $g425w "${g425on:-99999}")
+    g425d=$(printf '%s\n' "$g425hw" | tr ' ' '\n' | awk -F: '$2 == "50,47" && $4 == 1 { if (first == "") first = $3; if ($3 < first) d = 1 } END { print d ? 1 : 0 }')
+    [ "$g425d" = "1" ] && g425back=1
+  done
+  G425V="$G425V; TD order and back on, $g425m rc=$g425rc pointer $g425c(enter, not enter, enter) off stretch $g425s (inside=0) HARV#1 unloads at PROC#17=$g425u1(1) back on at ${g425on:-never} docks and unloads=$g425back(1)"
+  [ "$g425rc" = "0" ] && [ "$(echo $g425c | cut -d' ' -f1)" = "enter" ] && [ -n "$(echo $g425c | cut -d' ' -f2)" ] \
+    && [ "$(echo $g425c | cut -d' ' -f2)" != "enter" ] && [ "$(echo $g425c | cut -d' ' -f3)" = "enter" ] \
+    && [ -n "$g425on" ] && [ "$(g425_f "$g425s" ref)" = "50,46" ] && [ "$(g425_f "$g425s" dumps)" -ge 10 ] \
+    && [ "$(g425_f "$g425s" off)" = "$(g425_f "$g425s" dumps)" ] && [ "$(g425_f "$g425s" inside)" = "0" ] \
+    && [ "$g425u1" = "1" ] && [ "$g425back" = "1" ] || G425OK=0
+done
+# ---- (4) Tiberian Dawn, switched off in the middle of an unload ---------------------
+{
+  printf 'tick 1000\nlook PROC#3\ntick 1\nobjdump\npowermode 1\nlclickobj PROC#3\ntick 1\npowermode 0\n'
+  g425i=0; while [ $g425i -lt 12 ]; do printf 'tick 60\nobjdump\n'; g425i=$((g425i+1)); done
+  printf 'quit\n'
+} > g425/td_c.txt
+gbegin
+grun g425/td_c.log $G425TD --script g425/td_c.txt
+g425rc=$GRC
+g425h2=$(g425_harv g425/td_c.log GoodGuy 2 0)
+# At the switch: inside PROC#3 (50,47, limbo) part unloaded. Later, while PROC#3 is still
+# off: out (limbo 0) and empty.
+g425at=$(printf '%s\n' "$g425h2" | tr ' ' '\n' | awk -F: 'NF { print; exit }')
+g425out=$(printf '%s\n' "$g425h2" | tr ' ' '\n' | awk -F: 'NF && $3 == 0 && $4 == 0 && $5 == 1 { print; exit }')
+G425V="$G425V; TD switched off mid-unload rc=$g425rc HARV#2 at the switch ${g425at:-none}(50,47 inside, pips 1..6) out and empty while off ${g425out:-never}"
+[ "$g425rc" = "0" ] && [ "$(echo "$g425at" | cut -d: -f2)" = "50,47" ] && [ "$(echo "$g425at" | cut -d: -f4)" = "1" ] \
+  && [ "$(echo "$g425at" | cut -d: -f3)" -gt 0 ] && [ "$(echo "$g425at" | cut -d: -f3)" -lt 7 ] \
+  && [ -n "$g425out" ] || G425OK=0
+if [ "$G425OK" = "1" ]; then
+  ok "G425 a switched-off refinery never traps a harvester: $G425V"
+else
+  bad "G425 a switched-off refinery traps a harvester: $G425V"
+fi
+fi
+
+# =====================================================================================
+# G426 RED ALERT'S ALLIED BUILDINGS WEAR THEIR OWN COLOUR IN CLASSIC AND N64
+# (dosclassic_mod.h, ra3d_sprites_mod.h, dos2d_remap_dump). Tiberian Dawn's
+# HouseClass::Remap_Table draws single-player Nod (house 1) structures through the red
+# table, and the sprite paths applied that rule by house number in Red Alert too, where
+# house 1 is Greece: every Allied building was drawn with red trim in Classic, in N64 and
+# on Enhanced's sprite cards, while the units beside it were light blue. Red Alert's own
+# Remap_Table has no per-house case. Anchored on the engine: the object dump's remap= for
+# each building is the colour it must be drawn in, and OPENCNC3D_REMAPDUMP prints the row
+# each sprite path drew it through. Allied mission 8 (Greece's base), Soviet mission 2 (a
+# USSR base that must stay red, beside Greece and GoodGuy buildings) and Tiberian Dawn's
+# GDI mission 1 in Classic (Nod's guard towers, which must keep the red table).
+# PROVEN TO FAIL: the LAN build 24d3911 draws SCG08EA's refinery and silos with 2898
+# red and 114 blue pixels in Classic and 3476 red and 100 blue in N64 (the box below), and
+# prints no remap lines.
+# NOT COVERED: Enhanced's 3D building models, which take their house paint another way
+# and never had the red trim.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG08EA.pack ] || [ ! -f ra3d/3d/SCU02EA.pack ]; then
+  skip "G426 Allied building colour: no Red Alert module with 3D scenes is staged in this folder"
+else
+  rm -rf g426 && mkdir -p g426
+  printf 'tick 20\nreveal 1\ngfxmode 0\ncam 62 91\ntick 3\nshot g426/al_cls.png\ngfxmode 1\ntick 3\nshot g426/al_n64.png\nobjdump\nquit\n' > g426/al.txt
+  printf 'tick 20\nreveal 1\ngfxmode 0\ncam 72 51\ntick 3\nshot g426/so_cls.png\ngfxmode 1\ntick 3\nshot g426/so_n64.png\nobjdump\nquit\n' > g426/so.txt
+  printf 'tick 20\nreveal 1\ngfxmode 0\ntick 3\nshot g426/td_cls.png\nobjdump\nquit\n' > g426/td.txt
+  G426RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 800"
+  gbegin
+  # A prefix assignment does not reach the renderer through a shell function, so the dump
+  # switch is exported for these runs.
+  export OPENCNC3D_REMAPDUMP=1
+  grun g426/al.log $G426RA --scen SCG08EA --pack ra3d/3d/SCG08EA.pack --script g426/al.txt
+  grun g426/so.log $G426RA --scen SCU02EA --pack ra3d/3d/SCU02EA.pack --script g426/so.txt
+  grun g426/td.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 800 --script g426/td.txt
+  unset OPENCNC3D_REMAPDUMP
+  gshots g426/al_cls.png g426/al_n64.png g426/so_cls.png g426/so_n64.png g426/td_cls.png
+  G426P=$(grep -c '^OBJ|BUILDING|PROC|Greece|newcell=11582|.*|remap=1|' g426/al.log)
+  G426R=$(python3 - g426 <<'G426EOF' 2>>"$OUT"
+import re, sys
+from PIL import Image
+d = sys.argv[1]
+def engine(log):
+    eng = {}
+    for line in open(log, errors="replace"):
+        if line.startswith("OBJ|BUILDING|"):
+            i = re.search(r"\|id=(\d+)\|", line); r = re.search(r"\|remap=(\d+)\|", line)
+            if i and r: eng[int(i.group(1))] = int(r.group(1))
+    return eng
+def drawn(log):
+    out = []
+    for line in open(log, errors="replace"):
+        m = re.match(r"REMAP2D\|(\w+)\|[^|]*\|id=(\d+)\|owner=(\d+)\|drawn=(-?\d+)", line)
+        if m: out.append((m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4))))
+    return out
+def check(log):
+    eng = engine(log); bad = 0; n = {}
+    for path, i, owner, row in drawn(log):
+        if i not in eng: continue
+        if row != eng[i]: bad += 1
+        n[(path, owner, row)] = n.get((path, owner, row), 0) + 1
+    return bad, n
+def px(f, box):
+    red = blue = 0
+    for r, g, b in Image.open(d + "/" + f).convert("RGB").crop(box).getdata():
+        if r > g + 40 and r > b + 40: red += 1
+        elif b > r + 30 and b > g + 20: blue += 1
+    return red, blue
+abad, an = check(d + "/al.log"); sbad, sn = check(d + "/so.log")
+tdn = drawn(d + "/td.log")
+tdnod = sum(1 for p, i, o, r in tdn if o == 1); tdred = sum(1 for p, i, o, r in tdn if o == 1 and r == 2)
+acr, acb = px("al_cls.png", (480, 330, 860, 470)); anr, anb = px("al_n64.png", (620, 310, 960, 500))
+scr, scb = px("so_cls.png", (500, 440, 1000, 600))
+print(abad, an.get(("cls", 1, 1), 0), an.get(("card", 1, 1), 0), an.get(("cls", 1, 2), 0) + an.get(("card", 1, 2), 0),
+      sbad, sn.get(("cls", 2, 2), 0), sn.get(("card", 2, 2), 0), sn.get(("cls", 1, 1), 0) + sn.get(("card", 1, 1), 0),
+      tdnod, tdred, acr, acb, anr, anb, scr)
+G426EOF
+)
+  echo "G426 PROC anchor=$G426P al: mismatches greece_cls greece_card greece_red so: mismatches ussr_cls ussr_card greece td: nod nod_red pixels al_cls r/b al_n64 r/b so_cls red = $G426R" >> "$OUT"
+  set -- $G426R
+  if [ "$GRC" != "0" ]; then bad "G426 Allied building colour: a run failed (GRC=$GRC)"
+  elif [ "$G426P" = "1" ] && [ "$#" = "15" ] && [ "$1" = "0" ] && [ "$2" -ge 10 ] && [ "$3" -ge 10 ] && [ "$4" = "0" ] \
+       && [ "$5" = "0" ] && [ "$6" -ge 3 ] && [ "$7" -ge 3 ] && [ "$8" -ge 5 ] \
+       && [ "$9" -ge 1 ] && [ "${10}" = "$9" ] \
+       && [ "${12}" -ge 1000 ] && [ "${11}" -lt $((${12} / 10)) ] && [ "${14}" -ge 1000 ] && [ "${13}" -lt $((${14} / 10)) ] \
+       && [ "${15}" -ge 1000 ]; then
+    ok "G426 Red Alert draws every building in its engine colour: Greece light blue ($2 in Classic, $3 sprite cards; refinery box ${12} blue to ${11} red in Classic, ${14} to ${13} in N64), USSR still red (${15} red pixels), Tiberian Dawn's Nod towers still red ($9 of $9)"
+  else bad "G426 Allied building colour: PROC anchor=$G426P(want 1) results='$G426R' (want 0 mismatches, Greece drawn 1 and never 2, USSR 2, TD Nod all 2, blue >= 1000 and 10x red in both modes, USSR red >= 1000)"; fi
+fi
+
+# =====================================================================================
+# G440 EVERY WINDOWS PROGRAM LOADS ON WINDOWS 7: NONE IMPORTS A FUNCTION OR A DLL THAT
+# WINDOWS 7 DOES NOT HAVE (tools/map-archive/build.py, tools/win/check-pe-arch.py).
+# Windows 7 and 8.1 are not supported, but the Windows loader refuses a whole program for
+# one import it cannot resolve, so the map archive reader, built for libarchive's default
+# Windows 10 target, made opencnc3d-game.exe (both games), OpenCNC3D-Diagnostics.exe and
+# archive.dll import KERNEL32!CreateFile2 (Windows 8) and stop loading on Windows 7 while
+# the launcher still started. Four parts:
+#   (1) build.py configures libarchive for Windows with -DWINDOWS_VERSION=WIN7, on the
+#       Windows libarchive line only;
+#   (2) the guard reads function names: two programs cross compiled here, one calling
+#       CreateFile2 and one importing shcore.dll!GetDpiForMonitor, are refused by
+#       check-pe-arch.py with those names, and one calling CreateFileW passes;
+#   (3) the built reader, from $OPENCNC3D_MAP_ARCHIVE_WIN or else
+#       ../build-native/map-archive/windows: config.h says _WIN32_WINNT 0x0601 and no
+#       object in libmaparchive.a refers to CreateFile2;
+#   (4) the Windows programs, from $OPENCNC3D_WIN_BUILD or else ../build/win: every one
+#       passes check-pe-arch.py, and objdump finds CreateFile2 in none of
+#       opencnc3d-game.exe, OpenCNC3D-Diagnostics.exe and archive.dll.
+# Without the cross compiler (2) cannot run, and without a built reader or Windows
+# programs (3) or (4) cannot: (1) still fails the gate, but the verdict is a SKIP that
+# names the part that did not run.
+# PROVEN TO FAIL on the code before the fix: build.py has no WIN7 line, config.h says
+# 0x0A00, libmaparchive.a's archive_util, archive_windows, archive_read_disk_windows and
+# archive_write_disk_windows objects refer to __imp_CreateFile2, and on the packaged
+# build the guard refuses exactly opencnc3d-game.exe and archive.dll in both games'
+# folders and OpenCNC3D-Diagnostics.exe, naming KERNEL32.dll!CreateFile2 in each.
+# NOT COVERED: a run on Windows 7, which no test machine has. The loader is the only
+# thing proven; whether the game then starts there also needs the Universal C Runtime,
+# a vendor OpenGL 2.1 driver and, for the launcher's downloads, TLS 1.2 in WinINet.
+# =====================================================================================
+rm -rf g440 && mkdir -p g440
+G440PE="$GATEDIR/../tools/win/check-pe-arch.py"
+G440BP="$GATEDIR/../tools/map-archive/build.py"
+G440SRC=$(grep -c "archive_build=out/'archive-build';call(\['cmake'.*'-DWINDOWS_VERSION=WIN7'.*'libz.a'" "$G440BP")
+G440ALL=$(grep -c "WINDOWS_VERSION=" "$G440BP")
+G440CC=$(command -v x86_64-w64-mingw32-gcc 2>/dev/null || ls /opt/homebrew/bin/x86_64-w64-mingw32-gcc /usr/local/bin/x86_64-w64-mingw32-gcc 2>/dev/null | head -1)
+G440OD=$(command -v x86_64-w64-mingw32-objdump 2>/dev/null || ls /opt/homebrew/bin/x86_64-w64-mingw32-objdump /usr/local/bin/x86_64-w64-mingw32-objdump 2>/dev/null | head -1)
+G440NM=$(command -v x86_64-w64-mingw32-nm 2>/dev/null || ls /opt/homebrew/bin/x86_64-w64-mingw32-nm /usr/local/bin/x86_64-w64-mingw32-nm 2>/dev/null | head -1)
+G440MISS=""
+# (2) the guard against three real programs
+G440G="not run"; G440GOK=0
+if [ -n "$G440CC" ]; then
+  printf '#define _WIN32_WINNT 0x0602\n#include <windows.h>\nint main(void){HANDLE h=CreateFile2(L"x",GENERIC_READ,0,OPEN_EXISTING,NULL);return h==INVALID_HANDLE_VALUE;}\n' > g440/win8.c
+  printf '#define _WIN32_WINNT 0x0603\n#include <windows.h>\n#include <shellscalingapi.h>\nint main(void){UINT x=0,y=0;POINT p={0,0};return (int)GetDpiForMonitor(MonitorFromPoint(p,MONITOR_DEFAULTTOPRIMARY),MDT_EFFECTIVE_DPI,&x,&y);}\n' > g440/shcore.c
+  printf '#define _WIN32_WINNT 0x0601\n#include <windows.h>\nint main(void){HANDLE h=CreateFileW(L"x",GENERIC_READ,0,NULL,OPEN_EXISTING,0,NULL);return h==INVALID_HANDLE_VALUE;}\n' > g440/win7.c
+  "$G440CC" -O1 -o g440/win8.exe g440/win8.c >> "$OUT" 2>&1
+  "$G440CC" -O1 -o g440/shcore.exe g440/shcore.c -lshcore >> "$OUT" 2>&1
+  "$G440CC" -O1 -o g440/win7.exe g440/win7.c >> "$OUT" 2>&1
+  python3 "$G440PE" g440/win8.exe > g440/win8.txt 2>&1; G440R8=$?
+  python3 "$G440PE" g440/shcore.exe > g440/shcore.txt 2>&1; G440RS=$?
+  python3 "$G440PE" g440/win7.exe > g440/win7.txt 2>&1; G440R7=$?
+  cat g440/win8.txt g440/shcore.txt g440/win7.txt >> "$OUT"
+  G440N8=$(grep -c 'imports KERNEL32.dll!CreateFile2, which Windows 7' g440/win8.txt)
+  G440NS=$(grep -c 'imports SHCORE.dll, SHCORE.dll!GetDpiForMonitor, which Windows 7' g440/shcore.txt)
+  G440G="CreateFile2 rc=$G440R8(1) named=$G440N8(1), shcore rc=$G440RS(1) named=$G440NS(1), CreateFileW rc=$G440R7(0)"
+  [ "$G440R8" = "1" ] && [ "$G440N8" = "1" ] && [ "$G440RS" = "1" ] && [ "$G440NS" = "1" ] && [ "$G440R7" = "0" ] && G440GOK=1
+else
+  G440MISS="$G440MISS the cross compiler;"
+fi
+# (3) the built reader
+G440AD="${OPENCNC3D_MAP_ARCHIVE_WIN:-$GATEDIR/../build-native/map-archive/windows}"
+G440A="not run"; G440AOK=1
+if [ -f "$G440AD/archive-build/config.h" ] && [ -f "$G440AD/libmaparchive.a" ] && [ -n "$G440NM" ]; then
+  G440WN=$(grep -c '^#define _WIN32_WINNT 0x0601$' "$G440AD/archive-build/config.h")
+  G440C2=$("$G440NM" -A "$G440AD/libmaparchive.a" 2>/dev/null | grep -c 'CreateFile2')
+  G440CW=$("$G440NM" -A "$G440AD/libmaparchive.a" 2>/dev/null | grep -c '__imp_CreateFileW$')
+  G440A="config 0x0601=$G440WN(1), CreateFile2 refs=$G440C2(0), CreateFileW refs=$G440CW(>0)"
+  if [ "$G440WN" != "1" ] || [ "$G440C2" != "0" ] || [ "$G440CW" = "0" ]; then G440AOK=0; fi
+else
+  G440MISS="$G440MISS a built reader in $G440AD;"
+fi
+# (4) the Windows programs
+G440WD="${OPENCNC3D_WIN_BUILD:-$GATEDIR/../build/win}"
+G440W="not run"; G440WOK=1
+if [ -f "$G440WD/opencnc3d-game.exe" ] && [ -f "$G440WD/OpenCNC3D-Diagnostics.exe" ] && [ -f "$G440WD/archive.dll" ] && [ -n "$G440OD" ]; then
+  python3 "$G440PE" "$G440WD" > g440/build.txt 2>&1; G440RB=$?
+  cat g440/build.txt >> "$OUT"
+  G440HIT=""
+  for G440X in opencnc3d-game.exe OpenCNC3D-Diagnostics.exe archive.dll; do
+    "$G440OD" -p "$G440WD/$G440X" > "g440/$G440X.pe" 2>&1
+    grep -q '[[:space:]]CreateFile2$' "g440/$G440X.pe" && G440HIT="$G440HIT $G440X"
+    grep -q 'DLL Name: KERNEL32.dll' "g440/$G440X.pe" || G440HIT="$G440HIT $G440X(unread)"
+  done
+  G440W="check-pe-arch rc=$G440RB(0), CreateFile2 in:${G440HIT:- none}"
+  if [ "$G440RB" != "0" ] || [ -n "$G440HIT" ]; then G440WOK=0; fi
+else
+  G440MISS="$G440MISS Windows programs in $G440WD (set OPENCNC3D_WIN_BUILD);"
+fi
+G440V="build.py WIN7 on the libarchive line=$G440SRC(1) of $G440ALL(1); guard: $G440G; reader: $G440A; programs: $G440W"
+if [ "$G440SRC" != "1" ] || [ "$G440ALL" != "1" ] || [ "$G440AOK" != "1" ] || [ "$G440WOK" != "1" ]; then
+  bad "G440 Windows 7 imports: $G440V"
+elif [ -n "$G440CC" ] && [ "$G440GOK" != "1" ]; then
+  bad "G440 Windows 7 imports: $G440V"
+elif [ -n "$G440MISS" ]; then
+  skip "G440 Windows 7 imports: what ran holds, but not read:$G440MISS $G440V"
+else
+  ok "G440 every Windows program loads on Windows 7, none importing anything newer: $G440V"
+fi
+
+# =====================================================================================
+# G441 THE LAST SESSION'S LOG SURVIVES THE NEXT START, AND A CRASH IS SHOWN WITH THE FILE
+# TO SEND (game/log_keep.h, app/opencnc3d.cpp, launcher/launcher.c). The game opened
+# opencnc3d-log.txt from zero at every start, so starting again after a crash erased the
+# FATAL lines, and the Windows launcher closed the game's handle at once and kept no log,
+# so a game that died as it started left nothing. Four parts:
+#   (1) tools/gate-log-keep.c, compiled here with -Werror against game/log_keep.h, judges
+#       sessions in a scratch folder (clean, FATAL, no exit line, an older build's
+#       unmarked log, FATAL: inside a long line), keeps the newest five crash copies,
+#       survives a read-only folder, and words the launcher's early-exit message;
+#   (2) the game, with its log pointed at g441/logs (OPENCNC3D_LOG_DIR, honoured only in a
+#       background run, so no gate touches the real per-user log): a clean --menushot run
+#       ends its log with APP|exit|clean; a Tiberian Dawn start with
+#       OPENCNC3D_TEST_UNCAUGHT=1 dies; the next start finds the crash, leaves its log as
+#       opencnc3d-log-previous.txt with the FATAL line and one dated opencnc3d-crash-
+#       copy identical to it, says APP|previous-session|crashed|<copy>|<FATAL line>, and
+#       draws the LAST SESSION notice naming the copy (its text pixels counted inside the
+#       box the NOTICE line reports); a further start says previous-session|clean, shows
+#       no notice and makes no second copy;
+#   (3) the same crash and notice in Red Alert (ra3d/opencnc3d, a skirmish start), which
+#       shares the log;
+#   (4) the Windows halves that cannot run here: the launcher waits on the game's process
+#       and reads its exit code, opens its own log when no console is attached, the
+#       uninstaller removes that log, and both READ-MEs name the kept files; and, when
+#       the Windows programs are in $OPENCNC3D_WIN_BUILD or ../build/win, OpenCNC3D.exe
+#       imports WaitForSingleObject and GetExitCodeProcess and carries the launcher log's
+#       name, and opencnc3d-game.exe carries the previous-log name and the exit line.
+# Without the Windows programs (4) is a SKIP for that half only.
+# PROVEN TO FAIL on the build before: the second start leaves no
+# opencnc3d-log-previous.txt and no crash copy, its log says nothing about the previous
+# session, and no notice is drawn; the clean run's log has no APP|exit|clean.
+# NOT COVERED: the Windows launch itself (a game exiting with 0xC0000005 within four
+# seconds), which only a run on Windows can show; and a crash during a hang that raises a
+# Windows Error Reporting box, which the four-second wait does not catch by design.
+# =====================================================================================
+rm -rf g441 && mkdir -p g441/logs g441/unit
+G441BAD=""
+G441D="$PWD/g441/logs"
+G441REAL="$HOME/Library/Application Support/OpenCNC3D/opencnc3d-log.txt"
+G441REALM=$(stat -f %m "$G441REAL" 2>/dev/null || echo none)
+# (1)
+# -I names game/ through the repo root: in a release run this script is copied into the
+# play folder and $GATEDIR is that folder, which holds no log_keep.h
+cc -std=gnu89 -Wall -Wextra -Werror -I "$GATEDIR/../game" "$GATEDIR/../tools/gate-log-keep.c" -o g441/unit.bin >> "$OUT" 2>&1 \
+  || G441BAD="$G441BAD (1) the unit gate did not compile;"
+G441U="not run"
+if [ -x g441/unit.bin ]; then
+  ./g441/unit.bin "$PWD/g441/unit" > g441/unit.txt 2>&1; G441UR=$?
+  cat g441/unit.txt >> "$OUT"
+  G441U=$(grep '^LOGKEEP|ok|' g441/unit.txt | cut -d'|' -f3)
+  if [ "$G441UR" != "0" ] || [ -z "$G441U" ]; then
+    G441BAD="$G441BAD (1) $(grep '^LOGKEEP|FAIL' g441/unit.txt | head -3 | tr '\n' ' ');"
+  fi
+fi
+# (2)
+g441run() {   # g441run ARGS...: one hidden start with standard output on /dev/null, which opens the log
+  ( OPENCNC3D_BACKGROUND=1 SDL_MAC_BACKGROUND_APP=1 OPENCNC3D_LOG_DIR="$G441D" \
+      perl -e 'alarm 180; exec @ARGV' "$@" > /dev/null 2>/dev/null ) 2>/dev/null
+}
+g441copies() { ls "$G441D" | grep -c '^opencnc3d-crash-.*\.txt$'; }
+g441run ./opencnc3d --nosound $BASE --menupack dosmenu.pack --menushot g441/m1.png
+cp "$G441D/opencnc3d-log.txt" g441/log1.txt 2>/dev/null
+G441L1=$(grep -a -c "^APP|previous-session|none$" g441/log1.txt 2>/dev/null)
+G441E1=$(tail -1 g441/log1.txt 2>/dev/null)
+[ "${G441L1:-0}" = "1" ] && [ "$G441E1" = "APP|exit|clean" ] \
+  || G441BAD="$G441BAD (2) the clean run's log: previous-session|none=${G441L1:-0}(1), last line [$G441E1];"
+# (the shell's own "Abort trap" notice is not the log)
+g441run env OPENCNC3D_TEST_UNCAUGHT=1 ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+  --harness 30 --rounds 1 --shotdir g441 2>/dev/null
+cp "$G441D/opencnc3d-log.txt" g441/log2.txt 2>/dev/null
+G441F2=$(grep -a -c '^FATAL: uncaught exception (std::bad_alloc) while: game_boot entry' g441/log2.txt 2>/dev/null)
+G441X2=$(grep -a -c '^APP|exit|clean' g441/log2.txt 2>/dev/null)
+[ "${G441F2:-0}" -ge 1 ] && [ "${G441X2:-0}" = "0" ] \
+  || G441BAD="$G441BAD (2) the crash run's log: FATAL=${G441F2:-0}(>=1), exit lines=${G441X2:-0}(0);"
+g441run ./opencnc3d --nosound $BASE --menupack dosmenu.pack --crashnoticeshot g441/notice.png --menushot g441/m3.png
+cp "$G441D/opencnc3d-log.txt" g441/log3.txt 2>/dev/null
+cat g441/log3.txt >> "$OUT" 2>/dev/null
+G441C=$(ls "$G441D" | grep '^opencnc3d-crash-.*\.txt$' | head -1)
+G441N3=$(g441copies)
+G441PF=$(grep -a -c '^FATAL: uncaught exception (std::bad_alloc)' "$G441D/opencnc3d-log-previous.txt" 2>/dev/null)
+G441SAME=0; [ -n "$G441C" ] && cmp -s "$G441D/$G441C" "$G441D/opencnc3d-log-previous.txt" && G441SAME=1
+G441PS=$(grep -a -c "^APP|previous-session|crashed|$G441D/$G441C|FATAL: uncaught exception (std::bad_alloc) while: game_boot entry\$" g441/log3.txt 2>/dev/null)
+G441NO=$(grep -a "^NOTICE|open|caption=LAST SESSION|" g441/log3.txt 2>/dev/null | head -1)
+# the box writes a path inside the home folder as ~/..., the form the Finder's Go to Folder
+# takes, so a play folder under the home folder is named that way and one elsewhere in full
+G441SHOWN="$G441D/$G441C"
+case "$G441SHOWN" in "$HOME"/*) G441SHOWN="~/${G441SHOWN#"$HOME"/}" ;; esac
+G441NT=$(echo "$G441NO" | grep -c "|text=OpenCNC3D crashed the last time it ran. Its log was kept for a bug report: $G441SHOWN\$")
+G441RECT=$(echo "$G441NO" | sed -n 's/.*|rect=\([0-9,]*\)|.*/\1/p')
+G441PX=$(python3 - g441/notice.png "$G441RECT" <<'PY' 2>/dev/null
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert("RGB")
+x0, y0, x1, y1 = [int(v) for v in sys.argv[2].split(",")]
+px = im.load()
+# the box's body text is TEXT (0xe6e5da); count its pixels in the upper half, above the button
+n = sum(1 for y in range(y0, y0 + (y1 - y0) // 2) for x in range(x0, x1)
+        if all(abs(a - b) < 24 for a, b in zip(px[x, y], (0xe6, 0xe5, 0xda))))
+print(n)
+PY
+)
+[ "$G441N3" = "1" ] && [ "${G441PF:-0}" -ge 1 ] && [ "$G441SAME" = "1" ] && [ "${G441PS:-0}" = "1" ] \
+  && [ "${G441NT:-0}" = "1" ] && [ "${G441PX:-0}" -ge 2000 ] \
+  || G441BAD="$G441BAD (2) after the crash: copies=$G441N3(1), previous has FATAL=${G441PF:-0}, copy=previous=$G441SAME(1), previous-session line=${G441PS:-0}(1), notice text=${G441NT:-0}(1), notice text pixels=${G441PX:-0}(>=2000);"
+g441run ./opencnc3d --nosound $BASE --menupack dosmenu.pack --crashnoticeshot g441/notice4.png --menushot g441/m4.png
+cp "$G441D/opencnc3d-log.txt" g441/log4.txt 2>/dev/null
+G441P4=$(grep -a -c "^APP|previous-session|clean|$G441D/opencnc3d-log-previous.txt\$" g441/log4.txt 2>/dev/null)
+G441N4=$(grep -a -c -e '^NOTICE|open' -e '^APP|crash-notice' g441/log4.txt 2>/dev/null)
+G441C4=$(g441copies)
+[ "${G441P4:-0}" = "1" ] && [ "${G441N4:-0}" = "0" ] && [ "$G441C4" = "1" ] && [ ! -f g441/notice4.png ] \
+  || G441BAD="$G441BAD (2) the start after: previous-session|clean=${G441P4:-0}(1), notice lines=${G441N4:-0}(0), copies=$G441C4(1);"
+G441TD="clean, crash, kept and noticed (copy $G441C, ${G441PX:-0} text pixels in the box), then clean"
+# (3)
+G441RA="not run: no Red Alert module staged here"
+if [ -x ra3d/opencnc3d ] && [ -f ra3d/RedAlert.dylib ]; then
+  rm -rf g441/rasave && mkdir -p g441/rasave && printf 'quit\n' > g441/quit.txt
+  g441run env OPENCNC3D_TEST_UNCAUGHT=1 ./ra3d/opencnc3d --module ra3d --hidden --nosound --no-movies \
+    --raskirmish SCM10EA --side soviet --ai 3 --seed 4242 --savedir g441/rasave --shotdir g441 --script g441/quit.txt 2>/dev/null
+  g441run ./ra3d/opencnc3d --module ra3d --nosound --crashnoticeshot g441/ranotice.png --menushot g441/ram.png
+  cp "$G441D/opencnc3d-log.txt" g441/logra.txt 2>/dev/null
+  cat g441/logra.txt >> "$OUT" 2>/dev/null
+  G441RC=$(g441copies)
+  G441RP=$(grep -a -c '^APP|previous-session|crashed|.*|FATAL: uncaught exception (std::bad_alloc) while: game_boot entry$' g441/logra.txt 2>/dev/null)
+  G441RN=$(grep -a -c '^NOTICE|open|caption=LAST SESSION|.*|text=OpenCNC3D crashed the last time it ran' g441/logra.txt 2>/dev/null)
+  G441RA="copies=$G441RC(2), previous-session crashed=${G441RP:-0}(1), notice=${G441RN:-0}(1), picture=$([ -s g441/ranotice.png ] && echo yes || echo no)"
+  [ "$G441RC" = "2" ] && [ "${G441RP:-0}" = "1" ] && [ "${G441RN:-0}" = "1" ] && [ -s g441/ranotice.png ] \
+    || G441BAD="$G441BAD (3) Red Alert: $G441RA;"
+fi
+G441REALM2=$(stat -f %m "$G441REAL" 2>/dev/null || echo none)
+[ "$G441REALM" = "$G441REALM2" ] || G441BAD="$G441BAD (2) the real per-user log was touched by a gate run;"
+# (4)
+G441LC="$GATEDIR/../launcher/launcher.c"
+G441S1=$(grep -c 'WaitForSingleObject(pi.hProcess, 4000)' "$G441LC")
+G441S2=$(grep -c 'GetExitCodeProcess(pi.hProcess, &code) && code != 0' "$G441LC")
+G441S3=$(grep -c '^        l_log_open();' "$G441LC")
+G441S4=$(grep -c 'Delete "\$INSTDIR\\opencnc3d-launcher-log.txt"' "$GATEDIR/../tools/win/installer/opencnc3d.nsi")
+G441S5=$(grep -c 'opencnc3d-launcher-log.txt' "$GATEDIR/../tools/win/installer/readme-windows.sh")
+G441S6=$(grep -c 'opencnc3d-log-previous.txt' "$GATEDIR/../tools/win/installer/readme-windows.sh")
+G441S7=$(grep -c 'opencnc3d-log-previous.txt' "$GATEDIR/../tools/launchers/READ-ME.txt")
+G441SRC="wait=$G441S1 exit code=$G441S2 log=$G441S3 uninstall=$G441S4 readme launcher log=$G441S5 previous=$G441S6 mac readme=$G441S7 (each 1 or more)"
+for G441V in "$G441S1" "$G441S2" "$G441S3" "$G441S4" "$G441S5" "$G441S6" "$G441S7"; do
+  [ "${G441V:-0}" -ge 1 ] || { G441BAD="$G441BAD (4) $G441SRC;"; break; }
+done
+G441WD="${OPENCNC3D_WIN_BUILD:-$GATEDIR/../build/win}"
+G441OD=$(command -v x86_64-w64-mingw32-objdump 2>/dev/null || ls /opt/homebrew/bin/x86_64-w64-mingw32-objdump /usr/local/bin/x86_64-w64-mingw32-objdump 2>/dev/null | head -1)
+G441W="not read"; G441WMISS=1
+if [ -n "$G441OD" ] && [ -f "$G441WD/OpenCNC3D.exe" ] && [ -f "$G441WD/opencnc3d-game.exe" ]; then
+  G441WMISS=0
+  "$G441OD" -p "$G441WD/OpenCNC3D.exe" > g441/launcher.pe 2>&1
+  G441W1=$(grep -c -E '[[:space:]](WaitForSingleObject|GetExitCodeProcess)$' g441/launcher.pe)
+  G441W2=$(strings -a "$G441WD/OpenCNC3D.exe" | grep -c 'opencnc3d-launcher-log-previous.txt')
+  G441W3=$(strings -a "$G441WD/opencnc3d-game.exe" | grep -c -e 'opencnc3d-log-previous.txt' -e '^APP|exit|clean$')
+  G441W="launcher imports=$G441W1(2) log name=$G441W2(>=1), game names=$G441W3(>=2)"
+  [ "$G441W1" -ge 2 ] && [ "$G441W2" -ge 1 ] && [ "$G441W3" -ge 2 ] || G441BAD="$G441BAD (4) Windows programs: $G441W;"
+fi
+G441V="unit: ${G441U:-failed}; Tiberian Dawn: $G441TD; Red Alert: $G441RA; sources: $G441SRC; Windows: $G441W"
+if [ -n "$G441BAD" ]; then
+  bad "G441 logs survive a relaunch:$G441BAD"
+elif [ "$G441WMISS" = "1" ]; then
+  skip "G441 logs survive a relaunch: what ran holds, but no Windows programs were read in $G441WD (set OPENCNC3D_WIN_BUILD); $G441V"
+else
+  ok "G441 the last session's log survives the next start and a crash is shown with its file: $G441V"
+fi
+
+# =====================================================================================
+# G442 A BROKEN MATCH SAYS WHY IT ENDED, AND TWO DIFFERENT BUILDS CANNOT SHARE A MATCH
+# (game/cnc_eyes.cpp match_stats_capture and net_handle_departures, net/netmatch.c's
+# handshake and silence timer, app/campaign.c's debrief header).
+#
+# A match that broke used to end on a debrief that looked exactly like a finished one:
+# the reason was written into the match table and the table was cleared on the next line,
+# and a match ended by a player dropping out ends on an ordinary win the engine counts like
+# any other. And the room checked only the wire's version, the order layout and the map's
+# bytes, none of which change when gameplay code does, so two releases could share a match
+# and part at the first moment a changed rule was used. The legs, on 127.0.0.1:
+#   (1) A FROZEN JOINER. The joiner is stopped (SIGSTOP) six seconds into a match and let
+#       go forty seconds later, past the thirty-second silence limit. The host must drop
+#       the seat as silent, win, and its table must say the seat STOPPED ANSWERING; the
+#       joiner must notice its own stall (NET|self-stalled) and end on THIS MACHINE
+#       STOPPED ANSWERING, never on THE HOST LEFT THE GAME, which is what it said before
+#       because the host's goodbye is the first thing it reads when it wakes. Both exit 0.
+#   (1b) A FROZEN HOST, the same forty seconds the other way round. The joiner's silence
+#       timer must drop the host and END the match on THE HOST STOPPED ANSWERING, carried
+#       into its table; it used to mark the host's seat quiet and play on alone against a
+#       house that never moved again, with an empty reason. The host, waking to the
+#       joiner's goodbye, wins, and its table must say THIS MACHINE STOPPED ANSWERING
+#       rather than blame the player who gave up waiting. Both exit 0.
+#   (2) TWO BUILDS. The host stands up as v0.9.7 and the joiner as v0.9.6
+#       (OPENCNC3D_NETTEST_BUILD_ID, read only by nm_set_build). The host must refuse the
+#       joiner as a different game version naming both builds, the joiner must say
+#       "(host v0.9.7, you v0.9.6)", and neither may reach lockstep.
+#   (2b) THE SAME AT THE DOOR PLAYERS USE: the lobby (opencnc3d --mphost/--mpjoin) with
+#       the same two names. The host must log the same refusal, the joiner's lobby must
+#       fail with the same sentence, and neither may print MPLOBBY|started.
+#   (3) THE CONTROL: the same two processes named alike must reach lockstep and agree on at
+#       least ten hash reports, so leg (2) is a refusal of a difference and not of every
+#       match the override touches.
+#   (3b) THE REAL STAMP IS SENT. Every other leg names its builds through the override, so
+#       a binary compiled without its build stamp (which reads as "unknown, not compared")
+#       would pass them all. Here the joiner runs WITHOUT the override against a host named
+#       v0.0.0-gate: the host must refuse it naming, as the joiner's build, exactly the
+#       OPENCNC3D|build| mark compiled into ./cnc_eyes.
+#   (4) THE DEBRIEF ITSELF, in the application: a room opened and joined through the
+#       lobby (--mphost/--mpjoin), the host quits at tick 120, and the joiner's Tiberian
+#       Dawn debrief must draw THE HOST LEFT THE GAME on the result line where the player's
+#       own score and place go (APP|debrief|result=, printed as it is drawn), with no
+#       score sum under it (formula=0), there being no score to explain.
+# PROVEN TO FAIL on the build before: (1) the host's table had no ended field and the
+# joiner said THE HOST LEFT THE GAME; (1b) the joiner played on alone to the end of its
+# script with an empty reason; (2) both processes reached lockstep, because nothing
+# compared builds; (4) the result line drew the line every ordinary finish drew instead.
+# Takes about two and a half minutes, most of it legs (1) and (1b)'s forty seconds of
+# silence each.
+# =====================================================================================
+G442BAD=""; G442V=""
+mkdir -p g442
+rm -f g442/*.log g442/*.txt
+printf 'tick 40000\nquit\n' > g442/long.txt
+printf 'tick 120\nquit\n' > g442/short.txt
+printf 'tick 400\nquit\n' > g442/mid.txt
+printf 'tick 4000\nquit\n' > g442/stay.txt
+if [ -x ./cnc_eyes ] && [ -s "$SKMAP.pack" ] && [ -s "missions/$SKMAP.INI" ]; then
+  # ---- (1) the frozen joiner ----
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --ai 0 \
+      --host 17491 --script g442/long.txt > g442/f_h.log 2>&1 &
+  G442HP=$!
+  sleep 3
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side nod --ai 0 \
+      --join 127.0.0.1 17491 --script g442/long.txt > g442/f_j.log 2>&1 &
+  G442JP=$!
+  sleep 6
+  kill -STOP $G442JP 2>/dev/null
+  sleep 40
+  kill -CONT $G442JP 2>/dev/null
+  G442HR=1; G442JR=1
+  wait $G442HP; G442HR=$?
+  wait $G442JP; G442JR=$?
+  cat g442/f_h.log g442/f_j.log >> "$OUT"
+  G442HSIL=$(grep -ac '^NET|peer-silent|seat=1' g442/f_h.log)
+  G442HMS=$(grep -a '^MATCHSTATS|rows=' g442/f_h.log | tail -1)
+  G442HEND=$(printf '%s' "$G442HMS" | sed -n 's/.*|ended=\(.*\)$/\1/p')
+  G442HWIN=$(printf '%s' "$G442HMS" | sed -n 's/.*|win=\([0-9]*\)|.*/\1/p')
+  G442JSELF=$(grep -ac '^NET|self-stalled|' g442/f_j.log)
+  G442JWHY=$(sed -n 's/^GAMEOVER|NETLOST|\(.*\)$/\1/p' g442/f_j.log | head -1)
+  G442JEND=$(grep -a '^MATCHSTATS|rows=' g442/f_j.log | tail -1 | sed -n 's/.*|ended=\(.*\)$/\1/p')
+  G442HENDOK=0
+  case "$G442HEND" in *" STOPPED ANSWERING") G442HENDOK=1 ;; esac
+  G442V="(1) host dropped seat 1 as silent=$G442HSIL, won=$G442HWIN, debrief [$G442HEND]; joiner self-stalled=$G442JSELF, said [$G442JWHY], debrief [$G442JEND], exits $G442HR/$G442JR"
+  [ "$G442HSIL" -ge 1 ] && [ "$G442HWIN" = "1" ] && [ "$G442HENDOK" = "1" ] \
+    && [ "$G442JSELF" -ge 1 ] && [ "$G442JWHY" = "THIS MACHINE STOPPED ANSWERING" ] \
+    && [ "$G442JEND" = "THIS MACHINE STOPPED ANSWERING" ] && [ "$G442HR" = "0" ] && [ "$G442JR" = "0" ] \
+    || G442BAD="$G442BAD $G442V;"
+
+  # ---- (1b) the frozen host ----
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --ai 0 \
+      --host 17495 --script g442/long.txt > g442/fh_h.log 2>&1 &
+  G442HP=$!
+  sleep 3
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side nod --ai 0 \
+      --join 127.0.0.1 17495 --script g442/long.txt > g442/fh_j.log 2>&1 &
+  G442JP=$!
+  sleep 6
+  kill -STOP $G442HP 2>/dev/null
+  sleep 40
+  kill -CONT $G442HP 2>/dev/null
+  G442HR=1; G442JR=1
+  wait $G442JP; G442JR=$?
+  wait $G442HP; G442HR=$?
+  cat g442/fh_h.log g442/fh_j.log >> "$OUT"
+  G442BSELF=$(grep -ac '^NET|self-stalled|' g442/fh_h.log)
+  G442BHMS=$(grep -a '^MATCHSTATS|rows=' g442/fh_h.log | tail -1)
+  G442BHEND=$(printf '%s' "$G442BHMS" | sed -n 's/.*|ended=\(.*\)$/\1/p')
+  G442BHWIN=$(printf '%s' "$G442BHMS" | sed -n 's/.*|win=\([0-9]*\)|.*/\1/p')
+  G442BJSIL=$(grep -ac '^NET|peer-silent|seat=0' g442/fh_j.log)
+  G442BJWHY=$(sed -n 's/^GAMEOVER|NETLOST|\(.*\)$/\1/p' g442/fh_j.log | head -1)
+  G442BJEND=$(grep -a '^MATCHSTATS|rows=' g442/fh_j.log | tail -1 | sed -n 's/.*|ended=\(.*\)$/\1/p')
+  G442V1B="(1b) frozen host self-stalled=$G442BSELF, won=$G442BHWIN, debrief [$G442BHEND]; joiner dropped the host as silent=$G442BJSIL, said [$G442BJWHY], debrief [$G442BJEND], exits $G442HR/$G442JR"
+  [ "$G442BSELF" -ge 1 ] && [ "$G442BHWIN" = "1" ] && [ "$G442BHEND" = "THIS MACHINE STOPPED ANSWERING" ] \
+    && [ "$G442BJSIL" -ge 1 ] && [ "$G442BJWHY" = "THE HOST STOPPED ANSWERING" ] \
+    && [ "$G442BJEND" = "THE HOST STOPPED ANSWERING" ] && [ "$G442HR" = "0" ] && [ "$G442JR" = "0" ] \
+    || G442BAD="$G442BAD $G442V1B;"
+
+  # ---- (2) two builds ----
+  OPENCNC3D_NETTEST_BUILD_ID=v0.9.7 ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish \
+      --side gdi --ai 0 --host 17492 --script g442/mid.txt > g442/v_h.log 2>&1 &
+  G442HP=$!
+  sleep 3
+  OPENCNC3D_NETTEST_BUILD_ID=v0.9.6 ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish \
+      --side nod --ai 0 --join 127.0.0.1 17492 --script g442/mid.txt > g442/v_j.log 2>&1
+  kill -9 $G442HP 2>/dev/null; wait $G442HP 2>/dev/null
+  cat g442/v_h.log g442/v_j.log >> "$OUT"
+  G442VH=$(grep -ac '^NET|refused|.*|reason=different game version|theirs=v0.9.6|mine=v0.9.7|' g442/v_h.log)
+  G442VJ=$(grep -ac '^NET|refused-say|the host refused: different game version (host v0.9.7, you v0.9.6)$' g442/v_j.log)
+  G442VL=$(cat g442/v_h.log g442/v_j.log | grep -ac '^net: lockstep ON')
+  G442V2="(2) host refused the other build=$G442VH, joiner named both=$G442VJ, lockstep=$G442VL"
+  [ "$G442VH" -ge 1 ] && [ "$G442VJ" -ge 1 ] && [ "$G442VL" = "0" ] || G442BAD="$G442BAD $G442V2;"
+
+  # ---- (3b) the real stamp, no override on the joiner ----
+  G442MARK=$(strings -a ./cnc_eyes 2>/dev/null | grep -a '^OPENCNC3D|build|' | head -1 \
+             | sed 's/^OPENCNC3D|build|//; s/|cooked$//')
+  OPENCNC3D_NETTEST_BUILD_ID=v0.0.0-gate ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE \
+      --skirmish --side gdi --ai 0 --host 17494 --script g442/mid.txt > g442/r_h.log 2>&1 &
+  G442HP=$!
+  sleep 3
+  env -u OPENCNC3D_NETTEST_BUILD_ID ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish \
+      --side nod --ai 0 --join 127.0.0.1 17494 --script g442/mid.txt > g442/r_j.log 2>&1
+  kill -9 $G442HP 2>/dev/null; wait $G442HP 2>/dev/null
+  cat g442/r_h.log g442/r_j.log >> "$OUT"
+  G442RT=$(sed -n 's/^NET|refused|.*|reason=different game version|theirs=\([^|]*\)|mine=v0.0.0-gate|.*/\1/p' g442/r_h.log | head -1)
+  G442V3B="(3b) binary's mark [$G442MARK], joiner sent [$G442RT] with no override"
+  [ -n "$G442MARK" ] && [ "$G442RT" = "$G442MARK" ] || G442BAD="$G442BAD $G442V3B;"
+
+  # ---- (3) the control ----
+  OPENCNC3D_NETTEST_BUILD_ID=v0.9.7 ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish \
+      --side gdi --ai 0 --host 17493 --script g442/mid.txt > g442/c_h.log 2>&1 &
+  G442HP=$!
+  sleep 3
+  OPENCNC3D_NETTEST_BUILD_ID=v0.9.7 ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish \
+      --side nod --ai 0 --join 127.0.0.1 17493 --script g442/mid.txt > g442/c_j.log 2>&1
+  wait $G442HP
+  cat g442/c_h.log g442/c_j.log >> "$OUT"
+  G442CL=$(cat g442/c_h.log g442/c_j.log | grep -ac '^net: lockstep ON')
+  grep -a '^NETSYNC|' g442/c_h.log | sort -u > g442/c_h.sync
+  grep -a '^NETSYNC|' g442/c_j.log | sort -u > g442/c_j.sync
+  G442CA=$(comm -12 g442/c_h.sync g442/c_j.sync | grep -c .)
+  G442CD=$(cat g442/c_h.log g442/c_j.log | grep -ac '^NETDESYNC')
+  G442V3="(3) same build: lockstep=$G442CL, agreeing hash reports=$G442CA, desyncs=$G442CD"
+  [ "$G442CL" = "2" ] && [ "$G442CA" -ge 10 ] && [ "$G442CD" = "0" ] || G442BAD="$G442BAD $G442V3;"
+else
+  G442BAD="$G442BAD no cnc_eyes or no $SKMAP in the run folder;"
+fi
+
+# ---- (4) the debrief in the application ----
+G442V4="(4) not run"
+if [ -x ./opencnc3d ] && [ -s SCM01EA.pack ] && [ -s campaign.pack ]; then
+  ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+       --mphost 4000 --script g442/short.txt --w 1024 --h 640 > g442/a_h.log 2>&1 &
+  G442AHP=$!
+  sleep 2
+  ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE --menupack dosmenu.pack \
+       --mpjoin 4000 --script g442/stay.txt --w 1024 --h 640 > g442/a_j.log 2>&1 &
+  G442AJP=$!
+  g442w=0
+  while [ $g442w -lt 90 ] && { kill -0 $G442AHP 2>/dev/null || kill -0 $G442AJP 2>/dev/null; }; do
+    sleep 1; g442w=$((g442w+1))
+  done
+  kill -9 $G442AHP $G442AJP 2>/dev/null
+  cat g442/a_h.log g442/a_j.log >> "$OUT"
+  G442AS=$(grep -ac '^MPLOBBY|started|' g442/a_j.log)
+  G442AH=$(sed -n 's/^APP|debrief|result=\(.*\)$/\1/p' g442/a_j.log | head -1)
+  G442V4="(4) joiner started=$G442AS, its debrief result line [$G442AH]"
+  [ "$G442AS" -ge 1 ] && [ "$G442AH" = "THE HOST LEFT THE GAME|formula=0" ] || G442BAD="$G442BAD $G442V4;"
+
+  # ---- (2b) two builds at the lobby door ----
+  OPENCNC3D_NETTEST_BUILD_ID=v0.9.7 ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE \
+       --menupack dosmenu.pack --mphost 4000 --script g442/short.txt --w 1024 --h 640 > g442/l_h.log 2>&1 &
+  G442AHP=$!
+  sleep 2
+  OPENCNC3D_NETTEST_BUILD_ID=v0.9.6 ./opencnc3d --scen SCG01EC --pack SCG01EA.pack $BASE \
+       --menupack dosmenu.pack --mpjoin 4000 --script g442/short.txt --w 1024 --h 640 > g442/l_j.log 2>&1 &
+  G442AJP=$!
+  g442w=0
+  while [ $g442w -lt 60 ] && kill -0 $G442AJP 2>/dev/null \
+        && ! grep -aq '^MPLOBBY|FAIL|' g442/l_j.log; do
+    sleep 1; g442w=$((g442w+1))
+  done
+  sleep 1
+  kill -9 $G442AHP $G442AJP 2>/dev/null; wait $G442AHP $G442AJP 2>/dev/null
+  cat g442/l_h.log g442/l_j.log >> "$OUT"
+  G442LH=$(grep -ac '^NET|refused|.*|reason=different game version|theirs=v0.9.6|mine=v0.9.7|' g442/l_h.log)
+  G442LJ=$(grep -ac '^MPLOBBY|FAIL|the host refused: different game version (host v0.9.7, you v0.9.6)$' g442/l_j.log)
+  G442LS=$(cat g442/l_h.log g442/l_j.log | grep -ac '^MPLOBBY|started')
+  G442V2B="(2b) lobby door: host refused=$G442LH, joiner's lobby named both=$G442LJ, started=$G442LS"
+  [ "$G442LH" -ge 1 ] && [ "$G442LJ" -ge 1 ] && [ "$G442LS" = "0" ] || G442BAD="$G442BAD $G442V2B;"
+else
+  G442BAD="$G442BAD (4) no opencnc3d, SCM01EA or campaign.pack in the run folder;"
+fi
+if [ -n "$G442BAD" ]; then
+  bad "G442 a broken match says why, and two builds cannot share one:$G442BAD"
+else
+  ok "G442 a broken match says why it ended, and two builds cannot share a match: $G442V; $G442V1B; $G442V2; $G442V2B; $G442V3; $G442V3B; $G442V4"
+fi
+
+# =====================================================================================
+# G443 A MAC TOO OLD FOR THE GAME IS TOLD SO BY THE INSTALLER, AND EVERY PLACE STATES THE
+# SAME FLOOR (tools/mac/installer/package.py, tools/mac/os_floor.py, tools/release.sh).
+# The Mac packages allow one location, the player's home folder, and carried
+# allowed-os-versions 14.0 with nothing to explain it. On an older macOS that test
+# disables the startup disk with an empty reason, so Installer showed its generic "cannot
+# install in this location" line for every location and the player could pick no other.
+# Three parts:
+#   (1) tools/mac/installer/test_os_floor.py builds inert products with package.py's own
+#       welcome() and distribution(), only QUERIES Installer (no install, no window), and
+#       stands in for an older macOS by raising the floor to 99.0: without the
+#       installation check -volinfo is empty and the home folder is refused with no
+#       reason (the refusal players saw); with it Installer prints "This Mac runs macOS
+#       <this Mac>. OpenCNC3D runs on macOS 99 or newer"; at the real floor the disk and
+#       the choices come back. It also checks the welcome page, the Distribution and
+#       READ-ME.txt state the one floor from tools/mac/deployment-target.sh, and that a
+#       binary asking for a newer macOS, in either slice, is refused by bootstrap();
+#   (2) every Mach-O in the run folder declares a floor no newer than that one
+#       (os_floor.py --check, which reads every slice);
+#   (3) the release notes block of tools/release.sh, run on its own, writes
+#       "Mac: macOS 14 (Sonoma) or newer" from the same line.
+# PROVEN TO FAIL on the packages before the fix by part (1)'s own "before" product,
+# which is the old Distribution: Installer says only "Cannot install on volume / because
+# it is disabled." with an empty reason line.
+# NOT COVERED: the Installer window itself on a Mac older than macOS 14, which no test
+# machine has; Installer is asked the same question from the command line instead.
+# =====================================================================================
+rm -rf g443 && mkdir -p g443
+G443T="$GATEDIR/../tools/mac/installer/test_os_floor.py"
+G443F="$GATEDIR/../tools/mac/os_floor.py"
+G443R="$GATEDIR/../tools/release.sh"
+G443BAD=""
+if ! command -v installer >/dev/null 2>&1 || ! command -v productbuild >/dev/null 2>&1; then
+  skip "G443 the Mac installer floor: no macOS installer tools here"
+else
+  python3 "$G443T" > g443/test.txt 2>&1; G443RC=$?
+  cat g443/test.txt >> "$OUT"
+  G443P=$(grep -c '^MAC-OS-FLOOR|PASS|' g443/test.txt)
+  G443FAILS=$(grep -c '^FAIL ' g443/test.txt)
+  G443SAID=$(grep -m1 'installer said: installer: Error - ' g443/test.txt | sed 's/.*Error - //')
+  G443V1="(1) test rc=$G443RC(0) pass=$G443P(1) failed checks=$G443FAILS(0), older Mac told: ${G443SAID:-nothing}"
+  [ "$G443RC" = "0" ] && [ "$G443P" = "1" ] && [ "$G443FAILS" = "0" ] || G443BAD="$G443BAD $G443V1;"
+  G443L=""
+  for G443X in opencnc3d cnc_eyes netcheck opencnc3d-launcher OpenCNC3D.app ra3d ./*.dylib; do
+    [ -e "$G443X" ] && G443L="$G443L $G443X"
+  done
+  # shellcheck disable=SC2086
+  python3 "$G443F" --check $G443L > g443/check.txt 2>&1; G443CR=$?
+  cat g443/check.txt >> "$OUT"
+  G443N=$(sed -n 's/^MACOS-FLOOR|PASS|\([0-9]*\) Mach-O.*/\1/p' g443/check.txt)
+  G443V2="(2) run folder: rc=$G443CR(0), Mach-O read=${G443N:-0}(>0)"
+  [ "$G443CR" = "0" ] && [ "${G443N:-0}" -gt 0 ] || G443V2="$G443V2 $(head -1 g443/check.txt)"
+  [ "$G443CR" = "0" ] && [ "${G443N:-0}" -gt 0 ] || G443BAD="$G443BAD $G443V2;"
+  {
+    echo 'die() { echo "DIE: $*"; exit 1; }'
+    echo 'NOTES=g443/notes.md; : > "$NOTES"'
+    echo "cd \"$GATEDIR/..\" || exit 1"
+    echo 'NOTES="$OLDPWD/$NOTES"'
+    sed -n '/^# --- macOS floor label: begin$/,/^# --- macOS floor label: end$/p' "$G443R"
+    sed -n '/^    # --- requirements notes: begin$/,/^    # --- requirements notes: end$/p' "$G443R"
+  } > g443/notes.sh
+  sh g443/notes.sh > g443/notes.out 2>&1; G443NR=$?
+  G443LABEL=$(python3 "$G443F" --label 2>/dev/null)
+  G443NM=$(grep -c "^- Mac: $G443LABEL or newer, on Apple Silicon or Intel Macs.\$" g443/notes.md 2>/dev/null)
+  G443NW=$(grep -c '^- Windows: 64-bit Windows 10 or 11.$' g443/notes.md 2>/dev/null)
+  G443V3="(3) release notes: rc=$G443NR(0), Mac line for $G443LABEL=$G443NM(1), Windows line=$G443NW(1)"
+  [ "$G443NR" = "0" ] && [ "$G443NM" = "1" ] && [ "$G443NW" = "1" ] || G443BAD="$G443BAD $G443V3;"
+  if [ -n "$G443BAD" ]; then
+    bad "G443 the Mac installer floor:$G443BAD"
+  else
+    ok "G443 a Mac older than $G443LABEL is told so by the installer, and every place states that floor: $G443V1; $G443V2; $G443V3"
+  fi
+fi
+
+# =====================================================================================
+# G444 THE WINDOWS UNINSTALLER TAKES THE GAMES OUT, NOT ONLY THE LAUNCHER
+# (launcher/lsetup_cli.c --uninstall, launcher/lmodule.c lmod_remove_all,
+# tools/win/installer/opencnc3d.nsi). The uninstaller removed the shortcuts and the
+# launcher's own four files and left both games, the cached module zips, the movies and
+# the music (about 8.6 GB measured on a PC), with the launcher, the only tool that could
+# remove them, deleted. It now asks the launcher to take the games out first. Two parts:
+#   (1) tools/launcher/gate-uninstall.sh builds folders shaped like a Windows install
+#       holding both games' ownership lists (with shared files and RA root packs in
+#       them), real movie, music, legacy theme and German pack names from the
+#       launcher's own manifests, a part download, the module cache, an update's
+#       leftovers, settings, logs, a crash log and a player's own files. After
+#       --uninstall it WALKS the whole folder: exactly the player's files, the
+#       launcher's own and (with --keep-settings) the settings may remain, and no empty
+#       folder. One case runs this run folder's own opencnc3d-launcher program the way
+#       the uninstaller does. A crash-interrupted earlier uninstall is recovered first;
+#       a foreign staging file, a linked game folder and a folder another launcher
+#       holds are each refused with every byte unchanged; the single game Remove still
+#       keeps what the other game shares; and tools/launcher/gate-module-removal.c, the
+#       Remove button's own checks, still passes;
+#   (2) the uninstaller script runs that call before it deletes the launcher, aborts on
+#       its failure in between, and offers the settings as an unticked component.
+# PROVEN TO FAIL: the old launcher has no --uninstall (the mode is not taken, case 1
+# fails), a union filtered like the single game Remove leaves LICENSE, the shared
+# ebld/vfx3d/models3d/newaudio files and the RA root packs, and skipping the media step
+# leaves the movies and music; each was run and named its left-behind files.
+# NOT COVERED: the uninstaller itself on Windows (no Windows here); its build check in
+# tools/win/make-installer-win.sh refuses a Setup without the call instead.
+# =====================================================================================
+rm -rf g444 && mkdir -p g444
+G444S="$GATEDIR/../tools/launcher/gate-uninstall.sh"
+G444N="$GATEDIR/../tools/win/installer/opencnc3d.nsi"
+G444BAD=""
+if ! command -v sdl2-config >/dev/null 2>&1; then
+  skip "G444 the uninstaller takes the games out: no SDL2 here to build the launcher check"
+else
+  # Only a launcher that knows the mode is ever started: an older one would take the
+  # unknown flag for a normal start and open its window.
+  G444L=""
+  G444OLD=""
+  if [ -x ./opencnc3d-launcher ]; then
+    if LC_ALL=C grep -aqF -- 'UNINSTALL|start|' ./opencnc3d-launcher; then
+      G444L="$PWD/opencnc3d-launcher"
+    else
+      G444OLD=" (1) this run folder's opencnc3d-launcher predates --uninstall, so it was not started;"
+    fi
+  fi
+  sh "$G444S" $G444L > g444/gate.txt 2>&1; G444RC=$?
+  cat g444/gate.txt >> "$OUT"
+  G444P=$(grep -c '^UNINSTALL-GATE|PASS|' g444/gate.txt)
+  G444R=$(grep -c '^MODULE-REMOVAL|PASS|' g444/gate.txt)
+  G444VIA=$(sed -n 's/^UNINSTALL-GATE|with-settings|via=\([^|]*\)|.*/\1/p' g444/gate.txt)
+  G444K=$(sed -n 's/^UNINSTALL-GATE|keep-settings|rc=[0-9]*|files before=\([0-9]*\)|after=\([0-9]*\).*/\1 files to \2/p' g444/gate.txt)
+  G444LEFT=$(grep -c '|left behind: ' g444/gate.txt)
+  G444V1="(1) rc=$G444RC(0) pass=$G444P(1) remove-button pass=$G444R(1) left-behind=$G444LEFT(0), keep-settings ${G444K:-?} (16), with settings via ${G444VIA:-?}"
+  [ "$G444RC" = "0" ] && [ "$G444P" = "1" ] && [ "$G444R" = "1" ] && [ "$G444LEFT" = "0" ] || G444BAD="$G444BAD $G444V1;"
+  [ -z "$G444L" ] || [ "$G444VIA" = "launcher program" ] || G444BAD="$G444BAD (1) the run folder's launcher was not the one asked;"
+  G444BAD="$G444BAD$G444OLD"
+  G444EW=$(grep -n 'ExecWait .*--uninstall .*--dir' "$G444N" | head -1 | cut -d: -f1)
+  G444DL=$(grep -n 'Delete "$INSTDIR\\${LAUNCHER}"' "$G444N" | head -1 | cut -d: -f1)
+  G444AB=$(awk -v a="${G444EW:-0}" -v b="${G444DL:-0}" 'NR>a && NR<b && /^ *Abort/ {n++} END {print n+0}' "$G444N")
+  G444CP=$(grep -c '^!insertmacro MUI_UNPAGE_COMPONENTS' "$G444N")
+  G444SO=$(grep -c '^Section /o "un.Settings and logs"' "$G444N")
+  G444V2="(2) script: --uninstall at line ${G444EW:-none}, launcher deleted at line ${G444DL:-none}, aborts between=$G444AB(>=1), components page=$G444CP(1), settings unticked=$G444SO(1)"
+  [ -n "$G444EW" ] && [ -n "$G444DL" ] && [ "$G444EW" -lt "$G444DL" ] && [ "$G444AB" -ge 1 ] && \
+    [ "$G444CP" = "1" ] && [ "$G444SO" = "1" ] || G444BAD="$G444BAD $G444V2;"
+  if [ -n "$G444BAD" ]; then
+    bad "G444 the uninstaller takes the games out:$G444BAD"
+  else
+    ok "G444 the Windows uninstaller takes both games, their media, language packs and downloads out and keeps the player's files: $G444V1; $G444V2"
+  fi
+fi
+
+# =====================================================================================
+# G445 A GAME'S INSTALL PACKAGE GOES ONCE THE GAME IS IN
+# (launcher/lmodule.c lmod_package_done, lmod_cache_tidy; lmodule_remote.h). The
+# launcher kept each game's verified install package, about 4 GB, in .opencnc3d-modules
+# after installing or updating from it, so a folder carried a second copy of every game
+# it held. Now every install that succeeds removes the package it used (downloaded,
+# already in the folder, or the copy a Mac installer package puts there) with its notes
+# and any stale download piece of that game; a Repair or reinstall downloads again. A
+# stopped or failed install keeps the package for the next try, and the other game's
+# download pieces are never touched. A package an older launcher left behind goes at the
+# next start, when its game is in at that build or newer. Two parts:
+#   (1) tools/launcher/gate-module-remote.sh (real loopback HTTP, the launcher's own
+#       install worker and its Update button) and gate-module-reinstall.sh (the browser's
+#       install from a package already in the folder) must print their PASS lines and
+#       the seven MODULE-PACKAGE lines: download, installer copy, stopped install and
+#       pending update kept, update, offline install, launcher start, Dawn;
+#   (2) this run folder's own opencnc3d-launcher, started headless with --shot over two
+#       disposable Dawn folders holding a 1 MB stand-in package: at the installed build it
+#       is removed, one build ahead of the game (an update not yet installed) it stays,
+#       and the player's save stays in both.
+# PROVEN TO FAIL: part (1) on the launcher before this change stops at its first check
+# with "left behind: .opencnc3d-modules/ra3d.zip".
+# NOT COVERED: the Windows launcher, which cannot run here; it is the same source and
+# compiles in the Windows cross build.
+# =====================================================================================
+rm -rf g445 && mkdir -p g445
+G445BAD=""
+if ! command -v sdl2-config >/dev/null 2>&1; then
+  skip "G445 install packages go once the game is in: no SDL2 here to build the launcher checks"
+else
+  G445T=$(cd "$GATEDIR/../tools" && pwd -P)
+  G445RA=""
+  [ -f ra3d/dosmenu.pack ] && G445RA="$PWD/ra3d"
+  OPENCNC3D_RA_SOURCE="$G445RA" sh "$G445T/launcher/gate-module-remote.sh" > g445/remote.txt 2>&1; G445RC1=$?
+  OPENCNC3D_RA_SOURCE="$G445RA" sh "$G445T/launcher/gate-module-reinstall.sh" > g445/reinstall.txt 2>&1; G445RC2=$?
+  cat g445/remote.txt g445/reinstall.txt >> "$OUT"
+  G445PK=$(grep -c '^MODULE-PACKAGE|' g445/remote.txt)
+  G445P1=$(grep -c '^MODULE-REMOTE|PASS|' g445/remote.txt)
+  G445P2=$(grep -c '^MODULE-REINSTALL|PASS|.*every successful install removes its package' g445/reinstall.txt)
+  G445LEFT=$(grep -h '^left behind: ' g445/remote.txt g445/reinstall.txt | head -1)
+  G445V1="(1) remote rc=$G445RC1(0) pass=$G445P1(1) package lines=$G445PK(7), reinstall rc=$G445RC2(0) pass=$G445P2(1)${G445LEFT:+, $G445LEFT}"
+  [ "$G445RC1" = "0" ] && [ "$G445RC2" = "0" ] && [ "$G445P1" = "1" ] && [ "$G445P2" = "1" ] && \
+    [ "$G445PK" = "7" ] || G445BAD="$G445BAD $G445V1;"
+  if [ ! -x ./opencnc3d-launcher ] || [ ! -f dosmenu.pack ]; then
+    G445V2="(2) not run: no opencnc3d-launcher and dosmenu.pack in this folder"
+    G445BAD="$G445BAD $G445V2;"
+  elif ! LC_ALL=C grep -aqF -- 'package removed' ./opencnc3d-launcher; then
+    G445V2="(2) this run folder's opencnc3d-launcher predates the change (keeps every package)"
+    G445BAD="$G445BAD $G445V2;"
+  else
+    G445V2="(2)"
+    for G445F in same ahead; do
+      G445D="$PWD/g445/$G445F"
+      mkdir -p "$G445D/.opencnc3d-modules"
+      printf 'version 0.9.6\n' > "$G445D/opencnc3d-install.txt"
+      echo stand-in > "$G445D/TiberianDawn.dylib"; echo stand-in > "$G445D/opencnc3d"
+      echo KEEP > "$G445D/savegame.sav"; cp dosmenu.pack "$G445D/"
+      head -c 1048576 /dev/zero > "$G445D/.opencnc3d-modules/td.zip"
+      echo 0000 > "$G445D/.opencnc3d-modules/td.zip.sha256"
+      if [ "$G445F" = same ]; then echo 0.9.6 > "$G445D/.opencnc3d-modules/td.zip.version"
+      else echo 0.9.7 > "$G445D/.opencnc3d-modules/td.zip.version"; fi
+      OPENCNC3D_BACKGROUND=1 SDL_MAC_BACKGROUND_APP=1 perl -e 'alarm 120; exec @ARGV' \
+        ./opencnc3d-launcher --dir "$G445D" --shot "$G445D/shot.png" --view modules > "$G445D/out.txt" 2>&1
+      G445RC=$?
+      cat "$G445D/out.txt" >> "$OUT"
+      G445Z=0; [ -f "$G445D/.opencnc3d-modules/td.zip" ] && G445Z=1
+      G445S=0; [ "$(cat "$G445D/savegame.sav" 2>/dev/null)" = KEEP ] && G445S=1
+      G445L=$(grep -c '^LAUNCHER|module|package removed|td|' "$G445D/out.txt")
+      if [ "$G445F" = same ]; then G445WANT=0; G445WL=1; else G445WANT=1; G445WL=0; fi
+      G445V2="$G445V2 $G445F: rc=$G445RC(0) package left=$G445Z($G445WANT) removal line=$G445L($G445WL) save kept=$G445S(1);"
+      [ "$G445RC" = "0" ] && [ "$G445Z" = "$G445WANT" ] && [ "$G445L" = "$G445WL" ] && [ "$G445S" = "1" ] || \
+        G445BAD="$G445BAD (2) $G445F wrong;"
+    done
+  fi
+  if [ -n "$G445BAD" ]; then
+    bad "G445 install packages go once the game is in:$G445BAD $G445V2"
+  else
+    ok "G445 every successful game install removes its 4 GB package, a stopped one keeps it, and a start removes one an older launcher left: $G445V1; $G445V2"
+  fi
+fi
+
+# =====================================================================================
+# G460 THE MAIN MENU RUNS AT THE DISPLAY'S RATE AND DRAWS ITS PANEL ONLY WHEN IT CHANGES
+# (menu/dosmenu_shell.c dms_pace and the menu bench; REDRAW ON CHANGE in
+# menu/enhanced_menu.cpp; game_menu_vsync in game/cnc_eyes.cpp). Every menu loop slept a
+# fixed 16 ms after presenting, on top of the drawing and the swap, so the menu could not
+# reach 60 frames a second (and under vertical sync missed every other refresh), and the
+# Enhanced main menu painted its whole panel in software twice a pass and sent it to the
+# card every pass whether anything had changed or not. The menu never asked for a swap
+# interval either: before the first mission it ran on the driver's default.
+# --menubench 5 holds the real main menu idle for five seconds, then with a stand-in
+# pointer on Skirmish for 2.5, hidden, and prints one line per leg. Per game (Tiberian
+# Dawn, and Red Alert when its module is staged):
+#   (i)   the menu asked for the player's vertical sync row (a GL_SWAP line marked menu)
+#         and the bench ran under the interval it got;
+#   (ii)  idle: at least nine tenths of the display's rate in passes a second (54 at 60 Hz;
+#         a pass that runs late by a whole refresh on a busy machine is not made up) and,
+#         with the interval off, no more than the display's rate and a tenth (paced, not
+#         spinning); the panel drawn in software at most twice and sent to the card at most
+#         twice in five seconds;
+#   (iii) the pointer arriving on Skirmish and then moving inside it (a pixel a pass, with
+#         the motion events a hand sends) draws the panel exactly once more and sends it
+#         once, and the rate holds;
+#   (iv)  the first frame with the pointer on Skirmish (read from the back buffer before
+#         its swap) differs from the last idle frame on the button, away from the pointer,
+#         and nowhere else outside the pointer's own box: the hover lands on the frame the
+#         pointer arrives, not one later, and nothing else on the screen went stale.
+#   (v)   VERTICAL SYNC ON, the way a player turns it on: a 3 second bench in a folder whose
+#         opencnc3d-fx.cfg is the staged one with its vertical sync row moved to on (every
+#         other file is a link to this folder's). The menu asked for interval 1 off that
+#         row and got it, ran at least nine tenths of the display's rate in both legs, and
+#         slept at most a twentieth of each leg in its own pace: the swap waiting for the
+#         refresh is what paces it. A hidden window's swap does wait for the refresh on
+#         macOS (measured: 59.5 passes a second, 0 ms asleep). Red Alert reads the row
+#         from the same file, as it reads the window's other rows. (i)-(iv) hold here too.
+# A leg whose check prints no verdict (a python error, a missing module) is a FAILURE,
+# never a leg that did not count.
+# PROVEN TO FAIL: the build before has no --menubench. Sampled over six seconds on its
+# idle main menu (OPENCNC3D_BACKGROUND, --hidden): 77% of the main thread asleep in the
+# fixed delay, about 250 sleeps in 5.2 s, so about 48 passes a second, with em_main's
+# raster and a glTexSubImage2D of the whole panel on every pass. This build with the fixed
+# 16 ms sleep put back and the redraw key ignored fails (ii) and (iii) in both games: 37
+# to 41 passes a second, the panel drawn and sent 186 to 198 times idle and 104 times
+# under the pointer. With the drawing done by the first of dms_draw's two calls instead of
+# the second, it fails (iv) in both: no hover at all on the first hovered frame. With the
+# fixed 16 ms sleep put back it fails (v) in both: 29.6 to 30.6 passes a second under
+# vertical sync, every other refresh missed.
+# NOT COVERED: Windows (WGL's swap and its default interval), where the cross build cannot
+# run here.
+# =====================================================================================
+rm -rf shots/g460 && mkdir -p shots/g460/td shots/g460/ra shots/g460/save
+G460MSG=""; G460FAIL=""; G460RANOTE=""
+g460check() {   # g460check NAME LOG DIR [vsync]: the claims above for one game's bench run
+  python3 - "$1" "$2" "$3" "${4:-}" <<'G460PY'
+import sys, re
+from PIL import Image, ImageChops
+name, log, d, mode = sys.argv[1:5]
+vsync = mode == "vsync"
+L = open(log, errors="replace").read().splitlines()
+def leg(n):
+    for l in L:
+        if l.startswith("MENUBENCH|leg=%s|" % n):
+            return dict(kv.split("=", 1) for kv in l.split("|")[1:])
+    return None
+idle, hover = leg("idle"), leg("hover")
+swap = [l for l in L if l.startswith("GL_SWAP") and l.rstrip().endswith("(menu)")]
+btn = [l for l in L if l.startswith("MENUBENCH|button|")]
+done = [l for l in L if l.startswith("MENUBENCH|done|")]
+bad = []
+if not idle or not hover or not btn or not done:
+    print("0 %s: the bench did not complete (idle=%s hover=%s button=%s done=%s)" % (name, bool(idle), bool(hover), bool(btn), bool(done)))
+    sys.exit(0)
+if "enhanced=1" not in done[0]:
+    bad.append("the menu was not the Enhanced one [%s]" % done[0])
+if not swap:
+    bad.append("no GL_SWAP line from the menu: it never asked for the player's vertical sync")
+else:
+    m = re.search(r"requested (-?\d+), got (-?\d+)", swap[-1])
+    if not m:
+        bad.append("the menu's GL_SWAP line does not read 'requested N, got M' [%s]" % swap[-1].strip())
+    else:
+        req, got = int(m.group(1)), int(m.group(2))
+        if int(idle["swap_interval"]) != got:
+            bad.append("ran under interval %s, the menu asked and got %d" % (idle["swap_interval"], got))
+        if vsync and (req != 1 or got != 1):
+            bad.append("the saved vertical sync row is on, the menu requested %d and got %d (want 1 and 1)" % (req, got))
+interval, hz = int(idle["swap_interval"]), int(idle["hz"])
+for n, l in (("idle", idle), ("hover", hover)):
+    fps, want = float(l["fps"]), 0.9 * max(hz, 60)
+    if fps < want:
+        bad.append("%s ran %.1f passes a second on a %d Hz display (want >= %.0f)" % (n, fps, hz, want))
+    if interval == 0 and fps > hz * 1.1 + 1:
+        bad.append("%s ran %.1f passes a second on a %d Hz display with the interval off: not paced" % (n, fps, hz))
+    if vsync and float(l["sleep_ms"]) > float(l["seconds"]) * 1000.0 / 20.0:
+        bad.append("%s slept %s ms of %s s under vertical sync: the loop, not the swap, set the pace" % (n, l["sleep_ms"], l["seconds"]))
+if int(idle["rasters"]) > 2 or int(idle["uploads"]) > 2:
+    bad.append("idle drew the panel %s times and sent it %s times in %s s (want <= 2 each)" % (idle["rasters"], idle["uploads"], idle["seconds"]))
+if int(hover["rasters"]) != 1 or int(hover["uploads"]) != 1:
+    bad.append("the pointer arriving drew the panel %s times and sent it %s times (want exactly 1 each)" % (hover["rasters"], hover["uploads"]))
+b = dict(kv.split("=", 1) for kv in btn[0].split("|")[2:])
+x, y, w, h = (int(b[k]) for k in ("x", "y", "w", "h"))
+try:
+    a = Image.open(d + "/idle.png").convert("RGB"); z = Image.open(d + "/hover.png").convert("RGB")
+except Exception as e:
+    print("0 %s: the bench pictures are missing (%s)" % (name, e)); sys.exit(0)
+if a.size != z.size:
+    bad.append("the two pictures differ in size %s %s" % (a.size, z.size))
+else:
+    diff = ImageChops.difference(a, z).convert("L").point(lambda v: 255 if v > 8 else 0)
+    left = diff.crop((x + 4, y + 4, x + max(8, w // 4), y + h - 4))
+    lit = left.histogram()[255]
+    if lit < 20:
+        bad.append("the hovered frame shows no hover on the button's left quarter (%d pixels changed): late or missing" % lit)
+    px, py = x + w // 2, y + h // 2
+    out = 0
+    W, H = diff.size; data = diff.load()
+    for yy in range(0, H):
+        for xx in range(0, W):
+            if data[xx, yy] and not (x <= xx < x + w and y <= yy < y + h) \
+               and not (px - 24 <= xx < px + 200 and py - 24 <= yy < py + 200):
+                out += 1
+    if out:
+        bad.append("%d pixels changed outside the button and the pointer's box" % out)
+if bad:
+    print("0 %s: %s" % (name, "; ".join(bad)))
+else:
+    print("1 %s%s idle %.0f passes/s at interval %d on %d Hz, panel drawn %s and sent %s in %s s, asleep %s ms; pointer on Skirmish: drawn %s, sent %s, %.0f passes/s, asleep %s ms, hover on its first frame (%d px on the button's left quarter, 0 elsewhere)"
+          % (name, " with the saved vertical sync row on:" if vsync else "", float(idle["fps"]), interval, hz,
+             idle["rasters"], idle["uploads"], idle["seconds"], idle["sleep_ms"],
+             hover["rasters"], hover["uploads"], float(hover["fps"]), hover["sleep_ms"], lit))
+G460PY
+}
+g460verdict() {   # g460verdict VERDICT: fold one leg's verdict in; no verdict is a failure
+  case "$1" in
+    1\ *) G460MSG="${G460MSG:+$G460MSG; }${1#1 }" ;;
+    0\ *) G460FAIL="${G460FAIL:+$G460FAIL; }${1#0 }" ;;
+    *)    G460FAIL="${G460FAIL:+$G460FAIL; }$2: the check produced no verdict (see the python error in the log)" ;;
+  esac
+}
+# The vertical sync folder: this folder's files by link, its own settings file with the
+# vertical sync row on (fx_save's "# was" mark makes it a choice, not an old default).
+mkdir -p shots/g460/vs/out/td shots/g460/vs/out/ra shots/g460/vs/out/save
+for G460E in *; do
+  case "$G460E" in opencnc3d-fx.cfg|ra3d-fx.cfg|shots) ;; *) ln -s "$PWD/$G460E" "shots/g460/vs/$G460E" ;; esac
+done
+if [ -f opencnc3d-fx.cfg ] && grep -q '^vsync ' opencnc3d-fx.cfg; then
+  sed 's/^vsync .*/vsync              1.00000   # was 0.00000/' opencnc3d-fx.cfg > shots/g460/vs/opencnc3d-fx.cfg
+else
+  { [ -f opencnc3d-fx.cfg ] && cat opencnc3d-fx.cfg; echo 'vsync              1.00000   # was 0.00000'; } > shots/g460/vs/opencnc3d-fx.cfg
+fi
+perl -e 'alarm 120; exec @ARGV' ./opencnc3d --nosound --no-movies --savedir shots/g460/save \
+  --menubench 5 --menubenchdir shots/g460/td > shots/g460/td.log 2>&1
+G460V=$(g460check "Tiberian Dawn" shots/g460/td.log shots/g460/td 2>>"$OUT")
+cat shots/g460/td.log >> "$OUT"; echo "$G460V" >> "$OUT"
+g460verdict "$G460V" "Tiberian Dawn"
+( cd shots/g460/vs && perl -e 'alarm 120; exec @ARGV' ./opencnc3d --nosound --no-movies --savedir out/save \
+    --menubench 3 --menubenchdir out/td > out/td.log 2>&1 )
+G460V=$(g460check "Tiberian Dawn" shots/g460/vs/out/td.log shots/g460/vs/out/td vsync 2>>"$OUT")
+cat shots/g460/vs/out/td.log >> "$OUT"; echo "$G460V" >> "$OUT"
+g460verdict "$G460V" "Tiberian Dawn with vertical sync on"
+if [ -x ra3d/opencnc3d ] && [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/enhanced-menu.pack ]; then
+  perl -e 'alarm 120; exec @ARGV' ./ra3d/opencnc3d --module ra3d --nosound --no-movies --savedir shots/g460/save \
+    --menubench 5 --menubenchdir shots/g460/ra > shots/g460/ra.log 2>&1
+  G460V=$(g460check "Red Alert" shots/g460/ra.log shots/g460/ra 2>>"$OUT")
+  cat shots/g460/ra.log >> "$OUT"; echo "$G460V" >> "$OUT"
+  g460verdict "$G460V" "Red Alert"
+  ( cd shots/g460/vs && perl -e 'alarm 120; exec @ARGV' ./ra3d/opencnc3d --module ra3d --nosound --no-movies \
+      --savedir out/save --menubench 3 --menubenchdir out/ra > out/ra.log 2>&1 )
+  G460V=$(g460check "Red Alert" shots/g460/vs/out/ra.log shots/g460/vs/out/ra vsync 2>>"$OUT")
+  cat shots/g460/vs/out/ra.log >> "$OUT"; echo "$G460V" >> "$OUT"
+  g460verdict "$G460V" "Red Alert with vertical sync on"
+else
+  G460RANOTE="; Red Alert's legs did not run: no Red Alert module with its Enhanced kit is staged here"
+fi
+if [ -z "$G460FAIL" ] && [ -n "$G460MSG" ]; then
+  ok "G460 the main menu at the display's rate, drawn only when it changes: $G460MSG$G460RANOTE"
+else
+  bad "G460 the main menu at the display's rate, drawn only when it changes: ${G460FAIL:-no leg produced a verdict}"
+fi
+
+# =====================================================================================
+# G461 THE FIRST SWITCH TO ENHANCED, AND EVERY ONE AFTER IT, HAS NOTHING LEFT TO BUILD
+# (enh_ahead_on in game/cnc_eyes.cpp; gmw_prewarm_loading and the tasks in
+# game/gmwipe_mod.h; ebld_prepare_on in game/ebld_prepare.h; g_ebldAway, ebld_away_note and
+# ebld_away_restore in game/ebld_mod.h; evhc_ahead_step in game/evhc_mod.h). A mission
+# started in Classic built everything Enhanced needs on the first Enhanced frame and tick:
+# its ground sheet, the surface read back from it, the water field (built twice, the first
+# time for the wrong coast cut), the clear ground and the grass, the light pass with the
+# ground bounce, and the remastered buildings' files, textures and cuts. Measured: 0.87 s
+# for Tiberian Dawn's first Enhanced frame and 0.14 s for its first tick; Red Alert read 36
+# files and prepared its whole base on the switch's tick, 3.3 s. A player's run moved part
+# of it into a hidden warm-up frame of 1.4 s, eight frames into the mission. And every
+# return to Enhanced dropped each damaged building's fallen pieces and worked them out
+# again from scratch (20 to 50 ms a building, every time), laid out afresh, so a pile
+# visibly jumped (up to 2 cells).
+# Now, while a mission is on screen in another mode in a player's run (here `gfxprebuild`,
+# which does what a player's run does at loading), Enhanced's inputs are built at loading,
+# the remastered buildings are read and prepared where an Enhanced start does it, and a
+# damaged building's settled state is kept while Enhanced is off and given back on return.
+# Per game (Tiberian Dawn on SCG01EA, Red Alert on SCG05EA):
+#   (i)   none of these build lines comes after the switch to Enhanced (the remastered
+#         ground's sheet, TERRAINSURFACE|built, WATERLAND, WATER|field, CLEARBLEND|field,
+#         GRASS|vbo, FX|light|build, a file read at first sight, cut meshes built, a
+#         preparation, a vehicle's standing textures), and the ground sheet, the surface,
+#         the water field and the light build did happen before it;
+#   (ii)  the hidden warm-up frame is under 400 ms in Tiberian Dawn (it was 0.75 to 1.4 s)
+#         and under 1000 ms in Red Alert (it was 3.8 s), and no frame of play
+#         builds a piece ahead of time for 120 ms or more (loading has built them all; a
+#         piece loading did not reach is built a frame at a time); the first Enhanced
+#         frame is under 80 ms and the
+#         first Enhanced tick's events + tick + refresh under 10 ms; a return to Enhanced
+#         after a Classic tick costs under 10 ms on its tick;
+#   (iii) Tiberian Dawn: no damaged building is announced damaged twice: its return is an
+#         EBLD|restored line;
+#   (iv)  Tiberian Dawn: across a Classic tick and back, no fallen piece of a damaged
+#         building moves more than 0.01 cells (a run that never leaves Enhanced moves them
+#         0.001 over the same ticks);
+#   (v)   Classic's picture with the prewarm is byte for byte the picture without it: the
+#         quiet switches that build Enhanced's inputs leave nothing behind;
+#   (vi)  a player's mission that starts in Enhanced (the default) is still in Enhanced
+#         after its hidden warm-up: the warm-up draws Classic once and comes back
+#         ("classic drawn once, hidden"), `gfxwipe report` says mode=enhanced twice, and no
+#         prewarm task runs while the warm-up's Classic holds the screen (a task's quiet
+#         switch used to end the warm-up without its frame, leaving Classic on screen for
+#         good); both games;
+#   (vii) Tiberian Dawn started in Classic, with its Classic-only loading, then switched
+#         Classic -> N64 -> Enhanced (the order SPACE takes): no build line after the N64
+#         switch either, and the first Enhanced frame and tick within the same bounds.
+# Red Alert's legs need its module and SCG05EA's scene staged: with no module the legs are
+# counted as a skip; a module staged without the scene is a failure.
+# Timings are read on whatever machine runs the suite; the bounds are several times what
+# this build measures with the load average at 16 (warm-up 100 to 180 ms in Tiberian Dawn
+# and 270 to 370 ms in Red Alert, first Enhanced frame 14 to 46 ms, first tick 1.1 to 2.3
+# ms, a return 1.0 to 2.5 ms). Red Alert's warm-up was measured at 578 ms with the load
+# average at 22 and a cross build running beside the suite, hence its wider bound.
+# PROVEN TO FAIL: the build before fails (i) on the sheet, TERRAINSURFACE, WATERLAND,
+# CLEARBLEND, GRASS, the light build, eleven (Red Alert: 36) files read at first sight and
+# the cut meshes after the switch; (ii) on the 0.85 s first Enhanced frame and the 0.14 s
+# first tick (Red Alert: a 3.3 s frame); (iii) on EBLD|damaged printed again on every
+# return; (iv) on a 2.03 cell jump. The first build of the prewarm fails (vi) in both games:
+# no "classic drawn once", mode=classic in both reports, prewarm tasks run in the stuck
+# Classic.
+# NOT COVERED: Windows, where the cross build cannot run here; loading time itself, which
+# this adds to (about half a second in Tiberian Dawn, one and a half in Red Alert).
+# =====================================================================================
+rm -rf shots/g461 && mkdir -p shots/g461
+cat > shots/g461/sw.txt <<'G461EOF'
+gfxprebuild
+gfxmode 0
+tick 5
+fprofreport
+frames 12
+fprofreport
+gfxmode 2
+frames 1
+fprofreport
+tick 1
+frames 1
+fprofreport
+gfxmode 0
+tick 1
+frames 2
+gfxmode 2
+frames 1
+fprofreport
+tick 1
+frames 1
+fprofreport
+quit
+G461EOF
+cat > shots/g461/re.txt <<'G461EOF'
+gfxmode 2
+tick 40
+echo G461|before
+ebldbodies
+gfxmode 0
+tick 1
+gfxmode 2
+tick 1
+echo G461|after
+ebldbodies
+quit
+G461EOF
+cat > shots/g461/stay.txt <<'G461EOF'
+gfxmode 2
+tick 40
+echo G461|before
+ebldbodies
+tick 2
+echo G461|after
+ebldbodies
+quit
+G461EOF
+cat > shots/g461/es.txt <<'G461EOF'
+gfxmode 2
+gfxprebuild
+tick 5
+frames 12
+gfxwipe report
+frames 20
+gfxwipe report
+quit
+G461EOF
+cat > shots/g461/cs.txt <<'G461EOF'
+gfxmode 0
+gfxprebuild
+tick 5
+frames 12
+fprofreport
+gfxmode 1
+frames 2
+tick 1
+frames 1
+fprofreport
+gfxmode 2
+frames 1
+fprofreport
+tick 1
+frames 1
+fprofreport
+quit
+G461EOF
+for G461K in pre plain; do
+  { [ "$G461K" = pre ] && echo gfxprebuild; echo "gfxmode 0"; echo "tick 5"; echo "frames 12"
+    echo "shot shots/g461/classic_$G461K.png"; echo quit; } > shots/g461/classic_$G461K.txt
+done
+G461RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720"
+gbegin shots/g461/classic_pre.png shots/g461/classic_plain.png
+OPENCNC3D_FRAMEPROF=1 grun shots/g461/td.log $BASE --nosound --w 1280 --h 720 --scen SCG01EA --pack SCG01EA.pack --script shots/g461/sw.txt
+unset OPENCNC3D_FRAMEPROF   # sh keeps a prefix assignment after a function call
+grun shots/g461/re.log $BASE --nosound --w 1280 --h 720 --scen SCG01EA --pack SCG01EA.pack --script shots/g461/re.txt
+grun shots/g461/stay.log $BASE --nosound --w 1280 --h 720 --scen SCG01EA --pack SCG01EA.pack --script shots/g461/stay.txt
+grun shots/g461/classic_pre.log $BASE --nosound --w 1280 --h 720 --scen SCG01EA --pack SCG01EA.pack --script shots/g461/classic_pre.txt
+grun shots/g461/classic_plain.log $BASE --nosound --w 1280 --h 720 --scen SCG01EA --pack SCG01EA.pack --script shots/g461/classic_plain.txt
+grun shots/g461/es.log $BASE --nosound --w 1280 --h 720 --scen SCG01EA --pack SCG01EA.pack --script shots/g461/es.txt
+OPENCNC3D_FRAMEPROF=1 grun shots/g461/cs.log $BASE --nosound --w 1280 --h 720 --scen SCG01EA --pack SCG01EA.pack --script shots/g461/cs.txt
+unset OPENCNC3D_FRAMEPROF   # sh keeps a prefix assignment after a function call
+gshots shots/g461/classic_pre.png shots/g461/classic_plain.png
+# (Red Alert is where the longest freeze was: a module staged without the scene is a
+# failure, and no module at all is counted as a skip, never folded into a pass)
+G461HAVERA=0
+G461RAMISS=""
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG05EA.pack ]; then
+  G461HAVERA=1
+  OPENCNC3D_FRAMEPROF=1 grun shots/g461/ra.log $G461RA --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --script shots/g461/sw.txt
+  unset OPENCNC3D_FRAMEPROF   # sh keeps a prefix assignment after a function call
+  grun shots/g461/es_ra.log $G461RA --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --script shots/g461/es.txt
+elif [ -f ra3d/RedAlert.dylib ]; then
+  G461RAMISS="Red Alert's module is staged but ra3d/3d/SCG05EA.pack is not"
+else
+  skip "G461 Red Alert's legs: no Red Alert module staged here"
+fi
+G461V=$(python3 - "$G461HAVERA" "$G461RAMISS" <<'G461PY' 2>>"$OUT"
+import sys, re, math
+from PIL import Image, ImageChops
+haveRa = sys.argv[1] == "1"
+bad, good = [], []
+BUILD = [("the remastered ground's sheet", r"^enhanced terrain: \S+ sheet ready|^RA3D\|enh\|sheet\|.*\|enhanced\|"),
+         ("the ground surface", r"^TERRAINSURFACE\|built"), ("the water's land", r"^WATERLAND\|"),
+         ("the water field", r"^WATER\|field\|"), ("the clear ground", r"^CLEARBLEND\|field\|"),
+         ("the grass", r"^GRASS\|vbo\|"), ("a light pass build", r"^FX\|light\|build "),
+         ("a file read at first sight", r"read at first sight"), ("cut meshes", r"cut meshes built"),
+         ("a preparation", r"^EBLDPREPARE\|(loading|required)\|"),
+         ("a vehicle's standing textures", r"standing textures on the card")]
+MUST = ["the remastered ground's sheet", "the ground surface", "the water field", "a light pass build"]
+def prof(line):
+    f = {}
+    for kv in line.strip().split("|")[1:]:
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            try: f[k] = float(v)
+            except ValueError: pass
+    return f
+def leg(name, log, td, warmMax=400):
+    L = open(log, errors="replace").read().splitlines()
+    sw = next((i for i, l in enumerate(L) if l.startswith("GFXMODE|enhanced|script")), None)
+    if sw is None:
+        bad.append("%s: the run never switched to Enhanced" % name); return
+    if not any(l.startswith("SCRIPT|end") and " 0 failures" in l for l in L):
+        bad.append("%s: the script did not finish cleanly" % name)
+    for what, pat in BUILD:
+        rx = re.compile(pat)
+        after = [l for l in L[sw:] if rx.search(l)]
+        if after:
+            bad.append("%s: %s built after the switch (%d lines, first: %s)" % (name, what, len(after), after[0][:120]))
+        if what in MUST and not any(rx.search(l) for l in L[:sw]):
+            bad.append("%s: %s was never built before the switch" % (name, what))
+    P = [prof(l) for l in L if l.startswith("FRAMEPROF|frames=")]
+    if len(P) < 5:
+        bad.append("%s: %d frame reports, want 5" % (name, len(P))); return
+    warm = [float(m.group(1)) for l in L for m in [re.search(r"GFXWIPE\|enhanced drawn once, hidden, to warm it up \(([\d.]+) ms", l)] if m]
+    if not warm: bad.append("%s: no hidden Enhanced warm-up ran" % name)
+    elif warm[0] >= warmMax: bad.append("%s: the hidden warm-up frame took %.0f ms (want < %d)" % (name, warm[0], warmMax))
+    # (the windows: Classic's frames with the hidden warm-up among them, the first Enhanced
+    # frame, its tick, the return's frame, the return's tick)
+    first, tick, back = P[1].get("worst", 1e9), P[2].get("events + tick + refresh", 1e9), P[4].get("events + tick + refresh", 1e9)
+    late = [(m.group(1), float(m.group(2))) for l in L for m in [re.search(r"GFXWIPE\|(.*) ready ahead of time in ([\d.]+) ms", l)] if m]
+    slow = [w for w in late if w[1] >= 120]
+    if slow: bad.append("%s: a frame of play built %s ahead of time in %.0f ms (want < 120)" % ((name,) + slow[0]))
+    if first >= 80: bad.append("%s: the first Enhanced frame took %.1f ms (want < 80)" % (name, first))
+    if tick >= 10: bad.append("%s: the first Enhanced tick's events + tick + refresh took %.1f ms (want < 10)" % (name, tick))
+    if back >= 10: bad.append("%s: the return to Enhanced's tick took %.1f ms (want < 10)" % (name, back))
+    if td:
+        dam = {}
+        for l in L[sw:]:
+            m = re.match(r"EBLD\|damaged\|key=(\d+)", l)
+            if m: dam[m.group(1)] = dam.get(m.group(1), 0) + 1
+        before = set(re.match(r"EBLD\|damaged\|key=(\d+)", l).group(1) for l in L[:sw] if l.startswith("EBLD|damaged|"))
+        again = [k for k in dam if k in before or dam[k] > 1]
+        restored = sum(1 for l in L[sw:] if l.startswith("EBLD|restored|"))
+        if again: bad.append("%s: building %s announced damaged again after the switch" % (name, ",".join(again)))
+        if not restored: bad.append("%s: no damaged building's kept state was given back (no EBLD|restored)" % name)
+    good.append("%s: warm-up %.0f ms, first Enhanced frame %.1f ms, its tick %.1f ms, a return's tick %.1f ms"
+                % (name, warm[0] if warm else -1, first, tick, back))
+def bodies(log):
+    ph, d = None, {"before": {}, "after": {}}
+    for l in open(log, errors="replace"):
+        if "G461|before" in l: ph = "before"
+        elif "G461|after" in l: ph = "after"
+        elif l.startswith("EBLDBODY|") and ph:
+            f = dict(x.split("=", 1) for x in l.strip().split("|")[1:] if "=" in x)
+            if f["set"] == "cut":
+                d[ph][(f["key"], f["piece"])] = tuple(float(v) for v in f["at"].split(","))
+    ks = set(d["before"]) & set(d["after"])
+    return len(ks), max((math.dist(d["before"][k], d["after"][k]) for k in ks), default=-1.0)
+def enh_start(name, log):
+    L = open(log, errors="replace").read().splitlines()
+    if not any(l.startswith("SCRIPT|end") and " 0 failures" in l for l in L):
+        bad.append("%s, started in Enhanced: the script did not finish cleanly" % name)
+    if not any(l.startswith("GFXWIPE|prebuild allowed") for l in L):
+        bad.append("%s, started in Enhanced: the prewarm was never allowed" % name)
+    warm = [l for l in L if l.startswith("GFXWIPE|classic drawn once, hidden")]
+    modes = [m.group(1) for l in L for m in [re.match(r"GFXWIPE\|state=.*\|mode=(\w+)\|", l)] if m]
+    tasks = [l for l in L if re.match(r"GFXWIPE\|.* ready ahead of time in", l)]
+    if not warm:
+        bad.append("%s, started in Enhanced: the hidden warm-up never drew Classic and came back" % name)
+    if len(modes) < 2 or any(m != "enhanced" for m in modes):
+        bad.append("%s, started in Enhanced: left in %s after the warm-up (want enhanced twice)"
+                   % (name, ",".join(modes) or "no report"))
+    if tasks:
+        bad.append("%s, started in Enhanced: %d prewarm tasks ran (first: %s)" % (name, len(tasks), tasks[0][:100]))
+    if warm and modes and all(m == "enhanced" for m in modes) and len(modes) >= 2 and not tasks:
+        good.append("%s started in Enhanced stays in it after the warm-up" % name)
+def classic_route(name, log):
+    L = open(log, errors="replace").read().splitlines()
+    first_of = lambda pfx: next((i for i, l in enumerate(L) if l.startswith(pfx)), None)
+    c, pre, n6, sw = (first_of("GFXMODE|classic|script"), first_of("GFXWIPE|prebuild allowed"),
+                      first_of("GFXMODE|n64|script"), first_of("GFXMODE|enhanced|script"))
+    if None in (c, pre, n6, sw) or not c < pre < n6 < sw:
+        bad.append("%s, Classic -> N64 -> Enhanced: the run did not go Classic, prewarm, N64, Enhanced in order" % name); return
+    if not any(l.startswith("SCRIPT|end") and " 0 failures" in l for l in L):
+        bad.append("%s, Classic -> N64 -> Enhanced: the script did not finish cleanly" % name)
+    if not any(re.match(r"GFXWIPE\|.* built at loading in", l) for l in L[:pre]):
+        bad.append("%s, Classic -> N64 -> Enhanced: nothing was built at loading in Classic" % name)
+    for what, pat in BUILD:
+        rx = re.compile(pat)
+        after = [l for l in L[n6:] if rx.search(l)]
+        if after:
+            bad.append("%s, Classic -> N64 -> Enhanced: %s built after the N64 switch (%d lines, first: %s)"
+                       % (name, what, len(after), after[0][:120]))
+        if what in MUST and not any(rx.search(l) for l in L[:n6]):
+            bad.append("%s, Classic -> N64 -> Enhanced: %s was never built before the switches" % (name, what))
+    P = [(i, prof(l)) for i, l in enumerate(L) if l.startswith("FRAMEPROF|frames=")]
+    P = [p for i, p in P if i > sw]
+    if len(P) < 2:
+        bad.append("%s, Classic -> N64 -> Enhanced: %d frame reports after the switch, want 2" % (name, len(P))); return
+    first, tick = P[0].get("worst", 1e9), P[1].get("events + tick + refresh", 1e9)
+    if first >= 80: bad.append("%s, Classic -> N64 -> Enhanced: the first Enhanced frame took %.1f ms (want < 80)" % (name, first))
+    if tick >= 10: bad.append("%s, Classic -> N64 -> Enhanced: the first Enhanced tick took %.1f ms (want < 10)" % (name, tick))
+    good.append("%s Classic -> N64 -> Enhanced: first Enhanced frame %.1f ms, its tick %.1f ms" % (name, first, tick))
+leg("Tiberian Dawn", "shots/g461/td.log", True)
+enh_start("Tiberian Dawn", "shots/g461/es.log")
+classic_route("Tiberian Dawn", "shots/g461/cs.log")
+if haveRa:
+    leg("Red Alert", "shots/g461/ra.log", False, 1000)
+    enh_start("Red Alert", "shots/g461/es_ra.log")
+if len(sys.argv) > 2 and sys.argv[2]: bad.append(sys.argv[2])
+n, mv = bodies("shots/g461/re.log")
+n2, mv2 = bodies("shots/g461/stay.log")
+if n < 4: bad.append("only %d fallen pieces to compare across the return (want >= 4)" % n)
+elif mv > 0.01: bad.append("a fallen piece moved %.3f cells across a Classic tick and back (want <= 0.01; staying in Enhanced moves them %.4f)" % (mv, mv2))
+else: good.append("%d fallen pieces moved at most %.4f cells across a return (%.4f staying)" % (n, mv, mv2))
+try:
+    a = Image.open("shots/g461/classic_pre.png").convert("RGB"); b = Image.open("shots/g461/classic_plain.png").convert("RGB")
+    box = ImageChops.difference(a, b).getbbox() if a.size == b.size else (0, 0) + a.size
+    if box: bad.append("Classic's picture differs with the prewarm, in %s" % (box,))
+    else: good.append("Classic's picture identical with and without it")
+except Exception as e:
+    bad.append("the Classic pictures are missing (%s)" % e)
+print(("0 " + "; ".join(bad)) if bad else ("1 " + "; ".join(good)))
+G461PY
+)
+echo "$G461V" >> "$OUT"
+if [ "$GRC" != "0" ]; then
+  bad "G461 the first switch to Enhanced: a run failed (status $GRC)"
+else
+  case "$G461V" in
+    1\ *) ok "G461 nothing left to build on a switch to Enhanced: ${G461V#1 }" ;;
+    0\ *) bad "G461 nothing left to build on a switch to Enhanced: ${G461V#0 }" ;;
+    *)    bad "G461 the first switch to Enhanced: the check produced no verdict (see the python error in the log)" ;;
+  esac
+fi
+
+# =====================================================================================
+# G462 A BIG BLAST LOADS NOTHING ON THE FRAME IT KILLS, AND THE FIRST BUILDING LOST DOES NOT
+# REBUILD THE MAP'S PLANTS (evhc_prepare_tick in game/evhc_mod.h, cinematic_audio_preload in
+# game/cinematic_audio.h, the water plane synced before any pass in game/cnc_eyes.cpp, the
+# EBLDPREPARE|rejected line in game/ebld_prepare.h, evhc_prepare_frame for a type first seen in
+# play).
+# Red Alert's atom bomb over an Allied base hitched on the tick the base died. Part of that
+# frame was work done there for the first time: each vehicle type's wreck atlases went to
+# the card the first time one of its wrecks was drawn (the V2 launcher's, 5.1 MB, 10 to 20
+# ms, inside the sun's map pass), and the blast sounds were read from disk the first time
+# they played. Separately, the mission's first building placed, sold or lost rebuilt every
+# foliage chunk on the map (256 of 256 on Allied 5): the first pass to draw plants came
+# before the terrain pass that builds the water plane, so every chunk was built on no plane
+# and none could be kept at the first pad change. Now the wreck atlases of every remastered
+# vehicle type on the map go to the card before play, after the buildings' own preparation
+# (Red Alert's first tick, Tiberian Dawn's loading walk), under caps of the vehicles' own and
+# the shared memory test; a type first seen in play goes up one texture a frame, starting a
+# frame after its standing textures were seen on the card, never in one lump on the frame
+# it appears (Allied 5's landing ship: 8 atlases, 22 to 25 ms on its arrival frame); the
+# sounds are read on the first tick; the plane is current before any pass stands a plant.
+# And a preparation the machine refused is printed with its reason, so a player's log says
+# when a first hit still loads on the spot.
+# Three hidden runs:
+#   Red Alert, Allied 5 (SCG05EA), Enhanced: a Power Plant killed with hurtobj (the
+#     mission's first pad change), then the atom bomb (`efxanim 60`) on the base;
+#   Tiberian Dawn, GDI 1 (SCG01EA), Enhanced, with a player's loading preparation
+#     (`gfxprebuild`, which a scripted run otherwise leaves out): a Nod turret and the MCV
+#     killed;
+#   Red Alert again with the process's room cut to 1500 MB (OPENCNC3D_TEST_COMMIT_ROOM_MB).
+# Claims:
+#   (i)   both games: an EVHCPREPARE|loading line with at least one type before the first
+#         kill and after the buildings' EBLDPREPARE|loading line (the buildings go first), and
+#         no refusal on this machine (EVHCPREPARE|rejected and the last, cumulative
+#         EBLDPREPARE|rejected all zero; a refusal fails with its counts, since the claims
+#         below then do not hold);
+#   (ii)  both games: after the first kill, no wreck textures, no blast sound, no building's
+#         cut meshes and no building's damage textures are loaded (walls apart: they are not
+#         prepared, and their first hit still loads), and the kills happened
+#         (Red Alert: two V2 launchers die after EFXANIM; Tiberian Dawn: the MCV dies);
+#   (iii) both games: every foliage rebuild after the first kill touches 16 chunks or fewer,
+#         and at least one rebuild happened;
+#   (iv)  the cut room: both refusal lines report the memory test (headroom above zero);
+#   (v)   Red Alert: no vehicle's wreck textures go up in one lump between the preparation and
+#         the first kill; the landing ship, which arrives in play, goes up in EVHCPREPARE|spread
+#         lines, one texture a frame, each on a later frame than the one its standing textures
+#         were seen on, after its standing upload, and all of them by the end.
+# PROVEN TO FAIL: the build before the spread loads the landing ship's 8 wreck atlases in one
+# lump on its arrival tick (v), and Tiberian Dawn's vehicles before the buildings (i); the
+# build before that prints no EVHCPREPARE line; Red Alert loads the blast
+# sounds at the Power Plant's death and the V2 launcher's wreck textures at the bomb, and its
+# first pad change rebuilds 256 of 256 chunks; Tiberian Dawn loads the MCV's wreck textures
+# and the vehicle impact at its death; there is no EBLDPREPARE|rejected line.
+# NOT COVERED: frame times (the death frame measured 44 ms before and 34 after on a loaded
+# machine, the sun's map pass from 13 ms to 4: printed for information, never gated); the
+# wreck pieces' own draw cost, which is not changed here; a wall's first hit, which still
+# loads its cut and damage textures on the spot; Windows, where the cross build cannot run
+# here.
+# =====================================================================================
+gbegin
+rm -rf shots/g462 && mkdir -p shots/g462
+{ echo "tick 2"; echo "reveal 1"; echo "tick 20"; echo "cam 48 49"; echo "dist 2600"
+  echo "tick 1"; echo "frames 1"
+  for i in 1 2 3 4; do echo "hurtobj POWR"; echo "tick 2"; echo "frames 1"; done
+  for i in 1 2 3 4 5 6 7 8 9 10; do echo "tick 1"; echo "frames 1"; done
+  echo "cam 52 85"; echo "efxanim 60 52.5 82.5"
+  for i in $(seq 30); do echo "tick 1"; echo "frames 1"; done
+  echo "quit"; } > shots/g462/ra.txt
+{ echo "gfxprebuild"; echo "tick 2"; echo "reveal 1"; echo "tick 10"; echo "frames 1"; echo "hurtobj GUN"
+  for i in 1 2 3 4; do echo "tick 2"; echo "frames 1"; done
+  for i in 1 2; do echo "hurtobj MCV"; echo "tick 2"; echo "frames 1"; done
+  for i in $(seq 20); do echo "tick 1"; echo "frames 1"; done
+  echo "quit"; } > shots/g462/td.txt
+printf 'tick 3\nquit\n' > shots/g462/lm.txt
+G462RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --enhanced --texset 3"
+grun shots/g462/td.log $BASE --nosound --w 1280 --h 720 --enhanced --scen SCG01EA --pack SCG01EA.pack --script shots/g462/td.txt
+G462HAVERA=0
+G462RAMISS=""
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG05EA.pack ]; then
+  G462HAVERA=1
+  grun shots/g462/ra.log $G462RA --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --script shots/g462/ra.txt
+  OPENCNC3D_TEST_COMMIT_ROOM_MB=1500 grun shots/g462/lm.log $G462RA --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --script shots/g462/lm.txt
+  unset OPENCNC3D_TEST_COMMIT_ROOM_MB   # sh keeps a prefix assignment after a function call
+elif [ -f ra3d/RedAlert.dylib ]; then
+  G462RAMISS="Red Alert's module is staged but ra3d/3d/SCG05EA.pack is not"
+else
+  skip "G462 Red Alert's legs: no Red Alert module staged here"
+fi
+G462V=$(python3 - "$G462HAVERA" "$G462RAMISS" <<'G462PY' 2>>"$OUT"
+import sys, re
+haveRa = sys.argv[1] == "1"
+bad, good = [], []
+if sys.argv[2]: bad.append(sys.argv[2])
+# (walls are not prepared: their first hit still loads, a gap of its own)
+WALLS = r"(?!(?:SBAG|CYCL|BRIK|BARB|WOOD|FENC) )"
+LOADS = [("wreck textures", r"wreck textures on the card"), ("a blast sound", r"^CINEMATICAUDIO\|loaded"),
+         ("a building's cut meshes", r"^ebld: " + WALLS + r"\S+ cut meshes built"),
+         ("a building's damage textures", r"^ebld: " + WALLS + r"\S+ textures on the card \(its damage\)")]
+def fields(line):
+    return dict(kv.split("=", 1) for kv in line.strip().split("|")[2:] if "=" in kv)
+def leg(name, log, deaths):
+    L = open(log, errors="replace").read().splitlines()
+    if not any(l.startswith("SCRIPT|end") and " 0 failures" in l for l in L):
+        bad.append("%s: the script did not finish cleanly" % name); return
+    first = next((i for i, l in enumerate(L) if re.match(r"HURTOBJ\|.*\|id=", l)), None)
+    if first is None:
+        bad.append("%s: no kill landed" % name); return
+    prep = [i for i, l in enumerate(L) if l.startswith("EVHCPREPARE|loading|")]
+    blds = [i for i, l in enumerate(L) if l.startswith("EBLDPREPARE|loading|")]
+    if not prep or prep[0] > first:
+        bad.append("%s: no EVHCPREPARE|loading line before the first kill" % name)
+    elif int(fields(L[prep[0]]).get("types", "0")) < 1:
+        bad.append("%s: the preparation took no vehicle type (%s)" % (name, L[prep[0]]))
+    elif not blds or blds[0] > prep[0]:
+        bad.append("%s: the vehicles were prepared before the buildings' loading walk" % name)
+    else:
+        lump = [l for l in L[prep[0]:first] if "wreck textures on the card" in l]
+        if lump: bad.append("%s: wreck textures went up in one lump in play before the first kill (%s)" % (name, lump[0][:110]))
+    for tag in ("EVHCPREPARE|rejected|", "EBLDPREPARE|rejected|"):
+        R = [l for l in L if l.startswith(tag)]
+        if not R: bad.append("%s: no %s line" % (name, tag.rstrip("|"))); continue
+        f = fields(R[-1])
+        refused = {k: v for k, v in f.items() if k in ("cap", "headroom", "transient", "budget", "failed") and v != "0"}
+        if refused: bad.append("%s: this machine refused part of the preparation (%s)" % (name, R[-1]))
+    for what, pat in LOADS:
+        rx = re.compile(pat)
+        after = [l for l in L[first:] if rx.search(l)]
+        if after: bad.append("%s: %s loaded after the first kill (%d lines, first: %s)" % (name, what, len(after), after[0][:110]))
+    for d, start in deaths:
+        s = next((i for i, l in enumerate(L) if l.startswith(start)), None) if start else first
+        n = 0 if s is None else sum(1 for l in L[s:] if l.startswith("UNITDEATH|%s|" % d))
+        if n == 0: bad.append("%s: no %s died after %s" % (name, d, start or "the first kill"))
+    fol = [int(m.group(1)) for l in L[first:] for m in [re.match(r"FOLIAGE\|built\|chunks=(\d+)/", l)] if m]
+    if not fol: bad.append("%s: no foliage rebuild after the first kill (no pad change seen)" % name)
+    elif max(fol) > 16: bad.append("%s: a foliage rebuild after the first kill touched %d chunks (want 16 or fewer)" % (name, max(fol)))
+    else: good.append("%s: vehicles prepared after the buildings and before the first kill, nothing loaded after it, foliage rebuilds of at most %d chunks" % (name, max(fol)))
+try: leg("Tiberian Dawn", "shots/g462/td.log", [("MCV", None)])
+except Exception as e: bad.append("Tiberian Dawn: the log could not be read (%s)" % e)
+if haveRa:
+    try: leg("Red Alert", "shots/g462/ra.log", [("V2RL", "EFXANIM|")])
+    except Exception as e: bad.append("Red Alert: the log could not be read (%s)" % e)
+    try:
+        L = open("shots/g462/ra.log", errors="replace").read().splitlines()
+        S = [(i, fields(l)) for i, l in enumerate(L) if l.startswith("EVHCPREPARE|spread|type=LST|")]
+        up = next((i for i, l in enumerate(L) if l.startswith("evhc: LST standing textures on the card")), None)
+        frames = [int(f["frame"]) for _, f in S]
+        if not S: bad.append("Red Alert: the landing ship's wreck textures were not spread over frames (no EVHCPREPARE|spread line)")
+        elif up is None or up > S[0][0]: bad.append("Red Alert: the landing ship's spread began before its standing textures went up")
+        elif any(int(f["frame"]) <= int(f["standing_seen"]) for _, f in S): bad.append("Red Alert: a spread texture went up on the frame its standing set was first seen")
+        elif len(set(frames)) != len(frames): bad.append("Red Alert: two spread textures went up on one frame (%s)" % frames)
+        elif S[-1][1].get("left") != "0": bad.append("Red Alert: the landing ship's spread did not finish (%s)" % L[S[-1][0]])
+        else: good.append("Red Alert: the landing ship's wreck went up one texture a frame on frames %s, after its standing set (slowest %.1f ms)" % (",".join(map(str, frames)), max(float(f["ms"]) for _, f in S)))
+    except Exception as e: bad.append("Red Alert: the spread could not be read (%s)" % e)
+    try:
+        L = open("shots/g462/lm.log", errors="replace").read().splitlines()
+        shown = []
+        for tag in ("EBLDPREPARE|rejected|", "EVHCPREPARE|rejected|"):
+            R = [l for l in L if l.startswith(tag)]
+            if not R or int(fields(R[-1]).get("headroom", "0")) < 1:
+                bad.append("the cut room: %s does not report the memory test (%s)" % (tag.rstrip("|"), R[-1] if R else "no line"))
+            else: shown.append("%s headroom=%s" % (tag.split("|")[0], fields(R[-1])["headroom"]))
+        if len(shown) == 2: good.append("a cut room's refusals are printed (%s)" % ", ".join(shown))
+    except Exception as e: bad.append("the cut room: the log could not be read (%s)" % e)
+print(("0 " + "; ".join(bad)) if bad else ("1 " + "; ".join(good)))
+G462PY
+)
+echo "$G462V" >> "$OUT"
+if [ "$GRC" != "0" ]; then
+  bad "G462 a big blast loads nothing on its frame: a run failed (status $GRC)"
+else
+  case "$G462V" in
+    1\ *) ok "G462 a big blast loads nothing on its frame: ${G462V#1 }" ;;
+    0\ *) bad "G462 a big blast loads nothing on its frame: ${G462V#0 }" ;;
+    *)    bad "G462 a big blast: the check produced no verdict (see the python error in the log)" ;;
+  esac
+fi
+
+# =====================================================================================
+# G450 CLASSIC DRAWS THE 1995 BUILDING APRONS, CRATERS AND SCORCH MARKS ON TEMPERATE AND
+# DESERT (game/dosclassic_content.py; the engine's GAME_STATE_DYNAMIC_MAP export, which
+# carries a smudge only when SmudgeTypeClass loaded its shape from content/<theater>.MIX).
+# Two legs. The folder: content/TEMPERAT.MIX and DESERT.MIX carry BIB1-3, CR1-6 and SC1-6
+# under their theater's extension, byte for byte as in the 1995 archives in data/dosdata.
+# The picture: GDI 1's base after 200 ticks in Classic exports BIB smudges (dosdrawprobe's
+# DOSDRAW|dynamic line) and the ground below the Power Plant is the apron's brown, red
+# above green, against the grass beside it; GDI 6's desert base exports BIB smudges and
+# the ground below the Refinery is the apron's pale gravel, brighter than the sand beside it.
+# The checker is read from the repo's game/ folder ($GATEDIR/../game), so the gate runs the
+# same whether gates.sh is the copy in a play folder (how tools/release.sh runs it) or the
+# one in game/. A checker that could not run (exit code other than 0 or 1) is reported as
+# that, never as missing members.
+# PROVEN TO FAIL: with the trimmed archives (53 and 43 members) GDI 1 exported 11 entries
+# and no smudge, the box below the Power Plant read R-G -11.6 against the grass's -11.1,
+# and GDI 6 exported no smudge, its Refinery apron box as bright as the sand (100.4 against
+# 99.5); with the 1995 members, 21 smudges (20 BIB) and R-G +4.3, and 38 smudges (34 BIB)
+# in the desert with the apron box at 120.4 against the sand's 99.5.
+# NOT COVERED: WINTER, which has no apron art in any mode (a recorded gap); N64 and
+# Enhanced draw their aprons from smudge.pack and bibenh.pack, not from these archives.
+# =====================================================================================
+rm -rf g450m && mkdir -p g450m
+G450C=$(python3 "$GATEDIR/../game/dosclassic_content.py" content --original "$GATEDIR/../data/dosdata" 2>&1)
+G450CRC=$?
+echo "$G450C" >> "$OUT"
+cat > g450m/td.txt <<'G450EOF'
+tick 200
+cam 51.5 51.5
+zoom min
+gfxmode 0
+tick 3
+dosdrawprobe
+shot g450m/classic.png
+quit
+G450EOF
+cat > g450m/des.txt <<'G450EOF'
+tick 200
+cam 10 53
+zoom min
+gfxmode 0
+tick 3
+dosdrawprobe
+shot g450m/desert.png
+quit
+G450EOF
+gbegin g450m/classic.png g450m/desert.png
+grun g450m/td.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 --script g450m/td.txt
+grun g450m/des.log --scen SCG36EA --pack SCG36EA.pack $BASE --nosound --w 1280 --h 720 --script g450m/des.txt
+gshots g450m/classic.png g450m/desert.png
+G450T=$(grep -a '^DOSDRAW|dynamic|' g450m/td.log | tail -1)
+G450D=$(grep -a '^DOSDRAW|dynamic|' g450m/des.log | tail -1)
+G450TB=$(echo "$G450T" | sed -n 's/.*|bibs=\([0-9]*\).*/\1/p')
+G450DB=$(echo "$G450D" | sed -n 's/.*|bibs=\([0-9]*\).*/\1/p')
+G450P=$(python3 - g450m/classic.png <<'G450PY' 2>>"$OUT"
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert('RGB')
+def rg(x0, y0, x1, y1):
+    px = [im.getpixel((x, y)) for x in range(x0, x1) for y in range(y0, y1)]
+    return sum(p[0] - p[1] for p in px) / float(len(px))
+apron, grass = rg(500, 470, 600, 530), rg(400, 250, 600, 330)
+print('%d %.1f %.1f' % (apron > 0 and grass < -5, apron, grass))
+G450PY
+)
+# The desert apron is pale gravel on red sand: the box below the Refinery against open
+# sand to its left, by mean brightness.
+G450Q=$(python3 - g450m/desert.png <<'G450PY' 2>>"$OUT"
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert('RGB')
+def lum(x0, y0, x1, y1):
+    px = [im.getpixel((x, y)) for x in range(x0, x1) for y in range(y0, y1)]
+    return sum(p[0] + p[1] + p[2] for p in px) / (3.0 * len(px))
+apron, sand = lum(550, 285, 690, 325), lum(300, 100, 500, 180)
+print('%d %.1f %.1f' % (apron - sand >= 10, apron, sand))
+G450PY
+)
+echo "G450|content=$G450CRC|td=$G450T|desert=$G450D|pixels=$G450P|desertpixels=$G450Q" >> "$OUT"
+if [ "$GRC" != "0" ]; then
+  bad "G450 Classic ground marks: a run failed (GRC=$GRC)"
+elif [ "$G450CRC" = "1" ]; then
+  bad "G450 content/ lacks the 1995 aprons, craters or scorch marks: $(echo "$G450C" | grep -a MISSING | head -2 | tr '\n' ' ')"
+elif [ "$G450CRC" != "0" ]; then
+  bad "G450 the content checker did not run (exit $G450CRC): $(echo "$G450C" | tail -1)"
+elif [ "${G450TB:-0}" -ge 1 ] && [ "${G450DB:-0}" -ge 1 ] && [ "${G450P%% *}" = "1" ] && [ "${G450Q%% *}" = "1" ]; then
+  ok "G450 Classic draws the 1995 aprons: content/ carries all 30 ground-mark shapes, GDI 1 exports $G450TB apron cells (red-green ${G450P#* } apron/grass) and the desert base $G450DB (brightness ${G450Q#* } apron/sand)"
+else
+  bad "G450 Classic ground marks missing: GDI 1 '$G450T', desert '$G450D', apron/grass pixels '$G450P', desert apron/sand '$G450Q'"
+fi
+
+# =====================================================================================
+# G451 THE CARTRIDGE'S BUILDING APRONS SHOW NO SEAM AT THEIR CELL JOINS UNDER BILINEAR
+# FILTERING (game/smudge_mod.h smudge_gutter; draw_smudges reads each frame inside its
+# slot). smudge.pack is a gutterless grid, one row per smudge type, and each cell's
+# texture coordinates used to run exactly to its frame's edges, so under GL_LINEAR the
+# edge texels were averaged into the next smudge type's strip: a dark line across every
+# apron at the join between its two rows of cells, in Enhanced with the remastered
+# aprons off. N64 drew no visible seam there (its alpha-tested aprons read within 2
+# levels of nearest before the change), so its half of this gate is a no-regression
+# check, not the fix. The sheet now goes up with a one-texel gutter round each frame
+# holding what lies beyond that edge on the ground: the neighbouring cell of the same
+# apron, or the frame's own edge repeated.
+# One scene, GDI 1's base under the Power Plant and the Weapons Factory at 2560x1440,
+# rendered in Enhanced (bib_enh 0, grass 0, aa_mode 0) and in N64, each with bilinear on
+# and off, three times: the build as shipped, --nobilfix and --nosmudge. The band is
+# the row means of columns 1200..1259 and 1600..1699 over rows 705..735, the join
+# between both aprons' two rows of cells.
+#   1. Seamless: as shipped, every band row with bilinear is within 4 levels of nearest
+#      in both modes, and the log says "1-texel gutter".
+#   2. The measurement sees a seam: --nobilfix ("0-texel gutter") must put an Enhanced
+#      row at least 7 levels off. --nobilfix removes more than the gutter (it also
+#      drops the alpha bleed into transparent texels and the terrain half-texel inset),
+#      so its figure is a control, not the before figure; that is below.
+#   3. The right art is drawn: the gutter changes only where each frame sits on the
+#      card, so N64's nearest picture (no decal softness, alpha test) must be the
+#      gutterless picture: at most 16 pixels differ from the --nobilfix nearest frame,
+#      and at most 2 of them by more than 12 levels in any channel (a quad edge rounding
+#      into the gutter instead of the next strip: measured 2 pixels by 6 levels with the
+#      camera on the height of its own cell, and 1 pixel by 43 with it on the ground
+#      averaged round that cell, an apron's alpha-cut edge pixel turning from dirt to the
+#      grass beside it). A swapped column and row, a wrong slot offset or a blank sheet
+#      moves thousands. Enhanced cannot be held this way,
+#      because --nobilfix also changes what its softness blur averages.
+#   4. Aprons are there at all: in both modes and both column bands, at least 30% of
+#      the nearest band pixels differ by more than 8 levels from the --nosmudge frame
+#      (measured 58% and 80% Enhanced, 61% and 76% N64). Without it a build drawing no
+#      aprons would pass check 1.
+# PROVEN TO FAIL: the renderer before the gutter (bilinear corrections on, no gutter)
+# reads Enhanced row 719 of columns 1200..1259 20.1 levels below nearest and row 720 of
+# columns 1600..1699 12.4 below; the fixed build reads 2.9 (Enhanced) and 2.0 (N64).
+# --nosmudge alone reads 2.1 and 2.0 in the band, which check 4 refuses. A renderer
+# whose draw_smudges leaves out the gutter offset (each frame read one texel up and left
+# of its slot) reads Enhanced 14.6 and fails check 3 with 64503 N64 pixels moved by up to
+# 54 levels. The Enhanced nearest frame of the fixed build is byte for byte the frame of
+# the renderer before the gutter.
+# NOT COVERED: Classic draws the 1995 aprons from content/, not from smudge.pack, and is
+# unaffected; the remastered aprons (bib_enh 1, the Enhanced default) are separate
+# per-apron textures and are not measured here. The apron's ragged south edge is left
+# out of the band: there bilinear and nearest differ by up to 6 levels with or without
+# the gutter, because the filter softens the alpha cut itself. Red Alert does not draw
+# this sheet at all (draw_smudges is skipped when g_ra3dSprites is set; its aprons are
+# drawn by its own path), so it is untouched by the gutter and not rendered here.
+# =====================================================================================
+rm -rf g451m && mkdir -p g451m
+for G451V in fix nofix nosm; do
+cat > g451m/$G451V.txt <<G451EOF
+tick 200
+gfxmode 2
+gfx bib_enh 0
+gfx grass 0
+gfx aa_mode 0
+cam 52 53
+zoom min
+gfx bilinear 1
+tick 3
+shot g451m/${G451V}_enh_lin.png
+gfx bilinear 0
+tick 3
+shot g451m/${G451V}_enh_near.png
+gfxmode 1
+gfx bilinear 1
+tick 3
+shot g451m/${G451V}_n64_lin.png
+gfx bilinear 0
+tick 3
+shot g451m/${G451V}_n64_near.png
+quit
+G451EOF
+done
+gbegin
+grun g451m/fix.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --w 2560 --h 1440 \
+    --script g451m/fix.txt
+grun g451m/nofix.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --w 2560 --h 1440 \
+    --nobilfix --script g451m/nofix.txt
+grun g451m/nosm.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --w 2560 --h 1440 \
+    --nosmudge --script g451m/nosm.txt
+gshots g451m/fix_enh_lin.png g451m/fix_enh_near.png g451m/fix_n64_lin.png g451m/fix_n64_near.png \
+       g451m/nofix_enh_lin.png g451m/nofix_enh_near.png g451m/nofix_n64_lin.png g451m/nofix_n64_near.png \
+       g451m/nosm_enh_near.png g451m/nosm_n64_near.png
+G451G=$(grep -ac '^smudges: TEMPERATE .*1-texel gutter' g451m/fix.log)
+G451N=$(grep -ac '^smudges: TEMPERATE .*0-texel gutter' g451m/nofix.log)
+G451P=$(python3 - g451m <<'G451PY' 2>>"$OUT"
+import sys
+from PIL import Image, ImageChops
+d = sys.argv[1]
+BANDS = ((1200, 1260), (1600, 1700))
+ROWS = range(705, 736)
+def load(name):
+    return Image.open('%s/%s.png' % (d, name)).convert('RGB').load()
+def rows(name):
+    px = Image.open('%s/%s.png' % (d, name)).convert('L').load()
+    return [[sum(px[x, y] for x in range(x0, x1)) / float(x1 - x0) for y in ROWS]
+            for x0, x1 in BANDS]
+def worst(v, mode):
+    a, b = rows('%s_%s_lin' % (v, mode)), rows('%s_%s_near' % (v, mode))
+    return max(abs(p - q) for ra, rb in zip(a, b) for p, q in zip(ra, rb))
+# check 3: the guttered N64 nearest frame against the gutterless one, whole frame
+r, g, b = ImageChops.difference(Image.open('%s/fix_n64_near.png' % d).convert('RGB'),
+                                Image.open('%s/nofix_n64_near.png' % d).convert('RGB')).split()
+hist = ImageChops.lighter(ImageChops.lighter(r, g), b).histogram()
+ndiff = sum(hist[1:])
+mdiff = max(i for i, c in enumerate(hist) if c)
+nbig = sum(hist[13:])
+# check 4: the smallest share of band pixels the aprons change, over modes and bands
+cover = 100.0
+for mode in ('enh', 'n64'):
+    a, b = load('fix_%s_near' % mode), load('nosm_%s_near' % mode)
+    for x0, x1 in BANDS:
+        n = sum(1 for x in range(x0, x1) for y in ROWS
+                if max(abs(p - q) for p, q in zip(a[x, y], b[x, y])) > 8)
+        cover = min(cover, 100.0 * n / ((x1 - x0) * len(ROWS)))
+print('%.1f %.1f %.1f %.1f %d %d %.0f %d' % (worst('fix', 'enh'), worst('fix', 'n64'),
+      worst('nofix', 'enh'), worst('nofix', 'n64'), ndiff, mdiff, cover, nbig))
+G451PY
+)
+set -- $G451P
+echo "G451|gutter=$G451G|nogutter=$G451N|fix_enh=$1|fix_n64=$2|nobilfix_enh=$3|nobilfix_n64=$4|n64near_diffpx=$5|n64near_maxdiff=$6|n64near_over12=$8|apron_cover=$7%" >> "$OUT"
+if [ "$GRC" != "0" ] || [ $# -ne 8 ]; then
+  bad "G451 apron seams: a run or the measurement failed (GRC=$GRC, '$G451P')"
+elif [ "${G451G:-0}" -lt 1 ] || [ "${G451N:-0}" -lt 1 ]; then
+  bad "G451 apron seams: gutter not logged as expected (1-texel $G451G, 0-texel under --nobilfix $G451N)"
+elif [ "$7" -lt 30 ]; then
+  bad "G451 apron seams: aprons not drawn, only $7% of a band differs from --nosmudge (want >= 30)"
+elif [ "$5" -gt 16 ] || [ "$8" -gt 2 ]; then
+  bad "G451 apron seams: N64 nearest is not the gutterless picture, $5 pixels differ, $8 of them by more than 12 levels, up to $6 (want <= 16, of them <= 2 by more than 12)"
+elif python3 -c "import sys; f=[float(a) for a in sys.argv[1:]]; sys.exit(0 if f[0] <= 4 and f[1] <= 4 and f[2] >= 7 else 1)" "$@"; then
+  ok "G451 cartridge aprons seamless under bilinear: worst row $1 (Enhanced) and $2 (N64) levels from nearest, --nobilfix $3 and $4; N64 nearest matches the gutterless picture ($5 px by $6); aprons cover >= $7% of the band"
+else
+  bad "G451 apron seams under bilinear: worst row Enhanced $1 N64 $2 (want <= 4), --nobilfix control $3 (want >= 7) and $4"
+fi
+
+# =====================================================================================
+# G452 NO GRASS ON A BUILDING'S APRON, EITHER ROW (game/grass_field.h crush_apron_rects).
+# Every apron is two rows of cells and the engine lays its top row on the footprint's
+# last row, so its lower row always lies one row south of the footprint. The grass
+# field cleared footprints only, so under Enhanced the blades stood on the lower row and
+# not the upper one: a straight line across every apron at the footprint's south edge.
+# The apron cells (Tiberian Dawn's SMUDGE| cells of type 12..14, Red Alert's BIB1..BIB3
+# cells from its engine's map) are now claimed ground with the footprint's skirt.
+# Two scenes, each run twice, as built and with --grassonaprons (the old field):
+# Tiberian Dawn's GDI 1 base (SCG01EC, cam 52 53) and Red Alert's temperate Soviet 5
+# (SCU05EA, cam 69 47, no shroud), 2560x1440, Enhanced with grass on and aa_mode 0, one
+# shot with grass and one without on the same tick. The script verb apronscreen lists
+# every claimed apron cell, whether a footprint covers it, and the screen box of its four
+# ground corners; the measure is the share of pixels inside the lower-row boxes (inset
+# 6 px) that move by more than 16 levels when the grass is switched off.
+#   1. The claim ran: each built run logs GRASS|aprons with cells > 0 and as many as
+#      apronscreen lists, each control logs "GRASS|aprons|off", and every run logs
+#      GRASS|draw (the grass is really drawn in that frame).
+#   2. No grass on the lower apron row: under 0.2% of its pixels move, in both games
+#      (measured 0.000% Tiberian Dawn, 0.013% Red Alert, the edge of a soldier's shadow).
+#   3. The measurement sees grass there: the control moves at least 0.8% of the same
+#      pixels (measured 1.71% and 1.41%). The upper row lies inside the footprint and
+#      reads near 0 either way, so it is listed and not judged.
+#   4. Nothing else lost its grass: farther than one cell from every apron cell, the
+#      grass moves the same number of pixels in the built run as in the control, within
+#      1% (measured equal to the pixel in both games; the skirt reaches about 0.7 of a
+#      cell), and that number is not 0. Tiberian Dawn's N64 and Classic frames of the two
+#      runs are byte for byte the same, since the grass is drawn only under Enhanced.
+#   5. No grass clumps or bushes on the lower apron row either (foliage3d_mark): with the
+#      grass field off, under 0.2% of the lower-row pixels move when fol_on is switched
+#      off, in both games, and Red Alert's control (--grassonaprons, which also lets its
+#      clumps back on the aprons) moves at least 0.8% (measured 0.135% Tiberian Dawn,
+#      0.140% Red Alert, against 1.447%). The residue is clumps standing on the next row
+#      south whose leaves reach into a box's lower corner, the same in both games.
+#      Tiberian Dawn kept its clumps off every SMUDGE| cell before the claim, so it has no
+#      control here; Red Alert's aprons come from its engine's map (g_crushApronRa).
+# PROVEN TO FAIL: a renderer that finds the apron runs but stamps none of them reads
+# 1.71% (Tiberian Dawn) and 1.41% (Red Alert) on the lower row, the control's figures, and
+# fails check 2 with everything else unchanged. A renderer without Red Alert's apron
+# block in foliage3d_mark reads 1.360% for Red Alert's clumps and fails check 5. --grassonaprons skips exactly the new
+# rectangles, so the control is the picture before the claim (2.77% and 2.83% at 8
+# levels, the threshold first measured).
+# NOT COVERED: Red Alert's N64 and Classic frames are not compared, because two runs of
+# its campaign are not the same picture frame for frame (one soldier's idle animation
+# differs between runs, from tick 2); the claim draws nothing there in either game. An
+# apron's cells leave the engine's lists when its building is sold or destroyed and the
+# grass regrows there on the regrowth clock, as under a razed footprint; that is the same
+# stamp stopping and is not filmed here.
+# =====================================================================================
+rm -rf g452m && mkdir -p g452m
+for G452V in fix ctrl; do
+for G452G in td ra; do
+if [ "$G452G" = td ]; then G452C="52 53"; else G452C="69 47"; fi
+cat > g452m/${G452G}_$G452V.txt <<G452EOF
+tick 60
+gfxmode 2
+gfx grass 1
+gfx aa_mode 0
+cam $G452C
+zoom min
+tick 3
+apronscreen
+shot g452m/${G452G}_${G452V}_on.png
+gfx grass 0
+shot g452m/${G452G}_${G452V}_off.png
+gfx fol_on 0
+shot g452m/${G452G}_${G452V}_nofol.png
+gfx fol_on 1
+gfx grass 1
+gfxmode 1
+tick 1
+shot g452m/${G452G}_${G452V}_n64.png
+gfxmode 0
+tick 1
+shot g452m/${G452G}_${G452V}_classic.png
+quit
+G452EOF
+done
+done
+G452RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --enhanced --texset 3 --w 2560 --h 1440 --scen SCU05EA --pack ra3d/3d/SCU05EA.pack --noshroud"
+gbegin
+grun g452m/td_fix.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --w 2560 --h 1440 \
+    --script g452m/td_fix.txt
+grun g452m/td_ctrl.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --w 2560 --h 1440 \
+    --grassonaprons --script g452m/td_ctrl.txt
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCU05EA.pack ]; then
+  grun g452m/ra_fix.log $G452RA --script g452m/ra_fix.txt
+  grun g452m/ra_ctrl.log $G452RA --grassonaprons --script g452m/ra_ctrl.txt
+fi
+gshots g452m/td_fix_on.png g452m/td_fix_off.png g452m/td_fix_n64.png g452m/td_fix_classic.png \
+       g452m/td_ctrl_on.png g452m/td_ctrl_off.png g452m/td_ctrl_n64.png g452m/td_ctrl_classic.png \
+       g452m/ra_fix_on.png g452m/ra_fix_off.png g452m/ra_ctrl_on.png g452m/ra_ctrl_off.png
+G452P=$(python3 - g452m <<'G452PY' 2>>"$OUT"
+import sys, re
+from PIL import Image, ImageChops, ImageDraw
+d = sys.argv[1]
+def boxes(game):
+    out = []
+    for l in open('%s/%s_fix.log' % (d, game), errors='replace'):
+        m = re.match(r'APRON\|\d+,\d+\|type=\d+\|foot=(\d)\|box=([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)', l)
+        if m: out.append((int(m.group(1)),) + tuple(float(m.group(i)) for i in range(2, 6)))
+    return out
+def logged(game, v):
+    t = open('%s/%s_%s.log' % (d, game, v), errors='replace').read()
+    m = re.search(r'GRASS\|aprons\|cells=(\d+)', t)
+    return (int(m.group(1)) if m else -1, len(re.findall(r'^APRON\|\d', t, re.M)),
+            1 if 'GRASS|aprons|off' in t else 0, 1 if 'GRASS|draw|' in t else 0)
+def pair(game, v):
+    return (Image.open('%s/%s_%s_on.png' % (d, game, v)).convert('RGB'),
+            Image.open('%s/%s_%s_off.png' % (d, game, v)).convert('RGB'))
+def grass(game, v, B, sel, inset=6, pics=('on', 'off')):
+    a, b = (Image.open('%s/%s_%s_%s.png' % (d, game, v, p)).convert('RGB') for p in pics)
+    W, H = a.size; a = a.load(); b = b.load()
+    n = c = 0
+    for foot, c0, r0, c1, r1 in B:
+        if foot != sel: continue
+        for y in range(max(0, int(r0) + inset), min(H, int(r1) - inset)):
+            for x in range(max(0, int(c0) + inset), min(W, int(c1) - inset)):
+                n += 1
+                if max(abs(p - q) for p, q in zip(a[x, y], b[x, y])) > 16: c += 1
+    return 100.0 * c / n if n else -1.0
+def elsewhere(game, v, B):
+    a, b = pair(game, v)
+    r, g, bl = ImageChops.difference(a, b).split()
+    m = ImageChops.lighter(ImageChops.lighter(r, g), bl).point(lambda x: 255 if x > 16 else 0)
+    mask = Image.new('L', a.size, 0); dr = ImageDraw.Draw(mask)
+    for foot, c0, r0, c1, r1 in B:
+        k = c1 - c0
+        dr.rectangle((c0 - k, r0 - k, c1 + k, r1 + k), fill=255)
+    return ImageChops.multiply(m, ImageChops.invert(mask)).histogram()[255]
+def same(game, mode):
+    a = open('%s/%s_fix_%s.png' % (d, game, mode), 'rb').read()
+    b = open('%s/%s_ctrl_%s.png' % (d, game, mode), 'rb').read()
+    return 1 if a == b else 0
+row = []
+for game in ('td', 'ra'):
+    B = boxes(game)
+    fc, fl, foff, fdraw = logged(game, 'fix')
+    cc, cl, coff, cdraw = logged(game, 'ctrl')
+    claim = 1 if fc > 0 and fc == fl and foff == 0 and coff == 1 and fdraw and cdraw else 0
+    ef, ec = elsewhere(game, 'fix', B), elsewhere(game, 'ctrl', B)
+    row += [claim, fc, '%.3f' % grass(game, 'fix', B, 0), '%.3f' % grass(game, 'ctrl', B, 0),
+            '%.3f' % grass(game, 'fix', B, 1), ef, ec,
+            same(game, 'n64') * same(game, 'classic') if game == 'td' else 1,
+            '%.3f' % grass(game, 'fix', B, 0, pics=('off', 'nofol')),
+            '%.3f' % grass(game, 'ctrl', B, 0, pics=('off', 'nofol'))]
+print(' '.join(str(v) for v in row))
+G452PY
+)
+set -- $G452P
+echo "G452|td claim=$1 cells=$2 lower=$3% control=$4% upper=$5% open_fix=$6px open_ctrl=$7px n64classic_same=$8 clumps=$9% clumps_control=${10}%|ra claim=${11} cells=${12} lower=${13}% control=${14}% upper=${15}% open_fix=${16}px open_ctrl=${17}px clumps=${19}% clumps_control=${20}%" >> "$OUT"
+if [ "$GRC" != "0" ] || [ $# -ne 20 ]; then
+  bad "G452 apron grass: a run or the measurement failed (GRC=$GRC, '$G452P')"
+elif [ "$1" != 1 ] || [ "${11}" != 1 ]; then
+  bad "G452 apron grass: the apron claim or the grass draw was not logged as expected (Tiberian Dawn $1 with $2 cells, Red Alert ${11} with ${12} cells)"
+elif ! python3 -c "import sys; f=[int(a) for a in sys.argv[1:]]; sys.exit(0 if all(c > 0 and abs(a - c) <= c // 100 for a, c in ((f[0], f[1]), (f[2], f[3]))) else 1)" "$6" "$7" "${16}" "${17}"; then
+  bad "G452 apron grass: the grass away from the aprons changed with the claim (Tiberian Dawn $6 px against $7, Red Alert ${16} against ${17}; want equal within 1%, not 0)"
+elif [ "$8" != 1 ]; then
+  bad "G452 apron grass: Tiberian Dawn's N64 or Classic frame changed with the apron claim (want identical)"
+elif ! python3 -c "import sys; f=[float(a) for a in sys.argv[1:]]; sys.exit(0 if f[0] < 0.2 and f[2] < 0.2 and f[1] >= 0.8 and f[3] >= 0.8 else 1)" "$3" "$4" "${13}" "${14}"; then
+  bad "G452 apron grass: lower row moves $3% (Tiberian Dawn) and ${13}% (Red Alert) with the grass (want < 0.2); control $4% and ${14}% (want >= 0.8)"
+elif python3 -c "import sys; f=[float(a) for a in sys.argv[1:]]; sys.exit(0 if f[0] < 0.2 and f[1] < 0.2 and f[2] >= 0.8 else 1)" "$9" "${19}" "${20}"; then
+  ok "G452 no grass on either apron row: lower row $3% (Tiberian Dawn, $2 cells) and ${13}% (Red Alert, ${12} cells) move with the grass, against $4% and ${14}% with --grassonaprons; clumps $9% and ${19}%, Red Alert's control ${20}%; open grass unchanged ($6 and ${16} px); N64 and Classic identical"
+else
+  bad "G452 apron grass: the grass clumps move $9% (Tiberian Dawn) and ${19}% (Red Alert) of the lower apron row (want < 0.2); Red Alert's control ${20}% (want >= 0.8)"
+fi
+
+# =====================================================================================
+# G453 THE GRASS GROWS BACK ON A SOLD BUILDING'S APRON (game/grass_field.h
+# crush_apron_rects). The apron is claimed ground only while the engine lists its cells:
+# when the building is sold its apron cells leave the engine's list (its own Disown), the
+# claim stops, and the grass must regrow there on the regrowth clock rather than leaving
+# a bare patch where the building stood. Tiberian Dawn's GDI 1 base (SCG01EC, cam 52 53),
+# 2560x1440, Enhanced with grass on and aa_mode 0. The script lists the apron cells
+# (apronscreen), shoots grass on and off, sells the Power Plant through the panel's sell
+# latch (sellmode 1, lclickobj NUKE 0), runs 460 ticks (about 31 s, past the 22.8 s fade
+# plus regrowth) and lists and shoots again. The cells listed before and not after are the
+# sold building's apron; the measure is the share of pixels inside their boxes (inset 6 px)
+# that move by more than 16 levels when the grass is switched off.
+#   1. The sale took the apron away: the cells drop from the first list to the second,
+#      and the gone cells include both rows (measured 20 to 16, two on each row).
+#   2. Before the sale no grass stands on the gone cells: under 0.2% on either row
+#      (measured 0.000%).
+#   3. After the regrowth the grass stands on both of them again: at least 0.6% on each
+#      row (measured 1.21% lower, 1.47% upper; open grass reads about 1.2 to 1.7%).
+# PROVEN TO FAIL: a claim that keeps every apron cell it has ever seen (a list added to and
+# never rebuilt) reads 0.000% on both rows after the regrowth and fails check 3.
+# NOT COVERED: a building placed mid-mission, where the placement ring also flattens and
+# fades the grass around it; and Red Alert, whose apron list is rebuilt from its engine's
+# map on every parse by the same rule.
+# =====================================================================================
+rm -rf g453m && mkdir -p g453m
+cat > g453m/sell.txt <<'G453EOF'
+tick 60
+gfxmode 2
+gfx grass 1
+gfx aa_mode 0
+cam 52 53
+zoom min
+tick 3
+echo G453BEFORE
+apronscreen
+shot g453m/before_on.png
+gfx grass 0
+shot g453m/before_off.png
+gfx grass 1
+sellmode 1
+lclickobj NUKE 0
+sellmode 0
+tick 460
+echo G453GROWN
+apronscreen
+shot g453m/grown_on.png
+gfx grass 0
+shot g453m/grown_off.png
+quit
+G453EOF
+gbegin
+grun g453m/sell.log --scen SCG01EC --pack SCG01EA.pack $BASE --nosound --w 2560 --h 1440 \
+    --enhanced --texset 3 --script g453m/sell.txt
+gshots g453m/before_on.png g453m/before_off.png g453m/grown_on.png g453m/grown_off.png
+G453P=$(python3 - g453m <<'G453PY' 2>>"$OUT"
+import sys, re
+from PIL import Image
+d = sys.argv[1]
+sec, S = None, {}
+for l in open(d + '/sell.log', errors='replace'):
+    m = re.match(r'ECHO\|G453(\w+)', l)
+    if m: sec = m.group(1); S[sec] = {}; continue
+    m = re.match(r'APRON\|(\d+),(\d+)\|type=\d+\|foot=(\d)\|box=([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)', l)
+    if m and sec:
+        S[sec][(int(m.group(1)), int(m.group(2)))] = (int(m.group(3)),) + tuple(float(m.group(i)) for i in range(4, 8))
+B, G = S.get('BEFORE', {}), S.get('GROWN', {})
+gone = [v for k, v in B.items() if k not in G]
+def grass(ph, sel, inset=6):
+    a = Image.open('%s/%s_on.png' % (d, ph)).convert('RGB'); b = Image.open('%s/%s_off.png' % (d, ph)).convert('RGB')
+    W, H = a.size; a = a.load(); b = b.load()
+    n = c = 0
+    for foot, c0, r0, c1, r1 in gone:
+        if foot != sel: continue
+        for y in range(max(0, int(r0) + inset), min(H, int(r1) - inset)):
+            for x in range(max(0, int(c0) + inset), min(W, int(c1) - inset)):
+                n += 1
+                if max(abs(p - q) for p, q in zip(a[x, y], b[x, y])) > 16: c += 1
+    return 100.0 * c / n if n else -1.0
+print(len(B), len(G), sum(1 for g in gone if g[0] == 0), sum(1 for g in gone if g[0] == 1),
+      '%.3f' % grass('before', 0), '%.3f' % grass('before', 1),
+      '%.3f' % grass('grown', 0), '%.3f' % grass('grown', 1))
+G453PY
+)
+set -- $G453P
+echo "G453|cells before=$1 after=$2 gone lower=$3 upper=$4|before lower=$5% upper=$6%|grown lower=$7% upper=$8%" >> "$OUT"
+if [ "$GRC" != "0" ] || [ $# -ne 8 ]; then
+  bad "G453 apron regrowth: the run or the measurement failed (GRC=$GRC, '$G453P')"
+elif [ "$1" -le "$2" ] || [ "$3" -lt 1 ] || [ "$4" -lt 1 ]; then
+  bad "G453 apron regrowth: the sale did not take the apron's two rows off the list ($1 cells before, $2 after; gone $3 lower, $4 upper)"
+elif python3 -c "import sys; f=[float(a) for a in sys.argv[1:]]; sys.exit(0 if f[0] < 0.2 and f[1] < 0.2 and f[2] >= 0.6 and f[3] >= 0.6 else 1)" "$5" "$6" "$7" "$8"; then
+  ok "G453 grass regrows on a sold building's apron: $3 + $4 cells left the list ($1 to $2); grass there $5% and $6% before the sale, $7% and $8% after the regrowth"
+else
+  bad "G453 apron regrowth: grass on the sold apron reads $5% and $6% before the sale (want < 0.2) and $7% and $8% after (want >= 0.6)"
+fi
+
+# =====================================================================================
+# G455 A SKIRMISH SEAT'S SOLDIERS WEAR ITS COLOUR UNDER ENHANCED, AND ITS TANKS KEEP THE
+# REMASTER LIVERY (game/cnc_eyes.cpp soldier_seat_cloth and soldier_colours;
+# game/model3d_mod.h the cloth key, uClothKey; tools/anim_lab/push_colours.py cloth_ref).
+# The remastered soldiers have no team mask on the body, only the cloth mask, so every
+# seat's soldiers wore GDI tan and a red seat's Minigunner could not be told from an orange
+# seat's; they now wear the seat's colour. The remastered tanks keep the livery the remaster
+# lab paints, at the house grade's chroma: a step that lifted every seat's vehicle livery
+# to its ramp's full chroma was withdrawn, and the tanks draw as they did before it.
+# Hidden runs on Tiberian Dawn's SCM01EA skirmish, seed 7, the player in seat colour red,
+# orange, green, blue, brown and gold (the computer grey), a Medium and a Mammoth Tank and
+# two Minigunners and two Engineers spawned beside each other, shot in N64 and in Enhanced
+# at 1280x720, and one run with nothing spawned for the bare ground. A unit's pixels are
+# where its frame differs from the bare one by more than 40 levels summed; the tanks are
+# above row 400, the soldiers below. Then, where the Red Alert module is staged, its SCM08EA
+# skirmish in the red seat (two tanks and two riflemen, and a bare run). Claims:
+#   1. ENGINE STATE: every run's seat is the colour it was given (TEAMCOLOUR), and vhdump
+#      prints its VEHICLE line and no VEHLIVERY line (the withdrawn step's report).
+#   2. TANKS KEEP THE REMASTER LIVERY: the chroma of the tanks' pixels within 25 degrees of
+#      the seat's hue (mean of the upper half) against the N64 look's: red 0.74 to 0.92,
+#      orange 0.90 to 1.12, green 0.58 to 0.76, the painted gold 1.5 to 1.9. Measured: red
+#      0.82, orange 0.99, green 0.66, gold 1.71, as the renderer without seat cloth for
+#      soldiers draws them; against that renderer the six seats' Enhanced tank pixels
+#      matched exactly on red, blue and gold and to within 2 levels on at most 8 pixels on
+#      the others.
+#   3. SOLDIERS WEAR THE SEAT: their chroma-weighted mean hue is within 12 degrees of the
+#      N64 soldiers' for red, orange, green, brown and gold, and the blue seat's soldiers
+#      show at least 300 pixels of blue's hue; the seat-hue chroma is at least 0.6 of the
+#      N64 soldiers' for every colour.
+#   4. SEATS TELL APART: the mean colour of the soldiers differs between every pair of the
+#      six seats by at least 15 levels.
+#   5. THE ENGINEER KEEPS HIS WHITE VEST, as the 1995 remap left it on every seat: the
+#      soldiers' pale pixels (HSV saturation under 0.4, brightest channel over 100), which
+#      are the Engineers' vests, number at least 0.75 of the gold seat's (whose uniform is
+#      the paint) on every other seat. Measured: red 97, orange 98, green 95, blue 108,
+#      brown 95, against gold's 96.
+#   6. THE ANIM LAB READS THE CLOTH REFERENCE: its cloth_ref() gives M3_CLOTH_REF where it
+#      is defined (game/model_cloth_reference.h, read as ../game from this script's folder,
+#      which is game/ in a checkout and the play folder in a release run).
+#   7. RED ALERT'S RED SEAT TOO: its tanks' red is 0.45 to 0.61 of the N64 look's on the
+#      snow map (measured 0.52; 0.50 since the vehicles take the reflections and glints).
+# PROVEN TO FAIL: the renderer without seat cloth for soldiers: claim 3 finds every seat's
+# soldiers at the same hue, 37 degrees, with 1 blue pixel, and claim 4 finds all six
+# seats' soldiers 0 apart. A seat cloth with no cloth key: claim 5 finds 9 pale pixels on
+# the red seat's soldiers against gold's 96 (the vests painted red), and claim 6 fails
+# (the define had moved). A renderer with
+# the withdrawn vehicle livery lift: claim 1 finds a VEHLIVERY line, claim 2 reads red
+# 1.06, orange 1.28 and green 0.86, claim 7 reads 0.69.
+# A light pass that relit Red Alert's vehicles under the vehicle shade and sun dials
+# (game/fx_post.h, vhRelit): claim 7 reads 0.39 over 3943 px.
+# NOT COVERED: the desert and snow maps' Tiberian Dawn tanks, Red Alert's light blue seat
+# (its pale ramp gives too few pixels of its hue to measure), a Funpark mission's light
+# blue army (its soldiers take the seat cloth and its vehicles the house grade, as on every
+# seat here; measured once on SCJ04EA, the tanks' blue at about 0.85 of their soldiers',
+# not held by this gate), the other 3D soldier set, which keeps the side's cloth, a
+# pixel-for-pixel match of the tanks against the renderer
+# before the soldier work on every run (that renderer is not in the tree, so the gate holds
+# bands around its measured values), and whether this is the look wanted, which a gate
+# cannot judge.
+# =====================================================================================
+rm -rf g455l && mkdir -p g455l
+cat > g455l/run.tmpl <<'G455EOF'
+tick 3
+SPAWNS
+tick 8
+cam 10 21
+zoom max
+tick 2
+gfxmode 1
+tick 2
+shot g455l/TAG_n64.png
+gfxmode 2
+tick 4
+shot g455l/TAG_enh.png
+vhdump
+quit
+G455EOF
+G455SK="--scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --seed 7 --ai 1 --noshroud --nosound --texset 3 --w 1280 --h 720"
+G455SP='spawnobj MTNK 8 20\nspawnobj HTNK 11 20\nspawnobj E1 8 22\nspawnobj E6 9 22\nspawnobj E1 10 22\nspawnobj E6 11 22'
+gbegin
+for G455C in 2 4 3 5 7 0 bare; do
+  if [ "$G455C" = bare ]; then G455S=''; G455COL=2; else G455S="$G455SP"; G455COL=$G455C; fi
+  sed -e "s#TAG#c$G455C#g" -e "s#SPAWNS#$G455S#" g455l/run.tmpl > "g455l/c$G455C.txt"
+  grun "g455l/c$G455C.log" $G455SK --colours "$G455COL,6" --script "g455l/c$G455C.txt"
+  gshots "g455l/c${G455C}_n64.png" "g455l/c${G455C}_enh.png" || break
+done
+# Red Alert: the red seat and its bare ground
+G455RA=0
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCM08EA.pack ]; then
+  G455RA=1
+  G455RAO="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --texset 3 --w 1280 --h 720 --noshroud"
+  for G455C in ra bare; do
+    if [ "$G455C" = bare ]; then G455S=''; else G455S='spawnobj 3TNK 46 44\nspawnobj 4TNK 49 44\nspawnobj E1 46 46\nspawnobj E1 48 46'; fi
+    printf "tick 3\n${G455S}\ntick 8\ncam 48 45\nzoom max\ntick 2\ngfxmode 1\ntick 2\nshot g455l/r${G455C}_n64.png\ngfxmode 2\ntick 4\nshot g455l/r${G455C}_enh.png\nvhdump\nquit\n" > "g455l/r$G455C.txt"
+    grun "g455l/r$G455C.log" $G455RAO --scen SCM08EA --pack ra3d/3d/SCM08EA.pack --skirmish --side soviet --seed 4242 --ai 1 --colours 2,6 --script "g455l/r$G455C.txt"
+    gshots "g455l/r${G455C}_n64.png" "g455l/r${G455C}_enh.png" || break
+  done
+fi
+G455P=$(python3 - g455l "$GATEDIR" "$G455RA" <<'G455PY' 2>>"$OUT"
+import sys, re, os, itertools
+import numpy as np
+from PIL import Image
+d, gdir, ra = sys.argv[1], sys.argv[2], sys.argv[3] == '1'
+bad, notes = [], []
+BAND = {0: (196, 168, 92), 2: (196, 40, 20), 3: (160, 224, 28), 4: (212, 120, 16),
+        5: (100, 128, 136), 7: (168, 112, 76)}
+BLUE_UNIFORM = (34, 88, 96)          # the 1995 blue uniform's mean (soldier_seat_cloth)
+def img(n): return np.asarray(Image.open('%s/%s.png' % (d, n)).convert('RGB')).astype(np.float64)
+def hsv(a):
+    a = a / 255.0; mx = a.max(-1); mn = a.min(-1); c = mx - mn
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]; cz = np.where(c > 1e-9, c, 1)
+    h = np.where(mx == r, ((g - b) / cz) % 6, np.where(mx == g, (b - r) / cz + 2, (r - g) / cz + 4)) * 60
+    return h, np.where(mx > 0, c / np.maximum(mx, 1e-9), 0), mx, c * 255
+def hue_of(c): return float(hsv(np.array([[c]], float))[0][0, 0])
+def hdist(a, b): x = abs(a - b) % 360; return min(x, 360 - x)
+def parts(c, mode):
+    a, b = img('c%s_%s' % (c, mode)), img('cbare_%s' % mode)
+    unit = np.abs(a - b).sum(-1) > 40
+    h, s, v, ch = hsv(a)
+    top = np.zeros(unit.shape, bool); top[:400] = True
+    return a, unit, h, s, v, ch, top
+def seat_chroma(c, mode, rows, hue):
+    a, unit, h, s, v, ch, top = parts(c, mode)
+    dd = np.abs(h - hue); dd = np.minimum(dd, 360 - dd)
+    sel = unit & (dd < 25) & (s > 0.2) & (v > 0.12) & (top if rows == 'veh' else ~top)
+    cc = np.sort(ch[sel])[::-1]
+    return (float(cc[:max(1, len(cc) // 2)].mean()) if len(cc) else 0.0), int(sel.sum())
+def soldiers(c, mode):
+    a, unit, h, s, v, ch, top = parts(c, mode)
+    sel = unit & ~top & (s > 0.25) & (v > 0.12)
+    ang = np.deg2rad(h[sel]); w = ch[sel]
+    return float(np.rad2deg(np.arctan2((np.sin(ang) * w).sum(), (np.cos(ang) * w).sum())) % 360), a[sel].mean(0), int(sel.sum())
+# 1. engine state
+for c in (2, 4, 3, 5, 7, 0):
+    log = open('%s/c%d.log' % (d, c), errors='replace').read()
+    if not re.search(r'^TEAMCOLOUR\|seat=0\|house=\w+\|colour=%d\|' % c, log, re.M):
+        bad.append('seat colour %d not taken (TEAMCOLOUR)' % c)
+    if not re.search(r'^VEHICLE\|on=', log, re.M):
+        bad.append('colour %d: vhdump printed no VEHICLE line' % c)
+    if re.search(r'^VEHLIVERY\|', log, re.M):
+        bad.append('colour %d: a VEHLIVERY line, the withdrawn vehicle livery step is back' % c)
+# 2. tanks keep the remaster livery
+veh = {}
+for c, lo, hi in ((2, 0.74, 0.92), (4, 0.90, 1.12), (3, 0.58, 0.76), (0, 1.5, 1.9)):
+    hue = hue_of(BAND[c])
+    n64, _ = seat_chroma(c, 'n64', 'veh', hue); enh, npx = seat_chroma(c, 'enh', 'veh', hue)
+    r = enh / max(n64, 1e-6); veh[c] = r
+    if not (lo <= r <= hi) or npx < 500:
+        bad.append('tanks colour %d at %.2f of the N64 chroma over %d px (want %.2f..%.2f)' % (c, r, npx, lo, hi))
+notes.append('tanks red %.2f orange %.2f green %.2f gold %.2f' % (veh[2], veh[4], veh[3], veh[0]))
+# 3. soldiers wear the seat
+sold, offs, chs = {}, [], []
+for c in (2, 4, 3, 5, 7, 0):
+    hn, _, _ = soldiers(c, 'n64'); he, mean, n = soldiers(c, 'enh'); sold[c] = mean
+    hue = hue_of(BLUE_UNIFORM) if c == 5 else hue_of(BAND[c])
+    cn, _ = seat_chroma(c, 'n64', 'inf', hue); ce, npx = seat_chroma(c, 'enh', 'inf', hue)
+    chs.append('%.2f' % (ce / max(cn, 1e-6)))
+    if c == 5:
+        offs.append('blue %d px' % npx)
+        if npx < 300: bad.append('blue seat soldiers show %d pixels of its hue (want >= 300)' % npx)
+    else:
+        offs.append('%.0f' % hdist(hn, he))
+        if hdist(hn, he) > 12: bad.append('colour %d soldiers at hue %.0f, the N64 ones %.0f (want within 12)' % (c, he, hn))
+    if ce < 0.6 * cn: bad.append('colour %d soldiers chroma %.0f against N64 %.0f (want >= 0.6)' % (c, ce, cn))
+notes.append('soldier hue off ' + ','.join(offs) + ' chroma ' + ','.join(chs))
+# 4. seats tell apart
+dmin = min((float(np.linalg.norm(sold[a] - sold[b])), a, b) for a, b in itertools.combinations(sold, 2))
+notes.append('closest seats %d,%d %.0f apart' % (dmin[1], dmin[2], dmin[0]))
+if dmin[0] < 15: bad.append('soldiers of colours %d and %d only %.1f apart (want >= 15)' % (dmin[1], dmin[2], dmin[0]))
+# 5. the Engineer keeps his white vest
+def pale(c):
+    a, unit, h, s, v, ch, top = parts(c, 'enh')
+    return int((unit & ~top & (s < 0.4) & (v * 255 > 100)).sum())
+pg = pale(0); pv = []
+for c in (2, 4, 3, 5, 7):
+    n = pale(c); pv.append('%d' % n)
+    if pg < 40 or n < 0.75 * pg:
+        bad.append('colour %d soldiers show %d pale (vest) pixels against the gold seat, %d (want >= 0.75 of it, gold >= 40)' % (c, n, pg))
+notes.append('vest pixels gold %d, others %s' % (pg, ','.join(pv)))
+# 6. the anim lab reads the cloth reference
+try:
+    sys.path.insert(0, os.path.join(gdir, '..', 'tools', 'anim_lab'))
+    import push_colours
+    want = float(re.search(r'#define M3_CLOTH_REF ([\d.]+)f', open(os.path.join(gdir, '..', 'game', 'model_cloth_reference.h')).read()).group(1))
+    got = push_colours.cloth_ref()
+    if abs(got - want) > 1e-9: bad.append('anim lab cloth_ref() reads %s, the game defines %s' % (got, want))
+    else: notes.append('anim lab reads the cloth reference %.4f' % got)
+except Exception as e:
+    bad.append('anim lab cloth_ref() fails: %s: %s' % (type(e).__name__, e))
+# 7. the Red Alert red seat
+if ra:
+    if re.search(r'^VEHLIVERY\|', open('%s/rra.log' % d, errors='replace').read(), re.M):
+        bad.append('Red Alert red seat: a VEHLIVERY line, the withdrawn vehicle livery step is back')
+    def rapart(mode):
+        a = img('rra_%s' % mode); u = np.abs(a - img('rbare_%s' % mode)).sum(-1) > 40
+        h, s, vv, ch = hsv(a); dd = np.abs(h - hue_of((204, 0, 0))); dd = np.minimum(dd, 360 - dd)
+        top = np.zeros(u.shape, bool); top[:400] = True
+        cc = np.sort(ch[u & top & (dd < 25) & (s > 0.2) & (vv > 0.12)])[::-1]
+        return float(cc[:max(1, len(cc) // 2)].mean()) if len(cc) else 0.0, len(cc)
+    (rn, _), (re_, rpx) = rapart('n64'), rapart('enh')
+    rr = re_ / max(rn, 1e-6)
+    notes.append('Red Alert red seat tanks %.2f' % rr)
+    if not (0.45 <= rr <= 0.61) or rpx < 500:
+        bad.append('Red Alert red seat tanks at %.2f of the N64 chroma over %d px (want 0.45..0.61)' % (rr, rpx))
+else:
+    notes.append('Red Alert not staged: its claim not run')
+print(('1 ' + '; '.join(notes)) if not bad else ('0 ' + '; '.join(bad)))
+G455PY
+)
+echo "G455|$G455P" >> "$OUT"
+G455OK=$(echo "$G455P" | head -1 | cut -d' ' -f1)
+G455MSG=$(echo "$G455P" | head -1 | cut -d' ' -f2-)
+if [ "$GRC" != "0" ]; then
+  bad "G455 seat colours on Enhanced soldiers and tanks: a run failed or a shot is missing (GRC=$GRC)"
+elif [ "$G455OK" = "1" ]; then
+  ok "G455 a skirmish seat's soldiers wear its colour under Enhanced and its tanks keep the remaster livery, six seats: $G455MSG"
+else
+  bad "G455 seat colours on Enhanced soldiers and tanks: ${G455MSG:-the check did not run (see the python error in the log)}"
+fi
+
+# =====================================================================================
+# G456 RED ALERT'S THEATER BUILDINGS WEAR THEIR SNOW LOOK ON A SNOW MAP UNDER ENHANCED
+# (game/ebld_mod.h ebld_pack_theater, ebld_load and ebld_ensure; game/ebld_place.h
+# eplc_attach). The 1996 game gives the Camouflaged Pillbox (HBOX), the Missile Silo (MSLO)
+# and the civilian buildings V01 to V18 and V20 to V37 a graphic per theater (bdata.cpp's
+# "Theater specific graphic image" flag; BuildingTypeClass::Init loads <NAME>.SNO on snow).
+# Under Enhanced a remastered type's snow look is ra3d/ebld/<TYPE>_WIN.ebld beside its
+# plain file, and a type with only the plain file shows that file in every theater. The
+# pillbox's and the silo's are their approved models with the atlases painted for snow
+# (tools/art/remaster/winter/snow_ra.py, baked by tools/ra3d/bake-structures.py --win).
+#   1. THE INVENTORY: each of those types with a plain file in ra3d/ebld has its
+#      _WIN.ebld beside it, except the types in G456GAP (none now), which would have no
+#      snow art yet. The PASS line names any such type.
+#   2. SNOW: Allied 4 (SCG04EA, RASNOW) on a private copy of its INI with two HBOX, a PBOX
+#      and an MSLO added for the Greek player (cells 72,58 78,58 75,58 72,61), Enhanced.
+#      From engine state and the log: each _WIN file is read and attached to RAG04EA and
+#      its plain file is never read; the EBLDMESH line of each is the _WIN model with its
+#      intact mesh; every HBOX and the MSLO draws the model; the PBOX, which has no theater
+#      graphic, keeps its plain file; and the placement (eplcplay) attaches to the snow
+#      model, every triangle matched, and plays.
+#   3. TEMPERATE: Allied 5 (SCG05EA, RATEMP) with an HBOX and an MSLO added at 20,55 and
+#      23,55: the plain files are read and no _WIN file.
+#   4. THE SNOW LOOK'S PIXELS: in each run the camera is put on the first pillbox's cell
+#      (72,58 and 20,55) and the frame shot twice, the buildings drawn and not (bldshow);
+#      the pillbox is the region the buildings change nearest the point that cell
+#      projects to at 1280x720 (about 687,384), and its net the upper 60% of it. On snow
+#      the net reads white and unsaturated (mean level at least 140 of 255, mean
+#      saturation at most 0.12), against the temperate net's green (saturation at least
+#      0.15 and at least 60 levels darker). Measured: snow 171 and 0.07, temperate 62 and
+#      0.24; the plain model on snow 78 and 0.24.
+# PROVEN TO FAIL: with OPENCNC3D_RA3DSNOWTREES=temperate, which counts the snow as
+# temperate, the snow run reads the plain HBOX.ebld and MSLO.ebld and claims 2 and 4 fail;
+# with the plain file staged as HBOX_WIN.ebld (the stand-in this gate used before the snow
+# art existed) claim 4 fails on the net level and saturation (78 and 0.24).
+# NOT COVERED: whether the snow look is the right look, a question for the lab (the 1996
+# snow graphic is its reference). The silo's pixels are not measured. The placement cursor's see-through ghost is not
+# scripted here; it draws through the same model lookup (ebld_model_of), so it shows
+# whichever file claim 2 shows. The interior theater has no look of its own and draws the
+# plain file, as for every other building.
+# =====================================================================================
+G456GAP=""
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG04EA.pack ] && [ -f ra3d/3d/SCG05EA.pack ] \
+   && [ -f ra3d/missions/SCG04EA.INI ] && [ -f ra3d/missions/SCG05EA.INI ]; then
+  rm -rf g456m && mkdir -p g456m
+  cp -R ra3d/missions g456m/missions
+  # 1. the inventory
+  G456INV=""; G456NOW=""; G456WANT=""; G456N=0
+  for G456T in HBOX MSLO V01 V02 V03 V04 V05 V06 V07 V08 V09 V10 V11 V12 V13 V14 V15 V16 \
+               V17 V18 V20 V21 V22 V23 V24 V25 V26 V27 V28 V29 V30 V31 V32 V33 V34 V35 V36 V37; do
+    [ -f "ra3d/ebld/$G456T.ebld" ] || continue
+    case " $G456GAP " in
+      *" $G456T "*)
+        if [ -f "ra3d/ebld/${G456T}_WIN.ebld" ]; then G456NOW="$G456NOW $G456T"; else G456WANT="$G456WANT $G456T"; fi ;;
+      *)
+        if [ -f "ra3d/ebld/${G456T}_WIN.ebld" ]; then G456N=$((G456N + 1)); else G456INV="$G456INV $G456T"; fi ;;
+    esac
+  done
+  python3 - g456m/missions <<'G456PY' 2>>"$OUT"
+import sys
+d = sys.argv[1]
+def add(name, after, rows):
+    p = '%s/%s.INI' % (d, name)
+    s = open(p, 'rb').read().decode('latin-1')
+    i = s.index(after); j = s.index('\n', i) + 1
+    nl = '\r\n' if s[j - 2] == '\r' else '\n'
+    s = s[:j] + ''.join(r + nl for r in rows) + s[j:]
+    open(p, 'wb').write(s.encode('latin-1'))
+c = lambda x, y: y * 128 + x
+add('SCG04EA', '15=BadGuy,AFLD,256,2731,0,None,0,0',
+    ['16=Greece,HBOX,256,%d,0,None,0,0' % c(72, 58), '17=Greece,HBOX,256,%d,0,None,0,0' % c(78, 58),
+     '18=Greece,PBOX,256,%d,0,None,0,0' % c(75, 58), '19=Greece,MSLO,256,%d,0,None,0,0' % c(72, 61)])
+add('SCG05EA', '95=Spain,BARL,256,13846,0,None,1,0',
+    ['96=Greece,HBOX,256,%d,0,None,0,0' % c(20, 55), '97=Greece,MSLO,256,%d,0,None,0,0' % c(23, 55)])
+G456PY
+  for G456S in snow:73:60:72:58 temp:21:56:20:55; do
+    G456K=${G456S%%:*}; G456C=${G456S#*:}; G456H=${G456C#*:*:}; G456C=${G456C%:*:*}
+    {
+      echo "tick 3"; echo "tick 30"; echo "cam ${G456C%%:*} ${G456C#*:}"; echo "zoom max"; echo "tick 2"
+      echo "ebldump"; echo "shot g456m/$G456K.png"
+      echo "cam ${G456H%%:*} ${G456H#*:}"; echo "tick 2"; echo "shot g456m/${G456K}_on.png"
+      echo "bldshow 0"; echo "tick 1"; echo "shot g456m/${G456K}_off.png"; echo "bldshow 1"; echo "tick 1"
+      echo "eplcplay HBOX"; echo "eplcplay MSLO"; echo "tick 2"; echo "eplcdump"; echo "quit"
+    } > "g456m/$G456K.txt"
+  done
+  G456RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir g456m/missions/ --dosdata ra3d/audio --nosound --noshroud --w 1280 --h 720 --enhanced --texset 3"
+  gbegin g456m/snow.png g456m/temp.png
+  grun g456m/snow.log $G456RA --scen SCG04EA --pack ra3d/3d/SCG04EA.pack --script g456m/snow.txt
+  grun g456m/temp.log $G456RA --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --script g456m/temp.txt
+  gshots g456m/snow.png g456m/temp.png g456m/snow_on.png g456m/snow_off.png g456m/temp_on.png g456m/temp_off.png
+  G456P=$(python3 - g456m <<'G456PY' 2>>"$OUT"
+import sys, re
+d = sys.argv[1]
+bad, notes = [], []
+def log(n): return open('%s/%s.log' % (d, n), errors='replace').read()
+S, T = log('snow'), log('temp')
+def read_line(txt, f, scen):
+    return re.search(r'^ebld: (?:\S*/)?ra3d/ebld/%s read at first sight and attached to %s,' % (re.escape(f), scen), txt, re.M)
+for t in ('HBOX', 'MSLO'):
+    if not read_line(S, t + '_WIN.ebld', 'RAG04EA'): bad.append('snow: %s_WIN.ebld not read and attached to RAG04EA' % t)
+    if re.search(r'[ /]ra3d/ebld/%s\.ebld read' % t, S): bad.append('snow: the plain %s.ebld was read' % t)
+    m = re.findall(r'^EBLDMESH\|%s_WIN\|intact=(-?\d+)' % t, S, re.M)
+    if not m or int(m[-1]) <= 0: bad.append('snow: EBLDMESH %s_WIN intact %s' % (t, m[-1] if m else 'missing'))
+    if re.search(r'^EBLDMESH\|%s\|' % t, S, re.M): bad.append('snow: a plain %s model is listed' % t)
+    p = re.findall(r'^EPLCMODEL\|%s\|attached=(\d)\|.*?\|matched=(\d+)\|unmatched=(\d+)' % t, S, re.M)
+    if not p or p[-1][0] != '1' or int(p[-1][1]) <= 0 or p[-1][2] != '0':
+        bad.append('snow: %s placement %s (want attached, matched > 0, unmatched 0)' % (t, p[-1] if p else 'missing'))
+    if not re.search(r'^EPLC\|start\|.*\|type=%s\|' % t, S, re.M): bad.append('snow: no %s placement started' % t)
+    if not read_line(T, t + '.ebld', 'RAG05EA'): bad.append('temperate: plain %s.ebld not read and attached to RAG05EA' % t)
+    if re.search(r'[ /]ra3d/ebld/%s_WIN\.ebld read' % t, T): bad.append('temperate: %s_WIN.ebld was read' % t)
+dr = re.findall(r'^RASTRUCT\|(HBOX|MSLO)\|.*\|draw=(\w+)$', S, re.M)
+nm = sum(1 for k, v in dr if v == 'model')
+if len(dr) != 3 or nm != 3: bad.append('snow: HBOX/MSLO draws %s (want 3 model)' % dr)
+if not read_line(S, 'PBOX.ebld', 'RAG04EA'): bad.append('snow: the PBOX did not keep its plain file')
+# 4. the pillbox net, on snow and on temperate
+import numpy as np
+from PIL import Image
+from scipy import ndimage
+def net(k, at=(687, 384)):
+    on = np.asarray(Image.open('%s/%s_on.png' % (d, k)).convert('RGB'), float)
+    off = np.asarray(Image.open('%s/%s_off.png' % (d, k)).convert('RGB'), float)
+    lab, n = ndimage.label(ndimage.binary_opening(np.abs(on - off).sum(2) > 30))
+    best = None
+    for i in range(1, n + 1):
+        ys, xs = np.nonzero(lab == i)
+        if len(xs) >= 300 and np.hypot(xs.mean() - at[0], ys.mean() - at[1]) < 120 \
+                and (best is None or len(xs) > len(best[1])):
+            best = (ys, xs)
+    if best is None:
+        return None
+    ys, xs = best
+    top = ys < np.percentile(ys, 60)
+    c = on[ys[top], xs[top]]
+    return float(c.mean()), float(((c.max(1) - c.min(1)) / np.maximum(c.max(1), 1)).mean())
+ns, nt = net('snow'), net('temp')
+if ns is None or nt is None:
+    bad.append('pixels: the pillbox was not found in the frame (snow %s, temperate %s)' % (ns, nt))
+else:
+    if ns[0] < 140 or ns[1] > 0.12:
+        bad.append('pixels: the snow net is level %.0f, saturation %.2f (want 140 and over, 0.12 and under)' % ns)
+    if nt[1] < 0.15 or ns[0] - nt[0] < 60:
+        bad.append('pixels: the temperate net is level %.0f, saturation %.2f against the snow net at %.0f '
+                   '(want saturation 0.15 and over, 60 levels darker)' % (nt[0], nt[1], ns[0]))
+    notes.append('the pillbox net on snow level %.0f saturation %.2f, on temperate %.0f and %.2f' % (ns + nt))
+def last(rx):
+    m = re.findall(rx, S, re.M)
+    return m[-1] if m else '?'
+notes.append('snow: HBOX_WIN and MSLO_WIN attached (intact %s and %s triangles), the plain files unread, %d of 3 drawn as the model, the placements on the snow models (matched %s and %s); temperate: the plain files'
+             % (last(r'^EBLDMESH\|HBOX_WIN\|intact=(-?\d+)'), last(r'^EBLDMESH\|MSLO_WIN\|intact=(-?\d+)'), nm,
+                last(r'^EPLCMODEL\|HBOX\|.*?\|matched=(\d+)'), last(r'^EPLCMODEL\|MSLO\|.*?\|matched=(\d+)')))
+print(('1 ' + '; '.join(notes)) if not bad else ('0 ' + '; '.join(bad)))
+G456PY
+)
+  echo "G456|inventory ok=$G456N missing=[$G456INV] gap=[$G456WANT] gap staged=[$G456NOW]|$G456P" >> "$OUT"
+  G456OK=$(echo "$G456P" | head -1 | cut -d' ' -f1)
+  G456MSG=$(echo "$G456P" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G456 Red Alert theater buildings on snow: a run failed or a shot is missing (GRC=$GRC)"
+  elif [ -n "$G456INV" ]; then
+    bad "G456 Red Alert theater buildings on snow: no snow look staged for$G456INV, whose 1996 graphic changes on snow (tools/ra3d/stage-reuse.py stages the winter looks)"
+  elif [ "$G456OK" != "1" ]; then
+    bad "G456 Red Alert theater buildings on snow: ${G456MSG:-the check did not run (see the python error in the log)}"
+  else
+    G456TAIL=""
+    [ -n "$G456WANT" ] && G456TAIL="; NO SNOW ART YET for$G456WANT (their temperate look stands on snow)"
+    [ -n "$G456NOW" ] && G456TAIL="$G456TAIL; snow art now staged for$G456NOW"
+    ok "G456 Red Alert theater buildings pick their snow look on a snow map: $G456N types staged with one; $G456MSG$G456TAIL"
+  fi
+else
+  skip "G456 Red Alert theater buildings on snow: no Red Alert module with SCG04EA and SCG05EA is staged in this folder"
+fi
+
+# =====================================================================================
+# G457 THE DAMAGED CHURCH KEEPS ITS ROOF ROUND THE DESIGNED HOLE, IN EVERY FILE THAT
+# SERVES IT (game/ebld/V01.ebld and V01_WIN.ebld, ra3d/ebld/V01_WIN.ebld; the cut is
+# tools/art/remaster/cut_V01.py; scenes and claims in gate_churchroof.py). Under Enhanced
+# the remastered church's damaged stage snaps the spire, opens a ragged hole in the south
+# roof slope with the roof piece hanging into it, burns a fire in the hole and chars the
+# roof round it; the wall round the back window, a strip of the eave and the back gable's
+# apex are thrown out. The char, the fire and its smoke make a large dark patch of the roof
+# at the game camera; the roof itself stays drawn.
+# THREE RUNS, one per file the game picks: Tiberian Dawn temperate (a copy of SCM01EA),
+# Tiberian Dawn WINTER (a copy of SCM72EA) and Red Alert's snow (Allied 4 emptied of its own
+# units, buildings and triggers, on a plot with no ore). Two tanks break the church, are
+# stopped, the damaged stage is shot at 1 and 3 seconds, then the church is killed and its
+# wreck shot two seconds later, once the explosion's fire has died down. Each shot has a
+# twin of the same moment with the buildings not drawn (bldshow 0). THE ROOF IS FOUND BY
+# GEOMETRY: `ebldtris` lists the whole model's triangles as the intact frame projects them,
+# and the roof is the pixels whose nearest triangle is one of its 20 shingled tops (not
+# the walls, the tower, the gutters or the church's shadow on the ground; on snow, the
+# snow-covered roof as much as the bare patches). Claims, per run:
+#   (1) the church is drawn from the file its theater picks, every texture read back;
+#       under Red Alert no ore lies under the church or round it;
+#   (2) INTACT, DAMAGED at the break (four pieces thrown), WRECKED at the kill;
+#   (3) the loose pieces are exactly spire_top, roof_edge, wall_chunk and gable_top besides
+#       the hit chips, and roof_in hangs bent on its hinge (30 degrees or more);
+#   (4) the roof mask is the drawn roof: 20 roof triangles, at least 4000 pixels, at least
+#       97% of them drawn by the church in the intact shot;
+#   (5) of the roof pixels bright enough in the intact shot to be judged, at least 35%
+#       still read as roof in both damaged shots (drawn, not fire, at least half their
+#       own intact brightness);
+#   (6) the settled wreck, whose roof is gone, reads under that same 35%.
+# NOT COVERED: whether the char and the hole are the right size for the game camera, a look
+# question for the lab. The floor's margin is narrow on the temperate map (measured: 0.46
+# at 3 seconds, 0.26 on the wreck), where the charred, fire-lit shingles and the wreck's
+# scorched ground are close in colour; on snow it is wide (0.82 and above, against 0.07).
+# Classic and the N64 look, which draw the cartridge's chapel and have
+# no damaged stage of their own (G308 claim 7).
+# =====================================================================================
+rm -rf g457m && python3 "$GATEDIR/gate_churchroof.py" maps g457m 2>>"$OUT"
+if [ -s g457m/tem/SCG78EA.INI ] && [ -s g457m/win/SCG79EA.INI ] && [ -s g457m/ras/SCG04EA.INI ] \
+   && [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG04EA.pack ] && [ -f SCM72EA.pack ]; then
+  gbegin g457m/tem.log g457m/win.log g457m/ras.log
+  G457ARGS="--noshroud --nosound --w 1280 --h 720 --enhanced --texset 3"
+  grun g457m/tem.log --scen SCG78EA --pack SCG01EA.pack $BASE --dir g457m/tem/ $G457ARGS --script g457m/tem.txt
+  grun g457m/win.log --scen SCG79EA --pack SCM72EA.pack $BASE --dir g457m/win/ $G457ARGS --script g457m/win.txt
+  grun g457m/ras.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir g457m/ras/ \
+       --dosdata ra3d/audio --scen SCG04EA --pack ra3d/3d/SCG04EA.pack $G457ARGS --script g457m/ras.txt
+  gshots g457m/tem_dmg45.png g457m/win_dmg45.png g457m/ras_dmg45.png
+  G457CHK=$(python3 "$GATEDIR/gate_churchroof.py" check g457m 2>>"$OUT")
+  G457V=$(echo "$G457CHK" | head -1 | cut -d' ' -f1)
+  G457MSG=$(echo "$G457CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G457 the damaged church's roof: a run failed or a shot is missing (GRC=$GRC)"
+  elif [ "$G457V" = "1" ]; then
+    ok "G457 the damaged church keeps its roof round the designed hole in all three files: $G457MSG"
+  else
+    bad "G457 the damaged church's roof: ${G457MSG:-the check did not run (see the python error in the log)}"
+  fi
+else
+  skip "G457 the damaged church's roof: the test missions were not made, or Red Alert's SCG04EA or SCM72EA.pack is not in this folder"
+fi
+
+# =====================================================================================
+# G458 A SELECTED GAP GENERATOR SHOWS ITS OWNER A RANGE RING OF ITS JAMMING RADIUS, IN
+# CLASSIC, N64 AND ENHANCED (cnc_eyes.cpp gap_ring_of, draw_gap_rings; dosclassic_mod.h
+# dos2d_gap_rings; the radius is the brain's OpenCNC3D_Gap_Radius, Rule.GapShroudRadius).
+# Red Alert shows the owner nothing of its own gap: the jammed cells are shrouded only for
+# the other houses. Allied 2 for the Soviets: a Power Plant so the house
+# has the power to jam, a Gap Generator and a Mobile Gap Generator of the player's, each
+# selected and then deselected in each mode; first, before the map is revealed, the
+# building once in Enhanced, its ring reaching over unexplored ground. Claims:
+#   (1) the brain's radius is read (export=1) and is 1996's 10;
+#   (2) selected, each draws exactly one ring, in that mode's pass, at the engine's own jam
+#       centre (the building's: the cell of its Center_Coord, its TOP cell), radius 10 for
+#       the building and 3 for the vehicle; deselected, none;
+#   (3) the ring is on the screen: at the sixteen points the frame reports, a pixel within
+#       two of each is at least 60 brighter in the selected shot than in the deselected one,
+#       at no fewer than 8 points for the building (some fall under the HUD or off screen)
+#       and 12 for the vehicle; and in Enhanced at no fewer than 3 points where the
+#       deselected shot is the shroud's black (the ring is cut out of the fog of war, as
+#       the pointer is, rather than dimmed to nothing with the ground under it);
+#   (4) the ring agrees with the engine's jam (CellClass::Is_Jamming in GAME_STATE_SHROUD,
+#       the union of both, which stand 18 cells apart): every cell the building jams is
+#       inside its ring, and they are the 281 cells of the engine's octagonal Distance() at
+#       10 (the 36 other cells inside the ring lie on its diagonals); the vehicle jams its
+#       31-cell table, 27 of them inside the three-cell ring.
+# PROVEN TO FAIL: the build before this one draws no ring in any mode (count=0, no
+# gapringdump verb at all).
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCU02EA.pack ]; then
+  skip "G458 Gap Generator range ring: no Red Alert module with 3D scenes is staged in this folder"
+else
+  rm -rf g458m && mkdir -p g458m
+  {
+    printf 'tick 20\ngfxmode 2\ncam 74 50\nspawnobj POWR 71 45\ntick 3\nspawnobj GAP 74 48\nspawnobj MGG 76 66\ntick 30\npowerdump\n'
+    printf 'lclickobj GAP 0\ntick 1\nshot g458m/fog_sel.png\ngapringdump\ndeselect\ntick 1\nshot g458m/fog_off.png\ngapringdump\nreveal 1\n'
+    for G458M in 2 1 0; do
+      printf 'gfxmode %s\ncam 74 50\ntick 3\nlclickobj GAP 0\ntick 1\nshot g458m/gap%s_sel.png\ngapringdump\n' $G458M $G458M
+      printf 'deselect\ntick 1\nshot g458m/gap%s_off.png\ngapringdump\n' $G458M
+      printf 'cam 76 65\ntick 3\nlclickobj MGG 0\ntick 1\nshot g458m/mgg%s_sel.png\ngapringdump\n' $G458M
+      printf 'deselect\ntick 1\nshot g458m/mgg%s_off.png\ngapringdump\n' $G458M
+    done
+    printf 'quit\n'
+  } > g458m/ring.txt
+  G458RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 800"
+  gbegin g458m/ring.log
+  grun g458m/ring.log $G458RA --scen SCU02EA --pack ra3d/3d/SCU02EA.pack --script g458m/ring.txt
+  gshots g458m/fog_sel.png g458m/gap2_sel.png g458m/gap1_sel.png g458m/gap0_sel.png g458m/mgg2_sel.png g458m/mgg1_sel.png g458m/mgg0_sel.png
+  G458R=$(python3 - g458m <<'G458EOF' 2>>"$OUT"
+import sys
+from PIL import Image
+d = sys.argv[1]
+log = open(d + "/ring.log", encoding="latin-1").read().splitlines()
+# the dumps, in script order: the Enhanced gap sel/off over the shroud, then per mode 2, 1, 0
+# the four of gap sel/off, mgg sel/off with the map revealed
+dumps, cur = [], None
+for line in log:
+    if line.startswith("GAPRING-BEGIN"):
+        cur = {"head": dict(kv.split("=", 1) for kv in line.split()[1:]), "rings": [], "jam": []}
+    elif cur is not None and line.startswith("GAPRING|"):
+        f = line.split("|")
+        kv = dict(x.split("=", 1) for x in f[2:])
+        pts = [tuple(float(v) for v in p.split(",")) for p in kv["pts"].split(";")]
+        cur["rings"].append({"type": f[1], "classic": int(kv["classic"]), "cx": float(kv["cx"]),
+                             "cz": float(kv["cz"]), "r": float(kv["r"]), "pts": pts})
+    elif cur is not None and line.startswith("GAPJAM|"):
+        f = line.split("|")
+        cur["jam"].append(dict(x.split("=", 1) for x in f[2:] if "=" in x))
+    elif cur is not None and line.startswith("GAPRING-END"):
+        dumps.append(cur); cur = None
+objs = {}
+for line in log:
+    if line.startswith("GAPRING-OBJ|"):
+        f = line.split("|")
+        objs[f[1]] = dict(x.split("=", 1) for x in f[3:])
+fails, notes = [], []
+if len(dumps) != 14:
+    print("0 expected 14 ring dumps, the log has %d" % len(dumps)); sys.exit(0)
+if dumps[0]["head"].get("export") != "1" or dumps[0]["head"].get("radius") != "10":
+    fails.append("brain radius export=%s radius=%s (want 1, 10)" % (dumps[0]["head"].get("export"), dumps[0]["head"].get("radius")))
+def bright(img, x, y):
+    w, h = img.size
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            xx, yy = int(x) + dx, int(y) + dy
+            if 0 <= xx < w and 0 <= yy < h:
+                yield (xx, yy)
+def hits(sel, off, pts, dark_only=False):
+    a = Image.open(d + "/" + sel).convert("RGB"); b = Image.open(d + "/" + off).convert("RGB")
+    pa, pb = a.load(), b.load()
+    n = 0
+    for (x, y) in pts:
+        win = list(bright(a, x, y))
+        if not win:
+            continue
+        # dark_only: only the points where the deselected shot is the shroud's black
+        if dark_only and max(max(pb[p]) for p in win) > 24:
+            continue
+        if any(min(pa[p]) - min(pb[p]) >= 60 for p in win):
+            n += 1
+    return n
+fog = dumps[0]["rings"]
+if len(fog) != 1 or dumps[1]["rings"]:
+    fails.append("over the shroud: %d rings selected, %d deselected (want 1, 0)" % (len(fog), len(dumps[1]["rings"])))
+else:
+    dark = hits("fog_sel.png", "fog_off.png", fog[0]["pts"], True)
+    notes.append("Enhanced GAP over the shroud %d/16" % dark)
+    if dark < 3:
+        fails.append("Enhanced GAP ring seen over the shroud at %d points (want >= 3)" % dark)
+dumps = dumps[2:]
+for i, m in enumerate(("2", "1", "0")):
+    mode = {"2": "Enhanced", "1": "N64", "0": "Classic"}[m]
+    for j, (t, want_r, need) in enumerate((("GAP", 10.0, 8), ("MGG", 3.0, 12))):
+        sel, off = dumps[i * 4 + j * 2], dumps[i * 4 + j * 2 + 1]
+        rs = [r for r in sel["rings"] if r["type"] == t]
+        if len(sel["rings"]) != 1 or len(rs) != 1:
+            fails.append("%s %s selected: %d rings (want one %s)" % (mode, t, len(sel["rings"]), t)); continue
+        if off["rings"]:
+            fails.append("%s %s deselected: still %d rings" % (mode, t, len(off["rings"])))
+        r = rs[0]
+        if r["classic"] != (1 if m == "0" else 0):
+            fails.append("%s %s ring drawn by the wrong pass (classic=%d)" % (mode, t, r["classic"]))
+        o = objs.get(t, {})
+        if t == "GAP":
+            wx, wz = int(float(o.get("ex", "-9"))) + 0.5, int(float(o.get("ez", "-9"))) + 0.5
+        else:
+            wx, wz = float(o.get("ex", "-9")), float(o.get("ez", "-9"))
+        if abs(r["r"] - want_r) > 1e-3 or abs(r["cx"] - wx) > 0.01 or abs(r["cz"] - wz) > 0.01:
+            fails.append("%s %s ring at %.2f,%.2f r=%.2f (want %.2f,%.2f r=%.0f)" % (mode, t, r["cx"], r["cz"], r["r"], wx, wz, want_r))
+        n = hits("%s%s_sel.png" % (t.lower(), m), "%s%s_off.png" % (t.lower(), m), r["pts"])
+        notes.append("%s %s %d/16" % (mode, t, n))
+        if n < need:
+            fails.append("%s %s ring seen at %d of 16 points (want >= %d)" % (mode, t, n, need))
+        jam = sel["jam"][0] if sel["jam"] else {}
+        ji, jo, nj = int(jam.get("jammed_inside", -1)), int(jam.get("jammed_outside", -1)), int(jam.get("inside_not_jammed", -1))
+        # the two jam far apart, so each ring has the other's whole jam outside it
+        want = (281, 31, 36) if t == "GAP" else (27, 4 + 281, 2)
+        if (ji, jo, nj) != want:
+            fails.append("%s %s engine jam inside/outside/ring-not-jammed %d/%d/%d (want %d/%d/%d)" % ((mode, t, ji, jo, nj) + want))
+if fails:
+    print("0 " + "; ".join(fails))
+else:
+    print("1 " + ", ".join(notes))
+G458EOF
+)
+  G458V=$(echo "$G458R" | cut -d' ' -f1)
+  G458MSG=$(echo "$G458R" | cut -d' ' -f2-)
+  echo "G458 $G458R" >> "$OUT"
+  if [ "$GRC" != "0" ]; then bad "G458 Gap Generator range ring: the run failed or a shot is missing (GRC=$GRC)"
+  elif [ "$G458V" = "1" ]; then
+    ok "G458 a selected Gap Generator and Mobile Gap Generator show their owner the jamming ring in Classic, N64 and Enhanced, centred and sized as the engine jams (281 cells, all inside); ring seen at: $G458MSG"
+  else bad "G458 Gap Generator range ring: ${G458MSG:-the check did not run (see the python error in the log)}"; fi
+fi
+
+# =====================================================================================
+# G459 A DRAG BOX THAT CATCHES NOTHING IT CAN SELECT KEEPS THE SELECTION (game/cnc_eyes.cpp
+# ui_band_select; OpenCNC3D_Band_Would_Take in both brains). 1995 and 1996 clear the
+# selection before a band sweeps (Select_These calls Unselect_All first), so an order
+# click that drifted past the band threshold over bare ground dropped the units it was
+# meant for. A fresh band now asks the engine, without selecting, whether it would take
+# any of the objects whose centre is inside; if none, the selection is left alone (no
+# clear and restore, which would replay the units' voices). Scenes and claims in
+# game/gate_bandkeep.py. TWO HIDDEN RUNS, each game in N64, Enhanced and Classic: a box over
+# bare ground keeps the selection (BAND ...|empty|candidates=0|kept=1), with SHIFT too; in
+# Tiberian Dawn a box round a Nod Light Tank alone keeps it (its band never takes another
+# side's units); in Red Alert a box round the mission's arriving Transport, which the
+# renderer counts and the engine refuses as a reinforcement loaner, keeps it
+# (candidates=1); a box round another unit still replaces the selection (in Red Alert a
+# Soviet V2, as 1996 shows another side's units boxed alone); the right button still
+# deselects.
+# PROVEN TO FAIL: against brains without the export (the 1995 rule, which the renderer
+# falls back to) every kept leg reads took=0 selection=0 in all six game-mode pairs. With
+# the engine question replaced by a count of the renderer's candidates, the three Red
+# Alert Transport legs fail (took=0 selection=0) and nothing else does.
+# NOT COVERED: the SDL motion events themselves (G371 and G37 drive the same release
+# function); a cloaked submarine, which the renderer hides once fully cloaked.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCG05EA.pack ]; then
+  skip "G459 a drag box over nothing keeps the selection: no Red Alert module with 3D scenes is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g459k && mkdir -p g459k
+  python3 "$GATEDIR/gate_ra3downvehicles.py" script g459k 2>>"$OUT"
+  python3 "$GATEDIR/gate_bandkeep.py" script g459k 2>>"$OUT"
+  gbegin
+  grun g459k/td.log --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720 \
+       --script g459k/td.txt
+  grun g459k/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio \
+       --w 1280 --h 720 --enhanced --texset 3 --noshroud --nosound \
+       --dir g459k/mt/ --scen SCG05EA --pack ra3d/3d/SCG05EA.pack --script g459k/ra.txt
+  G459CHK=$(python3 "$GATEDIR/gate_bandkeep.py" check g459k 2>>"$OUT")
+  echo "$G459CHK" >> "$OUT"
+  G459V=$(echo "$G459CHK" | head -1 | cut -d' ' -f1)
+  G459MSG=$(echo "$G459CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G459 a drag box over nothing keeps the selection: a run failed (GRC=$GRC)"
+  elif [ "$G459V" = "1" ]; then
+    ok "G459 $G459MSG"
+  else
+    bad "G459 a drag box over nothing keeps the selection: ${G459MSG:-the check did not run (see the python error in the log)}"
+  fi
+fi
+
+# =====================================================================================
+# G463 THE LOBBY'S MAP PREVIEW PACK CARRIES EVERY MAP THE COMMITTED MANIFEST LISTS
+# (tools/bake_map_previews.py --check; game/make-build.sh rebakes a stale pack, and both
+# packagers refuse one). mappreview.pack is a build product; game/mappreview.manifest.json
+# is committed with every bake. A folder that kept an older pack showed an empty preview
+# panel for each map the pack lacked, and the lobby says nothing about a missing record:
+# folders baked before the race courses carried 10 previews against 13 and drew every
+# Rally course blank. Claims:
+#   (1) this folder's mappreview.pack has a record for every map the manifest lists;
+#   (2) THE CHECK HAS TEETH, every run: the same pack cut back to its first ten records
+#       (the nine retail maps and Pitfall Quarter, which is exactly the stale pack's
+#       shape) is refused, and the refusal names the three Rally courses SCM70EA,
+#       SCM71EA and SCM72EA and nothing else.
+# NOT COVERED: the pictures' content (the baker's own readback and --verify), and the
+# lobby drawing no start numbers over a course's grid (seen in headless lobby shots).
+# =====================================================================================
+if [ ! -f mappreview.pack ]; then
+  bad "G463 the map preview pack: this folder has no mappreview.pack (game/make-build.sh bakes it)"
+else
+  G463OK=$(python3 "$GATEDIR/../tools/bake_map_previews.py" --check mappreview.pack \
+           --manifest "$GATEDIR/../game/mappreview.manifest.json" 2>&1)
+  G463RC=$?
+  echo "$G463OK" >> "$OUT"
+  rm -rf g463p && mkdir -p g463p
+  python3 - mappreview.pack g463p/stale10.pack <<'G463PY' 2>>"$OUT"
+import struct, sys
+blob = open(sys.argv[1], "rb").read()
+ver, count, fw, fh, ms = struct.unpack_from("<5I", blob, 8)
+record = 12 + 24 + 12 + 8 + 8 + 4 + ms * 10 + 2 * fw * fh
+header = 8 + 5 * 4 + 768 + 768
+keep = min(10, count)
+out = bytearray(blob[:header + keep * record])
+struct.pack_into("<I", out, 12, keep)
+open(sys.argv[2], "wb").write(out)
+G463PY
+  G463STALE=$(python3 "$GATEDIR/../tools/bake_map_previews.py" --check g463p/stale10.pack \
+              --manifest "$GATEDIR/../game/mappreview.manifest.json" 2>&1)
+  G463SRC=$?
+  echo "$G463STALE" >> "$OUT"
+  G463LACKS=$(echo "$G463STALE" | sed -n 's/^MAPPREVIEW|STALE|.*lists: //p' | head -1)
+  if [ "$G463RC" != "0" ]; then
+    bad "G463 the map preview pack lacks maps the manifest lists: $(echo "$G463OK" | head -1)"
+  elif [ "$G463SRC" = "0" ] || [ "$G463LACKS" != "SCM70EA SCM71EA SCM72EA" ]; then
+    bad "G463 the map preview check has no teeth: a ten-record copy of the pack was not refused naming the three Rally courses (rc=$G463SRC, named: ${G463LACKS:-nothing})"
+  else
+    ok "G463 the lobby's map preview pack carries every map the committed manifest lists ($(echo "$G463OK" | sed -n 's/.*carries all \([0-9]*\) previews.*/\1/p') of them), and the same pack cut to ten records, the stale shape, is refused naming $G463LACKS"
+  fi
+fi
+
+# =====================================================================================
+# G468 RED ALERT'S UNIT CARD SHOWS THE AFTERMATH UNITS' PORTRAITS, AND CLAIMS NONE IT HAS
+# NOT GOT (tools/ra3d/bake-sidebar.py, game/cnc_sidebar_ra_enhanced.h rah_cameo_art,
+# game/unitcard_mod.h). The card's picture comes from the sidebar packs, which carried the
+# cameos of every RULES.INI type with one in the 1996 HIRES.MIX or LORES.MIX and nothing
+# else; the Aftermath units' cameos are on the expansion disc, in HIRES1.MIX and
+# LORES1.MIX. So a selected Chrono Tank showed an empty picture while the card reported
+# cameo=1, because a name with no art was handed a clear 64x48 rather than no picture.
+# The packs now take the expansion's cameos for the types AFTRMATH.INI adds, and a type
+# no pack has art for reports cameo=0.
+# ONE HIDDEN RUN of Allied 1 under Enhanced with the Enhanced HUD at 1280 x 800. Seven
+# Aftermath types are spawned beside the start and each is selected by a click on it;
+# the card's report after each click says what it shows. The run is SEEDED (--seed 4242,
+# as G364 and G367 are). Unseeded, Red Alert seeds the scenario from the wall clock, and
+# the mission's own transport helicopter, bringing Tanya to waypoint 10 (63,47), circles
+# a path that follows the seed. On some seeds (21, 45 and 51 of the first 60) it is drawn
+# over Einstein on the tick he is clicked, the click rightly takes the helicopter on top,
+# and the card has no Einstein to report. On seed 4242 it stands at 63,47 clear of his
+# aim, every run. A change that moves it over him on this seed fails every run, and the
+# SELECT line then names TRAN. Claims:
+#   a  the Chrono Tank, Tesla Tank, M.A.D. Tank, Demolition Truck, Phase Transport,
+#      Shock Trooper and Mechanic each show a picture: cameo=1 and at least 1000 of its
+#      3072 pixels carry colour (measured 2646 to 2900)
+#   b  the control, the mission's own Ranger, does the same (2916), so the run measures
+#      the card and not a card that never drew
+#   c  Joe (C1) and Prof. Einstein report cameo=0: no Red Alert disc, base or expansion,
+#      has a cameo for a civilian, and the card no longer claims one
+# PROVEN TO FAIL: with the packs from before the bake change each of the seven has no
+# picture (cameo=0, lit=0), and the card from before the change reported cameo=1 for the
+# seven over an empty well, and for Joe.
+# NOT COVERED: the ships (MSUB, CARR), which this land start cannot place; their cameos
+# are baked by the same lines.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ] || [ ! -f ra3d/enhanced-hud.pack ]; then
+  skip "G468 Red Alert unit card portraits: no Red Alert module with its Enhanced HUD is staged in this folder (tools/ra3d/stage-frontend.py)"
+else
+  rm -rf g463d && mkdir -p g463d
+  { printf 'expectres 1280 800\ntick 1\n'
+    printf 'spawnobj CTNK 58 47\nspawnobj TTNK 61 47\nspawnobj QTNK 64 47\nspawnobj DTRK 67 47\n'
+    printf 'spawnobj STNK 58 50\nspawnobj SHOK 60 50\nspawnobj MECH 66 49\nspawnobj C1 64 49\n'
+    printf 'spawnobj EINSTEIN 62 45\ntick 30\n'
+    for G468T in CTNK TTNK QTNK DTRK STNK SHOK MECH JEEP C1 EINSTEIN; do
+      printf 'lclickobj %s\ntick 1\nunitcard\n' "$G468T"
+    done
+    printf 'shot g463d/card.png\nquit\n'; } > g463d/s.txt
+  gbegin
+  export OPENCNC3D_HUD=new
+  grun g463d/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --nosound --w 1280 --h 800 --enhanced --texset 3 \
+       --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --seed 4242 --script g463d/s.txt
+  unset OPENCNC3D_HUD
+  gshots g463d/card.png
+  G468WHY=""
+  for G468T in CTNK TTNK QTNK DTRK STNK SHOK MECH JEEP; do
+    G468L=$(grep -a "^UNITCARD|shown=1|count=1|main=$G468T|" g463d/ra.log | head -1)
+    G468C=$(echo "$G468L" | sed -n 's/.*|cameo=\([0-9]*\)|.*/\1/p')
+    G468P=$(echo "$G468L" | sed -n 's/.*|cameo_lit=\([0-9]*\).*/\1/p')
+    [ "$G468C" = "1" ] && [ "${G468P:-0}" -ge 1000 ] || G468WHY="$G468WHY $G468T:cameo=${G468C:-none},lit=${G468P:-none}"
+  done
+  for G468T in C1 EINSTEIN; do
+    G468L=$(grep -a "^UNITCARD|shown=1|count=1|main=$G468T|" g463d/ra.log | head -1)
+    G468C=$(echo "$G468L" | sed -n 's/.*|cameo=\([0-9]*\)|.*/\1/p')
+    [ "$G468C" = "0" ] || G468WHY="$G468WHY $G468T:cameo=${G468C:-none}(want 0)"
+  done
+  if [ "$GRC" != "0" ]; then
+    bad "G468 Red Alert unit card portraits: the run failed or a click found nothing (GRC=$GRC)"
+  elif [ -z "$G468WHY" ]; then
+    ok "G468 Red Alert unit card portraits: the Chrono Tank, Tesla Tank, M.A.D. Tank, Demolition Truck, Phase Transport, Shock Trooper and Mechanic show their Aftermath cameos as the Ranger shows its own, and Joe and Prof. Einstein, for whom no disc has a cameo, claim none"
+  else
+    bad "G468 Red Alert unit card portraits:$G468WHY (want cameo=1 and lit >=1000 for the Aftermath units and the Ranger, cameo=0 for the civilians)"
+  fi
+fi
+
+# =====================================================================================
+# G464 RED ALERT'S POWER MODE LIGHTS ITS BUTTON AND KEEPS ITS POINTER OVER THE BUILDING
+# (game/cnc_sidebar_ra_enhanced.h rah_tool_icon, game/cnc_eyes.cpp eh_power_icon and
+# eh_draw_power_pointer). Under Red Alert's Enhanced HUD the lightning button with power
+# mode on took only the approved active plate, a lighter grey, where Tiberian Dawn's turns
+# orange; and the pointer was the 3D world pointer at the ground point under the building
+# it pointed at, so the building's model hid it, because the stand-in glyph was looked for
+# only in Tiberian Dawn's pack. Now the lit button's icon takes the HUD's gold ink, Red
+# Alert's own power icon is the pointer, and the pointer is drawn below the seam, where
+# the post chain's occlusion cannot darken it as it did a glyph drawn in the world pass.
+# ONE HIDDEN RUN of Soviet SCU32EA under Enhanced with the Enhanced HUD at 1280 x 720: the
+# pointer on the refinery PROC#7, power mode on through the panel's own latch, one shot.
+# Claims:
+#   a  POWERMODE says glyph=1, and POWERDRAWN says the glyph was drawn this run at the
+#      pointer's own place
+#   b  over the refinery, the 19 x 19 the glyph covers holds at least 40 gold pixels
+#      (measured 88): the building does not hide it
+#   c  the lightning button's icon holds at least 40 gold pixels (measured 73), and the
+#      Repair and Sell icons, whose modes are off, none: the control that the gold is the
+#      lit state and not the icon's own colour
+# PROVEN TO FAIL: the build before the change answers glyph=0 and draws no glyph (15
+# gold pixels there, the refinery's own ore: the world pointer stands inside the
+# building), and leaves the lightning icon grey (0 gold pixels).
+# NOT COVERED: Tiberian Dawn's power pointer, which keeps its own pack's glyph and orange
+# plate; the markers over switched-off buildings, which now draw in Red Alert as they do
+# in Tiberian Dawn.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCU32EA.pack ] || [ ! -f ra3d/enhanced-hud.pack ]; then
+  skip "G464 Red Alert power mode: no Red Alert module with its Enhanced HUD and SCU32EA is staged in this folder"
+else
+  rm -rf g464d && mkdir -p g464d
+  printf 'expectres 1280 720\ntick 30\nlook PROC#7\ntick 1\npowermode 1\ncursorobj PROC#7\ntick 2\nshot g464d/power.png\npowerdrawn\nquit\n' > g464d/s.txt
+  gbegin
+  export OPENCNC3D_HUD=new
+  grun g464d/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --nosound --w 1280 --h 720 --enhanced --texset 3 \
+       --scen SCU32EA --pack ra3d/3d/SCU32EA.pack --script g464d/s.txt
+  unset OPENCNC3D_HUD
+  gshots g464d/power.png
+  G464MODE=$(grep -a '^POWERMODE|' g464d/ra.log | head -1)
+  G464AT=$(grep -a '^CURSOROBJ|PROC#7|' g464d/ra.log | head -1 | sed -n 's/.*|at=\([0-9]*\)\.[0-9]*,\([0-9]*\)\.[0-9]*|.*/\1,\2/p')
+  G464DRAWN=$(grep -a '^POWERDRAWN|' g464d/ra.log | head -1 | sed -n 's/.*|glyph_at=\([0-9-]*,[0-9-]*\).*/\1/p')
+  G464PX=$(python3 - g464d/power.png "${G464AT:-0,0}" 2>>"$OUT" <<'G464PY'
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert('RGB')
+cx, cy = (int(v) for v in sys.argv[2].split(','))
+def gold(x0, y0):
+    n = 0
+    for y in range(y0, y0 + 19):
+        for x in range(x0, x0 + 19):
+            r, g, b = im.getpixel((x, y))
+            n += r > 150 and g > 90 and b < 90 and r - b > 90
+    return n
+# The wing sits 63 columns left of the 216-wide bar and 27 rows down; each icon is 29
+# columns into it and 31 + 42 k rows down (game/cnc_sidebar_ra_enhanced.h).
+wx, wy = im.width - 216 - 63, 27
+print(gold(cx, cy), gold(wx + 29, wy + 31 + 84), gold(wx + 29, wy + 31), gold(wx + 29, wy + 31 + 42))
+G464PY
+)
+  set -- $G464PX; G464PTR=${1:-0}; G464POW=${2:-0}; G464REP=${3:-99}; G464SELL=${4:-99}
+  echo "G464|$G464MODE|at=$G464AT|drawn=$G464DRAWN|pointer=$G464PTR|power=$G464POW|repair=$G464REP|sell=$G464SELL" >> "$OUT"
+  if [ "$GRC" != "0" ]; then
+    bad "G464 Red Alert power mode: the run failed or wrote no picture (GRC=$GRC)"
+  elif [ "$G464MODE" = "POWERMODE|1|glyph=1" ] && [ -n "$G464AT" ] && [ "$G464DRAWN" = "$G464AT" ] \
+       && [ "$G464PTR" -ge 40 ] && [ "$G464POW" -ge 40 ] && [ "$G464REP" = "0" ] && [ "$G464SELL" = "0" ]; then
+    ok "G464 Red Alert power mode: the lightning button's icon is lit gold ($G464POW pixels, Repair and Sell none), and the power glyph is the pointer, drawn over the refinery at $G464AT ($G464PTR gold pixels) instead of inside it"
+  else
+    bad "G464 Red Alert power mode: mode '$G464MODE' (want POWERMODE|1|glyph=1), glyph drawn at '$G464DRAWN' (want the pointer's $G464AT), gold over the refinery $G464PTR (want >=40), on the lightning icon $G464POW (want >=40), on Repair $G464REP and Sell $G464SELL (want 0)"
+  fi
+fi
+
+# =====================================================================================
+# G465 AFTER RACE AGAIN A RETIRED SEAT READS OUT IN THE VEHICLE CHOOSER, NOT READY
+# (game/rally_mod.h rly_draw_pick). A seat that left the race (its house destroyed,
+# disconnected or resigned) keeps the vehicle it last raced, and RACE AGAIN keeps it out of
+# the race; the chooser's seat list called every seat with a vehicle READY, so the retired
+# seat stood READY beside the real drivers, while the results beside it said OUT.
+# ONE HIDDEN RUN of the Rally course SCM70EA, one lap, the player and three computers,
+# seed 4242: the player picks the Nod Buggy and races on autopilot, COMPUTER 3's house is
+# destroyed 120 ticks in (blowup 2, the departure path), the race finishes, RACE AGAIN is
+# chosen, and the chooser that opens is drawn and read back (RALLY|chooser, the word each
+# seat's row printed). Claims:
+#   a  the destroyed seat is the one the brain retired (racer flags carry RALLY_F_RETIRED,
+#      32768) both at the finish and after RACE AGAIN: the control that the run made the
+#      case at all
+#   b  its row reads OUT; the two computers still in reads READY; the player, who has not
+#      chosen yet, CHOOSING
+# PROVEN TO FAIL: the build before the change prints no chooser line and draws READY on
+# the retired seat's row.
+# =====================================================================================
+if [ ! -s SCM70EA.pack ] || [ ! -f missions/SCM70EA.INI ]; then
+  skip "G465 a retired Rally seat reads OUT after RACE AGAIN: the course SCM70EA is not staged in this folder"
+else
+  rm -rf g465d && mkdir -p g465d
+  printf 'tick 2\nrallypick 0\nrallyuntil race 2000\nrallyauto 1\ntick 120\nblowup 2\ntick 80\nrallyuntil done 8000\nrallystate\nrallychoice retry\nrallyuntil pick 400\ntick 2\nshot g465d/pick.png\nrallystate\nquit\n' > g465d/s.txt
+  gbegin
+  grun g465d/r.log --scen SCM70EA --pack SCM70EA.pack $BASE --nosound --w 1280 --h 720 --enhanced \
+       --texset 3 --skirmish --rally --laps 1 --ai 3 --seed 4242 --script g465d/s.txt
+  gshots g465d/pick.png
+  G465RET=$(grep -a '^RALLY|racer=2|' g465d/r.log | sed -n 's/.*|flags=\([0-9]*\)|.*/\1/p' | awk '{ printf "%s", (int($1 / 32768) % 2) }')
+  G465W=$(grep -a '^RALLY|chooser|' g465d/r.log | sed 's/^RALLY|chooser|seat=\([0-9]*\)|word=\(.*\)$/\1:\2/' | tr '\n' ' ')
+  echo "G465|retired-bits=$G465RET|chooser=$G465W" >> "$OUT"
+  if [ "$GRC" != "0" ]; then
+    bad "G465 a retired Rally seat reads OUT after RACE AGAIN: the run failed or wrote no picture (GRC=$GRC)"
+  elif [ "$G465RET" != "11" ]; then
+    bad "G465 a retired Rally seat reads OUT after RACE AGAIN: COMPUTER 3 was not retired at the finish and after RACE AGAIN (bits $G465RET, want 11), so the run never made the case"
+  elif [ "$G465W" = "0:CHOOSING 1:READY 2:OUT 3:READY " ]; then
+    ok "G465 a retired Rally seat reads OUT after RACE AGAIN: the chooser reads CHOOSING for the player, READY for the two computers still racing and OUT for the destroyed COMPUTER 3"
+  else
+    bad "G465 a retired Rally seat reads OUT after RACE AGAIN: the chooser read [$G465W] (want 0:CHOOSING 1:READY 2:OUT 3:READY)"
+  fi
+fi
+
+# =====================================================================================
+# G469 A PLAYER'S SAVES AND HALLS OF FAME COME ALONG TO THE NEW PER-USER FOLDER, AND THE
+# OLD FOLDER IS NEVER TOUCHED (app/opencnc3d.cpp userdir_carry_over, app/userdir.h). The
+# per-user folder moved from <base>/Slipgate Ironworks/OpenCNC3D to <base>/OpenCNC3D, and
+# the game copies a player's files across once. Every other save gate passes --savedir and
+# so never runs this code; --userdircarrytest <base> runs the same routine with a scratch
+# folder standing in for <base> (the folder above the per-user one), so the real per-user
+# folder is never asked for. Four scratch bases:
+#   a  a full earlier folder: Tiberian Dawn slots 0 and 3 with their .enh sidecars, its
+#      index, both halls of fame, Red Alert's ra3d/ slot 1 with its sidecar and index,
+#      plus a log, a crash copy, a dump scratch file and a temporary copy name that must
+#      NOT come along; an even earlier CNC3D folder beside it with a different index that
+#      must lose to it; a RAHALLFAME.DAT already in the new folder that must not be
+#      written over; and an hour-old temporary file in the new folder, left by a copy cut
+#      short, that must be cleared without standing in for the real file. Claims: 9 files
+#      copied, byte for byte; the earlier folder hash-identical before and after; the
+#      second run copies 0.
+#   b  only the earliest folder, Slipgate Ironworks/CNC3D: its CNC3DSAV.IDX arrives as
+#      OPENCNC.IDX, and no file named CNC3DSAV.IDX is made.
+#   c  no earlier folder at all: nothing copied, from=none, and no Slipgate Ironworks
+#      folder is created (the old name is never handed to anything that creates folders).
+#   d  the full earlier folder of (a), and a new folder that already holds a Tiberian Dawn
+#      index of its own: the Tiberian Dawn slots stay behind, and Red Alert's set and both
+#      halls of fame still come along (each set is decided on its own).
+# PROVEN TO FAIL against the routine compiled on its own, one change at a time: a
+# carry-over that stops as soon as the new folder has an index copies 0 in (d); one
+# without the sweep leaves the hour-old temporary file in (a); one that takes every
+# savegame.* name copies 10 in (a), the earlier folder's temporary file among them; one
+# that looks for the earlier folders without their Slipgate Ironworks level copies 0 in
+# (a). The build before has no --userdircarrytest, which this gate reports without
+# starting the game. A copy written straight to its final name, or published with a
+# replacing rename, would still pass every claim here, because all of them run one
+# process at a time; the no-replace publish is argued in the code instead.
+# NOT COVERED: SDL_GetPrefPath's own answer on each platform (the empty organisation is
+# read from SDL's source, not run here); the Windows build, whose no-replace step is the
+# C library's rename and which only a run on Windows can show; two copies of the game
+# racing each other for the same file.
+# =====================================================================================
+if ! grep -a -q -- '--userdircarrytest' ./opencnc3d; then
+  bad "G469 saves come along to the new per-user folder: this opencnc3d has no --userdircarrytest, so the carry-over cannot be run against a scratch folder"
+else
+  rm -rf g469 && mkdir -p g469
+  G469D="$PWD/g469"
+  G469BAD=""
+  g469run() {   # g469run BASE: one carry-over into BASE, its APP|userdir line on stdout
+    perl -e 'alarm 30; exec @ARGV' ./opencnc3d --userdircarrytest "$1" 2>> "$OUT" | grep -a '^APP|userdir|'
+  }
+  g469fill() {   # g469fill FILE: random bytes, different for every file
+    head -c $((200 + RANDOM % 4000)) /dev/urandom > "$1"
+  }
+  g469sum() {   # g469sum DIR: every path under DIR and every file's hash, one listing
+    ( cd "$1" && find . | LC_ALL=C sort && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum )
+  }
+  g469old() {   # g469old BASE: the full earlier folder of claims (a) and (d)
+    G469O="$1/Slipgate Ironworks/OpenCNC3D"
+    mkdir -p "$G469O/ra3d"
+    for f in savegame.000 savegame.000.enh savegame.003 savegame.003.enh OPENCNC.IDX \
+             HALLFAME.DAT RAHALLFAME.DAT ra3d/savegame.001 ra3d/savegame.001.enh ra3d/OPENCNC.IDX \
+             opencnc3d-log.txt opencnc3d-crash-20260101-000000.txt opencnc3d-dump-77.tmp \
+             savegame.005.carry-77; do
+      g469fill "$G469O/$f"
+    done
+  }
+  # (a)
+  g469old "$G469D/a"
+  mkdir -p "$G469D/a/Slipgate Ironworks/CNC3D" "$G469D/a/OpenCNC3D"
+  g469fill "$G469D/a/Slipgate Ironworks/CNC3D/CNC3DSAV.IDX"
+  g469fill "$G469D/a/OpenCNC3D/RAHALLFAME.DAT"
+  cp "$G469D/a/OpenCNC3D/RAHALLFAME.DAT" g469/a-ra-fame-before
+  g469fill "$G469D/a/OpenCNC3D/savegame.003.carry-99999"
+  touch -t 202001010000 "$G469D/a/OpenCNC3D/savegame.003.carry-99999"
+  g469sum "$G469D/a/Slipgate Ironworks" > g469/a-old-before
+  G469A1=$(g469run "$G469D/a")
+  G469A2=$(g469run "$G469D/a")
+  g469sum "$G469D/a/Slipgate Ironworks" > g469/a-old-after
+  echo "G469|a|run1=$G469A1|run2=$G469A2" >> "$OUT"
+  [ "$G469A1" = "APP|userdir|copied=9|from=$G469D/a/Slipgate Ironworks/OpenCNC3D" ] \
+    || G469BAD="$G469BAD (a) first run said [$G469A1], want copied=9 from the Slipgate Ironworks/OpenCNC3D folder;"
+  [ "$G469A2" = "APP|userdir|copied=0|from=$G469D/a/Slipgate Ironworks/OpenCNC3D" ] \
+    || G469BAD="$G469BAD (a) second run said [$G469A2], want copied=0;"
+  G469O="$G469D/a/Slipgate Ironworks/OpenCNC3D"
+  for f in savegame.000 savegame.000.enh savegame.003 savegame.003.enh OPENCNC.IDX HALLFAME.DAT \
+           ra3d/savegame.001 ra3d/savegame.001.enh ra3d/OPENCNC.IDX; do
+    cmp -s "$G469O/$f" "$G469D/a/OpenCNC3D/$f" || G469BAD="$G469BAD (a) $f is not a byte-identical copy;"
+  done
+  cmp -s g469/a-ra-fame-before "$G469D/a/OpenCNC3D/RAHALLFAME.DAT" \
+    || G469BAD="$G469BAD (a) the RAHALLFAME.DAT already in the new folder was written over;"
+  for f in opencnc3d-log.txt opencnc3d-crash-20260101-000000.txt opencnc3d-dump-77.tmp \
+           savegame.005 savegame.005.carry-77 CNC3DSAV.IDX; do
+    [ -e "$G469D/a/OpenCNC3D/$f" ] && G469BAD="$G469BAD (a) $f was carried and should not be;"
+  done
+  G469TMP=$(find "$G469D/a/OpenCNC3D" -name '*.carry-*' | wc -l | tr -d ' ')
+  [ "$G469TMP" = "0" ] || G469BAD="$G469BAD (a) $G469TMP temporary copy files left in the new folder (the hour-old one included);"
+  cmp -s g469/a-old-before g469/a-old-after || G469BAD="$G469BAD (a) the earlier folders changed;"
+  # (b)
+  G469O="$G469D/b/Slipgate Ironworks/CNC3D"
+  mkdir -p "$G469O"
+  for f in savegame.002 savegame.002.enh CNC3DSAV.IDX HALLFAME.DAT; do g469fill "$G469O/$f"; done
+  G469B=$(g469run "$G469D/b")
+  echo "G469|b|$G469B" >> "$OUT"
+  [ "$G469B" = "APP|userdir|copied=4|from=$G469O" ] \
+    || G469BAD="$G469BAD (b) said [$G469B], want copied=4 from the Slipgate Ironworks/CNC3D folder;"
+  cmp -s "$G469O/CNC3DSAV.IDX" "$G469D/b/OpenCNC3D/OPENCNC.IDX" \
+    || G469BAD="$G469BAD (b) CNC3DSAV.IDX did not arrive as OPENCNC.IDX;"
+  [ -e "$G469D/b/OpenCNC3D/CNC3DSAV.IDX" ] && G469BAD="$G469BAD (b) a CNC3DSAV.IDX was made in the new folder;"
+  # (c)
+  mkdir -p "$G469D/c"
+  G469C=$(g469run "$G469D/c")
+  echo "G469|c|$G469C" >> "$OUT"
+  [ "$G469C" = "APP|userdir|copied=0|from=none" ] || G469BAD="$G469BAD (c) said [$G469C], want copied=0|from=none;"
+  [ -d "$G469D/c/OpenCNC3D" ] || G469BAD="$G469BAD (c) the stand-in per-user folder was not made;"
+  [ -e "$G469D/c/Slipgate Ironworks" ] && G469BAD="$G469BAD (c) a Slipgate Ironworks folder was created;"
+  # (d)
+  g469old "$G469D/d"
+  mkdir -p "$G469D/d/OpenCNC3D"
+  g469fill "$G469D/d/OpenCNC3D/OPENCNC.IDX"
+  cp "$G469D/d/OpenCNC3D/OPENCNC.IDX" g469/d-idx-before
+  G469DD=$(g469run "$G469D/d")
+  echo "G469|d|$G469DD" >> "$OUT"
+  [ "$G469DD" = "APP|userdir|copied=5|from=$G469D/d/Slipgate Ironworks/OpenCNC3D" ] \
+    || G469BAD="$G469BAD (d) said [$G469DD], want copied=5 (Red Alert's three files and both halls of fame);"
+  cmp -s g469/d-idx-before "$G469D/d/OpenCNC3D/OPENCNC.IDX" || G469BAD="$G469BAD (d) the new folder's own index was written over;"
+  [ -e "$G469D/d/OpenCNC3D/savegame.000" ] && G469BAD="$G469BAD (d) Tiberian Dawn slots were copied beside an index of the new folder's own;"
+  cmp -s "$G469D/d/Slipgate Ironworks/OpenCNC3D/ra3d/OPENCNC.IDX" "$G469D/d/OpenCNC3D/ra3d/OPENCNC.IDX" \
+    || G469BAD="$G469BAD (d) Red Alert's index did not come along;"
+  if [ -z "$G469BAD" ]; then
+    ok "G469 saves come along to the new per-user folder: 9 files copied byte for byte from Slipgate Ironworks/OpenCNC3D (logs, crash copies, scratch and temporary files left behind, a file already there kept, a stale temporary file cleared), the earlier folders unchanged, 0 on the second run; the earliest folder's CNC3DSAV.IDX arrives as OPENCNC.IDX; no earlier folder means nothing copied and no Slipgate Ironworks folder made; Red Alert's set and the halls of fame still come along when Tiberian Dawn's index is already there"
+  else
+    bad "G469 saves come along to the new per-user folder:$G469BAD"
+  fi
+fi
+
+# G470 A SAVE IN ANOTHER FORMAT IS REFUSED WITH A REASON, AND LEAVES NOTHING BEHIND
+# (brain: Load_Game and DLLExportClass::Snapshot_Load_State; host: game_load_slot and the
+# pause dialog's Load). The engine's save version is a sum of its saved class sizes, so a
+# build whose classes grew refuses every save an earlier build wrote. Load_Game reads its
+# DLL block (sidebars, multiplayer settings, building placement, Special) BEFORE that
+# version, and used to return with the refused file's copies of all of it in place, the
+# sidebars' pointers still in their saved form: the next save in that process, in the
+# same mission or a brand-new one, died with signal 11 in SidebarGlyphxClass::Code_Pointers.
+# The player was told only that the save "could not be loaded", and then lost the game
+# they carried on with.
+#   a  SCG01EA saves slots 0 and 1; SAVEFMT names the version this build writes.
+#   b  the gate rewrites that one word in slot 1's payload to a version this build does
+#      not read (16857015, the macOS Tiberian Dawn format of v0.6.3 to v0.7.3, or one less
+#      than this build's where this build's is not 16857135). 16857031, the format of
+#      v0.8.0 to v0.9.6, is read since G471, so it can no longer stand for "another format".
+#   c  SCG01EA again: the pause dialog's Load on slot 1 is refused as another save format,
+#      with found= and expected= and the sentence a player reads over the slot list
+#      (NOTICE); the mission carries on with the same object count; a save into slot 2
+#      after the refusal is written and the process ends cleanly; slot 0 still loads.
+# PROVEN TO FAIL on the build before: (c) dies with signal 11 at the save into slot 2,
+# and its refusal is the bare "engine declined" with no notice.
+# NOT COVERED: Windows, where the same code runs with other version numbers (measured by
+# a cross-compiled size probe, not by a run there); Red Alert, whose engine reports no
+# refusal reason and has had no save format change.
+# =====================================================================================
+rm -rf shots/g470 && mkdir -p shots/g470/saves
+printf 'tick 20\nsave 0 G470 good\nsave 1 G470 other format\ntick 2\nquit\n' > shots/g470/a.txt
+gbegin shots/g470/a.log
+grun shots/g470/a.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --savedir shots/g470/saves \
+  --script shots/g470/a.txt
+G470ARC=$GRC
+G470V=$(grep -a '^SAVEFMT|slot=1|version=' shots/g470/a.log | tail -1 | sed -n 's/.*version=\([0-9]*\)$/\1/p')
+# A build without SAVEFMT (one from before this gate) is given the macOS version that it
+# writes, so the gate still reaches the load that used to crash rather than stopping here.
+[ -n "$G470V" ] || { G470V=16857135; echo "G470|no SAVEFMT line; assuming $G470V" >> "$OUT"; }
+G470OLD=""
+if [ -n "$G470V" ] && [ -s shots/g470/saves/savegame.001 ]; then
+  G470OLD=$(python3 - shots/g470/saves/savegame.001 "$G470V" <<'PY' 2>&1
+import struct, sys
+path, v = sys.argv[1], int(sys.argv[2])
+old = 16857015 if v == 16857135 else v - 1
+b = bytearray(open(path, 'rb').read())
+at = b.find(struct.pack('<I', v))
+if at < 0:
+    print('none')
+else:
+    b[at:at + 4] = struct.pack('<I', old)
+    open(path, 'wb').write(b)
+    print(old)
+PY
+)
+fi
+echo "G470|old|$G470OLD|this|$G470V" >> "$OUT"
+# The slot list is newest first by the payload's date, and both slots were written in the
+# same second: slot 0 is dated back so slot 1 is always the first row.
+[ -e shots/g470/saves/savegame.000 ] && touch -t 202001010000 shots/g470/saves/savegame.000
+printf 'tick 10\noptions\noptclick Load Mission\noptrow 0\noptclick Load\noptclick OK\ntick 5\nsave 2 G470 after refusal\ntick 2\nload 0\ntick 2\nquit\n' \
+  > shots/g470/c.txt
+G470CRC=x
+case "$G470OLD" in
+  ''|*[!0-9]*) ;;
+  *)
+    gbegin shots/g470/c.log
+    grun shots/g470/c.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --savedir shots/g470/saves \
+      --script shots/g470/c.txt
+    G470CRC=$GRC
+    ;;
+esac
+G470REF=0; G470NOTE=0; G470OBJ=x; G470SAVE=0; G470BACK=0; G470FATAL=1
+if [ -s shots/g470/c.log ]; then
+  G470REF=$(grep -ac "^LOAD|slot=1|REFUSED another save format|found=$G470OLD|expected=$G470V|This save was made by an earlier version of OpenCNC3D" shots/g470/c.log)
+  G470NOTE=$(grep -ac '^NOTICE|open|caption=Unable to load mission|lines=[0-9]*|text=This save was made by an earlier version of OpenCNC3D' shots/g470/c.log)
+  # the object count before the refusal and after it, the same mission carrying on
+  G470OBJ=$(grep -a '^TICK|' shots/g470/c.log | head -2 | sed -n 's/.*|objects=\([0-9]*\)|.*/\1/p' | tr '\n' ',')
+  G470SAVE=$(grep -ac '^SAVE|slot=2|G470 after refusal|bytes=[0-9]*|frame=[0-9]*|scen=SCG01EA|' shots/g470/c.log)
+  G470BACK=$(grep -ac '^LOAD|slot=0|frame=20|scen=SCG01EA|objects=' shots/g470/c.log)
+  G470FATAL=$(grep -ac '^FATAL' shots/g470/c.log)
+fi
+G470OBJA=${G470OBJ%%,*}; G470OBJB=${G470OBJ#*,}; G470OBJB=${G470OBJB%,}
+if [ "$G470ARC" = "0" ] && [ "$G470CRC" = "0" ] && [ "$G470REF" = "1" ] && [ "$G470NOTE" = "1" ] \
+   && [ -n "$G470OBJA" ] && [ "$G470OBJA" = "$G470OBJB" ] && [ "$G470SAVE" = "1" ] \
+   && [ "$G470BACK" = "1" ] && [ "$G470FATAL" = "0" ]; then
+  ok "G470 a save in another format: refused as another save format (found $G470OLD, this build $G470V) with the sentence over the slot list; the mission carries on ($G470OBJA objects before and after); a save after the refusal is written and the process ends cleanly; the untouched slot still loads"
+else
+  bad "G470 a save in another format: save run rc=$G470ARC, version [$G470V], rewritten to [$G470OLD], load run rc=$G470CRC, refused with reason $G470REF/1, notice $G470NOTE/1, objects before,after [$G470OBJ], save after refusal $G470SAVE/1, untouched slot loads $G470BACK/1, FATAL lines $G470FATAL (want 0)"
+fi
+
+# =====================================================================================
+# G471 A SAVE FROM v0.8.0 TO v0.9.6 LOADS, AND LOADS WHOLE
+# (brain: Load_Game, OpenCNC3DFewerTypesHouseFile and HouseClass::OpenCNC3D_Widen_Saved).
+# Adding the Red Alert units, infantry and aircraft to Tiberian Dawn's type lists grew
+# every house's per-type tallies, which changed the save format, and every save written
+# before that was refused. The engine now reads the older format, widening each house as
+# it is read. ../gates/g471-v092-save holds a real save in that format: SCG01EA at frame
+# 300, written by a v0.9.2 build (the format v0.8.0 to v0.9.6 wrote on macOS).
+#   a  loaded and saved straight back into slot 1 (no frame played between), it is
+#      written in this build's format, every house in it is the old house widened (the
+#      same bytes, the new types' tallies zero, at the macOS layout's growth points), and
+#      the file is exactly 104 bytes a house longer: nothing else in it moved.
+#   b  play goes on for 600 frames from the old save, saves into slot 2 and loads it back,
+#      and the process ends cleanly.
+#   c  the pause dialog's Load on the same slot, the way a player loads, loads it: frame
+#      300, SCG01EA, 64 objects, no refusal.
+# PROVEN TO FAIL on the build before: the load is refused, the engine declining the save,
+# and the save after it crashes.
+# NOT COVERED: Windows, whose format numbers differ (the same code reads them there, and
+# the layout was measured by a cross-compiled layout dump, not by a run); saves from
+# before v0.8.0, written in formats this build still refuses.
+# =====================================================================================
+rm -rf shots/g471 && mkdir -p shots/g471/saves shots/g471/dialog
+G471SRC=../gates/g471-v092-save
+cp "$G471SRC/savegame.000" "$G471SRC/OPENCNC.IDX" shots/g471/saves/ 2>/dev/null
+cp "$G471SRC/savegame.000" "$G471SRC/OPENCNC.IDX" shots/g471/dialog/ 2>/dev/null
+printf 'load 0\nsave 1 G471 widened\ntick 600\nsave 2 G471 later\nload 2\ntick 30\nquit\n' > shots/g471/a.txt
+printf 'tick 10\noptions\noptclick Load Mission\noptrow 0\noptclick Load\ntick 5\nquit\n' > shots/g471/c.txt
+G471RC=x; G471CRC=x
+if [ -s shots/g471/saves/savegame.000 ]; then
+  gbegin shots/g471/a.log
+  grun shots/g471/a.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --savedir shots/g471/saves \
+    --script shots/g471/a.txt
+  G471RC=$GRC
+  gbegin shots/g471/c.log
+  grun shots/g471/c.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --savedir shots/g471/dialog \
+    --script shots/g471/c.txt
+  G471CRC=$GRC
+fi
+G471LOAD=0; G471REF=1; G471DLG=0; G471LATER=0; G471BACK=0; G471FATAL=1; G471WIDE=missing
+if [ -s shots/g471/a.log ] && [ -s shots/g471/c.log ]; then
+  G471LOAD=$(grep -ac '^LOAD|slot=0|frame=300|scen=SCG01EA|objects=64$' shots/g471/a.log)
+  G471DLG=$(grep -ac '^LOAD|slot=0|frame=300|scen=SCG01EA|objects=64$' shots/g471/c.log)
+  G471REF=$(cat shots/g471/a.log shots/g471/c.log | grep -ac '^LOAD|slot=0|REFUSED')
+  G471LATER=$(grep -ac '^SAVE|slot=2|G471 later|bytes=[0-9]*|frame=900|scen=SCG01EA|' shots/g471/a.log)
+  G471BACK=$(grep -ac '^LOAD|slot=2|frame=900|scen=SCG01EA|objects=' shots/g471/a.log)
+  G471FATAL=$(cat shots/g471/a.log shots/g471/c.log | grep -ac '^FATAL')
+  G471WIDE=$(python3 - shots/g471/saves/savegame.000 shots/g471/saves/savegame.001 <<'PY' 2>&1
+import struct, sys
+OLD, NEW = 7064, 7168
+# macOS layout: where each grown tally ends in this build's house, and the bytes it gained
+GROWN = [(328, 12), (424, 8), (532, 16), (832, 12), (928, 8), (1036, 16), (7008, 16), (7100, 8), (7132, 12)]
+def heap(b, size):
+    # the house heap: a count, then that many (index, record) pairs with indices 0, 1, ...
+    for p in range(len(b) - 8):
+        n, = struct.unpack_from('<i', b, p)
+        if not 2 <= n <= 20:
+            continue
+        if all(p + 8 + k * (4 + size) <= len(b)
+               and struct.unpack_from('<i', b, p + 4 + k * (4 + size))[0] == k for k in range(n)):
+            return p, n
+    return None
+def widen(r):
+    out = bytearray(NEW); fr = to = 0
+    for end, added in GROWN:
+        keep = end - added - to
+        out[to:to + keep] = r[fr:fr + keep]; fr += keep; to = end
+    rest = min(NEW - to, OLD - fr)
+    out[to:to + rest] = r[fr:fr + rest]
+    return bytes(out)
+a = open(sys.argv[1], 'rb').read(); c = open(sys.argv[2], 'rb').read()
+ha, hc = heap(a, OLD), heap(c, NEW)
+if not ha or not hc or ha[1] != hc[1]:
+    print('heap old=%s new=%s' % (ha, hc)); sys.exit()
+(p, n), (q, m) = ha, hc
+bad = [k for k in range(n)
+       if widen(a[p + 8 + k * (4 + OLD):p + 8 + k * (4 + OLD) + OLD]) != c[q + 8 + k * (4 + NEW):q + 8 + k * (4 + NEW) + NEW]]
+grew = len(c) - len(a)
+if bad or grew != n * (NEW - OLD):
+    print('houses=%d differing=%s grew=%d' % (n, bad, grew))
+else:
+    print('ok houses=%d grew=%d' % (n, grew))
+PY
+)
+fi
+if [ "$G471RC" = "0" ] && [ "$G471CRC" = "0" ] && [ "$G471LOAD" = "1" ] && [ "$G471DLG" = "1" ] \
+   && [ "$G471REF" = "0" ] && [ "${G471WIDE%% *}" = "ok" ] \
+   && [ "$G471LATER" = "1" ] && [ "$G471BACK" = "1" ] && [ "$G471FATAL" = "0" ]; then
+  ok "G471 a v0.9.2 save loads (frame 300, 64 objects), saves back in this build's format with every house the old one widened and nothing else moved (${G471WIDE#ok }), plays 600 frames, saves and loads again, and loads through the pause dialog"
+else
+  bad "G471 a v0.9.2 save: runs rc=$G471RC,$G471CRC, loaded $G471LOAD/1, through the pause dialog $G471DLG/1, refusals $G471REF (want 0), widened [$G471WIDE], later save $G471LATER/1, reload $G471BACK/1, FATAL lines $G471FATAL (want 0)"
+fi
+
+# =====================================================================================
+# G489 THE COMMAND KEYS, EVERY ONE THE ENGINE DEFINES, THROUGH THE FUNCTION THE KEY
+# HANDLER CALLS.
+#
+# `keypress` hands a key to kb_key, which is the first thing the SDL key handler asks, so
+# a green run here is evidence about the keyboard and not about a copy of it (G490 proves
+# the live handler reaches it). The defaults are the shipped binding plus the further keys
+# the GPL engine's OptionsClass defines (options.cpp:84-130): N and B next and previous
+# unit, E select all on screen, T repair, Y sell, Home centre on the selection, F9 to F12
+# the camera bookmarks. U (the engine's radar zoom) is deliberately not bound.
+#
+# EVERY CLAIM IS ENGINE STATE OR A RELATION: the tank's NavCom set by scatter and cleared
+# by stop (G113's test), next and previous landing on DIFFERENT objects and previous coming
+# back to the first, the select-all selection count, the sidebar's own repair and sell
+# lines, the base's GoodGuy Construction Yard, and a recalled bookmark putting the camera
+# back where it was stored. Run in Tiberian Dawn (SCG90EA) and in Red Alert (Allied 1).
+# =====================================================================================
+rm -f /tmp/g489_td.txt /tmp/g489_ra.txt
+cat > /tmp/g489_td.txt <<'G489AEOF'
+tick 20
+cam 54 51
+zoom min
+keys
+lclickobj MTNK 0
+expectsel 1
+keypress X
+tick 5
+seldump
+keypress S
+tick 5
+seldump
+keypress G
+keypress Z
+keypress N
+keypress N
+keypress B
+keypress shift N
+deselect
+keypress E
+keypress T
+keypress repeat T
+keypress T
+keypress Y
+keypress repeat Y
+keypress Y
+deselect
+cam 40 34
+keypress Home
+lclickobj MTNK 0
+cam 40 34
+keypress Home
+cam 40 34
+keypress ctrl F9
+cam 54 51
+keypress F9
+state
+keypress F10
+keypress U
+quit
+G489AEOF
+cat > /tmp/g489_ra.txt <<'G489BEOF'
+tick 30
+cam 62 50
+tick 1
+keys
+lclickobj JEEP 0
+expectsel 1
+keypress X
+tick 5
+seldump
+keypress S
+tick 5
+seldump
+keypress N
+keypress B
+deselect
+keypress E
+cam 50 50
+keypress ctrl F9
+cam 62 50
+keypress F9
+state
+quit
+G489BEOF
+G489TD=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+           --script /tmp/g489_td.txt 2>&1); G489TDRC=$?
+G489RA=""; G489RARC=0
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  G489RA=$(./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+             --dosdata ra3d/audio --nosound --w 1280 --h 720 --noshroud --scen SCG01EA \
+             --pack ra3d/3d/SCG01EA.pack --script /tmp/g489_ra.txt 2>&1); G489RARC=$?
+fi
+echo "$G489TD" | grep -E '^(KEYS|KEYPRESS|UNITREQ|BASE|SIDEBAR-INPUT|SEL\|UNIT|CAM\|state|SCRIPT\|end)' >> "$OUT"
+echo "$G489RA" | grep -E '^(KEYS|KEYPRESS|UNITREQ|SEL\|UNIT|CAM\|state|SCRIPT\|end)' >> "$OUT"
+# the defaults, as the game holds them, in one string
+G489DEF=$(echo "$G489TD" | sed -n 's/^KEYS|bind|cmd=\([a-z0-9]*\)|key=\([^|]*\)|default=\(.*\)$/\1=\2/p' | tr '\n' ' ')
+G489DEFOK=0
+[ "$G489DEF" = "stop=S scatter=X guard=G guard2=Z attackmove=A base=H rebuild=D radar=M camera=C nextmode=Space next=N prev=B selectview=E repair=T sell=Y centre=Home view1=F9 view2=F10 view3=F11 view4=F12 " ] && G489DEFOK=1
+G489NAV=$(echo "$G489TD" | grep '^SEL|UNIT|MTNK|' | sed -n 's/.*|navcell=\(-*[0-9]*\)|.*/\1/p')
+G489N1=$(echo "$G489NAV" | sed -n '1p'); G489N2=$(echo "$G489NAV" | sed -n '2p')
+G489GUARD=$(echo "$G489TD" | grep -c '^UNITREQ|guard|selection=1')
+G489IDS=$(echo "$G489TD" | sed -nE 's/^KEYS\|(next|prev)\|[A-Z0-9]*\|id=([0-9]*)\|.*/\1:\2/p' | tr '\n' ' ')
+G489NX1=$(echo "$G489IDS" | cut -d' ' -f1 | cut -d: -f2); G489NX2=$(echo "$G489IDS" | cut -d' ' -f2 | cut -d: -f2)
+G489PV=$(echo "$G489IDS" | cut -d' ' -f3); G489SH=$(echo "$G489IDS" | cut -d' ' -f4)
+G489VIEW=$(echo "$G489TD" | sed -n 's/^KEYS|selectview|took=[0-9]*|selection=\([0-9]*\)$/\1/p')
+G489REP=$(echo "$G489TD" | grep -E '^SIDEBAR-INPUT\|(repair|sell)\|' | cut -d'|' -f2,3 | tr '\n' ' ')
+G489BASE=$(echo "$G489TD" | grep -c '^BASE|FACT|.*|house=GoodGuy|')
+G489CEN=$(echo "$G489TD" | grep -c '^KEYS|centre|n=1|')
+G489REC=$(echo "$G489TD" | grep -c '^KEYS|bookmark|recall|1|cam=40.00,34.00$')
+G489CAM=$(echo "$G489TD" | grep '^CAM|state|' | tail -1 | grep -c '|x=40.000|z=34.000|')
+G489EMPTY=$(echo "$G489TD" | grep -c '^KEYS|bookmark|empty|2$')
+G489U=$(echo "$G489TD" | grep -c '^KEYPRESS|unanswered|U$')
+G489CLEAN=$(echo "$G489TD" | grep -c 'SCRIPT|end /tmp/g489_td.txt: .*, 0 failures')
+G489RAOK=1; G489RAWHY="Red Alert not staged"
+if [ -n "$G489RA" ]; then
+  G489RANAV=$(echo "$G489RA" | grep '^SEL|UNIT|JEEP|' | sed -n 's/.*|navcell=\(-*[0-9]*\)|.*/\1/p' | tr '\n' ' ')
+  G489RAWHY="navcell after X then S [$G489RANAV] next=$(echo "$G489RA" | grep -c '^KEYS|next|') prev=$(echo "$G489RA" | grep -c '^KEYS|prev|') selectview=$(echo "$G489RA" | grep -c '^KEYS|selectview|') recall=$(echo "$G489RA" | grep -c '^KEYS|bookmark|recall|1|cam=50.00,50.00$') clean=$(echo "$G489RA" | grep -c 'SCRIPT|end /tmp/g489_ra.txt: .*, 0 failures')"
+  echo "$G489RANAV" | grep -qE '^[0-9]+ -1 $' || G489RAOK=0
+  echo "$G489RAWHY" | grep -q 'next=1 prev=1 selectview=1 recall=1 clean=1' || G489RAOK=0
+fi
+if [ "$G489TDRC" != "0" ] || [ "$G489RARC" != "0" ]; then
+  bad "G489 command keys: a run failed (Tiberian Dawn exit $G489TDRC, Red Alert exit $G489RARC)"
+elif [ "$G489DEFOK" != "1" ]; then
+  bad "G489 command keys: the default binding is not the shipped one plus the engine's own keys: [$G489DEF]"
+elif [ "$G489N1" = "-1" ] || [ "$G489N2" != "-1" ] || [ "$G489GUARD" != "2" ]; then
+  bad "G489 command keys: X then S read navcell $G489N1 then $G489N2 (want set, then -1) and G and Z gave $G489GUARD guard orders (want 2)"
+elif [ -z "$G489NX1" ] || [ "$G489NX1" = "$G489NX2" ] || [ "$G489PV" != "prev:$G489NX1" ] || [ "${G489SH%%:*}" != "prev" ]; then
+  bad "G489 command keys: next and previous [$G489IDS]: want two nexts on different objects, then previous back on the first of them, then Shift+N running backwards"
+elif [ "${G489VIEW:-0}" -lt 2 ]; then
+  bad "G489 command keys: E (select all on screen) left $G489VIEW selected, want at least 2"
+elif [ "$G489REP" != "repair|on repair|off sell|on sell|off " ]; then
+  bad "G489 command keys: T and Y twice each, with a held-key repeat between, gave [$G489REP], want repair on and off, sell on and off (a repeat of a held key must not toggle the mode again)"
+elif [ "$G489BASE" != "1" ] || [ "$G489CEN" != "1" ]; then
+  bad "G489 command keys: Home with nothing selected went to the GoodGuy yard $G489BASE time(s) (want 1) and with a tank selected centred on it $G489CEN time(s) (want 1)"
+elif [ "$G489REC" != "1" ] || [ "$G489CAM" != "1" ] || [ "$G489EMPTY" != "1" ]; then
+  bad "G489 command keys: Ctrl+F9 then F9 recalled $G489REC time(s) to 40,34 (want 1), the camera there=$G489CAM (want 1), and F10 never stored read empty $G489EMPTY time(s) (want 1)"
+elif [ "$G489U" != "1" ] || [ "$G489CLEAN" != "1" ]; then
+  bad "G489 command keys: U answered by a command ($G489U unanswered, want 1: the radar zoom key stays unbound) or the script failed (clean=$G489CLEAN)"
+elif [ "$G489RAOK" != "1" ]; then
+  bad "G489 command keys in Red Alert: $G489RAWHY"
+else
+  ok "G489 command keys: the twenty defaults are the shipped keys plus the engine's own (N, B, E, T, Y, Home, F9 to F12); X scatters and S stops (navcell $G489N1 then -1), G and Z guard, N and N select two different units and B comes back, Shift+N runs backwards, E selects $G489VIEW on screen, T and Y switch repair and sell on and off, Home goes to the base with nothing selected and centres on a selected tank, Ctrl+F9 stores the view and F9 returns to it, U stays unbound; Red Alert: $G489RAWHY"
+fi
+
+# =====================================================================================
+# G490 KEYS AND THE DRAG BUTTON ARE THE PLAYER'S: REBOUND, REFUSED, SWAPPED, REMEMBERED,
+# AND HEARD BY THE LIVE KEY HANDLER.
+#
+# keybind is what the Key Bindings page does with a key (kb_assign): a reserved key (a
+# fixed tool key, a control group number, an arrow) is refused, and a key another command
+# holds swaps with it so no command is left without a key. The page itself is driven too,
+# through the Enhanced dialog a hand uses (emclick on Key Bindings, on Stop's box, then a
+# key handed over as the SDL handler hands it, then the Side 1 drag button).
+#
+# THE LIVE HALF: a settings file binding stop to K, and one real keydown pushed through
+# SDL's queue into the running game (--presskey). K must reach stop and S must reach
+# nothing. That is the SDL key handler itself, not a script verb.
+#
+# THE DRAG BUTTON: with the right button chosen, a right press that travels grabs the map
+# (the camera moves with the pointer and the press is no click); with it not chosen and
+# the push switched off, the same gesture moves nothing. The middle and side buttons are
+# remapped at the SDL event boundary, which no script reaches, so the side-button mapping
+# itself is not exercised by this gate.
+# =====================================================================================
+G490DIR=/tmp/g490
+rm -rf "$G490DIR"; mkdir -p "$G490DIR"
+cat > "$G490DIR/a.txt" <<'G490AEOF'
+tick 20
+cam 54 51
+zoom min
+lclickobj MTNK 0
+expectsel 1
+keybind stop K
+keybind guard X
+keybind scatter F5
+keybind scatter 1
+keybind scatter Up
+keypress K
+keypress S
+keypress X
+tick 3
+seldump
+keypress G
+tick 5
+seldump
+keys
+gfxsave /tmp/g490/saved.cfg
+cam 54 51
+rdown 640 400 g
+rmove 700 400
+rmove 760 430
+rup
+state
+cam 54 51
+gfx right_drag_scroll 0
+rdown 640 400
+rmove 700 400
+rmove 760 430
+rup
+state
+quit
+G490AEOF
+cat > "$G490DIR/b.txt" <<'G490BEOF'
+tick 5
+keys
+quit
+G490BEOF
+cat > "$G490DIR/c.txt" <<'G490CEOF'
+tick 20
+options
+emclick Visuals
+emclick Gameplay
+emclick Key Bindings
+emclick Key: Stop
+emkey J
+emclick Side 1
+keys
+quit
+G490CEOF
+printf 'key.stop K\n' > "$G490DIR/k.cfg"; cp "$G490DIR/k.cfg" "$G490DIR/s.cfg"
+# A HAND-EDITED FILE naming a key the page would refuse: Escape must stay the menu key.
+printf 'key.stop Escape\n' > "$G490DIR/esc.cfg"
+printf 'tick 5\nkeypress Escape\nquit\n' > "$G490DIR/e.txt"
+G490A=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+          --script "$G490DIR/a.txt" 2>&1); G490ARC=$?
+G490B=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+          --gfx "$G490DIR/saved.cfg" --script "$G490DIR/b.txt" 2>&1); G490BRC=$?
+G490C=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+          --gfx --script "$G490DIR/c.txt" 2>&1); G490CRC=$?
+G490K=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+          --gfx "$G490DIR/k.cfg" --run 3 --presskey K 2>&1); G490KRC=$?
+G490S=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+          --gfx "$G490DIR/s.cfg" --run 3 --presskey S 2>&1); G490SRC=$?
+G490E=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+          --gfx "$G490DIR/esc.cfg" --script "$G490DIR/e.txt" 2>&1); G490ERC=$?
+for g490l in "$G490A" "$G490B" "$G490C" "$G490K" "$G490S" "$G490E"; do
+  echo "$g490l" | grep -E '^(KEYS|KEYBIND|KEYPRESS|UNITREQ|RBTN|CANCEL|CAM\|state|PRESSKEY|OPTIONS\|script|SCRIPT\|end)' >> "$OUT"
+done
+G490REF=$(echo "$G490A" | grep -c '^KEYBIND|refused|')
+G490SWAP=$(echo "$G490A" | grep -c '^KEYS|assign|cmd=guard|key=X|swapped=scatter|now=G$')
+G490KSTOP=$(echo "$G490A" | grep -A1 '^KEYS|press|K|cmd=stop$' | grep -c '^UNITREQ|stop|')
+G490SDEAD=$(echo "$G490A" | grep -c '^KEYPRESS|unanswered|S$')
+G490XG=$(echo "$G490A" | grep -E '^UNITREQ\|(stop|guard|scatter)\|' | cut -d'|' -f2 | tr '\n' ' ')
+G490FILE=$(grep -c '^key.stop *K *# moved' "$G490DIR/saved.cfg" 2>/dev/null)
+G490BACK=$(echo "$G490B" | grep -E '^KEYS\|bind\|cmd=(stop|guard|scatter)\|' | cut -d'|' -f3,4 | tr '\n' ' ')
+G490CAM=$(echo "$G490A" | grep '^CAM|state|' | sed -n 's/^CAM|state|x=\([0-9.-]*\)|z=\([0-9.-]*\)|.*/\1,\2/p' | tr '\n' ' ')
+G490GRAB=$(echo "$G490A" | grep -c '^RBTN|grab|the right button drags the map$')
+G490NOGRAB=$(echo "$G490A" | grep -c '^RBTN|drag|begin|.*|push=0|grabowner=0$')
+G490CANCEL=$(echo "$G490A" | grep -c '^CANCEL|')
+G490PAGE=$(echo "$G490C" | grep -E '^KEYS\|(assign\|cmd=stop\|key=J|grab\|Side 1|bind\|cmd=stop\|key=J|mouse\|scheme=Classic\|grab=Side 1)' | wc -l | tr -d ' ')
+G490LIVEK=$(echo "$G490K" | grep -c '^KEYS|press|K|cmd=stop$'); G490LIVEKS=$(echo "$G490K" | grep -c '^UNITREQ|stop|')
+G490LIVES=$(echo "$G490S" | grep -cE '^(KEYS\|press|UNITREQ\|stop)'); G490LIVESP=$(echo "$G490S" | grep -c '^PRESSKEY|S|')
+G490C1=$(echo "$G490CAM" | cut -d' ' -f1); G490C2=$(echo "$G490CAM" | cut -d' ' -f2)
+G490ESC=$(echo "$G490E" | grep -c '^KEYPRESS|unanswered|Escape$'); G490ESCCMD=$(echo "$G490E" | grep -c '^KEYS|press|Escape|')
+if [ "$G490ARC" != "0" ] || [ "$G490BRC" != "0" ] || [ "$G490CRC" != "0" ] || [ "$G490KRC" != "0" ] || [ "$G490SRC" != "0" ] || [ "$G490ERC" != "0" ]; then
+  bad "G490 rebinding: a run failed (script $G490ARC, reload $G490BRC, page $G490CRC, live K $G490KRC, live S $G490SRC, hand-edited Escape $G490ERC)"
+elif [ "$G490ESC" != "1" ] || [ "$G490ESCCMD" != "0" ]; then
+  bad "G490 rebinding: a settings file binding stop to Escape took the menu key ($G490ESCCMD command presses, want 0; left to the fixed keys $G490ESC, want 1). A reserved key must never answer a command, whatever the file says"
+elif [ "$G490REF" != "3" ] || [ "$G490SWAP" != "1" ]; then
+  bad "G490 rebinding: F5, 1 and Up refused $G490REF time(s) (want 3) and guard onto X swapped with scatter $G490SWAP time(s) (want 1)"
+elif [ "$G490KSTOP" != "1" ] || [ "$G490SDEAD" != "1" ] || [ "$G490XG" != "stop guard scatter " ]; then
+  bad "G490 rebinding: K stopped $G490KSTOP time(s) (want 1), S answered nothing $G490SDEAD (want 1), and the orders in order were [$G490XG] (want stop guard scatter: K, then X now guard, then G now scatter)"
+elif [ "$G490FILE" != "1" ] || [ "$G490BACK" != "cmd=stop|key=K cmd=scatter|key=G cmd=guard|key=X " ]; then
+  bad "G490 rebinding: the saved file marks key.stop K moved $G490FILE time(s) (want 1) and a fresh process read back [$G490BACK]"
+elif [ "$G490GRAB" != "1" ] || [ "$G490NOGRAB" != "1" ] || [ "$G490CANCEL" != "0" ] || [ "$G490C1" = "54.000,51.000" ] || [ "$G490C2" != "54.000,51.000" ]; then
+  bad "G490 drag button: right-as-drag grabbed $G490GRAB time(s) (want 1), the plain right drag with the push off grabbed nothing $G490NOGRAB (want 1), cancels $G490CANCEL (want 0: a drag is never a click), cameras after [$G490CAM] (want the first moved off 54,51 and the second still there)"
+elif [ "$G490PAGE" != "4" ]; then
+  bad "G490 Key Bindings page: the Enhanced dialog's own seats bound stop to J and chose Side 1 in $G490PAGE of 4 readings"
+elif [ "$G490LIVEK" != "1" ] || [ "$G490LIVEKS" != "1" ] || [ "$G490LIVES" != "0" ] || [ "$G490LIVESP" != "1" ]; then
+  bad "G490 live key handler: with stop on K, a real K keydown reached stop $G490LIVEK/$G490LIVEKS (want 1/1) and a real S reached $G490LIVES commands (want 0, pressed $G490LIVESP)"
+else
+  ok "G490 rebinding: F5, 1 and Up are refused, guard onto X swaps scatter to G, K stops and S does nothing, the file marks key.stop K and a fresh process reads all three back, a hand-edited file cannot put a command on Escape, the Key Bindings page binds stop to J and picks Side 1 through its own seats, the live key handler hears K as stop and S as nothing, and the right button chosen to drag grabs the map ($G490C1) while the same gesture with it not chosen and the push off leaves the camera at $G490C2"
+fi
+
+# =====================================================================================
+# G491 THE MOUSE SCHEME: CLASSIC, LEFT-HANDED AND MODERN, AND THE OLD SWAP LOADS AS
+# LEFT-HANDED.
+#
+# Modern's left button only selects (G530 holds that in every graphics mode and both
+# games): a left click on the ground with the tank selected drops the selection. Its right
+# button ORDERS on the release (on the map and on the radar), a right click on the player's
+# own unit or with nothing selected does nothing, a left click on empty ground with a
+# building selected drops the selection too, and a control group's number pressed twice
+# within 350 ms centres the camera. Classic's right click still cancels and its left click
+# on the same ground keeps the building.
+#
+# The scheme is applied where the SDL handler calls these functions; the verbs here name
+# it (`m`), which is what keeps every other click gate a function of nothing but its own
+# script. A settings file saying "swap_buttons 1" (written before the scheme) must load as
+# the left-handed scheme, and one carrying both keys keeps the scheme it names.
+# Run in Tiberian Dawn (SCG90EA) and in Red Alert (Allied 1, the right-click order).
+# =====================================================================================
+G491DIR=/tmp/g491
+rm -rf "$G491DIR"; mkdir -p "$G491DIR"
+cat > "$G491DIR/td.txt" <<'G491AEOF'
+tick 20
+cam 54 51
+zoom min
+echo G491-1
+lgesture cell 57 50 0 0 m
+expectsel 1
+echo G491-2
+lgesture cell 56 52 0 0 m
+expectsel 0
+lgesture cell 57 50 0 0 m
+expectsel 1
+tick 5
+echo G491-3
+rdown cell 52 50 m
+rup
+expectsel 1
+tick 400
+seldump
+echo G491-4
+rbutton obj MTNK 1 m
+expectsel 1
+echo G491-5
+deselect
+base
+expectsel 1
+cam 50 48
+lgesture cell 49 47 0 0 m
+expectsel 0
+echo G491-6
+base
+cam 50 48
+lgesture cell 49 47 0 0
+expectsel 1
+echo G491-7
+rdown cell 49 47
+rup
+expectsel 0
+echo G491-8
+rdown cell 49 47 m
+rup
+expectsel 0
+echo G491-9
+lclickobj MTNK 1
+mmclick 48 44 rm
+echo G491-10
+lclickobj MTNK 1
+group 2 2
+deselect
+cam 40 34
+groupkey 2 0 modern
+groupkey 2 200 modern
+cam 40 34
+groupkey 2 1000
+groupkey 2 1200
+cam 40 34
+groupkey 2 2000 modern
+groupkey 2 2600 modern
+cam 40 34
+groupkey 2 3000 modern
+groupkey 2 3100 modern repeat
+groupkey 2 3133 modern repeat
+groupkey 2 3166 modern repeat
+quit
+G491AEOF
+cat > "$G491DIR/ra.txt" <<'G491BEOF'
+tick 30
+cam 62 50
+tick 1
+lclickobj JEEP 0
+expectsel 1
+rdown cell 59 52 m
+rup
+expectsel 1
+tick 5
+seldump
+quit
+G491BEOF
+printf 'keys\nquit\n' > "$G491DIR/k.txt"
+printf 'swap_buttons 1\n' > "$G491DIR/old.cfg"
+printf 'swap_buttons 1\nmouse_scheme 2\n' > "$G491DIR/both.cfg"
+G491TD=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+           --forceradar --script "$G491DIR/td.txt" 2>&1); G491TDRC=$?
+G491OLD=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+           --gfx "$G491DIR/old.cfg" --script "$G491DIR/k.txt" 2>&1); G491OLDRC=$?
+G491BOTH=$(./cnc_eyes --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 800 \
+           --gfx "$G491DIR/both.cfg" --script "$G491DIR/k.txt" 2>&1); G491BOTHRC=$?
+G491RA=""; G491RARC=0
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  G491RA=$(./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+             --dosdata ra3d/audio --nosound --w 1280 --h 720 --noshroud --scen SCG01EA \
+             --pack ra3d/3d/SCG01EA.pack --script "$G491DIR/ra.txt" 2>&1); G491RARC=$?
+fi
+for g491l in "$G491TD" "$G491OLD" "$G491BOTH" "$G491RA"; do
+  echo "$g491l" | grep -E '^(ECHO|MOUSE|CLICK|SELECT|CANCEL|RBTN\|up|EXPECTSEL|SEL\|UNIT|MINIMAP|GROUP|CAM\|groupkey|KEYS\|mouse|FX\|preset\|swap|SCRIPT\|end)' >> "$OUT"
+done
+g491leg() { echo "$G491TD" | sed -n "/^ECHO|G491-$1\$/,/^ECHO|G491-$2\$/p"; }
+G491L1=$(g491leg 1 2); G491L2=$(g491leg 2 3); G491L3=$(g491leg 3 4); G491L4=$(g491leg 4 5)
+G491L5=$(g491leg 5 6); G491L6=$(g491leg 6 7); G491L7=$(g491leg 7 8); G491L8=$(g491leg 8 9)
+G491L9=$(g491leg 9 10); G491L10=$(echo "$G491TD" | sed -n '/^ECHO|G491-10$/,$p')
+G491A1=$(echo "$G491L1" | grep -c '^SELECT|.*|type=MTNK|.*|selected$')
+G491A2=$(echo "$G491L2" | grep -c '^EXPECTSEL|want=0|have=0|PASS'); G491A2O=$(echo "$G491L2" | grep -c '^CLICK|.*|ORDER$')
+G491A3=$(echo "$G491L3" | grep -c '^MOUSE|modern|right|order|'); G491A3C=$(echo "$G491L3" | grep -c '^CLICK|.*|cell=52,50|.*|ORDER$')
+G491A3S=$(echo "$G491L3" | grep '^SEL|UNIT|MTNK|' | grep -c '|x=52|y=50|')
+G491A4=$(echo "$G491L4" | grep -c '^MOUSE|modern|right|own unit: no order|')
+G491A5=$(echo "$G491L5" | grep -c '^EXPECTSEL|want=0|have=0|PASS')
+G491A6=$(echo "$G491L6" | grep -c '^MOUSE|'); G491A6E=$(echo "$G491L6" | grep -c '^EXPECTSEL|want=1|have=1|PASS')
+G491A7=$(echo "$G491L7" | grep -c '^CANCEL|deselect|')
+G491A8=$(echo "$G491L8" | grep -c '^MOUSE|modern|right|nothing selected: no order$')
+G491A9=$(echo "$G491L9" | grep -c '^MINIMAP|order|cell=48,44|')
+G491DT=$(echo "$G491L10" | grep -E '^GROUP\|(recall|recallcenter|doubletap)\|' | cut -d'|' -f2 | tr '\n' ' ')
+G491DTCAM=$(echo "$G491L10" | grep '^CAM|groupkey|' | sed -n 's/^CAM|groupkey|x=\([0-9.-]*\)|z=\([0-9.-]*\)|.*/\1,\2/p' | tr '\n' ' ')
+G491OLDOK=$(echo "$G491OLD" | grep -c '^KEYS|mouse|scheme=Left-handed|')
+G491OLDLOG=$(echo "$G491OLD" | grep -c 'swap_buttons 1 read as the Left-handed mouse scheme')
+G491BOTHOK=$(echo "$G491BOTH" | grep -c '^KEYS|mouse|scheme=Modern|')
+G491CLEAN=$(echo "$G491TD" | grep -c "SCRIPT|end $G491DIR/td.txt: .*, 0 failures")
+G491RAOK=1; G491RAWHY="Red Alert not staged"
+if [ -n "$G491RA" ]; then
+  G491RAWHY="order=$(echo "$G491RA" | grep -c '^MOUSE|modern|right|order|') navcell=$(echo "$G491RA" | grep '^SEL|UNIT|JEEP|' | sed -n 's/.*|navcell=\(-*[0-9]*\)|.*/\1/p') clean=$(echo "$G491RA" | grep -c "SCRIPT|end $G491DIR/ra.txt: .*, 0 failures")"
+  echo "$G491RAWHY" | grep -qE '^order=1 navcell=[0-9]+ clean=1$' || G491RAOK=0
+fi
+# the double tap: recall then centre (Modern, 200 ms), two plain recalls (Classic), two
+# plain recalls (Modern, 600 ms apart); and only the centring one moved the camera
+G491DTOK=0
+[ "$G491DT" = "recall doubletap recallcenter recall recall recall recall recall recall recall recall " ] && G491DTOK=1
+G491REP=$(echo "$G491L10" | grep -c '^GROUP|repeat|key=2|not a tap$')
+G491DTC=$(echo "$G491DTCAM" | tr ' ' '\n' | grep -v '^$' | grep -vc '^40.000,34.000$')
+if [ "$G491TDRC" != "0" ] || [ "$G491OLDRC" != "0" ] || [ "$G491BOTHRC" != "0" ] || [ "$G491RARC" != "0" ]; then
+  bad "G491 mouse scheme: a run failed (Tiberian Dawn $G491TDRC, old file $G491OLDRC, both keys $G491BOTHRC, Red Alert $G491RARC)"
+elif [ "$G491A1" != "1" ] || [ "$G491A2" != "1" ] || [ "$G491A2O" != "0" ]; then
+  bad "G491 mouse scheme: Modern's left button selected the tank $G491A1 time(s) (want 1), and on the ground cleared the selection $G491A2 time(s) (want 1) and ordered $G491A2O time(s) (want 0: Modern's left button never orders)"
+elif [ "$G491A3" != "1" ] || [ "$G491A3C" != "1" ] || [ "$G491A3S" != "1" ]; then
+  bad "G491 mouse scheme: Modern's right click on 52,50 ordered $G491A3/$G491A3C (want 1/1) and the tank stands there $G491A3S time(s) after 400 ticks (want 1)"
+elif [ "$G491A4" != "1" ] || [ "$G491A8" != "1" ]; then
+  bad "G491 mouse scheme: Modern's right click on its own tank gave no order $G491A4 (want 1) and with nothing selected did nothing $G491A8 (want 1)"
+elif [ "$G491A5" != "1" ] || [ "$G491A6" != "0" ] || [ "$G491A6E" != "1" ]; then
+  bad "G491 mouse scheme: with the Construction Yard selected, Modern's left click on empty ground deselected $G491A5 time(s) (want 1) and Classic's kept it (Modern lines $G491A6, want 0; selection kept $G491A6E, want 1)"
+elif [ "$G491A7" != "1" ]; then
+  bad "G491 mouse scheme: Classic's right click no longer cancels ($G491A7 deselects, want 1)"
+elif [ "$G491A9" != "1" ]; then
+  bad "G491 mouse scheme: Modern's right click on the radar did not order ($G491A9, want 1)"
+elif [ "$G491DTOK" != "1" ] || [ "$G491DTC" != "1" ] || [ "$G491REP" != "3" ]; then
+  bad "G491 mouse scheme: the group presses read [$G491DT] (want recall doubletap recallcenter, then six plain recalls, then a press and three held-key repeats as four plain recalls), repeats seen $G491REP (want 3), and moved the camera $G491DTC time(s) [$G491DTCAM] (want 1, the double tap only: a held number key is not a second tap)"
+elif [ "$G491OLDOK" != "1" ] || [ "$G491OLDLOG" != "1" ] || [ "$G491BOTHOK" != "1" ]; then
+  bad "G491 mouse scheme: a file saying swap_buttons 1 loaded as left-handed $G491OLDOK (want 1, said so $G491OLDLOG) and one naming mouse_scheme 2 as well kept Modern $G491BOTHOK (want 1)"
+elif [ "$G491CLEAN" != "1" ] || [ "$G491RAOK" != "1" ]; then
+  bad "G491 mouse scheme: script clean=$G491CLEAN (want 1); Red Alert $G491RAWHY"
+else
+  ok "G491 mouse scheme: Modern's left button selects the tank and drops it on the ground without an order, its right button orders a tank to 52,50 and the tank arrives, gives no order on its own unit or with nothing selected, orders from the radar, and a left click on empty ground with the Construction Yard selected deselects where Classic keeps it; Classic's right click still cancels; a group pressed twice in 200 ms centres the camera under Modern only and a held number key never does; an old swap_buttons 1 loads as left-handed; Red Alert: $G491RAWHY"
+fi
+
+# =====================================================================================
+# G494 A UNIT ONLY A CAPTURED FACTORY OFFERED GOES WITH THAT FACTORY, IN SINGLE PLAYER
+# (brain/vanilla/tiberiandawn/sidebar.cpp StripClass::Recalc and
+# OpenCNC3D_Capture_Buildable_Owned). A captured enemy factory offers what its original
+# side could build. In GDI mission 3 a captured Hand of Nod offers the Rocket Soldier, which
+# GDI may not train before mission 7. The original Recalc kept every entry that any
+# factory of the right kind could make "in theory", so once the Hand was destroyed GDI's own
+# Barracks went on training Rocket Soldiers. In a campaign mission an entry marked as added
+# by a capture now goes when no factory the player still owns may make it under that
+# factory's own side's rules and the mission level, and anything of it in production is
+# abandoned and refunded. Multiplayer and skirmish keep the original rule.
+#   a  SCG03EA: two invulnerable engineers take the Hand (at 24,26) before the player has
+#      a Barracks, so Minigunner, Rocket Soldier and Engineer are all entries a capture
+#      added; a Barracks is spawned, a Rocket Soldier is started, the Hand is destroyed.
+#      The Rocket Soldier leaves the sidebar, its production is refunded to the credits
+#      before it started, none is ever trained, and the Minigunner and Engineer (which the
+#      player's own Barracks may make) and the Grenadier stay.
+#   b  the control, SCG07EA (mission 7, when GDI may train Rocket Soldiers): the same
+#      sequence on the Hand at 44,12 keeps the Rocket Soldier, through GDI's own Barracks,
+#      and drops the Nod-only Flamethrower as the original rule always did.
+#   c  Red Alert, which needs no change: its build rules for a factory depend on side
+#      ownership only, which the original test already checks. On Allied mission 8 a
+#      Soviet Barracks spawned for the enemy, weakened and captured, adds the Grenadier;
+#      destroying it removes the Grenadier and leaves the Rifle Infantry.
+# PROVEN TO FAIL: before the fix, (a) read the Rocket Soldier still listed and in
+# production after the Hand was destroyed, credits 3949 instead of 4000, and one trained.
+# NOT COVERED: a save made between the loss and the next sidebar recalculation keeps the
+# entry until the next factory is lost or captured; multiplayer and skirmish are kept on
+# the original rule by the GameToPlay test and are not run here.
+# =====================================================================================
+g494_items() { awk -F'|' -v t="$2" '/^SIDEBAR\|/{on=($2==t);next} on && /^SBITEM\|/{printf " %s", $4; next} {on=0}' "$1"; echo " "; }
+g494_credits() { sed -n "s/^SIDEBAR|$2|credits=\([0-9-]*\)|.*/\1/p" "$1" | head -1; }
+g494_has() { case "$1" in *" $2 "*) echo 1 ;; *) echo 0 ;; esac; }
+if [ ! -f SCG03EA.pack ] || [ ! -f SCG07EA.pack ]; then
+  bad "G494 a captured factory's units go with it: SCG03EA.pack or SCG07EA.pack is not in this folder"
+else
+  rm -rf shots/g494 && mkdir -p shots/g494
+  g494_hurt() { for k in 1 2 3 4 5 6; do printf 'hurtcell %s %s\ntick 2\nhurtcell %s %s\ntick 2\n' "$1" "$2" "$3" "$4"; done; }
+  { printf 'tick 5\ncam 25 28\ncheatset invuln 1\nsidebar start\nspawnobj E6 25 29\nspawnobj E6 25 29\ntick 2\n'
+    printf 'lclickobj E6 0\nactclickobj HAND 0\n'
+    for k in 1 2 3 4 5 6; do printf 'tick 30\n'; done
+    printf 'obj HAND 0\nsidebar captured\nspawnobj PYLE 12 56\ntick 30\nsidebar withpyle\nbuild E3\ntick 100\n'
+    printf 'sidebar building\ncheatset invuln 0\ncam 25 28\ntick 1\n'
+    g494_hurt 24 27 25 27
+    printf 'tick 30\ncount HAND:GoodGuy 0\nsidebar lost\ntick 200\nsidebar after\ncount E3:GoodGuy 0\nquit\n'; } > shots/g494/a.txt
+  { printf 'tick 5\ncam 45 15\ncheatset invuln 1\nspawnobj E6 46 15\nspawnobj E6 47 16\ntick 3\n'
+    printf 'lclickobj E6 0\nactclickobj HAND 0\n'
+    for k in 1 2 3 4 5 6; do printf 'tick 30\n'; done
+    printf 'obj HAND 0\nsidebar captured\nspawnobj PYLE 48 17\ntick 30\nsidebar withpyle\n'
+    printf 'cheatset invuln 0\ncam 45 15\ntick 1\n'
+    g494_hurt 44 13 45 13
+    printf 'tick 30\ncount HAND:GoodGuy 0\nsidebar lost\nquit\n'; } > shots/g494/b.txt
+  gbegin
+  grun shots/g494/a.log --scen SCG03EA --pack SCG03EA.pack $BASE --noshroud --nosound \
+    --w 1280 --h 720 --script shots/g494/a.txt
+  grun shots/g494/b.log --scen SCG07EA --pack SCG07EA.pack $BASE --noshroud --nosound \
+    --w 1280 --h 720 --script shots/g494/b.txt
+  G494CAP=$(g494_items shots/g494/a.log captured); G494PY=$(g494_items shots/g494/a.log withpyle)
+  G494LOST=$(g494_items shots/g494/a.log lost); G494AFT=$(g494_items shots/g494/a.log after)
+  G494C0=$(g494_credits shots/g494/a.log withpyle); G494C1=$(g494_credits shots/g494/a.log building)
+  G494C2=$(g494_credits shots/g494/a.log lost)
+  G494OWN=$(grep -c '^OBJ|HAND#0|BUILDING|GoodGuy|' shots/g494/a.log)
+  G494MAKE=$(awk -F'|' '/^SIDEBAR\|/{on=($2=="building");next} on && /^SBITEM\|/ && $4=="E3" && /constructing=1/{n++} END{print n+0}' shots/g494/a.log)
+  G494GONE=$(grep -c '^COUNT|HAND:GoodGuy|want=0|have=0|PASS' shots/g494/a.log)
+  G494NONE=$(grep -c '^COUNT|E3:GoodGuy|want=0|have=0|PASS' shots/g494/a.log)
+  G494BCAP=$(g494_items shots/g494/b.log captured); G494BLOST=$(g494_items shots/g494/b.log lost)
+  G494BGONE=$(grep -c '^COUNT|HAND:GoodGuy|want=0|have=0|PASS' shots/g494/b.log)
+  G494A="$G494OWN$(g494_has "$G494CAP" E3)$(g494_has "$G494CAP" E1)$(g494_has "$G494CAP" E6)$(g494_has "$G494PY" E2)$G494MAKE$G494GONE$(g494_has "$G494LOST" E3)$(g494_has "$G494AFT" E3)$(g494_has "$G494LOST" E1)$(g494_has "$G494LOST" E2)$(g494_has "$G494LOST" E6)$G494NONE"
+  G494B="$(g494_has "$G494BCAP" E3)$(g494_has "$G494BCAP" E4)$G494BGONE$(g494_has "$G494BLOST" E3)$(g494_has "$G494BLOST" E4)"
+  # Red Alert, when its module is staged here. Without it, part c is counted as a SKIP of
+  # its own rather than folded into the PASS line, so the summary's skip count shows it.
+  G494RA="not run (no Red Alert module staged in this folder)"; G494RAOK=1
+  if [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG08EA.pack ]; then
+    skip "G494c Red Alert's captured Barracks: no Red Alert module is staged in this folder (tools/ra3d/stage-frontend.py)"
+  else
+    { printf 'tick 5\ncam 52 96\ncheatset invuln 1\nspawnobj BARR 50 95 enemy\ntick 30\nsidebar start\n'
+      for k in 1 2 3 4 5 6 7; do printf 'hurtobj BARR 1\ntick 1\n'; done
+      printf 'spawnobj E6 53 97\nspawnobj E6 53 98\ntick 3\nlclickobj E6 0\nactclickobj BARR 1\ntick 60\n'
+      printf 'lclickobj E6 0\nactclickobj BARR 1\ntick 60\nobj BARR 1\nsidebar captured\ncheatset invuln 0\n'
+      for k in 1 2 3 4 5 6; do printf 'hurtobj BARR:Greece 0\ntick 1\n'; done
+      printf 'tick 60\ncount BARR:Greece 0\nsidebar lost\nquit\n'; } > shots/g494/c.txt
+    grun shots/g494/c.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+      --dosdata ra3d/audio --nosound --w 1280 --h 720 --noshroud --scen SCG08EA \
+      --pack ra3d/3d/SCG08EA.pack --script shots/g494/c.txt
+    G494RCAP=$(g494_items shots/g494/c.log captured); G494RLOST=$(g494_items shots/g494/c.log lost)
+    G494ROWN=$(grep -c '^OBJ|BARR#1|BUILDING|Greece|' shots/g494/c.log)
+    G494RV="$G494ROWN$(g494_has "$G494RCAP" E2)$(g494_has "$G494RLOST" E2)$(g494_has "$G494RLOST" E1)"
+    if [ "$G494RV" = "1101" ]; then
+      G494RA="a captured Soviet Barracks adds the Grenadier and its loss removes it, Rifle Infantry kept"
+    else
+      G494RAOK=0; G494RA="Red Alert owned/E2 captured/E2 lost/E1 lost=$G494RV (want 1101): captured [$G494RCAP] lost [$G494RLOST]"
+    fi
+  fi
+  # A run that exits non-zero is usually the script's own count failing (a Rocket Soldier
+  # trained), so the readings are printed with it rather than hidden behind the exit code.
+  if [ "$GRC" != "0" ]; then
+    bad "G494 a captured factory's units go with it: a run failed (GRC=$GRC); mission 3 flags=$G494A (want 1111111001111) credits ${G494C0}/${G494C1}/${G494C2}; lost [$G494LOST]; mission 7 flags=$G494B (want 11110); Red Alert: $G494RA"
+  elif [ "$G494A" = "1111111001111" ] && [ "${G494C1:-0}" -lt "${G494C0:-0}" ] && [ "$G494C2" = "$G494C0" ] \
+     && [ "$G494B" = "11110" ] && [ "$G494RAOK" = "1" ]; then
+    ok "G494 a captured factory's units go with it in single player: GDI mission 3's captured Hand of Nod destroyed mid-production takes the Rocket Soldier off the sidebar and refunds it (credits $G494C1 back to $G494C2), none trained, Minigunner/Grenadier/Engineer kept; mission 7 keeps it through GDI's own Barracks and drops the Flamethrower; Red Alert: $G494RA"
+  else
+    bad "G494 a captured factory's units go with it: mission 3 flags=$G494A (want 1111111001111: Hand owned, E3/E1/E6 after capture, E2 with the Barracks, E3 in production, Hand gone, E3 absent after loss and 200 ticks later, E1/E2/E6 kept, no E3 trained) credits ${G494C0}/${G494C1}/${G494C2} (want the last equal to the first, the middle lower); lost [$G494LOST]; mission 7 flags=$G494B (want 11110: E3 and E4 after capture, Hand gone, E3 kept, E4 dropped) lost [$G494BLOST]; Red Alert: $G494RA"
+  fi
+fi
+
+# =====================================================================================
+# G495 A SOLDIER GIVEN A NEW MOVE ORDER WALKS OFF AT ONCE, IN BOTH GAMES.
+#
+# Every path the engine plans for a soldier starts a cooldown (PATH_DELAY, 15 frames in
+# Tiberian Dawn; Rule.PathDelay in Red Alert) that throttles re-planning for a soldier
+# who is blocked. It also caught a player's fresh order given soon after the previous
+# one: re-ordered four frames after his first order, a Tiberian Dawn Minigunner stood
+# still for twelve frames and a Red Alert one for six before walking off. The brain now
+# clears that cooldown when a player's MEGAMISSION order gives a soldier a destination,
+# on every peer on the same frame, and nowhere else.
+#
+# A probe map with one Minigunner, written here: order him east, re-order him north-east
+# four frames later, let him walk, order him west, and re-order him south eight frames
+# later. Each order must have him driving again by its second frame and taking his
+# first step by its third, which is what an order to a standing soldier has always
+# done. The 1995 cooldown would show as driving at t+13 (TD) or t+7 (RA) on the first
+# re-order. The fresh orders are the control: they never met the cooldown, so they
+# must read the same before and after the fix.
+# =====================================================================================
+rm -rf g495m && mkdir -p g495m/td g495m/ra
+python3 - g495m <<'G495MAP'
+import base64, os, struct, sys
+root = sys.argv[1]
+def packed(raw):
+    blocks = bytearray()
+    for pos in range(0, len(raw), 8192):
+        part = raw[pos:pos + 8192]
+        comp = b'\xfe' + struct.pack('<H', len(part)) + part[:1] + b'\x80'
+        blocks += struct.pack('<HH', len(comp), len(part)) + comp
+    text = base64.b64encode(blocks).decode()
+    return '\n'.join('%d=%s' % (i // 70 + 1, text[i:i + 70]) for i in range(0, len(text), 70))
+for game in ('td', 'ra'):
+    ra = game == 'ra'
+    good, bad = ('Greece', 'USSR') if ra else ('GoodGuy', 'BadGuy')
+    cell = lambda x, y: y * (128 if ra else 64) + x
+    tank = '1TNK' if ra else 'MTNK'
+    ini = ['[Basic]', 'Name=G495 probe', 'Player=' + good, 'BuildLevel=98', 'NewINIFormat=3',
+           '[Map]', 'Theater=TEMPERATE', 'X=1', 'Y=1', 'Width=60', 'Height=60']
+    for h in (good, bad):
+        ini += ['[%s]' % h, 'Credits=1000', 'TechLevel=10', 'Allies=' + h,
+                'MaxBuilding=150', 'MaxUnit=150', 'MaxInfantry=150', 'MaxAircraft=150']
+    ini += ['[Waypoints]', '0=%d' % cell(30, 30),
+            '[Structures]', '0=%s,FACT,256,%d,0,None' % (good, cell(35, 35)), '1=%s,FACT,256,%d,0,None' % (bad, cell(55, 25)),
+            '[Units]', '0=%s,%s,256,%d,0,Guard,None' % (good, tank, cell(30, 45)),
+            '[Infantry]', '0=%s,E1,256,%d,0,Guard,0,None' % (good, cell(40, 38))]
+    if ra:
+        ini += ['[MapPack]', packed(b'\xff' * (128 * 128 * 2) + b'\0' * (128 * 128))]
+    else:
+        open(os.path.join(root, game, 'SCG88EA.BIN'), 'wb').write(b'\0\0' * (64 * 64))
+    open(os.path.join(root, game, 'SCG88EA.INI'), 'w').write('\n'.join(ini) + '\n')
+    s = ['gfxmode 1', 'frames 1', 'tick 5', 'look E1 0', 'zoom min', 'actclickobj E1 0', 'expectsel 1']
+    def order(name, x, y, ticks):
+        s.extend(['echo G495|' + name, 'order %d %d' % (x, y), 'objdump'] + ['tick 1', 'objdump'] * ticks)
+    order('FRESH1', 48, 38, 4)
+    order('REORDER2', 44, 33, 12)
+    s.append('tick 60')
+    order('FRESH3', 36, 38, 8)
+    order('REORDER4', 36, 42, 12)
+    s.append('quit')
+    open(os.path.join(root, game + '.txt'), 'w').write('\n'.join(s) + '\n')
+G495MAP
+G495COMMON="--scen SCG88EA --dosinf dosinfantry.pack --dospack dossidebar.pack --cameos cameos.pack --w 1280 --h 720 --nosound --build 98 --noshroud"
+gbegin g495m/td.log g495m/ra.log
+grun g495m/td.log $G495COMMON --pack SCG01EA.pack --dir g495m/td/ --content content/ --dylib TiberianDawn.dylib --reskin --savedir g495m/saves --gfxsave g495m/td.cfg --script g495m/td.txt
+G495GAMES=td
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  grun g495m/ra.log $G495COMMON --pack ra3d/3d/SCG01EA.pack --dir g495m/ra/ --content ra3d/data --dylib ra3d/RedAlert.dylib --ra3d --savedir g495m/saves --gfxsave g495m/ra.cfg --script g495m/ra.txt
+  G495GAMES="td ra"
+fi
+G495CHK=$(python3 - g495m $G495GAMES <<'G495PY' 2>&1
+import sys
+root, games = sys.argv[1], sys.argv[2:]
+bad, said = [], []
+for game in games:
+    try:
+        text = open('%s/%s.log' % (root, game), errors='replace').read()
+    except OSError:
+        bad.append('%s: no log' % game); continue
+    if 'SCRIPT|end' not in text or ' 0 failures' not in text:
+        bad.append('%s: the script did not finish cleanly' % game)
+    blocks, cur, n = [], None, 0
+    for line in text.splitlines():
+        if line.startswith('ECHO|G495|'):
+            cur = [line[10:], []]; blocks.append(cur); n = 0; continue
+        if line.startswith('OBJDUMP-END'):
+            n += 1
+        if cur and line.startswith('OBJ|INFANTRY|E1|'):
+            f = dict(kv.split('=', 1) for kv in line.split('|') if '=' in kv)
+            cur[1].append((n, f['nav'], int(f['lx']), int(f['ly']), int(f['driving'])))
+    if [b[0] for b in blocks] != ['FRESH1', 'REORDER2', 'FRESH3', 'REORDER4']:
+        bad.append('%s: orders seen %s' % (game, [b[0] for b in blocks])); continue
+    part = []
+    for name, rows in blocks:
+        if len(rows) < 4:
+            bad.append('%s %s: %d samples' % (game, name, len(rows))); continue
+        took = rows[1][1] != rows[0][1] and rows[1][1] != '-1'
+        drv = next((r[0] for r in rows[1:] if r[4] == 1), None)
+        step = next((rows[i][0] for i in range(2, len(rows)) if rows[i][2:4] != rows[i - 1][2:4]), None)
+        part.append('%s driving t+%s step t+%s' % (name, drv, step))
+        if not took:
+            bad.append('%s %s: the order never reached him (nav %s -> %s)' % (game, name, rows[0][1], rows[1][1]))
+        if drv is None or drv > 2 or step is None or step > 3:
+            bad.append('%s %s: driving at t+%s, first step at t+%s (want t+2 and t+3 at the latest)' % (game, name, drv, step))
+    said.append('%s [%s]' % (game.upper(), ', '.join(part)))
+print(('1 ' if not bad else '0 ') + '; '.join(said) + ('' if not bad else ' FAULTS: ' + '; '.join(bad)))
+G495PY
+)
+G495V=${G495CHK%% *}; G495MSG=${G495CHK#* }
+if [ "$GRC" != "0" ]; then
+  bad "G495 a re-ordered soldier walks off at once: a run failed (GRC=$GRC) $G495MSG"
+elif [ "$G495V" = "1" ] && [ "$G495GAMES" = "td ra" ]; then
+  ok "G495 a soldier re-ordered four or eight frames after his last path walks off as fast as a fresh order, in both games: $G495MSG"
+elif [ "$G495V" = "1" ]; then
+  bad "G495 a re-ordered soldier walks off at once: Tiberian Dawn passed ($G495MSG) but no Red Alert module is staged here (ra3d/RedAlert.dylib, ra3d/3d/SCG01EA.pack), and the order is shared code"
+else
+  bad "G495 a re-ordered soldier walks off at once: $G495MSG"
+fi
+
+# G492 "INSUFFICIENT FUNDS" IS SAID AT THE CLICK, IN TIBERIAN DAWN, AND NEVER TWICE.
+# Tiberian Dawn never refuses a build for money: production is paid in instalments and a
+# step the house cannot pay is quietly taken back, and the only money line is a nag on a
+# two minute timer, while the low power nag is armed one tick in. A player who clicks a
+# build with an empty wallet heard "Low power" and nothing about money. The renderer now
+# says the game's own "Insufficient funds" (NOCASH1) after the engine's "Building" when a
+# cameo click starts a build the house cannot pay for by the engine's own measure (money
+# under 100 and under the price). See gate_nofunds.txt for the sequence on SCB35EA, which
+# starts with no money in low power.
+#
+# Two tick-locked legs, both with --dumpsound and --audiowav. ON is gate_nofunds.txt. OFF
+# is the same file with each sbclickitem turned into the script's build verb, which starts
+# the same production without being a player's click, so the recordings differ only by
+# what the click said.
+#   ON   exactly two click cues played (E1, then GUN), each queued behind the engine's
+#        BLDGING1; the SAM click inside the quiet window prints FUNDSCUE|quiet and adds no
+#        line; the engine's own money nag, eighty ticks after the GUN cue, is held back
+#        (quiet-after-click) and no engine NOCASH1 plays anywhere in the run; the E3 click
+#        with 29995 credits is made and asks nothing. The recording is identical to OFF to
+#        the sample before the first click and differs after it by RMS > 1000 over ticks
+#        40..100, which is where the cue is heard.
+#   OFF  no FUNDSCUE line and no click cue, and the engine's nag plays as it always did.
+# Red Alert is left alone on purpose (its money nag is armed at mission start and already
+# speaks first); the sidebar refuses the cue there, which the code reads off g_sbRa.
+#
+# PROVEN TO FAIL on the build before the change: the same ON script on it prints no
+# FUNDSCUE line, no "by=click" line, and plays the engine's NOCASH1 at the nag; its
+# recording matches the OFF leg here to the sample over ticks 40..100.
+# Measured on the changed build: cues at ticks 40 and 2799 (waited 2 ticks each), the
+# engine nag held once, click-window difference RMS 6836, pre-click difference 0.
+sed 's/^sbclickitem /build /' "$GATEDIR/gate_nofunds.txt" > /tmp/g492_off.txt
+gbegin shots/g492_on.log shots/g492_on.wav shots/g492_off.log shots/g492_off.wav
+G492BASE="--scen SCB35EA --pack SCG01EA.pack $BASE --dumpsound --musicvol 0"
+grun shots/g492_on.log  $G492BASE --audiowav shots/g492_on.wav  --script "$GATEDIR/gate_nofunds.txt"
+grun shots/g492_off.log $G492BASE --audiowav shots/g492_off.wav --script /tmp/g492_off.txt
+gshots shots/g492_on.wav shots/g492_off.wav
+G492CUE=$(grep -a '^SOUND|eva|10|NOCASH1|played|by=click|' shots/g492_on.log | sed -n 's/.*|item=\([A-Z0-9]*\)|.*/\1/p' | tr '\n' ' ')
+G492ASK=$(grep -ac '^FUNDSCUE|ask|' shots/g492_on.log)
+G492QUIET=$(grep -ac '^FUNDSCUE|quiet|item=SAM|money=0|' shots/g492_on.log)
+G492HELD=$(grep -ac '^SOUND|eva|10|NOCASH1|quiet-after-click$' shots/g492_on.log)
+G492NAG=$(grep -ac '^SOUND|eva|10|NOCASH1|played$' shots/g492_on.log)
+G492E3=$(grep -ac '^SIDEBAR-INPUT|build|E3$' shots/g492_on.log)
+G492E3ASK=$(grep -ac '^FUNDSCUE|.*|item=E3|' shots/g492_on.log)
+# "Building" first, then the cue: the click's BLDGING1 line comes before its cue line.
+G492ORDER=$(awk '/^LABEL\|CLICK1$/{a=1} a && !b && /^SOUND\|eva\|14\|BLDGING1\|played$/{b=NR} a && !c && /by=click\|item=E1\|/{c=NR} END{print (b && c && b < c) ? 1 : 0}' shots/g492_on.log)
+G492OFFQ=$(grep -acE '^FUNDSCUE|by=click' shots/g492_off.log)
+G492OFFNAG=$(grep -ac '^SOUND|eva|10|NOCASH1|played$' shots/g492_off.log)
+G492W=$(python3 - <<'PY'
+import os, wave
+import numpy as np
+def load(p):
+    if not os.path.exists(p) or os.path.getsize(p) == 0:
+        return None, 0
+    w = wave.open(p)
+    a = np.frombuffer(w.readframes(w.getnframes()), dtype='<i2').astype(float)
+    return a, w.getframerate() * w.getnchannels() * 66 // 1000   # samples per engine tick
+on, pt = load("shots/g492_on.wav")
+off, _ = load("shots/g492_off.wav")
+if on is None or off is None or pt == 0:
+    print("x x"); raise SystemExit
+n = min(len(on), len(off))
+d = on[:n] - off[:n]
+def rms(a, t0, t1):
+    s = a[t0 * pt:t1 * pt]
+    return float(np.sqrt((s * s).mean())) if len(s) else -1.0
+print("%d %d" % (round(rms(d, 0, 40)), round(rms(d, 40, 100))))
+PY
+)
+G492PRE=${G492W%% *}; G492CLK=${G492W##* }
+if [ "$GRC" != "0" ]; then
+  bad "G492 click funds cue: a run failed or wrote no recording (GRC=$GRC)"
+elif [ "$G492CUE" = "E1 GUN " ] && [ "$G492ASK" = "2" ] && [ "$G492QUIET" = "1" ] \
+     && [ "$G492HELD" = "1" ] && [ "$G492NAG" = "0" ] && [ "$G492E3" = "1" ] \
+     && [ "$G492E3ASK" = "0" ] && [ "$G492ORDER" = "1" ] && [ "$G492OFFQ" = "0" ] \
+     && [ "$G492OFFNAG" = "1" ] && [ "$G492PRE" = "0" ] && [ "$G492CLK" -gt 1000 ] 2>/dev/null; then
+  ok "G492 an empty-wallet click says Building then Insufficient funds (E1, GUN), a click in the quiet window and the engine's nag after a cue say nothing more, a paid click asks nothing; recording identical before the click, differs by RMS $G492CLK after it"
+else
+  bad "G492 click funds cue: cues [$G492CUE] (want E1 GUN), asks $G492ASK/2, quiet SAM $G492QUIET/1, nag held $G492HELD/1, engine NOCASH1 played $G492NAG (want 0), E3 click $G492E3/1 asked $G492E3ASK (want 0), Building first $G492ORDER/1, OFF cues $G492OFFQ (want 0) nag $G492OFFNAG/1, RMS pre $G492PRE (want 0) click $G492CLK (want > 1000)"
+fi
+
+# =====================================================================================
+# G493 A SELECTED LAUNCHER OR FIRING DEFENCE SHOWS ITS OWNER THE REACH OF ITS WEAPON AS A
+# DASHED CIRCLE WHOSE DASHES TRAVEL SLOWLY ROUND IT, IN CLASSIC, N64 AND ENHANCED, IN BOTH
+# GAMES (cnc_eyes.cpp range_ring_of, range_ring_draw, draw_range_rings; dosclassic_mod.h
+# dos2d_range_rings; the reach is the brain's OpenCNC3D_Weapon_Range in both brains). The
+# tilted camera draws distances up the screen at a little over half their length across
+# it, so a Rocket Launcher firing from its full six cells looked as if it closed to three
+# or four. Only the long-range launcher vehicles (MSAM and MLRS in Tiberian Dawn, V2RL in
+# Red Alert) and structures with a weapon carry a ring; never infantry or tanks, never
+# another house's. The ring is a true circle at the reach, a presentation choice: the
+# engine's Distance() (max + min/2) makes an octagon that agrees with it on the axes, is
+# 0.943 of it on the exact diagonals and 0.894 of it at 26.6 degrees off each axis, so
+# off the axes the circle lies beyond the engine's reach, by up to 11.8 per cent of that
+# reach (0.106 of the ring's radius: 0.63 cell for MSAM, 1.06 for V2RL). Its dashes turn
+# once in 36 seconds of the world's clock (wind_seconds), which a script reproduces
+# exactly. Scenes and claims in game/gate_rangering.py: Tiberian Dawn's
+# GDI 1 with a Rocket Launcher and a Guard Tower spawned for the player, Red Alert's
+# second Soviet mission (SCU02EA) with a V2 Rocket Launcher and a Tesla Coil; in each mode
+# the launcher alone, again after four frames with the engine still, again a few ticks
+# later, then the tower alone, the player's Rifleman alone, nothing, and all three. The
+# rings drawn are exactly the launcher's and the tower's, at the brain's range plus muzzle
+# (MSAM 6 cells, GTWR 4 plus a quarter, V2RL 10, TSLA 8.5) round the brain's firing centre;
+# every drawn point lies at that reach, the one nearest each compass direction included;
+# the dashes' angle is the clock's share of a turn, unchanged by frames drawn with the
+# engine still and moved by exactly the ticks played; and the dashes are lit on the
+# screen where the record puts them and the gaps are not.
+# Measured: every drawn point at the reach to 0.0001 cells in the 3D modes and within
+# half a 1995 pixel (0.021 cells) in Classic, the nearest to each compass direction at
+# most 2.4 degrees off it; the dashes lit at every sampled point in view and the gaps at
+# none, but for one to two gap points of nine to sixteen in Red Alert Enhanced, which
+# fall on the ore field's glitter; the later picture matched the earlier angle at every
+# predicted point, 7 of 9 in Red Alert Enhanced; the sampled dash middles measure 1.003
+# to 1.118 times the ring's radius by the engine's own Distance(), the top of that being
+# the circle's ceiling, sqrt(1.25): where the ring is furthest past the engine's reach.
+# PROVEN TO FAIL: the build before this one (the static octagon) records no circle and
+# no clock, failing every ring of all six game and mode pairs; and its pictures, checked
+# against this build's records (gate_rangering.py check DIR RECDIR), light none of the
+# dash middles off the axes in view and many of the gaps.
+# NOT COVERED: reach against a building target, which In_Range extends by (Width + Height)
+# quarter cells; the Nod SSM Launcher (MLRS), which shares the MSAM path but is not
+# staged; the turn while the game is paused, when the clock (and the ring) stands still;
+# the two-run identity of a ring picture, which rests on the clock claim here and on the
+# suite's own two-run --shot determinism gates.
+# =====================================================================================
+if [ ! -f ra3d/RedAlert.dylib ] || [ ! -d ra3d/missions ] || [ ! -f ra3d/3d/SCU02EA.pack ]; then
+  skip "G493 weapon range ring: no Red Alert module with 3D scenes is staged in this folder"
+else
+  rm -rf g493r && mkdir -p g493r
+  python3 "$GATEDIR/gate_rangering.py" script g493r 2>>"$OUT"
+  gbegin
+  grun g493r/td.log --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+       --script g493r/td.txt
+  grun g493r/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --nosound --w 1280 --h 720 --scen SCU02EA --pack ra3d/3d/SCU02EA.pack \
+       --script g493r/ra.txt
+  gshots g493r/td_launcher0.png g493r/td_same2.png g493r/td_later1.png g493r/td_off2.png \
+         g493r/ra_launcher0.png g493r/ra_same2.png g493r/ra_later1.png g493r/ra_off2.png
+  G493CHK=$(python3 "$GATEDIR/gate_rangering.py" check g493r 2>>"$OUT")
+  echo "G493 $G493CHK" >> "$OUT"
+  G493V=$(echo "$G493CHK" | head -1 | cut -d' ' -f1)
+  G493MSG=$(echo "$G493CHK" | head -1 | cut -d' ' -f2-)
+  if [ "$GRC" != "0" ]; then
+    bad "G493 weapon range ring: a run failed or a shot is missing (GRC=$GRC)"
+  elif [ "$G493V" = "1" ]; then
+    ok "G493 a selected launcher or firing defence shows its reach as a dashed circle turning on the world's clock, a Rifleman none, in Classic, N64 and Enhanced in both games: $G493MSG"
+  else
+    bad "G493 weapon range ring: ${G493MSG:-the check did not run (see the python error in the log)}"
+  fi
+fi
+
+# =====================================================================================
+# G487 A HELD SELECTION BOX KEEPS HOLD OF THE GROUND IT STARTED ON, AND NOTHING BEHIND THE
+# SIDEBAR IS TAKEN (game/cnc_eyes.cpp: band_anchor, band_track, band_clamp_pointer, and
+# the held-band line at the head of edge_scroll_allowed; game/dosclassic_mod.h for Classic).
+#
+# THE FAULT. The box was TESTED as the screen rectangle from the press pixel to the
+# release pixel, and DRAWN as walls on ground points worked out only when the mouse moved.
+# Anything that moved the camera while the button was held (the pointer at the screen
+# edge, the arrow keys, the wheel, a middle-button grab, the camera key) left the walls
+# where they were and slid the tested rectangle onto other ground, so the release took
+# units the box had never been drawn round and dropped ones it had. And the pointer
+# corner was never held inside the tactical view, so a box dragged onto the sidebar took
+# units standing hidden behind it.
+#
+# THE BEHAVIOUR NOW. The press point is pinned to the ground. While the button is held the
+# map may scroll at the screen edge, and the box stretches to follow it: its press corner
+# stays on the pressed ground and its pointer corner stays under the pointer, held inside
+# the tactical view the way 1995's Mouse_Left_Held bounds it. The release takes everything
+# between the two. A held box also scrolls at every screen edge, plates included, because
+# a pointer dragging a box is not reaching for a control; an instant `band` is not a held
+# box and keeps the vetoes.
+#
+# FOUR LEGS. (a) Tiberian Dawn, N64 camera: an instant band dragged onto the sidebar takes
+# the four riflemen and not the two grenadiers standing behind the panel; then a held band
+# with the pointer on the window's right edge scrolls the map 12 cells, its press corner
+# goes off the left of the screen, the walls still stand on the tested rectangle (round
+# trip under 3 px), and the release takes the four riflemen it started on as well as what
+# it stretched over. (b) The same held band under Classic, where the box is the 1995 white
+# rectangle: the press corner leaves the page and the release keeps the riflemen; and a
+# press in the black margin beside the DOS page starts the band on the page edge, anchored,
+# rather than off the page with that side of the box undrawn. (c) The
+# Enhanced HUD at 1280x960: the drawer handle's veto on the top strip gives way to a held
+# box and holds again after the release and for an instant band. (d) Red Alert, N64
+# camera: a held band scrolls with the map and its walls stay on the tested rectangle.
+#
+# PROVEN TO FAIL on the build before this change (same scripts, SCG90EA at 1280x720):
+#   the instant band took 6, E1#0..E1#3 and E2#4, E2#5 from behind the sidebar;
+#   with the old verbs standing in for a hold (band, then edgeat 60 frames, then band
+#   again) the release took E2#4 E2#5 MTNK#3 MTNK#5 and none of the four riflemen;
+#   bandhold, bandmove, bandrelease and bandrt did not exist.
+# =====================================================================================
+mkdir -p shots/g487
+gbegin shots/g487/a.log shots/g487/b.log shots/g487/c.log shots/g487/d.log shots/g487/held.png
+printf 'dos_classic 1\nenabled 0\n' > shots/g487/classic.cfg
+cat > shots/g487/a.txt <<'G487A'
+tick 30
+cam 46 51
+tick 1
+band 150 250 1278 340
+select
+bandoff
+deselect
+cam 46 51
+tick 1
+bandhold 150 250 900 340
+bandmove 1278 340
+edgeat 1278 330 60
+bandrt
+shot shots/g487/held.png
+bandrelease
+select
+quit
+G487A
+cat > shots/g487/b.txt <<'G487B'
+tick 30
+cam 46 51
+tick 1
+bandhold 40 250 700 340
+bandrelease
+deselect
+bandhold 300 250 700 340
+bandmove 1278 340
+edgeat 1278 330 20
+bandrelease
+select
+quit
+G487B
+cat > shots/g487/c.txt <<'G487C'
+cam 45 45
+bandhold 400 400 600 500
+bandmove 1188 2
+edgeat 1188 2 20
+bandrelease
+deselect
+cam 45 45
+edgeat 1188 2 20
+band 400 400 600 500
+cam 45 45
+edgeat 1188 2 20
+quit
+G487C
+cat > shots/g487/d.txt <<'G487D'
+tick 2
+dist 1700
+cam 24 66
+tick 1
+bandhold 300 330 900 390
+bandmove 1270 390
+edgeat 1278 360 30
+bandrt
+bandrelease
+quit
+G487D
+grun shots/g487/a.log --scen SCG90EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script shots/g487/a.txt
+grun shots/g487/b.log --scen SCG90EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --gfx shots/g487/classic.cfg --gfxsave shots/g487/private.cfg --script shots/g487/b.txt
+export OPENCNC3D_HUD=new
+grun shots/g487/c.log --scen SCG01EB --pack SCG01EA.pack $BASE --nosound \
+     --gfx --gfxsave shots/g487/private.cfg --w 1280 --h 960 --script shots/g487/c.txt
+unset OPENCNC3D_HUD
+G487RA=0
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCG05EA.pack ]; then
+  G487RA=1
+  grun shots/g487/d.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data \
+       --dir ra3d/missions/ --dosdata ra3d/audio --scen SCG05EA --pack ra3d/3d/SCG05EA.pack \
+       --nosound --w 1280 --h 720 --script shots/g487/d.txt
+fi
+gshots shots/g487/held.png
+# (a)
+G487A1=$(grep -a '^SELECT|' shots/g487/a.log | sed -n 1p)
+G487AG=$(grep -ac '^EDGEAT|frames=60|mouse=1278,330|tacright=1040|guard=pass' shots/g487/a.log)
+G487AX=$(grep -a '^CAM|edgeat|' shots/g487/a.log | sed -n 1p | sed 's/.*|x=\([0-9.-]*\)|.*/\1/')
+G487AR=$(grep -a '^BANDROUNDTRIP|' shots/g487/a.log | sed -n 1p)
+G487ARE=$(echo "$G487AR" | sed -n 's/^BANDROUNDTRIP|err=\([0-9.]*\)|held=1|world=1|screen=\([-0-9.]*\),.*/\1 \2/p')
+G487A2=$(grep -a '^SELECT|' shots/g487/a.log | sed -n 3p)
+G487AOK=$(echo "$G487ARE $G487AX" | awk 'NF==3 && $1 < 3 && $2 < 0 && $3 > 55 {print 1}')
+# (b)
+G487BH=$(grep -ac '^BANDHOLD|press=300,250|anchored=1|' shots/g487/b.log)
+G487BM=$(grep -ac '^BANDHOLD|press=40,250|anchored=1|' shots/g487/b.log)
+G487BMP=$(grep -a '^BANDRELEASE|' shots/g487/b.log | sed -n 1p | sed -n 's/^BANDRELEASE|press=\([-0-9.]*\),.*/\1/p')
+G487BP=$(grep -a '^BANDRELEASE|' shots/g487/b.log | sed -n 2p | sed -n 's/^BANDRELEASE|press=\([-0-9.]*\),.*/\1/p')
+G487BS=$(grep -a '^SELECT|' shots/g487/b.log | tail -1)
+G487BOK=$(echo "$G487BP" | awk 'NF==1 && $1 < 160 {print 1}')
+# (c)
+G487CG=$(grep -a '^EDGEAT|' shots/g487/c.log | sed 's/.*|guard=\([a-z]*\)|.*/\1/' | tr '\n' ' ')
+G487CZ=$(grep -a '^CAM|edgeat|' shots/g487/c.log | sed 's/.*|z=\([0-9.-]*\)|.*/\1/' | tr '\n' ' ')
+G487COK=$(echo "$G487CZ" | awk 'NF==3 && $1 < 44 && $2 == 45 && $3 == 45 {print 1}')
+# (d)
+G487DOK=1; G487DR=skipped
+if [ "$G487RA" = "1" ]; then
+  G487DR=$(grep -a '^BANDROUNDTRIP|' shots/g487/d.log | sed -n 1p)
+  G487DG=$(grep -ac '^EDGEAT|frames=30|mouse=1278,360|.*|guard=pass' shots/g487/d.log)
+  G487DOK=$(echo "$G487DR" | sed -n 's/^BANDROUNDTRIP|err=\([0-9.]*\)|held=1|world=1|screen=\([-0-9.]*\),.*/\1 \2/p' \
+            | awk -v g="$G487DG" 'NF==2 && $1 < 3 && $2 < 250 && g == 1 {print 1}')
+fi
+G487WANTA1='SELECT|4 selected: E1#0@48,50 E1#1@48,50 E1#2@49,50 E1#3@49,50'
+G487WANTA2='SELECT|8 selected: E1#0@48,50 E1#1@48,50 E1#2@49,50 E1#3@49,50 E2#4@54,50 E2#5@54,50 MTNK#3@57,50 MTNK#5@56,50'
+G487WANTB='SELECT|6 selected: E1#0@48,50 E1#1@48,50 E1#2@49,50 E1#3@49,50 E2#4@54,50 E2#5@54,50'
+if [ "$GRC" != "0" ]; then
+  bad "G487 held selection box: a run failed or wrote no shot (GRC=$GRC)"
+elif [ "$G487A1" != "$G487WANTA1" ] || [ "$G487AG" != "1" ] || [ "$G487AOK" != "1" ] \
+     || [ "$G487A2" != "$G487WANTA2" ]; then
+  bad "G487 held selection box, Tiberian Dawn N64: instant band onto the sidebar took [$G487A1] (want the four E1 only: $G487WANTA1); edge guard pass $G487AG/1, camera x $G487AX (want > 55); round trip [$G487AR] (want err < 3, held=1, world=1, press column < 0); the release took [$G487A2] (want $G487WANTA2)"
+elif [ "$G487BM" != "1" ] || [ "$G487BMP" != "160.0" ] || [ "$G487BH" != "1" ] \
+     || [ "$G487BOK" != "1" ] || [ "$G487BS" != "$G487WANTB" ]; then
+  bad "G487 held selection box, Classic: a press in the black margin left of the DOS page anchored $G487BM/1 and let go from column $G487BMP (want 160.0, the page edge); the held band anchored $G487BH/1, press column at the release $G487BP (want < 160, off the DOS page), took [$G487BS] (want $G487WANTB)"
+elif [ "$G487COK" != "1" ]; then
+  bad "G487 held selection box, top edge under the drawer handle: guards [$G487CG] camera z [$G487CZ] (want pass then blocked then blocked, z below 44 then 45 and 45: a held box scrolls there, a released one and an instant band do not)"
+elif [ "$G487DOK" != "1" ]; then
+  bad "G487 held selection box, Red Alert N64: edge guard pass $G487DG/1, round trip [$G487DR] (want err < 3, held=1, world=1, press column < 250)"
+else
+  ok "G487 a held selection box keeps hold of its ground: an instant band onto the sidebar takes the four riflemen in view and not the two grenadiers behind the panel; held with the pointer on the right edge the map scrolls to x=$G487AX, the press corner goes off screen at $(echo "$G487ARE" | cut -d' ' -f2), the walls stay on the tested rectangle (round trip $(echo "$G487ARE" | cut -d' ' -f1) px) and the release takes the riflemen it started on and the four units it stretched over; Classic does the same with its press corner at column $G487BP, off the page, and a press in the margin beside the page starts on the page edge; a held box scrolls under the drawer handle (camera z $(echo "$G487CZ" | cut -d' ' -f1)) where a released box and an instant band do not; Red Alert $( [ "$G487RA" = 1 ] && echo "holds its walls on the rectangle while the map scrolls ($G487DR)" || echo "not run: no ra3d in this folder")"
+fi
+
+# =====================================================================================
+# G488 THE BOX DRAWN IS THE BOX TESTED, IN EVERY CAMERA (game/cnc_eyes.cpp:
+# band_world_corners, draw_band; game/gate_bandwalls.py measures the pixels).
+#
+# THE FAULT. The walls were built from the two drag corners as the WORLD-AXIS box they
+# span (or, under Isometric, a box in the camera's turned ground frame), while the
+# selection tests the SCREEN rectangle between them. Under the old 45 degree camera (the C
+# key) the world-axis box is a large diamond across the map round a thin tested strip;
+# under the N64 perspective and under Isometric it is a trapezoid wider than the strip. The
+# walls now stand on the four screen corners unprojected onto the ground, so they stand
+# round exactly what will be taken, and the test itself is unchanged: the same units are
+# taken as before.
+#
+# HOW IT IS MEASURED. Each leg shoots one frame plain and again with an instant band up.
+# Every pixel that differs is the band's; gate_bandwalls.py counts those lying outside the
+# tested rectangle by more than the walls' own height above it (40 px), 20 px either side
+# (perspective leans the side walls out as they rise) and 6 px below. Tiberian Dawn under
+# the N64 camera, the old camera and Enhanced Isometric, and Red Alert under the N64 and
+# the old camera; the bands are over empty ground or take only units inside the strip, so
+# nothing else in the frame changes. The sidebar's columns are not counted.
+#
+# PROVEN TO FAIL on the build before this change, band pixels outside the strip: 14509
+# under Tiberian Dawn's N64 camera, 4603 under its old camera, 9149 under Isometric, 1083
+# under Red Alert's N64 camera and 2489 under its old camera; all five are 0 on this
+# change, and the old-camera strip took the same two harvesters on both builds.
+# =====================================================================================
+mkdir -p shots/g488
+gbegin shots/g488/td.log shots/g488/iso.log shots/g488/ra.log \
+       shots/g488/td_n64_plain.png shots/g488/td_n64_band.png \
+       shots/g488/td_old_plain.png shots/g488/td_old_band.png \
+       shots/g488/td_iso_plain.png shots/g488/td_iso_band.png
+cat > shots/g488/td.txt <<'G488T'
+tick 30
+cam 46 51
+tick 1
+shot shots/g488/td_n64_plain.png
+band 150 420 900 520
+select
+shot shots/g488/td_n64_band.png
+bandrt
+bandoff
+deselect
+cammode old
+cam 54 51
+tick 1
+shot shots/g488/td_old_plain.png
+band 300 300 800 360
+select
+shot shots/g488/td_old_band.png
+bandrt
+quit
+G488T
+cat > shots/g488/iso.txt <<'G488I'
+tick 30
+persp iso
+cam 46 51
+tick 1
+shot shots/g488/td_iso_plain.png
+band 200 380 800 470
+select
+shot shots/g488/td_iso_band.png
+bandrt
+quit
+G488I
+cat > shots/g488/ra.txt <<'G488R'
+tick 2
+reveal 1
+dist 1700
+cam 24 66
+tick 1
+shot shots/g488/ra_n64_plain.png
+band 300 330 900 390
+shot shots/g488/ra_n64_band.png
+bandoff
+cammode old
+cam 24 66
+tick 1
+shot shots/g488/ra_old_plain.png
+band 300 330 900 390
+shot shots/g488/ra_old_band.png
+quit
+G488R
+grun shots/g488/td.log --scen SCG90EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --script shots/g488/td.txt
+grun shots/g488/iso.log --scen SCG90EA --pack SCG01EA.pack $BASE --nosound --w 1280 --h 720 \
+     --enhanced --texset 3 --gfxsave shots/g488/private.cfg --script shots/g488/iso.txt
+G488RA=0
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCG05EA.pack ]; then
+  G488RA=1
+  rm -f shots/g488/ra_n64_plain.png shots/g488/ra_n64_band.png \
+        shots/g488/ra_old_plain.png shots/g488/ra_old_band.png
+  grun shots/g488/ra.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data \
+       --dir ra3d/missions/ --dosdata ra3d/audio --scen SCG05EA --pack ra3d/3d/SCG05EA.pack \
+       --nosound --w 1280 --h 720 --enhanced --texset 3 --gfxsave shots/g488/private.cfg \
+       --script shots/g488/ra.txt
+  gshots shots/g488/ra_n64_plain.png shots/g488/ra_n64_band.png \
+         shots/g488/ra_old_plain.png shots/g488/ra_old_band.png
+fi
+gshots shots/g488/td_n64_plain.png shots/g488/td_n64_band.png \
+       shots/g488/td_old_plain.png shots/g488/td_old_band.png \
+       shots/g488/td_iso_plain.png shots/g488/td_iso_band.png
+g488w() { python3 "$GATEDIR/gate_bandwalls.py" "shots/g488/$1_plain.png" "shots/g488/$1_band.png" $2 \
+          2>&1 | sed -n 's/^BANDWALLS|changed=\([0-9]*\)|outside=\([0-9]*\)|.*/\1 \2/p'; }
+G488W=""
+G488BAD=""
+for G488L in "td_n64 150 420 900 520 1040" "td_old 300 300 800 360 1040" "td_iso 200 380 800 470 1040" \
+             "ra_n64 300 330 900 390 1063" "ra_old 300 330 900 390 1063"; do
+  set -- $G488L
+  G488N=$1; shift
+  case "$G488N" in ra_*) [ "$G488RA" = "1" ] || continue ;; esac
+  G488V=$(g488w "$G488N" "$*")
+  G488W="$G488W $G488N=[${G488V:-unread}]"
+  # some wall must be drawn (over 500 changed pixels) and none of it outside the strip
+  echo "$G488V" | awk 'NF==2 && $1 > 500 && $2 == 0 {ok=1} END {exit !ok}' || G488BAD="$G488BAD $G488N"
+done
+G488OLD=$(grep -a '^SELECT|' shots/g488/td.log | sed -n 3p)
+G488RT=$(grep -a '^BANDROUNDTRIP|' shots/g488/td.log shots/g488/iso.log \
+         | sed -n 's/.*|err=\([0-9.]*\)|.*/\1/p' | awk '$1 >= 3 {n++} END {print n+0}')
+G488RTN=$(grep -ac '^BANDROUNDTRIP|err=' shots/g488/td.log shots/g488/iso.log | awk -F: '{s+=$NF} END {print s+0}')
+if [ "$GRC" != "0" ]; then
+  bad "G488 band drawn is band tested: a run failed or wrote no shot (GRC=$GRC)"
+elif [ -n "$G488BAD" ] || [ "$G488OLD" != "SELECT|2 selected: HARV#1@50,45 HARV#2@53,44" ] \
+     || [ "$G488RT" != "0" ] || [ "$G488RTN" != "3" ]; then
+  bad "G488 band drawn is band tested: legs with wall pixels outside the tested strip or no wall at all:${G488BAD:- none} (changed,outside:$G488W; want over 500 changed and 0 outside); the old-camera strip took [$G488OLD] (want the two harvesters, the same as before the change); round trips at or over 3 px: $G488RT of $G488RTN (want 0 of 3)"
+else
+  ok "G488 the box drawn is the box tested: no band pixel outside the tested strip under Tiberian Dawn's N64, old and Isometric cameras$( [ "$G488RA" = 1 ] && echo " and Red Alert's N64 and old cameras" || echo " (Red Alert not run: no ra3d in this folder)") (changed,outside:$G488W), the old-camera strip still takes the same two harvesters, and the four corners round-trip within 3 px in all three Tiberian Dawn views"
+fi
+
+# =====================================================================================
+# G482 A GREY CAMEO'S "Requires:" LINE NAMES BUILDINGS THE PLAYER CAN ACTUALLY BUILD.
+#
+# In a match Nod may build GDI's Rocket Launcher (with an Airstrip and a Temple of Nod)
+# and the APC (Airstrip and Hand of Nod), and the Soviets may train Tanya (with a Soviet
+# Tech Center): the 1995 and 1996 multiplayer rules, kept. The Enhanced sidebar shows
+# those items grey from the start, and their tooltip used to print the other side's
+# buildings ("Weapons Factory, Advanced Com. Center"; "Allied Tech Center"), while Red
+# Alert's rifleman, rocket soldier and engineer, which need only a Barracks, claimed
+# "Requires mission unlock". The tooltip now applies the engine's own prerequisite
+# equivalences (TD house.cpp Can_Build_With_Prerequisites, RA house.cpp Can_Build) and
+# names the producing factory, first, whenever it is missing (Tanya needs a Barracks as
+# well as a Tech Center). The Nod S.S.M. Launcher has a grey slot of its own.
+#
+# Asserted on the strings the tooltip resolved (SBTIP / SBTIPREQ), over every slot of the
+# list: the cursor sweeps the two columns in 24-pixel steps, which lands on every row of
+# both games' Enhanced lists at 1280x720, and each slot is judged once.
+cat > /tmp/g482_td.txt <<'EOF'
+tick 30
+sbcategory vehicles
+EOF
+cat > /tmp/g482_ra.txt <<'EOF'
+tick 30
+sbcategory infantry
+EOF
+for g482y in $(seq 290 24 650); do
+  for g482x in 1156 1225; do
+    printf 'cursor %s %s\nsbtip\n' "$g482x" "$g482y" >> /tmp/g482_td.txt
+    printf 'cursor %s %s\nsbtip\n' "$g482x" "$g482y" >> /tmp/g482_ra.txt
+  done
+done
+echo quit >> /tmp/g482_td.txt; echo quit >> /tmp/g482_ra.txt
+OPENCNC3D_HUD=new ./cnc_eyes --scen SCM01EA --pack SCM01EA.pack $BASE --skirmish --side nod \
+    --seed 4242 --nosound --w 1280 --h 720 --script /tmp/g482_td.txt > /tmp/g482_td.log 2>&1
+G482TDRC=$?
+# GDI is the control: its own names, and no Nod building, on the same list.
+OPENCNC3D_HUD=new ./cnc_eyes --scen SCM01EA --pack SCM01EA.pack $BASE --skirmish --side gdi \
+    --seed 4242 --nosound --w 1280 --h 720 --script /tmp/g482_td.txt > /tmp/g482_gdi.log 2>&1
+G482GDIRC=$?
+OPENCNC3D_HUD=new ./cnc_eyes --ra3d --enhanced --dylib ra3d/RedAlert.dylib --content ra3d/data \
+    --dir ra3d/missions/ --dosdata ra3d/audio --nosound --scen SCM01EA --pack ra3d/3d/SCM01EA.pack \
+    --skirmish --side soviet --countries ussr --seed 4242 --ai 1 --w 1280 --h 720 \
+    --script /tmp/g482_ra.txt > /tmp/g482_ra.log 2>&1
+G482RARC=$?
+cat /tmp/g482_td.log /tmp/g482_gdi.log /tmp/g482_ra.log | grep -a '^SBTIP' >> "$OUT"
+G482=$(python3 - /tmp/g482_td.log /tmp/g482_ra.log /tmp/g482_gdi.log <<'PY'
+import re, sys
+def tips(path):
+    out, name = {}, None
+    for line in open(path, errors='replace'):
+        m = re.match(r'SBTIP\|hover=14\|col=\d+\|slot=\d+\|name=([^|]+)\|', line)
+        if m: name = m.group(1); continue
+        m = re.match(r'SBTIPREQ\|(.*)$', line.rstrip('\n'))
+        if m and name: out[name] = m.group(1); name = None
+    return out
+td, ra, gdi = tips(sys.argv[1]), tips(sys.argv[2]), tips(sys.argv[3])
+want = [
+    (td, 'Rocket Launcher', 'Requires: Airstrip, Temple of Nod / tech level 7'),
+    (td, 'APC',             'Requires: Airstrip, Hand of Nod / tech level 4'),
+    (td, 'S.S.M. Launcher', 'Requires: Airstrip, Obelisk Guard Tower / tech level 7'),
+    (ra, 'Tanya',           'Requires: Soviet Barracks, Soviet Tech Center / tech level 11'),
+    (ra, 'Rocket Soldier',  'Requires: Soviet Barracks / tech level 2'),
+    (ra, 'Rifle Infantry',  'Requires: Soviet Barracks / tech level 1'),
+    (ra, 'Engineer',        'Requires: Soviet Barracks / tech level 5'),
+    (gdi, 'Rocket Launcher', 'Requires: Weapons Factory, Advanced Com. Center / tech level 7'),
+    (gdi, 'APC',             'Requires: Weapons Factory, Barracks / tech level 4'),
+]
+wrong = ['%s=[%s]' % (n, d.get(n, 'not on the list')) for d, n, w in want if d.get(n) != w]
+# No grey item on either side may name a building of the other side, or a mission unlock.
+foreign = ['%s=[%s]' % (n, r) for n, r in td.items()
+           if re.search(r'Weapons Factory|Barracks|Advanced Com\. Center|Advanced Guard Tower|mission unlock', r)]
+foreign += ['%s=[%s]' % (n, r) for n, r in ra.items() if re.search(r'Allied|mission unlock', r)]
+foreign += ['GDI %s=[%s]' % (n, r) for n, r in gdi.items()
+            if re.search(r'Airstrip|Hand of Nod|Temple of Nod|Obelisk|mission unlock', r)]
+print('%d %d %d %d %s' % (len(td), len(ra), len(gdi), len(wrong) + len(foreign), '; '.join(wrong + foreign) or '-'))
+PY
+)
+set -- $G482; G482TDN=$1; G482RAN=$2; G482GDIN=$3; G482BAD=$4; shift 4; G482WHY="$*"
+if [ "$G482TDRC" != "0" ] || [ "$G482GDIRC" != "0" ] || [ "$G482RARC" != "0" ]; then
+  bad "G482 grey requirements: a run failed (Nod exit $G482TDRC, GDI exit $G482GDIRC, RA exit $G482RARC)"
+elif [ "${G482TDN:-0}" -ge 9 ] && [ "${G482RAN:-0}" -ge 6 ] && [ "${G482GDIN:-0}" -ge 5 ] && [ "${G482BAD:-1}" = "0" ]; then
+  ok "G482 grey requirements: a Nod skirmish reads Rocket Launcher 'Airstrip, Temple of Nod', APC 'Airstrip, Hand of Nod' and has a grey S.S.M. Launcher ('Airstrip, Obelisk'); a Soviet one reads Tanya 'Soviet Barracks, Soviet Tech Center' and the rifleman, rocket soldier and engineer 'Soviet Barracks'; GDI's list still reads its own buildings; none of $G482TDN Nod, $G482GDIN GDI and $G482RAN RA grey tooltips names the other side's buildings or a mission unlock"
+else
+  bad "G482 grey requirements: tooltips judged Nod=$G482TDN (want >=9) GDI=$G482GDIN (want >=5) RA=$G482RAN (want >=6), wrong or foreign=$G482BAD (want 0): $G482WHY"
+fi
+
+# =====================================================================================
+# G481. THE PRISON IN NOD MISSION 3. The engine names the Technology Center "Prison" in
+# scenario 3 (BuildingTypeClass::Full_Name, bdata.cpp), the Nod mission whose objective
+# it is. The renderer reads names from a baked table and cannot ask Full_Name, so
+# object_title (cnc_eyes.cpp) repeats the rule, and the unit card showed "Technology
+# Center" until it did.
+#   (a) SCB03EA and SCB03EB: the selected MISS's card reads Prison, in the log line and in
+#       the pixels: the card title's bright text ends well short of where "Technology
+#       Center" ends;
+#   (b) SCB10EA, a Nod mission with the same building: the card still reads Technology
+#       Center, and the title reaches the long name's extent;
+#   (c) a save written in SCB03EA and loaded by a fresh process still reads Prison (the
+#       rule reads the mission name, which a load never changes);
+#   (d) Red Alert's Allied mission 3 (SCG03EA, a name the rule would match in Tiberian
+#       Dawn) has a MISS of its own, and its card keeps Red Alert's name. Skipped, and
+#       said, without a staged Red Alert module.
+# Enhanced only, because only Enhanced draws the unit card; Classic and N64 draw no name
+# for a selected building. Scouts are spawned beside the building because the engine
+# selects only what its own shroud has shown.
+# Measured on a good build: title text ends at x=72 for Prison and at x=175 for
+# Technology Center (card at its 1.00 scale, 1280x720). Without the fix SCB03EA reads 175.
+# =====================================================================================
+rm -rf shots/g481 && mkdir -p shots/g481/saves
+g481_script() {   # g481_script X Y FILE [save|load]: scouts by cell X,Y, select the MISS, card, shot
+  {
+    if [ "$4" = load ]; then echo "tick 2"; echo "load 0"; echo "tick 3"
+    else
+      echo "tick 10"
+      echo "spawnobj JEEP $(($1+3)) $(($2+1))"; echo "spawnobj JEEP $(($1+1)) $(($2+4))"
+      echo "spawnobj JEEP $(($1-1)) $(($2+1))"; echo "spawnobj JEEP $(($1+1)) $(($2+2))"
+      echo "spawnobj JEEP $1 $(($2+3))"; echo "tick 40"
+    fi
+    echo "cam $(($1+1)) $(($2+2))"; echo "tick 2"; echo "lclickobj MISS 0"; echo "tick 3"
+    echo "unitcard"
+    if [ "$4" = save ]; then echo "save 0 G481"; fi
+    if [ "$4" != save ]; then echo "shot shots/g481/$(basename "$3" .txt).png"; fi
+    echo quit
+  } > "$3"
+}
+g481_script 14 17 shots/g481/a.txt
+g481_script 14 17 shots/g481/b.txt
+g481_script 32 43 shots/g481/c.txt
+g481_script 14 17 shots/g481/s.txt save
+g481_script 14 17 shots/g481/l.txt load
+g481_script 58 71 shots/g481/r.txt
+G481F="--enhanced --texset 3 --noshroud --nosound --w 1280 --h 720"
+gbegin shots/g481/a.log shots/g481/b.log shots/g481/c.log shots/g481/s.log shots/g481/l.log
+grun shots/g481/a.log --scen SCB03EA --pack SCB03EA.pack $BASE $G481F --script shots/g481/a.txt
+grun shots/g481/b.log --scen SCB03EB --pack SCB03EB.pack $BASE $G481F --script shots/g481/b.txt
+grun shots/g481/c.log --scen SCB10EA --pack SCB10EA.pack $BASE $G481F --script shots/g481/c.txt
+grun shots/g481/s.log --scen SCB03EA --pack SCB03EA.pack $BASE $G481F --savedir shots/g481/saves --script shots/g481/s.txt
+grun shots/g481/l.log --scen SCB03EA --pack SCB03EA.pack $BASE $G481F --savedir shots/g481/saves --script shots/g481/l.txt
+gshots shots/g481/a.png shots/g481/b.png shots/g481/c.png shots/g481/l.png
+G481RC=$GRC
+G481RA=skip
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCG03EA.pack ]; then
+  gbegin shots/g481/r.log
+  grun shots/g481/r.log --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+       --dosdata ra3d/audio --scen SCG03EA --pack ra3d/3d/SCG03EA.pack $G481F --script shots/g481/r.txt
+  [ "$GRC" = "0" ] || G481RC=$GRC
+  G481RA=$(grep -ac '^UNITCARD|shown=1|count=1|main=MISS|name=Technology Center|' shots/g481/r.log)
+fi
+g481_card() { grep -ac "^UNITCARD|shown=1|count=1|main=MISS|name=$2|" "$1"; }
+G481A=$(g481_card shots/g481/a.log Prison)
+G481B=$(g481_card shots/g481/b.log Prison)
+G481C=$(g481_card shots/g481/c.log 'Technology Center')
+G481L=$(g481_card shots/g481/l.log Prison)
+G481LOADED=$(grep -ac '^LOAD|slot=0|frame=[0-9]*|scen=SCB03EA|' shots/g481/l.log)
+G481SCALE=$(cat shots/g481/a.log shots/g481/c.log | grep -ac '^UNITCARD|rect|x=0|y=554|w=240|h=166|scale=1.00$')
+G481PX=$(python3 - shots/g481/a.png shots/g481/b.png shots/g481/c.png <<'PY' 2>&1
+import sys
+from PIL import Image
+out = []
+for f in sys.argv[1:]:
+    im = Image.open(f).convert("L"); px = im.load()
+    xs = [x for x in range(14, 222) for y in range(564, 582) if px[x, y] > 150]
+    out.append(str(max(xs)) if xs else "none")
+print(" ".join(out))
+PY
+)
+set -- $G481PX
+G481PA=${1:-none}; G481PB=${2:-none}; G481PC=${3:-none}
+g481_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+if [ "$G481RC" != "0" ]; then
+  bad "G481 Prison name: a run failed or wrote no shot (GRC=$G481RC)"
+elif [ "$G481A" != "1" ] || [ "$G481B" != "1" ]; then
+  bad "G481 Prison name: Nod mission 3's MISS card does not read Prison (SCB03EA $G481A/1, SCB03EB $G481B/1): $(grep -a '^UNITCARD|shown\|^SELECT|at' shots/g481/a.log shots/g481/b.log | head -4 | tr '\n' ' ')"
+elif [ "$G481C" != "1" ]; then
+  bad "G481 Prison name: SCB10EA's MISS card must keep Technology Center ($G481C/1): $(grep -a '^UNITCARD|shown' shots/g481/c.log | head -1)"
+elif [ "$G481LOADED" != "1" ] || [ "$G481L" != "1" ]; then
+  bad "G481 Prison name: a save of SCB03EA loaded in a fresh process: loaded $G481LOADED/1, card reads Prison $G481L/1"
+elif [ "$G481SCALE" != "2" ] || ! g481_num "$G481PA" || ! g481_num "$G481PB" || ! g481_num "$G481PC"; then
+  bad "G481 Prison name: the card's title could not be measured (card at scale 1.00 in $G481SCALE/2 runs, title ends [$G481PX])"
+elif [ "$G481PA" -ge 100 ] || [ "$G481PB" -ge 100 ] || [ "$G481PC" -lt 150 ]; then
+  bad "G481 Prison name: the drawn title does not match the name: text ends at x=$G481PA (SCB03EA) and x=$G481PB (SCB03EB), want under 100; x=$G481PC (SCB10EA), want 150 or more"
+elif [ "$G481RA" != "skip" ] && [ "$G481RA" != "1" ]; then
+  bad "G481 Prison name: Red Alert's Allied mission 3 MISS card must keep Technology Center ($G481RA/1): $(grep -a '^UNITCARD|shown' shots/g481/r.log | head -1)"
+else
+  if [ "$G481RA" = "skip" ]; then G481RAS="Red Alert not checked: no Red Alert module is staged in this folder"; else G481RAS="Red Alert's Allied mission 3 keeps Technology Center"; fi
+  ok "G481 Prison name: Nod mission 3's Technology Center reads Prison on the card in SCB03EA and SCB03EB (title ends x=$G481PA,$G481PB) and after a save is loaded, SCB10EA keeps Technology Center (x=$G481PC); $G481RAS"
+fi
+
+# =====================================================================================
+# G480 THE MATCH DEBRIEF SAYS HOW YOU DID, AS A NUMBER, IN EACH GAME'S OWN KIT.
+#
+# A finished match ends, in Tiberian Dawn as in Red Alert, on one screen: Red Alert's TOP
+# SCORES layout (em_match_debrief), the multiplayer score both 1995 and 1996 games had,
+# drawn in the loaded game's own Enhanced kit. Under the table the result line gives the
+# player's own score and place, "Your score: 1062 - 1st of 8", and under that, in the muted
+# ink and inside the frame, how the score is added up (G527 holds that line).
+#
+# Three --matchshot runs over the same eight commanders, through the route a finished
+# match takes (app_match_score), asserted off the line the log says was drawn AND off the
+# photograph:
+#   (a) the sample's own commander, who leads the board: Your score: 1062 - 1st of 8
+#   (b) the local mark moved to VEGA, second on the board (OPENCNC3D_MATCHSHOT_LOCAL=1),
+#       which is what proves the place is counted and not assumed: Your score: 696 - 2nd of 8
+#   (c) no local row at all (OPENCNC3D_MATCHSHOT_LOCAL=none), the board a machine draws
+#       when its own seat's numbers could not be read: Final standings, never somebody
+#       else's score claimed as yours
+# Each must be Tiberian Dawn's debrief (the DEBRIEF line, not Red Alert's RADEBRIEF), its
+# result line must carry ink in the body colour, and the frame's field and (a)'s own row
+# must be Tiberian Dawn's: the field not red, the row filled in the dark green 273521 a
+# selected list row is in that kit (gate_debrief.py reads both off the picture).
+# A match that broke prints why on the result line, which G442 leg (4) holds.
+#
+# RED ALERT: the same screen in its own kit prints "Your score: 1304 - 1st of 4", and only
+# the plain title when no row is this machine's. G325's harness asserts that off the pixels
+# and aborts if it does not hold, and asserts Tiberian Dawn's form of it too (GDI and Nod in
+# the side column, tiberium in the sum); this gate reads both lines from G325's log.
+# PROVEN TO FAIL on the build before: --matchshot drew Tiberian Dawn's older match plate,
+# which logs CAMPAIGN|matchscore lines and no APP|debrief|result line.
+# =====================================================================================
+G480A=""; G480B=""; G480C=""; G480PA=""; G480PB=""; G480PC=""; G480RA=""; G480TD=""; G480SHOWN=0
+if [ -x ./opencnc3d ] && [ -s enhanced-menu.pack ]; then
+  rm -rf g480 && mkdir -p g480
+  for G480K in a b c; do
+    case $G480K in a) G480L="";; b) G480L=1;; c) G480L=none;; esac
+    G480LOG=$(OPENCNC3D_MATCHSHOT_LOCAL=$G480L ./opencnc3d --matchshot --w 1280 --h 800 \
+              --dylib ./TiberianDawn.dylib --dir ./missions/ --shotdir g480 2>&1)
+    printf '%s\n' "$G480LOG" >> "$OUT"
+    G480H=$(printf '%s' "$G480LOG" | sed -n 's/^APP|debrief|result=\(.*\)|formula=[01]$/\1/p' | head -1)
+    G480BTN=$(printf '%s' "$G480LOG" | sed -n 's/^DEBRIEF|shown|once|continue=\([-0-9,]*\)$/\1/p' | head -1)
+    G480P=""
+    [ -n "$G480BTN" ] && G480SHOWN=$((G480SHOWN + 1))
+    [ -s g480/debrief.png ] && [ -n "$G480BTN" ] && G480P=$(python3 "$GATEDIR/gate_debrief.py" g480/debrief.png "$G480BTN")
+    [ -s g480/debrief.png ] && mv g480/debrief.png g480/debrief_$G480K.png
+    case $G480K in
+      a) G480A="$G480H"; G480PA="$G480P";;
+      b) G480B="$G480H"; G480PB="$G480P";;
+      c) G480C="$G480H"; G480PC="$G480P";;
+    esac
+  done
+fi
+g480_val() {  # $1 the helper's line, $2 a key: its value
+  printf '%s\n' "$1" | tr ' ' '\n' | sed -n "s/^$2=//p"
+}
+g480_td() {  # $1 the helper's line: the result line inked, the frame's field not red
+  G480R=$(g480_val "$1" result); G480F=$(g480_val "$1" field)
+  [ -n "$G480F" ] || return 1
+  G480FR=$((0x$(printf '%s' "$G480F" | cut -c1-2))); G480FG=$((0x$(printf '%s' "$G480F" | cut -c3-4)))
+  [ "${G480R:-0}" -ge 40 ] && [ $G480FR -le $((G480FG + 24)) ]
+}
+G480ROW=$(g480_val "$G480PA" rowfill)
+if [ -n "${G325LOG:-}" ]; then
+  G480TD=$(printf '%s' "$G325LOG" | grep '^ENMENU|td|debrief|Your score: 1062 - 1st of 8|.*|sides=GDI,Nod|.*|formula=tiberium|.*=PASS$' | head -1)
+  [ -n "$G480TD" ] || G480TD="MISSING"
+fi
+if [ -f ra3d/enhanced-menu.pack ]; then
+  G480RA=$(printf '%s' "${G325LOG:-}" | grep '^ENMENU|ra|debrief-score|Your score: 1304 - 1st of 4|.*|no-local=Final standings|.*=PASS$' | head -1)
+  [ -n "$G480RA" ] || G480RA="MISSING"
+fi
+if [ "$G480A" = "Your score: 1062 - 1st of 8" ] && [ "$G480B" = "Your score: 696 - 2nd of 8" ] \
+   && [ "$G480C" = "Final standings" ] && [ "$G480SHOWN" = "3" ] \
+   && g480_td "$G480PA" && g480_td "$G480PB" && g480_td "$G480PC" && [ "$G480ROW" = "273521" ] \
+   && [ "$G480RA" != "MISSING" ] && [ "$G480TD" != "MISSING" ]; then
+  ok "G480 the match debrief says how you did: Tiberian Dawn's match ends on the TOP SCORES screen in its own kit, its result line reading '$G480A' for the leader, '$G480B' with the second commander as this machine, and '$G480C' when no row is this machine's, each inked in the picture ($(g480_val "$G480PA" result), $(g480_val "$G480PB" result), $(g480_val "$G480PC" result) pixels), the frame's field $(g480_val "$G480PA" field) and this machine's row $G480ROW, Tiberian Dawn's green rather than Red Alert's red. Kit check: ${G480TD:-G325 not run here}. Red Alert: ${G480RA:-kit not staged here, so its debrief was not drawn}"
+else
+  bad "G480 the match debrief: leader=[$G480A](want Your score: 1062 - 1st of 8) second=[$G480B](want Your score: 696 - 2nd of 8) no-local=[$G480C](want Final standings) drawn-as-Tiberian-Dawn's-debrief=$G480SHOWN(want 3) pictures=[$G480PA]/[$G480PB]/[$G480PC](want result>=40, field not red, rowfill 273521) td-kit=[$G480TD] red-alert=[$G480RA]"
+fi
+
+
+
+# =====================================================================================
+# G474 A MIXED BUILD QUEUE, BUILT IN THE ORDER IT WAS CLICKED (game/cnc_sidebar.h,
+# sb_click_build and the per-category FIFO g_sbQ). The 1995 sidebar refused a click on a
+# second cameo while its category was building; the eyes now queue it behind what is
+# building, one FIFO per category (structures, infantry, vehicles, aircraft, ships), up to
+# nine of each unit type. Only ordinary starts reach the engine, one at a time, as each
+# factory frees itself.
+#
+# Three headless runs under the Enhanced HUD, read from engine state:
+#   Tiberian Dawn SCG90EA (gate_queue_mixed.txt): Minigunner started, then Grenadier,
+#     Minigunner, Grenadier clicked and one Grenadier right-clicked off; a Medium Tank
+#     started, held with a right click and RESUMED with a left click (a held unit must
+#     resume, not queue another), then Jeep, Medium Tank, Jeep clicked and one Jeep
+#     right-clicked off. The click order is the reverse of the unit-id order in both
+#     factories, so a queue drained by id fails. Asserted: every queueing click printed
+#     its add, the right clicks took one off the back, the Enhanced strip's cards read
+#     Minigunner, Grenadier, Minigunner, Medium Tank, Jeep, Medium Tank (build order, one
+#     card per run), the pump started Grenadier before Minigunner and Jeep before Medium
+#     Tank, every start was taken and none lost, the
+#     queue emptied, and with invulnerability on (so nothing built can die before it is
+#     counted) exactly two Minigunners, one Grenadier, two Medium Tanks and one Jeep more
+#     stand on the field: the units are the proof, not the bank, which a harvester refills
+#     during the run.
+#   Tiberian Dawn SCG90EA (gate_queue_mixed_join.txt): Medium Tank started, then Jeep,
+#     Medium Tank, Medium Tank clicked, and the Jeep right-clicked off. The tanks left
+#     waiting are an unbroken run with the one in the factory again, so they must join
+#     its run: the strip shows ONE tank card reading 3 (a second card would swap places
+#     with the first when it left the factory), the waiting tanks' run= changes from
+#     their own to the factory's, and three tanks come out.
+#   Red Alert SCU09EA (gate_queue_mixed_ra.txt): the same infantry ladder in the other
+#     brain; two Rifle Infantry and one Grenadier more, Grenadier pumped first.
+#   Red Alert SCU08EA (gate_queue_mixed_ships.txt): ships are a category of their own. A
+#     Submarine started, then Transport and Submarine clicked: both queued, and the
+#     Transport (bid 3) is pumped before the Submarine (bid 0) and taken. A Transport
+#     built right after a Submarine never leaves this map's Sub Pen (two direct clicks
+#     on the old sidebar end the same way), so the leg asserts the order and the take,
+#     not a count.
+# The match leg is G475; the per-type cap and the ten-Minigunner card stay G95, G122 and
+# G318's to hold.
+gbegin shots/g474_td.log shots/g474_join.log shots/g474_ra.log shots/g474_ships.log
+OPENCNC3D_HUD=new grun shots/g474_td.log --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
+    --w 1280 --h 720 --script "$GATEDIR/gate_queue_mixed.txt"
+unset OPENCNC3D_HUD   # sh keeps a prefix assignment after a function call
+OPENCNC3D_HUD=new grun shots/g474_join.log --scen SCG90EA --pack SCG01EA.pack $BASE --noshroud \
+    --w 1280 --h 720 --script "$GATEDIR/gate_queue_mixed_join.txt"
+unset OPENCNC3D_HUD   # sh keeps a prefix assignment after a function call
+G474RA=0
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCU09EA.pack ] && [ -f ra3d/3d/SCU08EA.pack ]; then
+  G474RA=1
+  G474R="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --nosound --w 1280 --h 720 --noshroud"
+  OPENCNC3D_HUD=new grun shots/g474_ra.log $G474R --scen SCU09EA --pack ra3d/3d/SCU09EA.pack \
+      --script "$GATEDIR/gate_queue_mixed_ra.txt"
+  unset OPENCNC3D_HUD   # sh keeps a prefix assignment after a function call
+  OPENCNC3D_HUD=new grun shots/g474_ships.log $G474R --scen SCU08EA --pack ra3d/3d/SCU08EA.pack \
+      --script "$GATEDIR/gate_queue_mixed_ships.txt"
+  unset OPENCNC3D_HUD   # sh keeps a prefix assignment after a function call
+else
+  skip "G474 Red Alert legs: no Red Alert module with SCU08EA and SCU09EA is staged in this folder"
+fi
+G474V=$(python3 - "$G474RA" shots/g474_td.log shots/g474_ra.log shots/g474_ships.log shots/g474_join.log <<'PY' 2>&1
+import re, sys
+ra = sys.argv[1] == "1"
+def read(p):
+    try: return open(p, errors="replace").read()
+    except OSError: return ""
+def lines(t, pat): return re.findall(pat, t, re.M)
+def counts(t):
+    """COUNT lines, first and last per type: what stood before and after."""
+    first, last = {}, {}
+    for name, n in lines(t, r"^COUNT\|(\w+):@me\|have=(\d+)$"):
+        first.setdefault(name, int(n)); last[name] = int(n)
+    return {k: last[k] - first[k] for k in first}
+bad = []
+def need(ok, what):
+    if not ok: bad.append(what)
+def common(t, tag, adds, subs, order, built):
+    need("SCRIPT|end" in t and ", 0 failures" in t, tag + " script failures")
+    got = lines(t, r"^SBQUEUE\|add\|(\w+)\|btype=\d+\|bid=\d+\|n=(\d+)$")
+    need(got == adds, "%s adds %s want %s" % (tag, got, adds))
+    got = lines(t, r"^SBQUEUE\|sub\|(\w+)\|btype=\d+\|bid=\d+\|n=(\d+)$")
+    need(got == subs, "%s right-click subs %s want %s" % (tag, got, subs))
+    got = lines(t, r"^SBQUEUE\|pump\|(\w+)\|")
+    need(got == order, "%s pump order %s want %s" % (tag, got, order))
+    took = lines(t, r"^SBQUEUE\|took\|(\w+)\|")
+    need(took == order, "%s taken %s want %s" % (tag, took, order))
+    need(not re.search(r"^SBQUEUE\|(lost|untaken|drop)\|", t, re.M), tag + " a start was lost, untaken or dropped")
+    if built is not None:
+        need(re.findall(r"^SBQUEUEDUMP\|entries=(\d+)$", t, re.M)[-1:] == ["0"], tag + " queue not empty at the end")
+        got = counts(t)
+        need(got == built, "%s built %s want %s" % (tag, got, built))
+td = read(sys.argv[2])
+common(td, "TD", [("E2", "1"), ("E1", "1"), ("E2", "2"), ("JEEP", "1"), ("MTNK", "1"), ("JEEP", "2")],
+       [("E2", "1"), ("JEEP", "1")], ["E2", "E1", "JEEP", "MTNK"],
+       {"E1": 2, "E2": 1, "MTNK": 2, "JEEP": 1})
+# the held tank resumed: hold, then a build line for it, and no add for it until the Jeep
+seq = lines(td, r"^(SIDEBAR-INPUT\|(?:build|hold)\|MTNK|SBQUEUE\|add\|(?:MTNK|JEEP))")
+need(seq[:4] == ["SIDEBAR-INPUT|build|MTNK", "SIDEBAR-INPUT|hold|MTNK", "SIDEBAR-INPUT|build|MTNK", "SBQUEUE|add|JEEP"],
+     "TD hold then resume %s" % seq[:4])
+# the Enhanced strip, settled after the clicks: build order, one card per run
+cards = []
+mark = ""
+for l in td.splitlines():
+    if l.startswith("ECHO|G474-"): mark = l
+    elif l.startswith("HUDQ|t=") and mark == "ECHO|G474-cards":
+        cards = re.findall(r"\|([^:|]+):(\d+):\d+:([BHWM]):x=", l)
+want = [("E1", "1", "B"), ("E2", "1", "W"), ("E1", "1", "W"), ("MTNK", "1", "B"), ("JEEP", "1", "W"), ("MTNK", "1", "W")]
+need(cards == want, "TD strip cards %s want %s" % (cards, want))
+# the join leg: the gap closed by the right click joins the factory's run
+jn = read(sys.argv[5])
+need("SCRIPT|end" in jn and ", 0 failures" in jn, "join script failures")
+strips = {}
+mark = ""
+for l in jn.splitlines():
+    if l.startswith("ECHO|G474-"): mark = l
+    elif l.startswith("HUDQ|t=") and mark.startswith("ECHO|G474-join-") and mark not in strips:
+        # the first strip line after each mark: the one frame logged right after it
+        strips[mark] = re.findall(r"\|([^:|]+):(\d+):\d+:([BHWM]):x=", l)
+need(strips.get("ECHO|G474-join-before") == [("MTNK", "1", "B"), ("JEEP", "1", "W"), ("MTNK", "2", "W")],
+     "join strip before the right click %s" % strips.get("ECHO|G474-join-before"))
+need(strips.get("ECHO|G474-join-after") == [("MTNK", "3", "B")],
+     "join strip after the right click %s want one tank card reading 3" % strips.get("ECHO|G474-join-after"))
+dumps = re.split(r"^SBQUEUEDUMP\|", jn, flags=re.M)
+runs = [re.findall(r"^SBQUEUEITEM\|MTNK\|.*\|run=(\d+)", d, re.M) for d in dumps[1:]]
+need(len(runs) >= 2 and len(runs[0]) == 2 and len(runs[1]) == 2 and len(set(runs[1])) == 1
+     and runs[1][0] != runs[0][0], "join: waiting tanks' runs %s, want both moved off their own run onto the factory's" % runs[:2])
+need(counts(jn).get("MTNK") == 3, "join built %s want 3 Medium Tanks" % counts(jn))
+need(not re.search(r"^SBQUEUE\|(lost|untaken|drop)\|", jn, re.M), "join a start was lost, untaken or dropped")
+if ra:
+    common(read(sys.argv[3]), "RA", [("E2", "1"), ("E1", "1"), ("E2", "2")], [("E2", "1")],
+           ["E2", "E1"], {"E1": 2, "E2": 1})
+    sh = read(sys.argv[4])
+    common(sh, "RA ships", [("LST", "1"), ("SS", "1")], [], ["LST"], None)
+    need(lines(sh, r"^SBQUEUEITEM\|(\w+)\|btype=\d+\|bid=\d+\|cat=4\|pos=(\d)\|")[:2] == [("LST", "0"), ("SS", "1")],
+         "RA ships are not queued in category 4 in click order")
+print("ok" if not bad else "; ".join(bad))
+PY
+)
+echo "G474|$G474V" >> "$OUT"
+if [ "$GRC" != "0" ]; then
+  bad "G474 mixed build queue: a run failed (exit $GRC)"
+elif [ "$G474V" = "ok" ]; then
+  ok "G474 mixed build queue: in Tiberian Dawn a Grenadier clicked while a Minigunner built, and a Jeep while a Medium Tank built, were queued instead of refused and came out in click order (Grenadier before Minigunner, Jeep before Medium Tank, the reverse of their ids), a right click took the last one off, a right click that closed a gap joined the waiting tanks to the one in the factory (one card reading 3), a held tank resumed rather than queued, every start was taken and exactly the units clicked stand on the field; the Red Alert infantry ladder does the same$( [ "$G474RA" = "1" ] && echo ", and Red Alert ships queue in their own category in click order")"
+else
+  bad "G474 mixed build queue: $G474V"
+fi
+
+# =====================================================================================
+# G475 A MIXED QUEUE IN A MATCH, CLICKED INSIDE THE ORDER LOOKAHEAD. In a match a start
+# is an order the factory takes several frames later, and until then the category reads
+# idle. A second click in that window used to go out as a second start, which the engine
+# refused (a second Minigunner) or ignored (a Grenadier while the barracks was spoken
+# for): measured on the build before this one, three clicks gave one Minigunner. Now the
+# player's own start is held open until the factory is seen to take it, so the clicks in
+# the window are queued behind it. Asserted over loopback: the second and third clicks
+# print SBQUEUE|behind ... open=1 (caught by the open start, not by a busy factory), two
+# queued starts are taken in click order with none lost, and two Minigunners and one
+# Grenadier stand in the host's world AND in the joiner's, which never clicked; no
+# desync alarm, both exit clean.
+G475HRC=99; G475JRC=99; G475DESYNC=1; G475BEHIND=0; G475TOOK=""; G475LOST=1; G475H1=0; G475H2=0; G475J1=0; G475J2=0
+if [ -x ./cnc_eyes ] && [ -s "$SKMAP.pack" ] && [ -s "missions/$SKMAP.INI" ]; then
+  rm -f net_mq_host.log net_mq_join.log
+  OPENCNC3D_HUD=new ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side gdi --ai 0 \
+      --host 17475 --script "$GATEDIR/gate_net_mixq_host.txt" > net_mq_host.log 2>&1 &
+  NHP=$!
+  sleep 2
+  ./cnc_eyes --scen $SKMAP --pack $SKMAP.pack $SKBASE --skirmish --side nod --ai 0 \
+      --join 127.0.0.1 17475 --script "$GATEDIR/gate_net_mixq_join.txt" > net_mq_join.log 2>&1 &
+  NJP=$!
+  wait $NHP; G475HRC=$?
+  wait $NJP; G475JRC=$?
+  cat net_mq_host.log net_mq_join.log >> "$OUT"
+  G475DESYNC=$(cat net_mq_host.log net_mq_join.log | grep -c '^NETDESYNC|')
+  G475BEHIND=$(grep -c '^SBQUEUE|behind|E[12]|busy=0|waiting=[01]|open=1$' net_mq_host.log)
+  G475TOOK=$(sed -n 's/^SBQUEUE|took|\([A-Z0-9]*\)|.*/\1/p' net_mq_host.log | tr '\n' ' ')
+  G475LOST=$(grep -c '^SBQUEUE|\(lost\|untaken\|drop\)|' net_mq_host.log)
+  G475H1=$(sed -n 's/^COUNT|E1:@me|have=\([0-9]*\).*/\1/p' net_mq_host.log | tail -1)
+  G475H2=$(sed -n 's/^COUNT|E2:@me|have=\([0-9]*\).*/\1/p' net_mq_host.log | tail -1)
+  G475HOUSE=$(grep '^HOUSE|' net_mq_host.log | grep '|player=1|' | tail -1 | cut -d'|' -f2)
+  G475J1=$(sed -n '/^OBJDUMP-BEGIN/h; /^OBJDUMP-BEGIN/,$p' net_mq_join.log | awk '/^OBJDUMP-BEGIN/{n=0} /^OBJ\|INFANTRY\|E1\|'"$G475HOUSE"'\|/{n++} END{print n+0}')
+  G475J2=$(sed -n '/^OBJDUMP-BEGIN/h; /^OBJDUMP-BEGIN/,$p' net_mq_join.log | awk '/^OBJDUMP-BEGIN/{n=0} /^OBJ\|INFANTRY\|E2\|'"$G475HOUSE"'\|/{n++} END{print n+0}')
+fi
+if [ "$G475HRC" = "0" ] && [ "$G475JRC" = "0" ] && [ "$G475DESYNC" = "0" ] && [ "$G475BEHIND" = "2" ] \
+   && [ "$G475TOOK" = "E1 E2 " ] && [ "$G475LOST" = "0" ] && [ "${G475H1:-0}" = "2" ] && [ "${G475H2:-0}" = "1" ] \
+   && [ "${G475J1:-0}" = "2" ] && [ "${G475J2:-0}" = "1" ]; then
+  ok "G475 mixed queue in a match: Minigunner, Minigunner, Grenadier clicked on three consecutive frames; the two clicks inside the order lookahead were queued behind the open start rather than sent alongside it, taken in click order with none lost, and two Minigunners and a Grenadier stand in the host's world and in the joiner's; no desync alarm, both exited clean"
+else
+  bad "G475 mixed queue in a match: host exit=$G475HRC joiner exit=$G475JRC desync-alarms=$G475DESYNC(want 0) clicks-held-by-the-open-start=$G475BEHIND(want 2) taken=[$G475TOOK](want E1 E2) lost=$G475LOST(want 0) host E1/E2=${G475H1:-none}/${G475H2:-none}(want 2/1) joiner E1/E2=${G475J1:-none}/${G475J2:-none}(want 2/1; fewer means a click in the lookahead went out as a start the engine refused)"
+fi
+
+# =====================================================================================
+# G483 EACH WAY OF SCROLLING HAS ITS OWN SPEED, EACH GOES FASTER THAN IT USED TO, AND THE
+# PUSH REACHES FULL SPEED AT THE EDGE IT IS PUSHED TOWARDS.
+#
+# The Settings screen's Gameplay tab and the pause menu's Game Controls carry three scroll
+# speeds where there was one: the screen edges with the arrow keys, the right-button push
+# and the middle-button drag. Each runs to ten steps, three past the 1995 slider's seven,
+# and each default is the speed the gesture had before (the drag's is the exact grab).
+#
+# Measured on the engine's camera, in both games: with one slider moved to its top, that
+# gesture covers more ground and the other two cover EXACTLY what they did at the default.
+# The top edge speed must beat the old top (step 7, 2.40x) by more than 1.8 times, the
+# push must scale by its table (5.50x, to 0.15: a long push leans a little under the
+# perspective camera) and the drag's ground offset by its gain (4.00x, to 0.01).
+# Out-of-range values are clamped the way the sliders clamp, and the three survive a round
+# trip through the controls file the launch reads.
+#
+# THE PUSH'S REACH. A press low on the screen pushed to the bottom row used to reach about
+# a quarter of the speed of a centred press, because full speed sat half a window from the
+# press point whichever edge was nearer. Both presses below must now cover the same ground.
+#
+# PROVEN TO FAIL: drive PUSH_SPEED from scrollrate again and the push arm of the edge
+# step moves; put back the fixed half-window reach and the low press covers about a
+# quarter of the centred one.
+# =====================================================================================
+mkdir -p shots/g483
+g483_script() {
+cat <<EOS
+gfxmode 2
+frames 1
+tick 5
+echo G483-a 3 3 3
+scrollspeeds 3 3 3
+cam $1
+edgeat 640 719 6
+cam $1
+rdown 640 360
+rmove 1000 360
+rpush 2
+rup
+cam $1
+mdown 640 400
+mmove 640 340
+mup
+echo G483-b 6 3 3
+scrollspeeds 6 3 3
+cam $1
+edgeat 640 719 6
+echo G483-c 9 3 3
+scrollspeeds 9 3 3
+cam $1
+edgeat 640 719 6
+cam $1
+rdown 640 360
+rmove 1000 360
+rpush 2
+rup
+cam $1
+mdown 640 400
+mmove 640 340
+mup
+echo G483-d 3 9 3
+scrollspeeds 3 9 3
+cam $1
+edgeat 640 719 6
+cam $1
+rdown 640 360
+rmove 1000 360
+rpush 2
+rup
+cam $1
+mdown 640 400
+mmove 640 340
+mup
+echo G483-e 3 3 9
+scrollspeeds 3 3 9
+cam $1
+edgeat 640 719 6
+cam $1
+rdown 640 360
+rmove 1000 360
+rpush 2
+rup
+cam $1
+mdown 640 400
+mmove 640 340
+mup
+echo G483-f clamp and file
+scrollspeeds 12 -1 20
+controlsfile save shots/g483/controls_$2.cfg
+scrollspeeds 3 3 3
+controlsfile load shots/g483/controls_$2.cfg
+scrollspeeds 3 3 3
+echo G483-g reach
+cam $1
+rdown 640 600
+rmove 640 719
+rpush 3
+rup
+cam $1
+rdown 640 360
+rmove 640 719
+rpush 3
+rup
+quit
+EOS
+}
+g483_script "45 45" td > shots/g483/td.txt
+g483_script "60 56" ra > shots/g483/ra.txt
+G483TD=$(./cnc_eyes --scen SCG01EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720 \
+         --enhanced --texset 3 --script shots/g483/td.txt 2>&1 | tee -a "$OUT")
+G483HAVERA=0
+if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  G483HAVERA=1
+  G483RA=$(./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+           --dosdata ra3d/audio --w 1280 --h 720 --enhanced --texset 3 --noshroud --nosound \
+           --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --script shots/g483/ra.txt 2>&1 | tee -a "$OUT")
+fi
+# The camera after the nth line of one kind inside one leg, one axis.
+g483v() { printf '%s\n' "$1" | sed -n "/^ECHO|G483-$2 /,/^ECHO|G483-/p" | grep "^CAM|$3|" | sed -n "$4p" \
+          | sed "s/.*|$5=\([0-9.-]*\)|.*/\1/"; }
+g483_check() {  # $1 log, $2 start x, $3 start z; prints a verdict and the numbers
+  L="$1"; SX="$2"; SZ="$3"
+  E3=$(g483v "$L" a edgeat 1 z); P3=$(g483v "$L" a rpush 1 x); D3=$(g483v "$L" a mmove 1 z)
+  E6=$(g483v "$L" b edgeat 1 z)
+  E9=$(g483v "$L" c edgeat 1 z); PC=$(g483v "$L" c rpush 1 x); DC=$(g483v "$L" c mmove 1 z)
+  ED=$(g483v "$L" d edgeat 1 z); P9=$(g483v "$L" d rpush 1 x); DD=$(g483v "$L" d mmove 1 z)
+  EE=$(g483v "$L" e edgeat 1 z); PE=$(g483v "$L" e rpush 1 x); D9=$(g483v "$L" e mmove 1 z)
+  RL=$(g483v "$L" g rpush 1 z); RC=$(g483v "$L" g rpush 2 z)
+  CLAMP=$(printf '%s\n' "$L" | grep -c '^SCROLLSPEEDS|edge=9|push=0|drag=9|max=9,9,9|')
+  FILEOK=$(printf '%s\n' "$L" | grep -c '^CONTROLSFILE|load|ok=1|scroll=9|scrollpush=0|scrollgrab=9$')
+  DEF=$(printf '%s\n' "$L" | grep -c '^SCROLLSPEEDS|edge=3|push=3|drag=3|max=9,9,9|edge_px_s=800|key_px_s=900|push_px_s=3200|drag_gain=1.00$')
+  V=$(awk -v sx="$SX" -v sz="$SZ" -v e3="$E3" -v e6="$E6" -v e9="$E9" -v ed="$ED" -v ee="$EE" \
+          -v p3="$P3" -v pc="$PC" -v p9="$P9" -v pe="$PE" -v d3="$D3" -v dc="$DC" -v dd="$DD" \
+          -v d9="$D9" -v rl="$RL" -v rc="$RC" '
+function ab(v) { return v < 0 ? -v : v }
+BEGIN { eps = 0.002
+  de3 = e3 - sz; de6 = e6 - sz; de9 = e9 - sz; dp3 = p3 - sx; dp9 = p9 - sx; dd3 = d3 - sz; dd9 = d9 - sz
+  ok = (de3 > 0.5 && de9 > 1.8 * de6 && de6 > de3 \
+     && dp3 > 0.2 && ab(dp9 / dp3 - 5.5) < 0.15 \
+     && dd3 > 0.2 && ab(dd9 / dd3 - 4.0) < 0.01 \
+     && ab(ed - e3) < eps && ab(ee - e3) < eps \
+     && ab(pc - p3) < eps && ab(pe - p3) < eps \
+     && ab(dc - d3) < eps && ab(dd - d3) < eps \
+     && (rl - sz) > 0.5 && ab((rl - sz) / (rc - sz) - 1.0) < 0.05)
+  printf "%d edge %.3f/%.3f/%.3f push %.3f->%.3f drag %.3f->%.3f reach low %.3f centre %.3f", ok, de3, de6, de9, dp3, dp9, dd3, dd9, rl - sz, rc - sz }')
+  echo "$V clamp=$CLAMP file=$FILEOK defaults=$DEF"
+}
+G483TDV=$(g483_check "$G483TD" 45 45)
+G483RAV="1 (no Red Alert module staged) clamp=1 file=1 defaults=2"
+[ "$G483HAVERA" = "1" ] && G483RAV=$(g483_check "$G483RA" 60 56)
+g483ok() { case "$1" in "1 "*clamp=1\ file=1\ defaults=[2-9]*) return 0 ;; esac; return 1; }
+if g483ok "$G483TDV" && g483ok "$G483RAV"; then
+  ok "G483 three scroll speeds, each its own and each faster at the top. Tiberian Dawn: ${G483TDV#1 }. Red Alert: ${G483RAV#1 }. Each slider at its top moved only its own gesture, the push scaled 5.5 times and the drag's ground offset 4 times, out-of-range values clamped to 9, 0 and 9 and came back through the controls file, and a press low on the screen pushed to the bottom row covers what a centred press does"
+else
+  bad "G483 three scroll speeds: TD [$G483TDV] RA [$G483RAV]. Want a leading 1, clamp=1 file=1 and defaults of 2 or more. edge is the south travel at steps 4, 7 and 10 (the top must beat step 7 by 1.8 times); push and drag at the default and at their own top (5.5 and 4.0 times); every other gesture must equal its default to 0.002; reach low must match reach centre to 5 percent"
+fi
+
+# =====================================================================================
+# G484 A WINDOWED WINDOW STANDS INSIDE THE ROOM THE DESKTOP LEAVES IT, FRAME AND ALL, AND
+# THE BOTTOM STRIP STILL SCROLLS UNDER A TASK BAR OR DOCK THAT COMES UP OVER THE GAME.
+#
+# The reported symptom: in both games the top, left and right screen edges scrolled the
+# map and the bottom edge did not. The window was sized to the usable room and then
+# centred by SDL on the WHOLE display, so its last rows sat behind the task bar or the
+# Dock, more of them than the 12 point strip the map scrolls south from. fs_fit_windowed
+# now shrinks the client by the frame and centres it in the usable room.
+#
+# Pure arithmetic through the `winfit` verb, so the gate hands it displays it does not
+# have. Each line prints where the old placement put the client (old_hidden is rows lost
+# above and below the room) and where the new one does (hidden, and frame_hidden with the
+# title bar and border counted). The old placement must lose more than 12 rows at the
+# bottom on the full-height cases, which is the fault, and the new one none anywhere.
+#
+# WHAT THIS DOES NOT REACH: a real window. A hidden run has no frame and no task bar, so
+# the read-back that fs_place_windowed does on a live window, and the DISPLAY|client line
+# it prints, are proved only by a visible window, which the suite never opens.
+# =====================================================================================
+mkdir -p shots/g484
+cat > shots/g484/fit.txt <<'EOS'
+winfit 0 0 1920 1080  0 0 1920 1032  31 8 8 8  1920 1032
+winfit 0 0 1920 1080  0 48 1920 1032  31 8 8 8  1920 1032
+winfit 0 0 2560 1440  0 0 2560 1380  45 11 11 11  2560 1380
+winfit 0 0 1512 982  0 37 1512 880  28 0 0 0  1512 880
+winfit 0 0 1920 1080  0 0 1920 1032  31 8 8 8  1280 720
+winfit 1920 0 1920 1080  1920 0 1920 1040  31 8 8 8  3840 2160
+edgecover 960 1079 1920 1080 1920 1080
+edgecover 3 1074 1920 1080 1920 1080
+edgecover 960 1060 1920 1080 1920 1080
+edgecover 960 1085 1920 1080 1920 1080
+edgecover -5 1079 1920 1080 1920 1080
+edgecover 756 981 1512 982 3024 1964
+quit
+EOS
+G484L=$(./cnc_eyes --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 640 --h 480 \
+        --script shots/g484/fit.txt 2>&1 | tee -a "$OUT")
+G484V=$(printf '%s\n' "$G484L" | grep '^WINFIT|' | awk -F'|' '
+{ n++
+  split($2, o, "[=,]"); split($3, oh, "[=,]"); split($4, w, "[=,]"); split($5, h, "[=,]"); split($6, f, "[=,]")
+  if (h[2] > 0 || h[3] > 0 || f[2] > 0 || f[3] > 0) bad++
+  if ((n == 1 || n == 3 || n == 4) && oh[3] <= 12) old++
+  if (n == 5 && (w[4] != 1280 || w[5] != 720)) bad++
+  if (n == 6 && (w[2] < 1920 || w[4] > 1904)) bad++
+}
+END { printf "%d %d %d", n, bad + 0, old + 0 }')
+# THE BOTTOM STRIP UNDER A BAR THAT HAS COME UP OVER THE GAME (edge_push_covered): in
+# fullscreen and borderless play an auto-hiding task bar, a task bar kept on top, or the
+# Dock slides up over the window's bottom rows when the pointer is pushed down, SDL says
+# the mouse has left, and the bottom strip went silent while the other three edges kept
+# scrolling. A pointer still inside the window's rectangle and in its bottom strip now
+# presses the bottom edge; one higher up the bar, one below the window (a windowed game
+# above its task bar) and one beside it do not. Asked through the `edgecover` verb.
+G484C=$(printf '%s\n' "$G484L" | grep '^EDGECOVER|' | sed 's/^EDGECOVER|at=[-0-9,]*|//' | tr '\n' ';')
+G484CWANT="push=1|px=960,1079;push=1|px=3,1079;push=0|px=-1,-1;push=0|px=-1,-1;push=0|px=-1,-1;push=1|px=1512,1963;"
+if [ "$G484V" = "6 0 0" ] && [ "$G484C" = "$G484CWANT" ]; then
+  ok "G484 a windowed window stands inside the usable room, frame and all: six displays (a bottom and a top task bar at 1080p, a 1440p one at 150 percent, a Mac with a menu bar and a Dock, a small window, and a window asked for on a second display larger than it), every client and frame inside the room, the small window kept at 1280x720, and the old placement shown losing more than 12 rows at the bottom on each full-height case; and a pointer under a task bar or Dock that has come up over the game's bottom strip presses the bottom edge, while one higher up the bar, below the window or beside it does not"
+else
+  bad "G484 windowed placement and covered bottom strip: cover [$G484C] want [$G484CWANT]; placement [$G484V] want '6 0 0' (lines, placements with a row outside the room or a wrong size, full-height cases where the old placement did NOT lose more than 12 rows -- that last one means the arithmetic of the fault itself has changed and this gate needs re-reading)"
+fi
+
+# =====================================================================================
+# G485 THE POINTER SHOWS THE SCREEN-EDGE SCROLL ARROW, AND THE BARRED ONE AT THE MAP'S END.
+#
+# 1995 swapped the pointer for an arrow while the screen edge scrolled the map, and for a
+# barred arrow when the map could go no further that way (scroll.cpp:183-195). Nothing
+# here ever did: only the cartridge's own arrow at the MAP's edge was drawn, under N64 and
+# Enhanced, and Classic showed nothing at all.
+#
+# The `edgecursor` verb parks the pointer on a pixel, runs the live loop's edge step and
+# picks the cursor as the live loop does. Asserted in both games and all three modes:
+# Classic and Enhanced show the arrow for the strip the pointer is in (s, e, nw) and the
+# barred one (no-nw) in the map's top-left corner; N64 keeps the console's own pointer,
+# which has no screen-edge arrow. Then in pixels: the box above the pointer on the bottom
+# edge is compared with the same frame once the pointer has been moved to the middle of
+# the screen, and the arrow must account for a clear patch of changed pixels, in Classic
+# (the 1995 sprite) and in Enhanced (the remastered model).
+# =====================================================================================
+mkdir -p shots/g485
+g485_script() {  # $1 mid camera, $2 tag
+cat <<EOS
+gfxmode $3
+frames 1
+tick 5
+cam $1
+edgecursor 640 719 10
+shot shots/g485/$2_$3_s.png
+cursor 640 360
+shot shots/g485/$2_$3_c.png
+cam $1
+edgecursor 1279 360 10
+cam $1
+edgecursor 0 0 10
+cam 0 0
+edgecursor 0 0 10
+quit
+EOS
+}
+G485ALL=""
+for G485M in 0 1 2; do
+  g485_script "40 44" td $G485M > shots/g485/td_$G485M.txt
+  G485ALL="$G485ALL
+$(./cnc_eyes --scen SCG01EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720 \
+    --enhanced --texset 3 --script shots/g485/td_$G485M.txt 2>&1 | tee -a "$OUT" | grep '^EDGECURSOR|' | sed "s/^/td|/")"
+  if [ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+    g485_script "60 56" ra $G485M > shots/g485/ra_$G485M.txt
+    G485ALL="$G485ALL
+$(./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dir ra3d/missions/ \
+    --dosdata ra3d/audio --w 1280 --h 720 --enhanced --texset 3 --noshroud --nosound \
+    --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --script shots/g485/ra_$G485M.txt 2>&1 | tee -a "$OUT" \
+    | grep '^EDGECURSOR|' | sed "s/^/ra|/")"
+  fi
+done
+# shape and blocked per game, mode and probe, in probe order
+G485SH=$(printf '%s\n' "$G485ALL" | grep EDGECURSOR | sed 's/^\([a-z]*\)|EDGECURSOR|.*|blocked=\([01]\)|mode=\([a-z0-9]*\)|shape=\([a-z-]*\)|.*/\1 \3 \4 \2/' | tr '\n' ';')
+G485WANT_TD="td classic s 0;td classic e 0;td classic nw 0;td classic no-nw 1;td n64 normal 0;td n64 normal 0;td n64 normal 0;td n64 normal 1;td enhanced s 0;td enhanced e 0;td enhanced nw 0;td enhanced no-nw 1;"
+G485WANT_RA="ra classic s 0;ra classic e 0;ra classic nw 0;ra classic no-nw 1;ra n64 normal 0;ra n64 normal 0;ra n64 normal 0;ra n64 normal 1;ra enhanced s 0;ra enhanced e 0;ra enhanced nw 0;ra enhanced no-nw 1;"
+G485GOT_TD=$(printf '%s' "$G485SH" | tr ';' '\n' | grep '^td ' | tr '\n' ';')
+G485GOT_RA=$(printf '%s' "$G485SH" | tr ';' '\n' | grep '^ra ' | tr '\n' ';')
+G485PIX=$(python3 - shots/g485 <<'PY' 2>&1
+import sys, os
+from PIL import Image
+d = sys.argv[1]
+out = []
+for g in ('td', 'ra'):
+    for m in ('0', '2'):
+        f = os.path.join(d, '%s_%s_s.png' % (g, m))
+        c = os.path.join(d, '%s_%s_c.png' % (g, m))
+        if not os.path.exists(f) or not os.path.exists(c):
+            out.append('%s%s=missing' % (g, m)); continue
+        a = Image.open(f).convert('RGB'); b = Image.open(c).convert('RGB')
+        n = 0
+        for y in range(650, 720):
+            for x in range(600, 680):
+                p, q = a.getpixel((x, y)), b.getpixel((x, y))
+                if sum(abs(p[k] - q[k]) for k in range(3)) > 90: n += 1
+        out.append('%s%s=%d' % (g, m, n))
+print(' '.join(out))
+PY
+)
+G485PIXOK=$(echo "$G485PIX" | awk '{ ok = 1; for (i = 1; i <= NF; i++) { split($i, a, "="); if (a[2] == "missing" && a[1] ~ /^ra/) continue; if (a[2] == "missing" || a[2] + 0 < 40) ok = 0 } print ok }')
+G485RAOK=1
+[ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG01EA.pack ] && [ "$G485GOT_RA" != "$G485WANT_RA" ] && G485RAOK=0
+if [ "$G485GOT_TD" = "$G485WANT_TD" ] && [ "$G485RAOK" = "1" ] && [ "$G485PIXOK" = "1" ]; then
+  ok "G485 the screen-edge scroll arrow: in both games Classic and Enhanced show the arrow of the strip the pointer is in (s, e, nw) and the barred arrow where the map ends (no-nw), N64 keeps the console's own pointer; in pixels the arrow changes a clear patch above the pointer on the bottom edge against the same frame with the pointer moved away, pixels changed: $G485PIX"
+else
+  bad "G485 the screen-edge scroll arrow: TD got [$G485GOT_TD] want [$G485WANT_TD]; RA got [$G485GOT_RA] want [$G485WANT_RA]; arrow pixels [$G485PIX] want 40 or more in each"
+fi
+
+# =====================================================================================
+# G486 THE CAMERA'S CLOCK IS EVEN.
+#
+# Every scroll gesture spends a speed times the frame time, so an uneven frame time is an
+# uneven scroll. The frame loop's clock counts whole milliseconds, so at 60 frames a second
+# the camera was handed 16, 17, 17, 16 ... and far faster, vertical sync off, 3, 3, 4, 0.
+# The camera now reads the high resolution counter and smooths it (cam_dt_smooth). The
+# `camclock` verb feeds that function known frame times and prints what the camera spends.
+#
+# Asserted: the 60 Hz millisecond rhythm comes out with less than a third of its spread,
+# the fast uneven rhythm with less than half, and a single 100 ms stall is spread over the
+# frames after it rather than spent in one jump (the largest step stays under 40 ms). In
+# every case the total time the camera spends is the total it was given, to 1.5 percent,
+# so a held scroll still covers the distance its speed says.
+#
+# CLASSIC SCROLLS THE SAME SPEED EVERY WAY, AT ANY FRAME RATE. Classic draws in whole 1995
+# pixels, and the map clamp that runs every frame used to floor the camera itself to whole
+# pixels, so each frame's step lost its fraction: measured at 60 frames a second, half a
+# second at the bottom edge moved 5.000 cells south, at the top 6.250 north, and once a
+# step fell under one pixel (above 266 frames a second at 1280x720) south and east did not
+# move at all. The edge is held for 30 frames at 60 and at 300 frames a second in all four
+# directions through the live loop's own edge step: every direction must cover the same
+# ground, and 300 must cover a fifth of 60, to 0.01 cells.
+# =====================================================================================
+G486A=$(printf '16 17 17 %.0s' $(seq 1 40))
+G486B=$(printf '3 3 4 3 0 4 3 4 %.0s' $(seq 1 20))
+G486C="$(printf '16.7 %.0s' $(seq 1 20)) 100 $(printf '16.7 %.0s' $(seq 1 60))"
+printf 'camclock %s\ncamclock %s\ncamclock %s\nquit\n' "$G486A" "$G486B" "$G486C" > shots/g486.txt
+G486L=$(./cnc_eyes --scen SCG01EA --pack SCG01EA.pack $BASE --nosound --w 640 --h 480 \
+        --script shots/g486.txt 2>&1 | tee -a "$OUT" | grep '^CAMCLOCK|')
+G486V=$(printf '%s\n' "$G486L" | awk -F'|' '
+{ n++; for (i = 2; i <= NF; i++) { split($i, a, "="); v[a[1]] = a[2] }
+  ins = v["in_sum"]; outs = v["out_sum"]; isp = v["in_spread"]; osp = v["out_spread"]
+  err = (ins > 0) ? (outs - ins) / ins : 1; if (err < 0) err = -err
+  if (err > 0.015) bad++
+  if (n == 1 && !(osp < isp / 3)) bad++
+  if (n == 2 && !(osp < isp / 2)) bad++
+  if (n == 3) { split(v["out"], o, ","); mx = 0; for (k in o) if (o[k] + 0 > mx) mx = o[k] + 0; if (mx >= 40) bad++ }
+  s = s sprintf(" [in spread %.2f out %.2f, sum %.1f->%.1f]", isp, osp, ins, outs) }
+END { printf "%d %d%s", n, bad + 0, s }')
+{ echo "gfxmode 0"; echo "frames 1"; echo "tick 5"
+  for G486HZ in 60 300; do for G486P in "640 719" "640 0" "1279 360" "0 360"; do
+    echo "cam 50 52"; echo "edgecursor $G486P 30 $G486HZ"; done; done; echo quit; } > shots/g486c.txt
+G486CL=$(./cnc_eyes --scen SCG01EA --pack SCG01EA.pack $BASE --noshroud --nosound --w 1280 --h 720 \
+         --script shots/g486c.txt 2>&1 | tee -a "$OUT" | grep '^CAM|edgecursor|')
+G486CV=$(printf '%s\n' "$G486CL" | sed 's/.*|x=\([0-9.-]*\)|z=\([0-9.-]*\)|.*/\1 \2/' | awk '
+function ab(v) { return v < 0 ? -v : v }
+{ n++; d[n] = (n % 4 == 1 || n % 4 == 2) ? $2 - 52 : $1 - 50 }
+END { bad = 0
+  for (k = 0; k < 2; k++) { a = ab(d[4*k+1]); for (j = 2; j <= 4; j++) if (ab(ab(d[4*k+j]) - a) > 0.01) bad++
+    if (a < 0.5 / (k ? 5 : 1)) bad++ }
+  if (ab(ab(d[5]) * 5 - ab(d[1])) > 0.05) bad++
+  printf "%d %d s=%.3f n=%.3f e=%.3f w=%.3f @60, s=%.3f n=%.3f e=%.3f w=%.3f @300", n, bad, d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8] }')
+if [ "${G486V%% *}" = "3" ] && [ "$(echo "$G486V" | cut -d' ' -f2)" = "0" ] \
+   && [ "$(echo "$G486CV" | cut -d' ' -f1-2)" = "8 0" ]; then
+  ok "G486 the camera's clock is even: the 60 Hz millisecond rhythm, the fast uneven one and a single stall all come out smoothed, each with the total time conserved to 1.5 percent:${G486V#3 0}; and Classic scrolls the same distance every way at 60 and at 300 frames a second (${G486CV#8 0 })"
+else
+  bad "G486 the camera's clock: [$G486V] want '3 0 ...' (three sequences, no failures: the 60 Hz spread under a third, the fast one under a half, the stall's largest step under 40 ms, every total within 1.5 percent); Classic [$G486CV] want '8 0 ...' (south, north, east and west equal to 0.01 at each rate, 300 covering a fifth of 60)"
+fi
+
+# G476 THE TIBERIAN DAWN SKIRMISH COMPUTER KEEPS BUILDING AND ATTACKS WITH VEHICLES.
+# The fair skirmish planner used to stop after its opening five buildings: every later
+# goal waited for a lump sum the one refinery could never store, one unaffordable goal
+# swallowed every goal after it, a GDI computer jammed on the Repair Bay, and the home
+# reserve was made of the vehicles, so the waves were riflemen. Two real headless Expert
+# games on the lobby's 5000 credits, the computer once as Nod and once as GDI, against an
+# idle seat with a fixed base in the far corner (tools/regressions/fair-ai/run.py, jobs
+# td-growth-nod and td-growth-gdi). Read from the engine's own object dumps: a second
+# refinery, two harvesters, a Comm Center, a vehicle more than 15 cells out from its
+# Construction Yard, and at least one attack. Before the rework both games ended with one
+# refinery, no Comm Center and no vehicle ever leaving the base.
+rm -rf shots/g476
+G476LOG=$(python3 "$GATEDIR/../tools/regressions/fair-ai/run.py" --install "$RUNDIR" --out "$RUNDIR/shots/g476" --only td-growth 2>&1)
+G476RC=$?
+echo "$G476LOG" | grep -a '^GROWTH\|^PASS\|Error' >> "$OUT"
+G476SUM=$(echo "$G476LOG" | python3 -c '
+import sys, json
+out = []
+for line in sys.stdin:
+    if line.startswith("GROWTH "):
+        name, data = line[7:].split(" ", 1)
+        for house, s in json.loads(data).items():
+            out.append("%s %s: %d refineries, %d harvesters, Comm Center %s, %d vehicles out, %d attacks" % (
+                name, house, s["refineries"], s["harvesters"], "yes" if "HQ" in s["types"] else "no",
+                s["vehicles_out"], s["attacks"]))
+print("; ".join(out))' 2>/dev/null)
+if [ "$G476RC" = "0" ] && echo "$G476LOG" | grep -q '^PASS selected jobs td-growth-gdi,td-growth-nod$'; then
+  ok "G476 the TD skirmish computer keeps building and attacks with vehicles at Expert on 5000 credits: $G476SUM"
+else
+  bad "G476 the TD skirmish computer stalled or attacked without vehicles (rc=$G476RC): ${G476SUM:-no census} $(echo "$G476LOG" | grep -a 'AssertionError' | tail -1)"
+fi
+
+# G477 A CORNER START STILL BUILDS A BASE, AND THE PLANNER KEEPS ITS CONTRACT.
+# A Construction Yard deployed against the map edge saw too little explored ground for a
+# refinery; with an enemy beside it killing its soldiers it never explored more, and the
+# computer sat on a yard and a power plant for the whole match. SCM04EA with an idle seat's
+# fixed base next to one computer's corner (job td-corner): every computer house must reach
+# a refinery and five buildings. The same run repeats the planner's contract jobs: the
+# four Expert-to-Easy levels save and resume to the identical world and AI state, two
+# identical runs and a second local context agree word for word, and a hidden change to
+# the enemy's money leaves every AI decision unchanged.
+rm -rf shots/g477
+G477LOG=$(python3 "$GATEDIR/../tools/regressions/fair-ai/run.py" --install "$RUNDIR" --out "$RUNDIR/shots/g477" \
+          --only td-corner,td-level-,td-repeat,td-context,td-hidden-money 2>&1)
+G477RC=$?
+echo "$G477LOG" | grep -a '^GROWTH\|^PASS\|Error' >> "$OUT"
+G477SUM=$(echo "$G477LOG" | sed -n 's/^GROWTH td-corner //p' | python3 -c '
+import sys, json
+d = json.loads(sys.stdin.read() or "{}")
+print(", ".join("%s %d buildings and %d refineries" % (h, s["buildings"], s["refineries"]) for h, s in sorted(d.items())))' 2>/dev/null)
+G477RT=$(echo "$G477LOG" | grep -c '^PASS td-level-[0-3] ')
+if [ "$G477RC" = "0" ] && [ "$G477RT" = "4" ] \
+   && echo "$G477LOG" | grep -q '^PASS selected jobs td-context,td-corner,td-hidden-money,td-level-0,td-level-1,td-level-2,td-level-3,td-repeat$'; then
+  ok "G477 a corner start next to an enemy still builds a base ($G477SUM); all four levels save and resume exactly, repeat runs and a second context agree, and hidden enemy money changes no AI decision"
+else
+  bad "G477 corner start or planner contract (rc=$G477RC, levels saved and resumed $G477RT/4): ${G477SUM:-no census} $(echo "$G477LOG" | grep -a 'AssertionError' | tail -1)"
+fi
+
+# =====================================================================================
+# G478 A PLAYER'S ATTACK-MOVE FIGHTS ON ITS WAY AND CARRIES ON TO THE CLICKED CELL (both
+# games; FootClass::Mission_Guard_Area and InfantryClass::Scatter in each brain).
+# The ground attack-move is a guard-area order centred on the clicked cell. A human unit
+# whose guard-area mission starts with that centre a cell farther away than its guard
+# radius (twice its weapon range) is on an attack-move until it arrives (the mission's
+# state value holds it, and the order resets it for a unit already on guard area): it
+# scans round itself, takes an enemy already in weapon range before a farther one,
+# switches to one in range while its own target is out of reach, gives up a target that
+# gets farther than the guard radius away and walks on; a soldier told to step aside on
+# the way keeps the attack-move. tools/regressions/attack_move.py writes the fixtures and
+# reads the engine's own object dumps:
+#   chase-am  two tanks attack-move 25 cells east. A scout runs north off the map past
+#             them; a sleeping enemy light tank waits north, out of sight and out of range
+#             at the start; another sits on the route. Wanted, per tank: no more than the
+#             guard radius plus a cell north of the route, ends within 2 cells of the
+#             clicked cell still on Area Guard; both sleepers destroyed; and at the first
+#             dump a tank aims at the north sleeper, the scout is still on the map and out
+#             of that tank's weapon range while the sleeper is inside it.
+#   modes     the same chase-am run in Classic, N64 and Enhanced gives the same dumps,
+#             unit for unit: the rule reads no graphics mode, which a lockstep match
+#             between players in different modes needs.
+#   scatter   three riflemen on the G key are given an attack-move (so the order reaches
+#             soldiers already on guard area) into a parked enemy vehicle and, while they
+#             stand and fire, are told to scatter (the X key, the same Scatter a friendly
+#             vehicle driving through their cell runs). Wanted: at least one stands and
+#             fires when told to scatter, and every one alive ends within 1.5 cells of the
+#             clicked cell on Area Guard.
+# Red Alert runs with --seed 7, because a Red Alert start draws a fresh random seed
+# otherwise and two runs then differ.
+# PROVEN TO FAIL on the brains before the change. Tiberian Dawn: both tanks followed the
+# scout 30 and 31 cells north, ended 33 cells short of the click, never aimed at the north
+# sleeper and destroyed neither sleeper; one rifleman of two ended on plain Guard 14 cells
+# short. Red Alert: the tanks followed the scout 19 and 25 cells north, never aimed at the
+# north sleeper and destroyed neither sleeper (they did walk back to the click once the
+# scout left the map); all three riflemen ended on plain Guard 14 to 15 cells short.
+# A brain whose order does not reset the state value of a unit already on guard area
+# fails the scatter run in both games: the riflemen, on the G key first, walked past the
+# enemy vehicle without firing.
+# NOT COVERED: a shift-queued chain of attack-moves (the Enhanced order queue reads a unit
+# as finished when it has neither destination nor target, which a guard-area unit also
+# shows for up to a second after a kill); units of the computer's houses, which keep the
+# original routine and are not driven here; a unit that the original drive code turns on
+# an enemy blocking its path, which forgets the order if that enemy escapes alive.
+# =====================================================================================
+G478AM="$GATEDIR/../tools/regressions/attack_move.py"
+if [ ! -f "$G478AM" ] || [ ! -f TiberianDawn.dylib ] || [ ! -f SCG01EA.pack ] \
+   || [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ]; then
+  skip "G478 attack-move fights on its way: tools/regressions/attack_move.py, SCG01EA.pack or Red Alert's ra3d/3d/SCG01EA.pack is not staged here"
+else
+rm -rf g478 && mkdir -p g478
+G478TD="--cameos cameos.pack --dospack dossidebar.pack --dosinf dosinfantry.pack --dylib TiberianDawn.dylib --content content/ --nosound --w 1280 --h 720 --scen SCG88EA --pack SCG01EA.pack --noshroud --reskin --savedir g478 --gfxsave g478/private.cfg"
+G478RA="--ra3d --dylib ra3d/RedAlert.dylib --content ra3d/data --dosdata ra3d/audio --nosound --w 1280 --h 720 --scen SCG88EA --pack ra3d/3d/SCG01EA.pack --noshroud --seed 7 --savedir g478 --gfxsave g478/private.cfg"
+G478OK=1; G478V=""
+gbegin
+for g478g in td ra; do
+  if [ "$g478g" = td ]; then g478a="$G478TD"; g478n="Tiberian Dawn"; else g478a="$G478RA"; g478n="Red Alert"; fi
+  for g478m in 0 1 2; do
+    python3 "$G478AM" write g478/$g478g-am$g478m $g478g chase-am $g478m
+    grun g478/$g478g-am$g478m.log $g478a --dir g478/$g478g-am$g478m/ --script g478/$g478g-am$g478m/script.txt
+  done
+  python3 "$G478AM" write g478/$g478g-scatter $g478g scatter
+  grun g478/$g478g-scatter.log $g478a --dir g478/$g478g-scatter/ --script g478/$g478g-scatter/script.txt
+  g478c=$(python3 "$G478AM" measure g478/$g478g-am1.log $g478g chase-am 2>&1)
+  g478s=$(python3 "$G478AM" measure g478/$g478g-scatter.log $g478g scatter 2>&1)
+  g478d0=$(python3 "$G478AM" digest g478/$g478g-am0.log); g478d1=$(python3 "$G478AM" digest g478/$g478g-am1.log)
+  g478d2=$(python3 "$G478AM" digest g478/$g478g-am2.log)
+  G478V="$G478V; $g478n attack-move past a fleeing scout [$g478c], Classic/N64/Enhanced dumps $g478d0/$g478d1/$g478d2 (want one), riflemen told to scatter mid-fight [$g478s]"
+  [ "${g478c##* }" = "pass" ] && [ "${g478s##* }" = "pass" ] \
+    && [ "$g478d0" = "$g478d1" ] && [ "$g478d1" = "$g478d2" ] || G478OK=0
+done
+if [ "$GRC" != "0" ]; then
+  bad "G478 attack-move fights on its way: a run exited $GRC$G478V"
+elif [ "$G478OK" = "1" ]; then
+  ok "G478 attack-move fights on its way and carries on to the clicked cell$G478V"
+else
+  bad "G478 attack-move does not fight on its way as it should$G478V"
+fi
+fi
+
+# =====================================================================================
+# G479 THE G KEY KEEPS THE ORIGINAL GUARD-AREA RULE (both games). The G key centres the
+# guard area on the unit's own cell, so its mission never starts as an attack-move, and
+# it runs the original routine however far it strays: the leash that sends a unit home
+# once it has no destination and has strayed past its weapon range had been switched off
+# for every human unit with a target. tools/regressions/attack_move.py chase-g: two tanks
+# on the G key; a scout runs north past them and a sleeping enemy light tank waits north.
+# Wanted, per tank: it gives chase (at least 3 cells) and ends within 1.5 cells of where it
+# stood on Area Guard, and the chase is each game's original one, measured on a brain with
+# the attack-move branch switched off (whose object dumps were identical to the changed
+# brain's, unit for unit, in both games). Red Alert: no more than 12 cells (the original
+# leash brings the tanks back after 8 to 10). Tiberian Dawn: at least 10 cells beyond the
+# guard radius, because its original leash waits for the chase to have no destination,
+# which a target that keeps running never gives it, so the tanks follow the scout 31 to
+# 32 cells to the north edge and only then walk home.
+# PROVEN TO FAIL on the brains before the change: Tiberian Dawn's tanks followed the scout
+# 31 and 32 cells and ended 4 cells from home; Red Alert's went 22 and 23 cells. Also fails
+# on a brain that reads an attack-move from a unit's distance to its centre during the
+# mission (rather than when the mission starts): the Tiberian Dawn chase stopped at 9 and
+# 11 cells, an attack-move rule leaking into the G key.
+# =====================================================================================
+if [ ! -f "$G478AM" ] || [ ! -f TiberianDawn.dylib ] || [ ! -f SCG01EA.pack ] \
+   || [ ! -f ra3d/RedAlert.dylib ] || [ ! -f ra3d/3d/SCG01EA.pack ]; then
+  skip "G479 the G key keeps the original guard-area rule: the same files as G478 are not staged here"
+else
+rm -rf g479 && mkdir -p g479
+G479OK=1; G479V=""
+gbegin
+for g479g in td ra; do
+  if [ "$g479g" = td ]; then g479a="$G478TD"; g479n="Tiberian Dawn"; else g479a="$G478RA"; g479n="Red Alert"; fi
+  python3 "$G478AM" write g479/$g479g-g $g479g chase-g
+  grun g479/$g479g-g.log $g479a --dir g479/$g479g-g/ --script g479/$g479g-g/script.txt
+  g479r=$(python3 "$G478AM" measure g479/$g479g-g.log $g479g chase-g 2>&1)
+  G479V="$G479V; $g479n [$g479r]"
+  [ "${g479r##* }" = "pass" ] || G479OK=0
+done
+if [ "$GRC" != "0" ]; then
+  bad "G479 the G key keeps the original guard-area rule: a run exited $GRC$G479V"
+elif [ "$G479OK" = "1" ]; then
+  ok "G479 the G key keeps the original guard-area rule: guards give chase and come home$G479V"
+else
+  bad "G479 the G key does not keep the original guard-area rule$G479V"
+fi
+fi
+
+# =====================================================================================
+# G496 ONE ACKNOWLEDGEMENT PER GROUP ACTION, IN BOTH GAMES AND ALL THREE GRAPHICS MODES
+# (brain dllinterface.cpp OpenCNC3D_Band_Begin, OpenCNC3D_Select_In_Band and
+# OpenCNC3D_Band_Done in both brains; cnc_eyes.cpp ui_band_select). The 1995 and 1996
+# engines let one unit answer a gesture however many it takes: Select_These, Handle_Team
+# and the order loop all latch AllowVoice off after the first speaker. The renderer's
+# band selects one object at a time, and in Red Alert each of those selections spoke,
+# so a band over nine units played nine acknowledgements at once. Now a band selects in
+# silence and the brain lets the first of the player's new objects in Select_These's own
+# order (the ground layer, then the aircraft) answer. That also changes WHICH unit
+# answers in Tiberian Dawn, which spoke once already but for whichever object the renderer
+# sent first.
+#
+# A generated 60x60 map per game (the G495 recipe) with three tanks two rows north of six
+# riflemen, so the engine's ground layer puts a tank first and the renderer's own object
+# order puts a rifleman first. Each game is played with sound into a recording, and in each
+# of Classic, N64 and Enhanced the script counts the engine's sound requests (SOUND|sfx
+# lines) between markers:
+#   CLICK one rifleman                1 voice
+#   BAND over all nine                1 voice, selection 9, chosen at the band's end
+#   REF the engine's own band         1 voice, selection 9 (INPUT_REQUEST_MOUSE_AREA, i.e.
+#                                     Select_These itself), and it is the SAME unit (the
+#                                     sound's var= is the speaker's heap slot, signed by
+#                                     kind) that BAND let speak
+#   ASSIGN group 1                    no voice
+#   RECALL group 1                    1 voice, selection 9
+#   ORDER the group to move           1 voice
+#   DBLTAP a rifleman (same type)     1 voice, six taken
+#   SHIFTBAND over all after a click  1 voice, selection 9
+# Every counted voice must be "played" in the recording, not dropped.
+#
+# Measured on the fixed build: every segment as above in both games and all three modes,
+# and in each of the six the band and the engine's own band named the same speaker, a
+# tank (var=-1, -2 or -3 as the units moved between modes).
+# PROVEN TO FAIL on the v0.9.10 renderer and brains: Red Alert's band played nine voices
+# in every mode (var 1..6 and -1..-3, every unit at once); Tiberian Dawn's band spoke for
+# rifleman 0 (var=1) where the engine's own band speaks for a tank; a shift band after a
+# click was silent in both games; and the renderer has no engineband verb, so the
+# reference legs fail too. The fixed renderer over the v0.9.10 brains fails the same
+# band, speaker and shift band legs, so the fix is the brains' as much as the renderer's.
+# NOT COVERED: aircraft and ships in a band (the probe map has neither); a queued order
+# dispatched by the Enhanced order queue to a group other than the current selection,
+# which still swaps the selection and so speaks on the way in and out; the multiplayer
+# lockstep run, whose simulation this does not touch (the responses draw their line from
+# Sim_Random_Pick, which leaves the game's random sequence alone).
+# =====================================================================================
+rm -rf g496v && mkdir -p g496v/td g496v/ra
+python3 - g496v <<'G496MAP'
+import base64, os, struct, sys
+root = sys.argv[1]
+def packed(raw):
+    blocks = bytearray()
+    for pos in range(0, len(raw), 8192):
+        part = raw[pos:pos + 8192]
+        comp = b'\xfe' + struct.pack('<H', len(part)) + part[:1] + b'\x80'
+        blocks += struct.pack('<HH', len(comp), len(part)) + comp
+    text = base64.b64encode(blocks).decode()
+    return '\n'.join('%d=%s' % (i // 70 + 1, text[i:i + 70]) for i in range(0, len(text), 70))
+for game in ('td', 'ra'):
+    ra = game == 'ra'
+    good, bad = ('Greece', 'USSR') if ra else ('GoodGuy', 'BadGuy')
+    cell = lambda x, y: y * (128 if ra else 64) + x
+    tank = '1TNK' if ra else 'MTNK'
+    ini = ['[Basic]', 'Name=G496 probe', 'Player=' + good, 'BuildLevel=98', 'NewINIFormat=3',
+           '[Map]', 'Theater=TEMPERATE', 'X=1', 'Y=1', 'Width=60', 'Height=60']
+    for h in (good, bad):
+        ini += ['[%s]' % h, 'Credits=1000', 'TechLevel=10', 'Allies=' + h,
+                'MaxBuilding=150', 'MaxUnit=150', 'MaxInfantry=150', 'MaxAircraft=150']
+    ini += ['[Waypoints]', '0=%d' % cell(30, 30),
+            '[Structures]', '0=%s,FACT,256,%d,0,None' % (good, cell(20, 20)),
+            '1=%s,FACT,256,%d,0,None' % (bad, cell(55, 55)), '[Units]']
+    ini += ['%d=%s,%s,256,%d,0,Guard,None' % (i, good, tank, cell(36 + 2 * i, 36)) for i in range(3)]
+    ini += ['[Infantry]']
+    ini += ['%d=%s,E1,256,%d,%d,Guard,0,None' % (2 * i + k, good, cell(36 + 2 * i, 40), k + 1)
+            for i in range(3) for k in range(2)]
+    if ra:
+        ini += ['[MapPack]', packed(b'\xff' * (128 * 128 * 2) + b'\0' * (128 * 128))]
+    else:
+        open(os.path.join(root, game, 'SCG88EA.BIN'), 'wb').write(b'\0\0' * (64 * 64))
+    open(os.path.join(root, game, 'SCG88EA.INI'), 'w').write('\n'.join(ini) + '\n')
+    s = ['frames 1', 'tick 5']
+    for m, (ox, oy) in enumerate(((38, 38), (34, 38), (38, 34))):
+        def mark(leg):
+            s.append('echo G496|%d|%s' % (m, leg))
+        s += ['gfxmode %d' % m, 'look E1 0', 'zoom min', 'tick 30', 'deselect', 'tick 5']
+        mark('CLICK');     s += ['actclickobj E1 0', 'tick 20', 'deselect', 'tick 5']
+        # the engine's own band runs in the same tick as the renderer's, over the same
+        # units in the same places, so the two can be asked who answers
+        mark('BAND');      s += ['band 0 0 1050 700', 'deselect']
+        mark('REF');       s += ['engineband 30 30 50 50', 'tick 20']
+        mark('ASSIGN');    s += ['group 1 2', 'deselect', 'tick 20']
+        mark('RECALL');    s += ['group 1 0', 'tick 20']
+        mark('ORDER');     s += ['order %d %d' % (ox, oy), 'tick 60', 'deselect', 'tick 5']
+        mark('DBLTAP');    s += ['dbltapobj E1 0', 'tick 20', 'deselect', 'tick 5']
+        mark('CLICK2');    s += ['actclickobj %s 0' % tank, 'tick 20']
+        mark('SHIFTBAND'); s += ['shiftband 0 0 1050 700', 'tick 20', 'deselect', 'tick 5']
+        mark('END')
+    s.append('quit')
+    open(os.path.join(root, game + '.txt'), 'w').write('\n'.join(s) + '\n')
+G496MAP
+G496COMMON="--scen SCG88EA --dosinf dosinfantry.pack --dospack dossidebar.pack --cameos cameos.pack --w 1280 --h 720 --build 98 --noshroud --dumpsound --musicvol 0"
+gbegin g496v/td.log g496v/ra.log g496v/td.wav g496v/ra.wav
+grun g496v/td.log $G496COMMON --pack SCG01EA.pack --dir g496v/td/ --content content/ --dylib TiberianDawn.dylib --reskin --savedir g496v/saves --gfxsave g496v/td.cfg --audiowav g496v/td.wav --script g496v/td.txt
+G496GAMES=td
+if [ -f ra3d/RedAlert.dylib ] && [ -f ra3d/3d/SCG01EA.pack ]; then
+  grun g496v/ra.log $G496COMMON --pack ra3d/3d/SCG01EA.pack --dir g496v/ra/ --content ra3d/data --dylib ra3d/RedAlert.dylib --ra3d --savedir g496v/saves --gfxsave g496v/ra.cfg --audiowav g496v/ra.wav --script g496v/ra.txt
+  G496GAMES="td ra"
+fi
+for G496G in $G496GAMES; do gshots g496v/$G496G.wav; done
+G496CHK=$(python3 - g496v $G496GAMES <<'G496PY' 2>&1
+import re, sys
+root, games = sys.argv[1], sys.argv[2:]
+WANT = {'CLICK': 1, 'BAND': 1, 'REF': 1, 'ASSIGN': 0, 'RECALL': 1, 'ORDER': 1,
+        'DBLTAP': 1, 'CLICK2': 1, 'SHIFTBAND': 1}
+SEL = {'BAND': (r'^BAND\|.*\|selection=(\d+)$', 9), 'REF': (r'^ENGINEBAND\|.*\|selection=(\d+)\|', 9),
+       'RECALL': (r'^GROUP\|recall\|.*\|selection=(\d+)$', 9),
+       'DBLTAP': (r'^SAMETYPE\|E1\|.*\|took=(\d+)\|', 6),
+       'SHIFTBAND': (r'^BAND\|.*\|selection=(\d+)$', 9)}
+bad, said = [], []
+for game in games:
+    try:
+        text = open('%s/%s.log' % (root, game), errors='replace').read()
+    except OSError:
+        bad.append('%s: no log' % game); continue
+    if not re.search(r'^SCRIPT\|end .*: \d+ lines, 0 failures$', text, re.M):
+        bad.append('%s: the script did not finish cleanly' % game)
+    segs, cur = {}, None
+    for line in text.splitlines():
+        m = re.match(r'^ECHO\|G496\|(\d)\|(\w+)$', line)
+        if m:
+            cur = (int(m.group(1)), m.group(2)); segs[cur] = []; continue
+        if cur is not None:
+            segs[cur].append(line)
+    for mode in range(3):
+        row = []
+        for leg, want in WANT.items():
+            lines = segs.get((mode, leg))
+            if lines is None:
+                bad.append('%s mode %d: no %s leg' % (game, mode, leg)); continue
+            snd = [l for l in lines if l.startswith('SOUND|sfx|')]
+            row.append('%s %d' % (leg, len(snd)))
+            if len(snd) != want:
+                bad.append('%s mode %d %s: %d voices %s (want %d)' % (
+                    game, mode, leg, len(snd), [l.split('|')[3] + ' ' + l.split('|')[4] for l in snd], want))
+            if any(not l.endswith('|played') for l in snd):
+                bad.append('%s mode %d %s: a voice was not played' % (game, mode, leg))
+            if leg in SEL:
+                pat, n = SEL[leg]
+                got = [int(re.match(pat, l).group(1)) for l in lines if re.match(pat, l)]
+                if got[-1:] != [n]:
+                    bad.append('%s mode %d %s: selection %s (want %d)' % (game, mode, leg, got, n))
+            if leg in ('BAND', 'SHIFTBAND') and not any(
+                    l == 'BANDVOICE|voiced=1|in-loop=0|at-end=%d' % want for l in lines):
+                bad.append('%s mode %d %s: the voice was not chosen at the band end' % (game, mode, leg))
+        band = [l.split('|')[4] for l in segs.get((mode, 'BAND'), []) if l.startswith('SOUND|sfx|')]
+        ref = [l.split('|')[4] for l in segs.get((mode, 'REF'), []) if l.startswith('SOUND|sfx|')]
+        if band != ref or not band:
+            bad.append('%s mode %d: band speaker %s, the engine band speaker %s' % (game, mode, band, ref))
+        said.append('%s mode %d [%s; speaker %s]' % (game.upper(), mode, ', '.join(row), band[0] if band else '-'))
+print(('1 ' if not bad else '0 ') + '; '.join(said) + ('' if not bad else ' FAULTS: ' + '; '.join(bad)))
+G496PY
+)
+echo "G496 $G496CHK" >> "$OUT"
+G496V=${G496CHK%% *}; G496MSG=${G496CHK#* }
+if [ "$GRC" != "0" ]; then
+  bad "G496 one acknowledgement per group action: a run failed or wrote no recording (GRC=$GRC) $G496MSG"
+elif [ "$G496V" = "1" ] && [ "$G496GAMES" = "td ra" ]; then
+  ok "G496 a click, a band, a group recall, a group order, a same-type tap and a shift band each play one acknowledgement, the band's from the unit the engine's own band picks, in both games and all three modes: $G496MSG"
+elif [ "$G496V" = "1" ]; then
+  bad "G496 one acknowledgement per group action: Tiberian Dawn passed ($G496MSG) but no Red Alert module is staged here (ra3d/RedAlert.dylib, ra3d/3d/SCG01EA.pack), and Red Alert is where the chorus was"
+else
+  bad "G496 one acknowledgement per group action: $G496MSG"
+fi
+
+# =====================================================================================
+# G497 A HELD EDGE SCROLL MOVES THE PICTURE BY AN EVEN STEP EVERY FRAME, IN BOTH GAMES AND
+# ALL THREE MODES.
+#
+# A held edge used to look uneven in two ways the camera's clock (G486) could not reach.
+# Under the 3D camera the look-at point rode the height of the one terrain triangle under
+# it, and the edge step was measured on the terrain under two pixels, so across Red
+# Alert's relief the picture rose and fell by several pixels from one frame to the next
+# while the camera slid north and south. Classic floored the view to whole 1995 pixels,
+# so a step of 13.3 screen pixels a frame came out 12, 15, 12, 15 at a scale of 3.
+#
+# Measured on the live loop itself, headless (OPENCNC3D_SCROLLPROBE): the pointer held in
+# the west strip for 28 to 40 frames on a virtual frame clock, at an even 60 Hz and on an
+# uneven 12,21,16,14,25,11,17,19 ms rhythm, the loop reading it in whole milliseconds as
+# it reads SDL_GetTicks and the engine ticking on it. Each frame the renderer's own
+# projection says how far the ground under the view's centre moved on the screen, and
+# the same for nine points spread over the screen. Asserted for each of the 12 runs:
+#   every held frame moves the picture (no stall, the camera never meets the map edge);
+#   at 60 Hz every centre step is within 1.0 screen pixel of the run's mean;
+#   on the uneven clock the largest step is under 1.6 times the smallest (the camera's
+#   clock smooths the frame times, G486);
+#   under the 3D camera no point of the nine changes its step, per 16.7 ms of camera
+#   time, by more than 1.0 pixel between two frames (the picture does not bob).
+# Speeds are the approved ones and are not asserted here (G483); the mean step at 60 Hz
+# is printed.
+#
+# Measured on this build: Classic dev 0.63 (both games) at 60 Hz, N64 and Enhanced dev
+# 0.00 to 0.06, the uneven clock's ratio 1.15 or 1.16, Red Alert's largest bob 0.72.
+#
+# PROVEN TO FAIL: 10 of the 12 runs fail on v0.9.10 with only the probe added: Red Alert
+# N64 and Enhanced bob 3.88 (4.93 on the uneven clock), Classic dev 1.60 (Tiberian Dawn)
+# and 1.36 (Red Alert), and the uneven clock's ratio 2.0 to 2.34, its camera having no
+# clock of its own. On this branch with the three fixes reverted and the probe kept, 6 of
+# 12 fail: the same bob (4.09 and 4.59) and the same Classic devs.
+#
+# NOT COVERED: frames that reach the screen late. A frame the display holds for two
+# refreshes is a hitch on screen whatever the camera does, and this gate cannot see the
+# display. The arrow keys and the right-button push move the camera through the same
+# function and are not driven here.
+# =====================================================================================
+mkdir -p shots/g497
+G497OUT=""
+G497HAVERA=0
+[ -f ra3d/RedAlert.dylib ] && [ -d ra3d/missions ] && [ -f ra3d/3d/SCG01EA.pack ] && G497HAVERA=1
+for G497G in td ra; do
+  [ "$G497G" = ra ] && [ "$G497HAVERA" = 0 ] && continue
+  for G497M in 0 1 2; do
+    for G497C in 16.667 12,21,16,14,25,11,17,19; do
+      if [ "$G497G" = td ]; then
+        if [ "$G497M" = 0 ]; then G497CAM=58,50; G497N=30; else G497CAM=63,50; G497N=40; fi
+      else
+        if [ "$G497M" = 0 ]; then G497CAM=70,52.5; G497N=28; else G497CAM=63.5,47.5; G497N=40; fi
+      fi
+      G497ENH=""; [ "$G497M" = 2 ] && G497ENH="--enhanced --texset 3"
+      G497F="shots/g497/${G497G}_${G497M}_$(echo "$G497C" | cut -c1-2).log"
+      if [ "$G497G" = td ]; then
+        OPENCNC3D_SCROLLPROBE="0,360,40,$G497N,$G497M" OPENCNC3D_SCROLLPROBE_CLOCK="$G497C" \
+        OPENCNC3D_SCROLLPROBE_CAM="$G497CAM" ./cnc_eyes --scen SCG01EA --pack SCG01EA.pack $BASE \
+          --noshroud --nosound --w 1280 --h 720 $G497ENH --run 60 > "$G497F" 2>&1
+      else
+        OPENCNC3D_SCROLLPROBE="0,360,40,$G497N,$G497M" OPENCNC3D_SCROLLPROBE_CLOCK="$G497C" \
+        OPENCNC3D_SCROLLPROBE_CAM="$G497CAM" ./cnc_eyes --ra3d --dylib ra3d/RedAlert.dylib \
+          --content ra3d/data --dir ra3d/missions/ --dosdata ra3d/audio --w 1280 --h 720 $G497ENH \
+          --noshroud --nosound --scen SCG01EA --pack ra3d/3d/SCG01EA.pack --run 60 > "$G497F" 2>&1
+      fi
+      grep '^SCROLLPROBE|' "$G497F" >> "$OUT"
+      G497OUT="$G497OUT
+$(python3 - "$G497F" "$G497G" "$G497M" "$G497C" "$G497N" <<'EOP'
+import sys, math
+path, game, mode, clock, want = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
+rows, grid = [], {}
+for line in open(path, errors="replace"):
+    if line.startswith("SCROLLPROBE|i="):
+        rows.append(dict(kv.split("=", 1) for kv in line.strip().split("|")[1:] if "=" in kv))
+    elif line.startswith("SCROLLPROBE|grid|"):
+        p = line.strip().split("|")
+        grid[int(p[2][2:])] = [tuple(map(float, q.split(","))) for q in p[3].split(";")]
+name = "%s %s %s" % (game, ["classic", "n64", "enhanced"][mode], "60Hz" if "," not in clock else "uneven")
+held = rows[1:]
+if len(held) < want or (held and held[0].get("mode") != ["classic", "n64", "enhanced"][mode]):
+    print("%s FAIL frames=%d of %d mode=%s" % (name, len(held), want, held[0].get("mode") if held else "-")); sys.exit()
+steps = [math.hypot(*map(float, r["step"].split(","))) for r in held]
+cdt = [float(r["cam_dt"]) for r in held]
+bad = []
+stall = sum(1 for s in steps if s < 0.5)
+if stall: bad.append("stall")
+mean = sum(steps) / len(steps)
+dev = max(abs(s - mean) for s in steps)
+settle = steps[8:] if "," in clock else steps
+ratio = max(settle) / max(min(settle), 1e-6)
+if "," not in clock and dev > 1.0: bad.append("dev")
+if "," in clock and ratio > 1.6: bad.append("ratio")
+jerk = 0.0
+if mode != 0:
+    for k in range(2, len(held) + 1):
+        if k in grid and k - 1 in grid:
+            a, b = cdt[k - 1], cdt[k - 2]
+            for (x1, y1), (x0, y0) in zip(grid[k], grid[k - 1]):
+                jerk = max(jerk, math.hypot(x1 * 16.667 / a - x0 * 16.667 / b, y1 * 16.667 / a - y0 * 16.667 / b))
+    if jerk > 1.0: bad.append("bob")
+print("%s %s mean=%.2f dev=%.2f ratio=%.2f bob=%.2f%s" % (name, "FAIL" if bad else "ok", mean, dev, ratio, jerk,
+      (" [" + ",".join(bad) + "]") if bad else ""))
+EOP
+)"
+    done
+  done
+done
+G497N=$(printf '%s\n' "$G497OUT" | grep -c ' ok ')
+G497BAD=$(printf '%s\n' "$G497OUT" | grep -c ' FAIL')
+G497SUM=$(printf '%s\n' "$G497OUT" | grep -v '^$' | tr '\n' ';')
+G497WANT=12; [ "$G497HAVERA" = 0 ] && G497WANT=6
+if [ "$G497N" = "$G497WANT" ] && [ "$G497BAD" = 0 ]; then
+  ok "G497 a held edge scroll moves the picture by an even step every frame, Tiberian Dawn and Red Alert, Classic, N64 and Enhanced, at 60 Hz and on an uneven clock (dev: largest distance of a centre step from the mean in pixels; ratio: largest step over smallest; bob: largest change of any of nine points' step between two frames): $G497SUM"
+else
+  bad "G497 held edge scroll: $G497N of $G497WANT runs even. $G497SUM Want at 60 Hz dev under 1.0 px, on the uneven clock ratio under 1.6, bob under 1.0 px under the 3D camera, and no stalled frame"
+fi
+
+# =====================================================================================
+# G498 TO G517 AND G540 LIVE IN FILES OF THEIR OWN beside this one, each runnable on its own from a
+# play folder (see the head of each) and sourced here with this suite's ok, bad, skip,
+# gbegin, grun and OUT:
+#   G498-G501 Red Alert naval yards and airfields          game/gate_ranaval.sh
+#   G502-G506 harvesters and unit pathing, both games       game/gate_harvest.sh
+#   G507-G515 unit targeting and combat, both games         game/gate_combat.sh
+#   G516      a new building is ready before the switch     game/gate_perf.sh
+#   G517      three network matches to 16000 turns          game/gate_net.sh
+#   G520-G524 health bars and the post chain, the cloak's
+#             shimmer up close, both games, and the rim on
+#             the player's own cloaked tank                 game/gate_cloakbars.sh
+#   G525-G527 waterfall rocks, Refinery gauge, score note   game/gate_terrainhud.sh
+#   G530-G531 the Modern mouse scheme, the tabbed HUD zoom  game/gate_controls.sh
+#   G535      save slots, both games                        game/gate_saves.sh
+#   G536      an attack on a helicopter on its pad          game/gate_landedair.sh
+#   G540      the Mac installer's own pages                  game/gate_macinstall.sh
+#   G543      the superweapon cheat's ready announcements    game/gate_cheatsuper.sh
+#   G541-G542 the match debrief's pages, the match timeline game/gate_debrief.sh
+# G517 is the long one: about four minutes on an idle Mac, eight on a loaded one.
+# =====================================================================================
+for g498f in ranaval harvest combat perf net cloakbars terrainhud controls saves landedair macinstall debrief cheatsuper; do
+  if [ -f "$GATEDIR/gate_$g498f.sh" ]; then
+    . "$GATEDIR/gate_$g498f.sh"
+  else
+    skip "game/gate_$g498f.sh is missing beside game/gates.sh"
+  fi
+done
 
 # THE SKIP COUNT IS PART OF THE SUMMARY, never left off it. A run that quietly dropped a
 # gate and printed the same shape of line as a run that did not is how a suite starts

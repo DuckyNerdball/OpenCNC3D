@@ -1,0 +1,18 @@
+# E2 Red Alert's map editor on the first Allied mission (SCG01EA, snow), Enhanced, as E1:
+# 20 frames timed over the lake and its coast, a ledger line before and after, one shot.
+game: ra
+scen: SCG01EA
+modes: enh
+flags: --edit
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+cam 57 56
+frames 4
+memledger e0
+framebench 20
+memledger e20
+shot {OUT}/edit_lake.png
+quit

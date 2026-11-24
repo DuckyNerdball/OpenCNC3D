@@ -21,11 +21,13 @@
  * So the list lives here now and both callers include it. A third caller cannot drift
  * from the other two, because there is nothing left to drift from.
  *
- * ORDER MATTERS AND THE REPO PATHS STAY FIRST. Probing beside the binary first would
- * change which brain the Mac gates load: both game/ and playable/ have a
- * TiberianDawn.dylib sitting in them, so a developer who had just rebuilt
- * brain/vanilla would silently get whichever stale copy was nearest instead of the one
- * just built. Beside-the-binary is the last resort, not the first.
+ * ORDER DEPENDS ON THE EXECUTABLE'S LAYOUT. A developer running app/ or game/ still
+ * wants the freshly built brain/vanilla engine ahead of a staged copy. An installed
+ * executable must instead use its own engine: a playable/ inside a checkout used to
+ * pick ../brain/vanilla first and silently run an older engine after an update. Source
+ * files beside the executable identify the developer layout; a sibling source tree
+ * does not turn an installation into a developer binary. Both searches are anchored
+ * to the executable rather than to an unrelated working directory.
  *
  * SDL_GetBasePath rather than the bare filename, because it answers "beside the
  * executable" even when the working directory is somewhere else -- which is what
@@ -54,6 +56,13 @@
    NEVER RETURNS NULL. With nothing found it names the platform's own library, so the
    error a player sees is about a file that could plausibly have existed rather than
    about "(none)". */
+static int opencnc3d_brain_path(char* path, size_t capacity,
+                               const char* base, const char* relative)
+{
+    const int n = snprintf(path, capacity, "%s%s", base, relative);
+    return n >= 0 && (size_t)n < capacity && access(path, R_OK) == 0;
+}
+
 static const char* opencnc3d_find_brain(const char* explicitPath)
 {
     static const char* candidates[] = {
@@ -62,24 +71,43 @@ static const char* opencnc3d_find_brain(const char* explicitPath)
         OPENCNC3D_BRAIN_LIB,
         NULL
     };
-    static char beside[1024];
+    static char resolved[1024];
     int i;
 
     if (explicitPath && *explicitPath)
         return explicitPath;
-    for (i = 0; candidates[i]; i++)
-        if (access(candidates[i], R_OK) == 0)
-            return candidates[i];
 
     {
         char* base = SDL_GetBasePath();
         if (base) {
-            snprintf(beside, sizeof beside, "%s%s", base, OPENCNC3D_BRAIN_LIB);
+            /* Only app/ and game/ contain these source markers. In particular, do
+               not use ../game as a marker: installed playable/ has that sibling
+               in a developer checkout too. */
+            const int developer =
+                opencnc3d_brain_path(resolved, sizeof resolved, base, "opencnc3d.cpp") ||
+                opencnc3d_brain_path(resolved, sizeof resolved, base, "cnc_eyes.cpp");
+            if (developer) {
+                for (i = 0; candidates[i]; i++) {
+                    if (opencnc3d_brain_path(resolved, sizeof resolved, base, candidates[i])) {
+                        SDL_free(base);
+                        return resolved;
+                    }
+                }
+            } else if (opencnc3d_brain_path(resolved, sizeof resolved, base,
+                                           OPENCNC3D_BRAIN_LIB)) {
+                SDL_free(base);
+                return resolved;
+            }
             SDL_free(base);
-            if (access(beside, R_OK) == 0)
-                return beside;
         }
     }
+
+    /* Retain the historical fallback for tools without an executable base path,
+       or installations missing their adjacent engine. An installed engine found
+       above always wins over another checkout in the current working directory. */
+    for (i = 0; candidates[i]; i++)
+        if (access(candidates[i], R_OK) == 0)
+            return candidates[i];
 
     return OPENCNC3D_BRAIN_LIB;
 }

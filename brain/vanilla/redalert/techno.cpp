@@ -141,6 +141,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "../common/fire_visibility.h"
 #include "fair_ai_ra.h"
 #include "utracker.h"
 
@@ -3465,14 +3466,14 @@ bool TechnoClass::Evaluate_Object(ThreatType method,
             if ((!IsOwnedByPlayer && !IsDiscoveredByPlayer)
                 || (!Map[Center_Coord()].IsMapped && (What_Am_I() != RTTI_AIRCRAFT || !IsOwnedByPlayer))) {
                 if (Session.Type == GAME_NORMAL) {
-                    Map.Sight_From(Coord_Cell(Center_Coord()), 2, PlayerPtr, false);
+                    CncFireReveal(Coord_Cell(Center_Coord()),2,PlayerPtr);
                 } else {
                     ObjectClass* obj = As_Object(target);
                     if (obj != NULL) {
                         HousesType tgt_owner = obj->Owner();
 
                         if (PlayerPtr->Class->House == tgt_owner) {
-                            Map.Sight_From(Coord_Cell(Center_Coord()), 2, PlayerPtr, false);
+                            CncFireReveal(Coord_Cell(Center_Coord()),2,PlayerPtr);
                         }
                     }
                 }
@@ -3480,37 +3481,22 @@ bool TechnoClass::Evaluate_Object(ThreatType method,
 
 #else
 
-        // If a projectile was fired from a unit that is hidden in the darkness,
-        //reveal that unit and a little area around it.
-        if (Session.Type == GAME_NORMAL) {
-            if ((!IsOwnedByPlayer && !IsDiscoveredByPlayer)
-                || (!Map[Center_Coord()].IsMapped && (What_Am_I() != RTTI_AIRCRAFT || !IsOwnedByPlayer))) {
-                Map.Sight_From(Coord_Cell(Center_Coord()), 2, PlayerPtr, false);
-            }
-        }
-
-        //For multiplayer games, only reveal the unit if the target is the **local player.
-        /*
-        ** For client/server multiplayer, we need to reveal for any human player that is the target. ST - 3/13/2019
-        *5:43PM
-        */
+        /* Firing exposes its firer to the victim's house for three seconds after
+           its last shot. Ordinary unit/building sight remains permanent. */
+        /* Campaign observers retain the original reveal even for a shot at
+           ground or another AI; multiplayer reveals go to the victim's house. */
+        if (Session.Type==GAME_NORMAL && PlayerPtr && !Is_Owned_By_Player(PlayerPtr))
+            CncFireReveal(Coord_Cell(Center_Coord()),2,PlayerPtr);
         ObjectClass* obj = As_Object(target);
         if (obj) {
-            HousesType tgt_owner = obj->Owner();
-
-            HouseClass* player = HouseClass::As_Pointer(tgt_owner);
-            if ((player != NULL) && (player->IsHuman || FairAI_RA_Enabled(player))) {
-                if ((!Is_Owned_By_Player(player) && !Is_Discovered_By_Player(player))
-                    || (!Map[Coord_Cell(Center_Coord())].Is_Mapped(House)
-                        && (What_Am_I() != RTTI_AIRCRAFT || !Is_Owned_By_Player(player)))) {
-                    Map.Sight_From(Coord_Cell(Center_Coord()), 1, player, false);
-                }
-            }
+            HouseClass* player = HouseClass::As_Pointer(obj->Owner());
+            if (player && (player->IsHuman || FairAI_RA_Enabled(player))
+                && !Is_Owned_By_Player(player)
+                && (player!=PlayerPtr || !(Session.Type==GAME_NORMAL)))
+                CncFireReveal(Coord_Cell(Center_Coord()),Session.Type==GAME_NORMAL?2:1,player);
         }
 
-        /*
-        ** For electric zaps, immediately perform bullet logic.
-        */
+        /* Electric zaps resolve their bullet immediately, as in the original. */
         if (weapon->IsElectric) {
             bullet->AI();
         }
@@ -3772,9 +3758,10 @@ bool TechnoClass::Evaluate_Object(ThreatType method,
     bool shiftdown = (Keyboard->Down(Options.KeySelect1) || Keyboard->Down(Options.KeySelect2));
 #endif
         /*
-        **	Disable recognizing the <CTRL> key forced fire option when dealing with buildings.
+        ** Only unarmed buildings suppress ground force-fire. BuildingClass still
+        ** enforces SAM/AA and projectile anti-ground restrictions.
         */
-        if (What_Am_I() == RTTI_BUILDING)
+        if (What_Am_I() == RTTI_BUILDING && !Can_Player_Fire())
             ctrldown = false;
 
         /*

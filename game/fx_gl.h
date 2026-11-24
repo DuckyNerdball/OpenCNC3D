@@ -150,6 +150,8 @@ typedef void     (APIENTRY *FXPFNDELETEFRAMEBUFFERS)(GLsizei, const GLuint*);
 typedef void     (APIENTRY *FXPFNBINDFRAMEBUFFER)(GLenum, GLuint);
 typedef void     (APIENTRY *FXPFNFRAMEBUFFERTEXTURE2D)(GLenum, GLenum, GLenum, GLuint, GLint);
 typedef GLenum   (APIENTRY *FXPFNCHECKFRAMEBUFFERSTATUS)(GLenum);
+typedef void     (APIENTRY *FXPFNGETACTIVEUNIFORM)(GLuint, GLuint, GLsizei, GLsizei*, GLint*, GLenum*, FxGLchar*);
+typedef void     (APIENTRY *FXPFNGETUNIFORMIV)(GLuint, GLint, GLint*);
 
 static FXPFNCREATESHADER            fx_glCreateShader;
 static FXPFNDELETESHADER            fx_glDeleteShader;
@@ -177,6 +179,10 @@ static FXPFNDELETEFRAMEBUFFERS      fx_glDeleteFramebuffers;
 static FXPFNBINDFRAMEBUFFER         fx_glBindFramebuffer;
 static FXPFNFRAMEBUFFERTEXTURE2D    fx_glFramebufferTexture2D;
 static FXPFNCHECKFRAMEBUFFERSTATUS  fx_glCheckFramebufferStatus;
+/* Optional, read only by the light pass's texture-unit audit (fx_post.h); a driver
+   without them skips the audit and draws as before. */
+static FXPFNGETACTIVEUNIFORM        fx_glGetActiveUniform;
+static FXPFNGETUNIFORMIV            fx_glGetUniformiv;
 
 /* PROGRAM BINDS GO THROUGH THE STATE CACHE (gl_state_cache.h, the bound program). The
    macros below are function-like, so the loader's assignments and the pointers' own
@@ -187,6 +193,7 @@ static inline void gls_use_program(GLuint p)
 {
     if (gls_program_shadow() && g_glsProgramKnown && g_glsProgram == p) {
         if (gls_program_verify()) gls_program_check("bind");
+        if (gls_query_verify()) gls_verify_skip_i("skip program bind", GL_CURRENT_PROGRAM, (GLint)p);
         g_glsProgramBindsSkipped++;
         return;
     }
@@ -194,6 +201,42 @@ static inline void gls_use_program(GLuint p)
     g_glsProgram = p; g_glsProgramKnown = true;
 }
 #define fx_glUseProgram(p)    gls_use_program(p)
+
+/* UNIFORM SETS ASK THE STATE CACHE FIRST (gl_state_cache.h, uniform values), which
+   answers only inside the ground-normal and bake passes and there skips a set of the
+   value the bound program already holds. The same function-like arrangement as the
+   program bind: the parenthesised name inside each wrapper is the real entry point. */
+static inline void gls_uniform1i(GLint l, GLint v)
+{ if (!gls_uniform_held(l, 1, &v, sizeof v)) (fx_glUniform1i)(l, v); }
+static inline void gls_uniform1f(GLint l, GLfloat v)
+{ if (!gls_uniform_held(l, 2, &v, sizeof v)) (fx_glUniform1f)(l, v); }
+static inline void gls_uniform2f(GLint l, GLfloat a, GLfloat b)
+{ const GLfloat v[2] = { a, b }; if (!gls_uniform_held(l, 3, v, sizeof v)) (fx_glUniform2f)(l, a, b); }
+static inline void gls_uniform3f(GLint l, GLfloat a, GLfloat b, GLfloat c)
+{ const GLfloat v[3] = { a, b, c }; if (!gls_uniform_held(l, 4, v, sizeof v)) (fx_glUniform3f)(l, a, b, c); }
+static inline void gls_uniform4f(GLint l, GLfloat a, GLfloat b, GLfloat c, GLfloat d)
+{ const GLfloat v[4] = { a, b, c, d }; if (!gls_uniform_held(l, 5, v, sizeof v)) (fx_glUniform4f)(l, a, b, c, d); }
+/* An array set, or a transposed matrix, is not remembered; it forgets only the locations
+   it writes (gls_uniforms_forget_range). */
+static inline void gls_uniform4fv(GLint l, GLsizei n, const GLfloat* v)
+{
+    if (n == 1 && v) { if (gls_uniform_held(l, 6, v, 4 * sizeof(GLfloat))) return; }
+    else gls_uniforms_forget_range(l, n);
+    (fx_glUniform4fv)(l, n, v);
+}
+static inline void gls_uniform_matrix4fv(GLint l, GLsizei n, GLboolean t, const GLfloat* v)
+{
+    if (n == 1 && t == GL_FALSE && v) { if (gls_uniform_held(l, 7, v, 16 * sizeof(GLfloat))) return; }
+    else gls_uniforms_forget_range(l, n);
+    (fx_glUniformMatrix4fv)(l, n, t, v);
+}
+#define fx_glUniform1i(l, v)                gls_uniform1i(l, v)
+#define fx_glUniform1f(l, v)                gls_uniform1f(l, v)
+#define fx_glUniform2f(l, a, b)             gls_uniform2f(l, a, b)
+#define fx_glUniform3f(l, a, b, c)          gls_uniform3f(l, a, b, c)
+#define fx_glUniform4f(l, a, b, c, d)       gls_uniform4f(l, a, b, c, d)
+#define fx_glUniform4fv(l, n, v)            gls_uniform4fv(l, n, v)
+#define fx_glUniformMatrix4fv(l, n, t, v)   gls_uniform_matrix4fv(l, n, t, v)
 
 /* A UNIFORM'S LOCATION IS FIXED WHEN ITS PROGRAM LINKS, so it is asked for once per
    program and name and then remembered. The fx_set* helpers below look a uniform up by
@@ -207,6 +250,7 @@ static GLint fx_uniform_location(GLuint p, const FxGLchar* n)
     const std::string key(n);
     std::map<std::string, GLint>::const_iterator it = names.find(key);
     if (it != names.end()) return it->second;
+    gls_query_note("glGetUniformLocation", __FILE__, __LINE__);
     const GLint l = (fx_glGetUniformLocation)(p, n);
     names[key] = l;
     return l;
@@ -218,6 +262,89 @@ static void fx_delete_program(GLuint p)
     if (p == g_glsProgram) g_glsProgramKnown = false;
 }
 #define fx_glGetUniformLocation(p, n) fx_uniform_location((p), (n))
+/* FRAMEBUFFERS GO THROUGH THE STATE CACHE TOO (gl_state_cache.h): the binding, each
+   framebuffer's attachments and draw and read buffers from its creation, and the
+   completeness the driver last reported for exactly that arrangement. A completeness
+   check is a question to the driver, so a framebuffer checked again in the same
+   arrangement is answered from what the driver said before. */
+static inline void gls_bind_framebuffer(GLenum target, GLuint fb)
+{
+    (fx_glBindFramebuffer)(target, fb);
+    g_glsFramebuffer.known = target == GL_FRAMEBUFFER;
+    g_glsFramebuffer.i[0] = (GLint)fb;
+}
+static inline void gls_gen_framebuffers(GLsizei n, GLuint* ids)
+{
+    (fx_glGenFramebuffers)(n, ids);
+    gls_fbo_context();
+    for (GLsizei i = 0; i < n; i++) {
+        GlsFboInfo& f = g_glsFbo[ids[i]];
+        f.known = true; f.att.clear(); f.draw = f.read = GL_COLOR_ATTACHMENT0;
+    }
+}
+static inline void gls_delete_framebuffers(GLsizei n, const GLuint* ids)
+{
+    (fx_glDeleteFramebuffers)(n, ids);
+    for (GLsizei i = 0; i < n; i++) {
+        g_glsFbo.erase(ids[i]);
+        if (g_glsFramebuffer.known && (GLuint)g_glsFramebuffer.i[0] == ids[i]) g_glsFramebuffer.i[0] = 0;
+    }
+}
+static inline void gls_framebuffer_texture2d(GLenum target, GLenum att, GLenum textarget, GLuint tex, GLint level)
+{
+    (fx_glFramebufferTexture2D)(target, att, textarget, tex, level);
+    if (target != GL_FRAMEBUFFER || !g_glsFramebuffer.known) { gls_fbo_forget_all(); return; }
+    GlsFboInfo* f = gls_fbo_bound_info();
+    if (!f) return;
+    for (size_t i = 0; i + 3 < f->att.size(); i += 4)
+        if (f->att[i] == att) { f->att.erase(f->att.begin() + i, f->att.begin() + i + 4); break; }
+    if (tex) { f->att.push_back(att); f->att.push_back(textarget); f->att.push_back(tex); f->att.push_back((GLuint)level); }
+}
+static inline GLenum gls_check_framebuffer_status(GLenum target, const char* file, int line)
+{
+    std::string key;
+    const bool keyed = gls_query_elide() && target == GL_FRAMEBUFFER && gls_fbo_key(&key);
+    if (keyed) {
+        auto it = g_glsFboStatus.find(key);
+        if (it != g_glsFboStatus.end()) {
+            if (gls_query_verify()) {
+                const GLenum d = (fx_glCheckFramebufferStatus)(target);
+                g_glsVerifyChecked++;
+                if (d != it->second) {
+                    char a[16], b[16];
+                    snprintf(a, sizeof a, "0x%X", (unsigned)it->second); snprintf(b, sizeof b, "0x%X", (unsigned)d);
+                    gls_verify_report("glCheckFramebufferStatus", target, file, line, a, b);
+                }
+            }
+            return it->second;
+        }
+    }
+    gls_query_note("glCheckFramebufferStatus", file, line);
+    const GLenum st = (fx_glCheckFramebufferStatus)(target);
+    if (keyed) {
+        if (g_glsFboStatus.size() > 4096) g_glsFboStatus.clear();
+        g_glsFboStatus[key] = st;
+    }
+    return st;
+}
+/* The top of a frame (gl_state_cache.h): the window's framebuffer bound by command. Before
+   the entry points exist no other framebuffer can have been bound. */
+static void gls_frame_framebuffer_zero(void)
+{
+    if (!fx_glBindFramebuffer) { g_glsFramebuffer.known = true; g_glsFramebuffer.i[0] = 0; return; }
+    if (gls_query_verify()) {
+        GLint b = 0; (glGetIntegerv)(GL_FRAMEBUFFER_BINDING, &b);
+        g_glsVerifyChecked++;
+        char d[16]; snprintf(d, sizeof d, "%d", b);
+        if (b) gls_verify_report("frame start", GL_FRAMEBUFFER_BINDING, __FILE__, __LINE__, "0", d);
+    }
+    gls_bind_framebuffer(GL_FRAMEBUFFER, 0);
+}
+#define fx_glBindFramebuffer(t, f)          gls_bind_framebuffer(t, f)
+#define fx_glGenFramebuffers(n, i)          gls_gen_framebuffers(n, i)
+#define fx_glDeleteFramebuffers(n, i)       gls_delete_framebuffers(n, i)
+#define fx_glFramebufferTexture2D(t, a, x, o, l) gls_framebuffer_texture2d(t, a, x, o, l)
+#define fx_glCheckFramebufferStatus(t)      gls_check_framebuffer_status(t, __FILE__, __LINE__)
 #define fx_glLinkProgram(p)           fx_link_program(p)
 #define fx_glDeleteProgram(p)         fx_delete_program(p)
 
@@ -254,6 +381,51 @@ static void* fx_proc(const char* core, const char* alt, int required)
         }
     }
     return p;
+}
+
+/* WHAT THIS CONTEXT OFFERS, said once, on request (OPENCNC3D_GLEXT_DUMP=1). Which
+   optional paths a driver can take (transform feedback for the trees' wind, instanced
+   drawing) is a question about the context the game itself creates, not about a test
+   program's, so it is answered from here: the version strings, the whole extension
+   string, and whether each optional entry point resolves under its core and its EXT or
+   ARB spelling. Printed to stdout as GLEXT| lines. Nothing else reads it. */
+static void fx_gl_extension_dump(void)
+{
+    static int done = 0;
+    const char* want = getenv("OPENCNC3D_GLEXT_DUMP");
+    if (done || !want || strcmp(want, "1")) return;
+    done = 1;
+    const char* ver = (const char*)glGetString(GL_VERSION);
+    const char* sl = (const char*)glGetString(0x8B8C /* GL_SHADING_LANGUAGE_VERSION */);
+    const char* ren = (const char*)glGetString(GL_RENDERER);
+    const char* ven = (const char*)glGetString(GL_VENDOR);
+    const char* ext = (const char*)glGetString(GL_EXTENSIONS);
+    printf("GLEXT|version|%s\nGLEXT|glsl|%s\nGLEXT|renderer|%s\nGLEXT|vendor|%s\nGLEXT|pointer_bits|%d\n",
+           ver ? ver : "?", sl ? sl : "?", ren ? ren : "?", ven ? ven : "?", (int)(8 * sizeof(void*)));
+    printf("GLEXT|extensions|%s\n", ext ? ext : "?");
+    static const char* const names[] = {
+        "GL_EXT_transform_feedback", "GL_ARB_transform_feedback2", "GL_ARB_instanced_arrays",
+        "GL_ARB_draw_instanced", "GL_EXT_draw_instanced", "GL_EXT_gpu_shader4",
+        "GL_ARB_vertex_buffer_object", "GL_ARB_map_buffer_range", NULL };
+    for (int i = 0; names[i]; i++) {
+        const char* at = ext ? strstr(ext, names[i]) : NULL;
+        const size_t n = strlen(names[i]);
+        const bool listed = at && (at[n] == ' ' || at[n] == 0);
+        printf("GLEXT|has|%s|%d\n", names[i], listed ? 1 : 0);
+    }
+    static const char* const procs[] = {
+        "glBeginTransformFeedback", "glBeginTransformFeedbackEXT",
+        "glEndTransformFeedback", "glEndTransformFeedbackEXT",
+        "glBindBufferBase", "glBindBufferBaseEXT",
+        "glBindBufferRange", "glBindBufferRangeEXT",
+        "glTransformFeedbackVaryings", "glTransformFeedbackVaryingsEXT",
+        "glVertexAttribDivisor", "glVertexAttribDivisorARB",
+        "glDrawArraysInstanced", "glDrawArraysInstancedARB", "glDrawArraysInstancedEXT",
+        "glDrawElementsInstanced", "glDrawElementsInstancedARB", "glDrawElementsInstancedEXT",
+        "glGetBufferSubData", "glGetBufferSubDataARB", "glMapBufferRange", NULL };
+    for (int i = 0; procs[i]; i++)
+        printf("GLEXT|proc|%s|%d\n", procs[i], SDL_GL_GetProcAddress(procs[i]) ? 1 : 0);
+    fflush(stdout);
 }
 
 static int fx_gl_load(void)
@@ -293,6 +465,8 @@ static int fx_gl_load(void)
     fx_glBindFramebuffer    = (FXPFNBINDFRAMEBUFFER)       fx_proc("glBindFramebuffer", "glBindFramebufferEXT", FX_REQ);
     fx_glFramebufferTexture2D = (FXPFNFRAMEBUFFERTEXTURE2D) fx_proc("glFramebufferTexture2D", "glFramebufferTexture2DEXT", FX_REQ);
     fx_glCheckFramebufferStatus = (FXPFNCHECKFRAMEBUFFERSTATUS) fx_proc("glCheckFramebufferStatus", "glCheckFramebufferStatusEXT", FX_REQ);
+    fx_glGetActiveUniform   = (FXPFNGETACTIVEUNIFORM)      fx_proc("glGetActiveUniform", "glGetActiveUniformARB", FX_OPT);
+    fx_glGetUniformiv       = (FXPFNGETUNIFORMIV)          fx_proc("glGetUniformiv", "glGetUniformivARB", FX_OPT);
 
     /* One flag set by the resolver itself, rather than a list of pointers repeated here.
        The old expression named 18 of the 26 and left the other eight out, five of them
@@ -303,6 +477,7 @@ static int fx_gl_load(void)
         snprintf(fx_gl_why, sizeof fx_gl_why, "shaders or framebuffer objects are absent");
     if (!fx_gl_ready)
         fprintf(stderr, "FX|unavailable|%s\n", fx_gl_why);
+    fx_gl_extension_dump();
     return fx_gl_ready;
 }
 
@@ -381,6 +556,29 @@ static inline void fx_set4fv(GLuint p, const char* n, int count, const float* v)
 static inline void fx_setmat(GLuint p, const char* n, const float* m)
 { GLint l = fx_glGetUniformLocation(p, n); if (l >= 0) fx_glUniformMatrix4fv(l, 1, GL_FALSE, m); }
 
+/* A CLOAKING VEHICLE'S SCREEN DOOR, IN THE SHADER (CloakScreen, cnc_eyes.cpp). Under the
+   light pass a cloaking vehicle is drawn solid on its share of the screen's pixels: a 4x4
+   ordered pattern, the cells whose threshold (turned by the frame's count) is under the
+   share. It used to be the fixed-function polygon stipple. That is not a feature every
+   driver has in hardware: Mesa's drivers, the VMware virtual GPU among them, emulate it
+   by slipping a sampler of their own into whatever fragment program is bound, and after
+   the first cloak every building, tree and vehicle drawn later came out black there.
+   So the pattern is worked out here, from the pixel's window position, in the programs
+   a cloaking vehicle is drawn with. uDoor.x is the number of the sixteen cells that
+   show, plus one, and 0 (a uniform's default) turns the door off; uDoor.y is the turn.
+   The threshold is the 4x4 Bayer matrix built from the 2x2 one ([0 2; 3 1]) on the low
+   and the high bit of each coordinate. */
+#define CLOAK_DOOR_GLSL \
+    "uniform vec2 uDoor;\n" \
+    "float cloakDoorB2(vec2 b){return 2.0*b.x+3.0*b.y-4.0*b.x*b.y;}\n" \
+    "bool cloakDoorShut(){\n" \
+    "    if(uDoor.x<=0.0)return false;\n" \
+    "    vec2 p=mod(floor(gl_FragCoord.xy),4.0);\n" \
+    "    vec2 lo=mod(p,2.0),hi=floor(p*0.5);\n" \
+    "    float t=4.0*cloakDoorB2(lo)+cloakDoorB2(hi);\n" \
+    "    return mod(t+uDoor.y,16.0)>=uDoor.x-1.0;\n" \
+    "}\n"
+
 /* ---- Render targets --------------------------------------------------------------
    Colour is RGBA8, deliberately, not a float format. Bloom on an 8-bit buffer is what
    this game's palette wants (nothing in a 1995 sprite or an N64 texture is brighter
@@ -411,8 +609,17 @@ static void fx_rt_free(FxRT* rt)
 
 /* want: bit 0 = a colour attachment, bit 1 = a sampleable depth attachment.
    Returns 0 and frees everything if the driver calls the combination incomplete. */
+/* A DRIVER THAT REFUSED A FLOAT TARGET once is not asked again: every later request for
+   one is taken as a request for eight bits. Without this a target asked for in float
+   came back eight bit, failed the format test below on the next frame and was freed and
+   rebuilt, every frame, for every float target the chain keeps, and the frame rate fell
+   away with nothing on screen to say why. The chain is correct either way: linear light
+   reads the lit target's format and falls back to the gamma pass on its own. */
+static int g_fxFloatRefused = 0;
+
 static int fx_rt_init(FxRT* rt, int w, int h, int want, GLint filter)
 {
+    if (g_fxFloatRefused) want &= ~FX_RT_FLOAT;
     /* A target already at this size AND in the format now being asked for is kept. The
        format test is why the high-range switch can be thrown from the panel mid-game:
        without it the old eight bit target would survive the toggle and nothing would
@@ -443,6 +650,12 @@ static int fx_rt_init(FxRT* rt, int w, int h, int want, GLint filter)
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, w, h, 0, GL_RGBA, GL_FLOAT, NULL);
             if (glGetError() == GL_NO_ERROR)
                 rt->hdr = 1;
+            else {
+                g_fxFloatRefused = 1;
+                printf("FX|hdr|the driver refused a float target: every target is eight bit "
+                       "from here on\n");
+                fflush(stdout);
+            }
         }
         if (!rt->hdr)
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);

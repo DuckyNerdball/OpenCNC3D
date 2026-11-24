@@ -240,6 +240,8 @@ void db_fill_rect(DB_Surface *s, int x0, int y0, int x1, int y1, unsigned char c
         x1 = s->cx1;
     if (y1 > s->cy1)
         y1 = s->cy1;
+    if (x0 > x1 || y0 > y1)
+        return;
     for (y = y0; y <= y1; y++)
         memset(s->px + (size_t)y * s->w + x0, c, (size_t)(x1 - x0 + 1));
 }
@@ -715,6 +717,19 @@ static void db_draw_ra_power(DB_Surface *s, const DB_Pack *p, const DB_State *st
 /* Red Alert sidebar.cpp: Draw_It places three side pieces at y 8, 88, 138.
  * StripClass::Draw_It uses the side-specific STRIP shape as its empty slots;
  * unlike TD it intentionally does not paint a blank cameo over the art. */
+/* sidebar.cpp:310-330: the original image buttons at 249, 271, 294, on line 75, which is
+ * inside the bottom of the radar hole (radar.cpp: 14 to 79). Draw_Names draws them again
+ * after the player list (redalert/radar.cpp), so an eighth name runs under them. */
+void db_draw_ra_buttons(DB_Surface *s, const DB_Pack *p, const DB_State *st)
+{
+    db_clip_reset(s);
+    db_draw_shape(s, db_shape(p, "REPAIR"),
+                  st->repair_disabled ? 2 : (st->repair_pressed || st->repair_on ? 1 : 0), 249, 75);
+    db_draw_shape(s, db_shape(p, "SELL"),
+                  st->sell_disabled ? 2 : (st->sell_pressed || st->sell_on ? 1 : 0), 271, 75);
+    db_draw_shape(s, db_shape(p, "MAP"), st->map_disabled ? 2 : 0, 294, 75);
+}
+
 void db_draw_ra_sidebar(DB_Surface *s, const DB_Pack *p, const DB_State *st)
 {
     const char *side = st->nod ? "US" : "NA";
@@ -740,12 +755,7 @@ void db_draw_ra_sidebar(DB_Surface *s, const DB_Pack *p, const DB_State *st)
                       row == 0 ? 8 : row == 1 ? 88 : 138);
     }
 
-    /* sidebar.cpp:310-330: the original image buttons at 249, 271, 294. */
-    db_draw_shape(s, db_shape(p, "REPAIR"),
-                  st->repair_disabled ? 2 : (st->repair_pressed || st->repair_on ? 1 : 0), 249, 75);
-    db_draw_shape(s, db_shape(p, "SELL"),
-                  st->sell_disabled ? 2 : (st->sell_pressed || st->sell_on ? 1 : 0), 271, 75);
-    db_draw_shape(s, db_shape(p, "MAP"), st->map_disabled ? 2 : 0, 294, 75);
+    db_draw_ra_buttons(s, p, st);
 
     for (col = 0; col < 2; col++) {
         const int x = col ? 285 : 250;
@@ -896,8 +906,8 @@ void db_draw_ra_sidebar_win95(DB_Surface *s, const DB_Pack *p,
         const int x = col ? 570 : 500;
         db_draw_shape(s, db_shape(p, "STRIPUP"), 0, col ? 570 : 500, 372 + stretch + padding);
         db_draw_shape(s, db_shape(p, "STRIPDN"), 0, col ? 602 : 532, 372 + stretch + padding);
-        db_clip(s, 496, 180, 639, 371 + stretch);
-        for (row = 0; row < 4 + extra; row++) {
+        db_clip(s, 496, 180, 639, 371 + stretch + padding);
+        for (row = 0; row < 4 + extra + (padding > 0); row++) {
             const int index = st->top[col] + row;
             const DB_Slot *slot;
             const DB_Shape *cameo;
@@ -924,6 +934,25 @@ void db_draw_ra_sidebar_win95(DB_Surface *s, const DB_Pack *p,
         }
         db_clip_reset(s);
     }
+}
+
+/* Red Alert's mission timer plate.  tab.cpp:154-159 Draw_Credits_Tab draws TABS
+ * frame 4 (lit) or 2 once Scen.MissionTimer is active, and credits.cpp:153-176
+ * prints the time centred at y 0 with the same Fancy_Text_Print style as the
+ * credits number, so it is lettered exactly as db_draw_ra_sidebar_win95 letters
+ * the credits. The caller chooses the frame and the two x positions. */
+void db_draw_ra_timer_tab(DB_Surface *s, const DB_Pack *p, const char *text,
+                          int frame, int tabx, int textx)
+{
+    const DB_Font *font = db_font(p, "GRAD6FNT");
+    unsigned char fp[16];
+    db_clip_reset(s);
+    db_draw_shape(s, db_shape(p, "TABS"), frame, tabx, 0);
+    if (!font || !text)
+        return;
+    db_font_palette_grad(fp, DB_WHITE, DB_TBLACK);
+    db_print(s, font, text, textx - db_string_width(font, text, DB_FONT6_XSPACING) / 2,
+             0, fp, DB_FONT6_XSPACING);
 }
 
 /* ======================================================================== *

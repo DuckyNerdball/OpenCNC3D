@@ -4,9 +4,13 @@
 #include <array>
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
 /* Static shoreline geometry only. The caller still supplies this frame's light
    and shroud at the four cell corners. Eight subdivisions match the terrain's
@@ -34,6 +38,9 @@ struct WaterShoreCacheKey {
 struct WaterShoreCellNodes {
     std::array<WaterShoreNode,81> nodes;
     bool coarse=false;
+    std::vector<float> film;
+    std::array<float,14> filmKey{};
+    bool filmPainted=false,filmCoarse=false;
     WaterShoreNode& operator[](size_t i){return nodes[i];}
     const WaterShoreNode& operator[](size_t i)const{return nodes[i];}
 };
@@ -60,6 +67,33 @@ static WaterShoreCacheKey g_waterShoreCacheKey;
 static bool g_waterShoreCacheValid = false;
 static WaterShoreCellNodes* g_waterShoreLastCell = NULL;
 static int g_waterShoreLastX = 0, g_waterShoreLastZ = 0;
+static size_t g_waterShoreFilmBytes=0;
+static unsigned long long g_waterShoreFilmOffers=0,g_waterShoreFilmHits=0;
+static unsigned long long g_waterShoreFilmVerified=0,g_waterShoreFilmBad=0,g_waterShoreFilmFallbacks=0;
+static int water_shore_film_mode()
+{
+    static const int mode=[](){
+        const char* p=getenv("OPENCNC3D_SHORE_FILM_CACHE");
+        if(p)return !strcmp(p,"0")?0:!strcmp(p,"verify")?2:1;
+#ifdef _WIN32
+        return 1; /* Native CPU-bound gain; Mac keeps its measured path. */
+#else
+        return 0;
+#endif
+    }();
+    return mode;
+}
+static void water_shore_film_dump()
+{
+    printf("SHOREFILMCACHE|offers=%llu|hits=%llu|verified=%llu|bad=%llu|fallbacks=%llu|bytes=%zu\n",
+        g_waterShoreFilmOffers,g_waterShoreFilmHits,g_waterShoreFilmVerified,g_waterShoreFilmBad,
+        g_waterShoreFilmFallbacks,g_waterShoreFilmBytes);
+}
+static void water_shore_cache_forget()
+{
+    g_waterShoreNodes.clear();g_waterShoreFilmBytes=0;
+    g_waterShoreLastCell=NULL;g_waterShoreCacheValid=false;
+}
 
 /* Once before a shore draw, after terrain_surface_prepare_scene. The surface
    accessor returns zero when relief is off or unavailable, so a mode toggle
@@ -77,8 +111,7 @@ static void water_shore_cache_prepare(void)
     key.flatGround = ra3d_flat_ground();
     key.scene = g_pack.scen;
     if (g_waterShoreCacheValid && key == g_waterShoreCacheKey) return;
-    g_waterShoreNodes.clear();
-    g_waterShoreLastCell = NULL;
+    water_shore_cache_forget();
     g_waterShoreCacheKey = key;
     g_waterShoreCacheValid = true;
 }

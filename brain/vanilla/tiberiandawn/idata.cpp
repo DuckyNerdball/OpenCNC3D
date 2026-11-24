@@ -1476,6 +1476,91 @@ static InfantryTypeClass const E1TR(INFANTRY_E1TR,        // Infantry type numbe
                                     MPH_SLOW // Maximum speed of infantry.
 );
 
+// Original Red Alert SHP animation offsets, mapped by TD action rather than enum ordinal.
+static int RATanyaFrames[DO_COUNT * 3] = {
+    0, 1, 1, // DO_STAND_READY
+    0, 1, 1, // DO_STAND_GUARD
+    128, 1, 4, // DO_PRONE
+    8, 6, 6, // DO_WALK
+    56, 7, 7, // DO_FIRE_WEAPON
+    113, 2, 2, // DO_LIE_DOWN
+    128, 4, 4, // DO_CRAWL
+    161, 2, 2, // DO_GET_UP
+    176, 7, 7, // DO_FIRE_PRONE
+    232, 17, 0, // DO_IDLE1
+    249, 13, 0, // DO_IDLE2
+    0, 0, 0, // DO_ON_GUARD
+    0, 0, 0, // DO_FIGHT_READY
+    0, 0, 0, // DO_PUNCH
+    0, 0, 0, // DO_KICK
+    0, 0, 0, // DO_PUNCH_HIT1
+    0, 0, 0, // DO_PUNCH_HIT2
+    0, 0, 0, // DO_PUNCH_DEATH
+    0, 0, 0, // DO_KICK_HIT1
+    0, 0, 0, // DO_KICK_HIT2
+    0, 0, 0, // DO_KICK_DEATH
+    0, 0, 0, // DO_READY_WEAPON
+    262, 8, 0, // DO_GUN_DEATH
+    270, 8, 0, // DO_EXPLOSION_DEATH
+    278, 8, 0, // DO_EXPLOSION2_DEATH
+    286, 12, 0, // DO_GRENADE_DEATH
+    298, 18, 0, // DO_FIRE_DEATH
+    0, 1, 0, // DO_GESTURE1
+    0, 1, 0, // DO_SALUTE1
+    0, 1, 0, // DO_GESTURE2
+    0, 1, 0, // DO_SALUTE2
+    0, 0, 0, // DO_PULL_GUN
+    0, 0, 0, // DO_PLEAD
+    0, 0, 0, // DO_PLEAD_DEATH
+};
+static const InfantryTypeClass RATanya(
+    INFANTRY_RA_TANYA, TXT_RAMBO, "RTANY", 99, STRUCTF_NONE,
+    true, false, true, false, false, false, false, false,
+    -1, RATanyaFrames, 2, 2, 100, 6, 0, 99, 1, 1, 0,
+    WEAPON_RA_COLT, WEAPON_NONE, (MPHType)(5 * 256 / 100));
+
+static int RAShockFrames[DO_COUNT * 3] = {
+    0, 1, 1, // DO_STAND_READY
+    8, 1, 1, // DO_STAND_GUARD
+    256, 1, 16, // DO_PRONE
+    16, 6, 6, // DO_WALK
+    64, 16, 16, // DO_FIRE_WEAPON
+    192, 2, 2, // DO_LIE_DOWN
+    208, 4, 4, // DO_CRAWL
+    240, 2, 2, // DO_GET_UP
+    256, 16, 16, // DO_FIRE_PRONE
+    384, 16, 0, // DO_IDLE1
+    400, 16, 0, // DO_IDLE2
+    0, 0, 0, // DO_ON_GUARD
+    0, 0, 0, // DO_FIGHT_READY
+    0, 0, 0, // DO_PUNCH
+    0, 0, 0, // DO_KICK
+    0, 0, 0, // DO_PUNCH_HIT1
+    0, 0, 0, // DO_PUNCH_HIT2
+    0, 0, 0, // DO_PUNCH_DEATH
+    0, 0, 0, // DO_KICK_HIT1
+    0, 0, 0, // DO_KICK_HIT2
+    0, 0, 0, // DO_KICK_DEATH
+    0, 0, 0, // DO_READY_WEAPON
+    416, 8, 0, // DO_GUN_DEATH
+    432, 8, 0, // DO_EXPLOSION_DEATH
+    432, 8, 0, // DO_EXPLOSION2_DEATH
+    440, 12, 0, // DO_GRENADE_DEATH
+    452, 18, 0, // DO_FIRE_DEATH
+    470, 3, 3, // DO_GESTURE1
+    494, 3, 3, // DO_SALUTE1
+    518, 3, 3, // DO_GESTURE2
+    542, 3, 3, // DO_SALUTE2
+    0, 0, 0, // DO_PULL_GUN
+    0, 0, 0, // DO_PLEAD
+    0, 0, 0, // DO_PLEAD_DEATH
+};
+static const InfantryTypeClass RAShock(
+    INFANTRY_RA_SHOCK, TXT_RAMBO, "SHOK", 99, STRUCTF_NONE,
+    false, false, true, false, false, false, false, false,
+    -1, RAShockFrames, 2, 0, 80, 4, 0, 99, 1, 1, 0,
+    WEAPON_RA_PORTATESLA, WEAPON_NONE, (MPHType)(3 * 256 / 100));
+
 /*
 **	This is the array of pointers to the static data associated with each
 **	infantry type.
@@ -1501,7 +1586,7 @@ InfantryTypeClass const* const InfantryTypeClass::Pointers[INFANTRY_COUNT] = {&E
                                                                               &Moebius,
                                                                               &Delphi,
                                                                               &DrChan,
-                                                                              &E1TR};
+                                                                              &E1TR, &RATanya, &RAShock};
 
 /***********************************************************************************************
  * InfantryTypeClass::InfantryTypeClass -- Constructor for infantry type class objects.        *

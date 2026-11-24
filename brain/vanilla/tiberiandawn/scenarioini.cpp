@@ -12,6 +12,16 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D in November 2026. This is not EA's original file.
+// Both scenario loaders read a Rally course's [Rally] section (rally.h) and refuse
+// a Rally match whose course is missing or malformed. A Rally match also skips the
+// scenario's team types and triggers, the players' start units and the random
+// crates, and keeps the map's structures, units, infantry and overlay. Outside a
+// Rally match nothing changes. In a Rally match it DOES change the game simulation.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\ini.cpv   2.18   16 Oct 1995 16:48:50   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -46,8 +56,10 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
 #include "common/irandom.h"
 #include "ccini.h"
+#include "rally.h"
 
 /************************************* Prototypes *********************************************/
 static void Assign_Houses(void);
@@ -278,6 +290,15 @@ bool Read_Scenario_Ini(char* root, bool fresh)
     }
 
     /*
+    **	OpenCNC3D Rally: a Rally match needs the course's [Rally] section; without a
+    **	usable one the match is refused here, before anything is built.
+    */
+    if (!Rally_Read_INI(ini)) {
+        ScenarioInit--;
+        return (false);
+    }
+
+    /*
     ** Init the Scenario CRC value
     */
     ScenarioCRC = ini.Get_Unique_ID();
@@ -332,7 +353,7 @@ bool Read_Scenario_Ini(char* root, bool fresh)
     **	Read in the team-type data. The team types must be created before any
     **	triggers can be created.
     */
-    TeamTypeClass::Read_INI(ini);
+    if (!Gun_Game_Active() && !Rally_Active()) TeamTypeClass::Read_INI(ini);
     Call_Back();
 
     /*
@@ -346,7 +367,7 @@ bool Read_Scenario_Ini(char* root, bool fresh)
     **	Read in the trigger data. The triggers must be created before any other
     **	objects can be initialized.
     */
-    TriggerClass::Read_INI(ini);
+    if (!Gun_Game_Active() && !Rally_Active()) TriggerClass::Read_INI(ini);
     Call_Back();
 
     /*
@@ -430,28 +451,28 @@ bool Read_Scenario_Ini(char* root, bool fresh)
     /*
     **	Read in and place the units (all sides).
     */
-    UnitClass::Read_INI(ini);
+    if (!Gun_Game_Active()) UnitClass::Read_INI(ini);
     Call_Back();
 
-    AircraftClass::Read_INI(ini);
+    if (!Gun_Game_Active()) AircraftClass::Read_INI(ini);
     Call_Back();
 
     /*
     **	Read in and place the infantry units (all sides).
     */
-    InfantryClass::Read_INI(ini);
+    if (!Gun_Game_Active()) InfantryClass::Read_INI(ini);
     Call_Back();
 
     /*
     **	Read in and place all the buildings on the map.
     */
-    BuildingClass::Read_INI(ini);
+    if (!Gun_Game_Active()) BuildingClass::Read_INI(ini);
     Call_Back();
 
     /*
     **	Read in the AI's base information.
     */
-    Base.Read_INI(ini);
+    if (!Gun_Game_Active()) Base.Read_INI(ini);
     Call_Back();
 
     /*
@@ -607,7 +628,7 @@ bool Read_Scenario_Ini(char* root, bool fresh)
         **	a whole bunch of units.  MPlayerUnitCount is the total # of units
         **	to create.
         */
-        if (!Debug_Map) {
+        if (!Debug_Map && !Gun_Game_Active() && !Rally_Active()) {
             int save_init = ScenarioInit; // turn ScenarioInit off
             ScenarioInit = 0;
             Create_Units();
@@ -617,7 +638,7 @@ bool Read_Scenario_Ini(char* root, bool fresh)
         /*
         **	Place crates if MPlayerGoodies is on.
         */
-        if (MPlayerGoodies) {
+        if (MPlayerGoodies && !Rally_Active()) {
             for (int index = 0; index < MPlayerCount; index++) {
                 // for (int index = 0; index < 200; index++) {  // Lots of crates for test
                 Map.Place_Random_Crate();
@@ -694,6 +715,15 @@ bool Read_Scenario_Ini_File(char* scenario_file_name, char* bin_file_name, const
     }
 
     /*
+    **	OpenCNC3D Rally: a Rally match needs the course's [Rally] section; without a
+    **	usable one the match is refused here, before anything is built.
+    */
+    if (!Rally_Read_INI(ini)) {
+        ScenarioInit--;
+        return (false);
+    }
+
+    /*
     ** Init the Scenario CRC value
     */
     ScenarioCRC = ini.Get_Unique_ID();
@@ -741,7 +771,7 @@ bool Read_Scenario_Ini_File(char* scenario_file_name, char* bin_file_name, const
     **	Read in the team-type data. The team types must be created before any
     **	triggers can be created.
     */
-    TeamTypeClass::Read_INI(ini);
+    if (!Gun_Game_Active() && !Rally_Active()) TeamTypeClass::Read_INI(ini);
     Call_Back();
 
     /*
@@ -755,7 +785,7 @@ bool Read_Scenario_Ini_File(char* scenario_file_name, char* bin_file_name, const
     **	Read in the trigger data. The triggers must be created before any other
     **	objects can be initialized.
     */
-    TriggerClass::Read_INI(ini);
+    if (!Gun_Game_Active() && !Rally_Active()) TriggerClass::Read_INI(ini);
     Call_Back();
 
     /*
@@ -824,28 +854,28 @@ bool Read_Scenario_Ini_File(char* scenario_file_name, char* bin_file_name, const
     /*
     **	Read in and place the units (all sides).
     */
-    UnitClass::Read_INI(ini);
+    if (!Gun_Game_Active()) UnitClass::Read_INI(ini);
     Call_Back();
 
-    AircraftClass::Read_INI(ini);
+    if (!Gun_Game_Active()) AircraftClass::Read_INI(ini);
     Call_Back();
 
     /*
     **	Read in and place the infantry units (all sides).
     */
-    InfantryClass::Read_INI(ini);
+    if (!Gun_Game_Active()) InfantryClass::Read_INI(ini);
     Call_Back();
 
     /*
     **	Read in and place all the buildings on the map.
     */
-    BuildingClass::Read_INI(ini);
+    if (!Gun_Game_Active()) BuildingClass::Read_INI(ini);
     Call_Back();
 
     /*
     **	Read in the AI's base information.
     */
-    Base.Read_INI(ini);
+    if (!Gun_Game_Active()) Base.Read_INI(ini);
     Call_Back();
 
     /*
@@ -940,7 +970,7 @@ bool Read_Scenario_Ini_File(char* scenario_file_name, char* bin_file_name, const
         **	a whole bunch of units.  MPlayerUnitCount is the total # of units
         **	to create.
         */
-        if (!Debug_Map) {
+        if (!Debug_Map && !Gun_Game_Active() && !Rally_Active()) {
             int save_init = ScenarioInit; // turn ScenarioInit off
             ScenarioInit = 0;
             Create_Units();
@@ -950,7 +980,7 @@ bool Read_Scenario_Ini_File(char* scenario_file_name, char* bin_file_name, const
         /*
         **	Place crates if MPlayerGoodies is on.
         */
-        if (MPlayerGoodies) {
+        if (MPlayerGoodies && !Rally_Active()) {
             for (int index = 0; index < MPlayerCount; index++) {
                 // for (int index = 0; index < 200; index++) {  // Lots of crates for test
                 Map.Place_Random_Crate();

@@ -1,0 +1,23 @@
+# G474, the Red Alert infantry leg (SCU09EA): the same ladder as gate_queue_mixed.txt in
+# the other brain. Grenadier (bid 1) is clicked before Rifle Infantry (bid 0), so a queue
+# drained by id would come out the other way round.
+tick 30
+cheatset invuln 1
+tick 2
+echo G474-before
+count E1:@me
+count E2:@me
+echo G474-infantry
+sbclickitem E1
+sbclickitem E2
+sbclickitem E1
+sbclickitem E2
+sbrclickitem E2
+queuedump
+echo G474-drain
+tick 900
+echo G474-after
+queuedump
+count E1:@me
+count E2:@me
+quit

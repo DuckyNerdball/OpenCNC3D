@@ -6,12 +6,16 @@
 #
 # Run tools/win/setup-toolchain.sh once first.
 #
-# WHY 32-BIT. The Remaster DLL's save/load path casts a BuildingTypeClass* through
-# `unsigned int` (dllinterface.cpp, Decode_Pointers). At 32 bits that is lossless and was
-# how the code was written; at 64 it truncates, and GCC is right to refuse it. Building
-# i686 makes the question disappear instead of suppressing it, and it is the same
-# architecture the promised Win98 / Voodoo 2 target needs. Nothing here depends on the
-# larger address space. See BUILDING.md.
+#   OPENCNC3D_WIN_JOBS=1 tools/win/build-win.sh   -> the brain compiled one file at a time
+#
+# 64-BIT ONLY. Every program and DLL this script writes is x86-64 (PE32+), and any other
+# compiler host is refused below. The engine's pointers already live at 64-bit addresses
+# on macOS. What a 64-bit Windows build adds is one trap, and it is guarded here rather
+# than trusted: -fpermissive, which the Remaster header needs, turns GCC's "cast from
+# pointer to a smaller type loses precision" from an error into a warning, and at 64 bits
+# that cast is a real bug that works until something is allocated above 4 GB. So every
+# compiler message is kept (build/win/compile.log, build/win/brain-build.log) and a pointer
+# truncation in either stops the build. See BUILDING.md.
 #
 # WHY NO SOURCE WAS EDITED TO MAKE THIS WORK. Every file except game/cnc_eyes.cpp already
 # carried its own `#ifdef __APPLE__` GL guard. The renderer did not, and it is the file
@@ -20,6 +24,17 @@
 set -e
 cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
+
+# THE ONE HOST. A 32-bit host would write 32-bit programs into a folder the packager and
+# the release refuse, after minutes of compiling, so it is refused here, first.
+HOST=${OPENCNC3D_WIN_HOST:-x86_64-w64-mingw32}
+case "$HOST" in
+    x86_64-w64-mingw32) ;;
+    *) echo "OPENCNC3D_WIN_HOST=$HOST is refused: Windows builds are 64-bit only, and the" >&2
+       echo "only host is x86_64-w64-mingw32. Unset OPENCNC3D_WIN_HOST to use it." >&2
+       exit 1 ;;
+esac
+
 python3 "$ROOT/tools/bakery/materialize-grassmask.py"
 
 # THE BUILD NUMBER, regenerated before anything compiles. tools/version.sh reads the
@@ -32,7 +47,6 @@ if [ -z "$OPENCNC3D_SKIP_VERSION_HEADER" ] || [ ! -f "$ROOT/game/opencnc3d_build
     sh "$ROOT/tools/version.sh" --header "$ROOT/game/opencnc3d_build.h"
 fi
 
-HOST=${OPENCNC3D_WIN_HOST:-i686-w64-mingw32}
 SDK="${OPENCNC3D_WINSDK:-$HOME/.opencnc3d-winsdk}"
 OUT="$ROOT/build/win"
 DO_BRAIN=1
@@ -40,8 +54,101 @@ DO_BRAIN=1
 
 SDL2_ROOT=$(ls -d "$SDK"/SDL2-*/"$HOST" 2>/dev/null | head -1)
 [ -n "$SDL2_ROOT" ] || { echo "no SDL2 for $HOST in $SDK. Run tools/win/setup-toolchain.sh" >&2; exit 1; }
+[ -f "$SDL2_ROOT/lib/libSDL2.a" ] || { echo "no static libSDL2.a in $SDL2_ROOT/lib. Run tools/win/setup-toolchain.sh" >&2; exit 1; }
 [ -f "$SDK/lib/$HOST/libz.a" ] || { echo "no zlib for $HOST in $SDK. Run tools/win/setup-toolchain.sh" >&2; exit 1; }
 command -v $HOST-gcc >/dev/null 2>&1 || { echo "no $HOST-gcc on PATH (brew install mingw-w64)" >&2; exit 1; }
+
+# --no-brain KEEPS THE BRAIN ALREADY IN build/win, so that brain is asked first. A checkout
+# that built the 32-bit Windows half still holds 32-bit brain DLLs there, and a 64-bit game
+# beside one cannot load it (Windows error 193): the build would report success and hand
+# over a game that stops at its first mission. Refused before anything is compiled.
+if [ $DO_BRAIN -eq 0 ]; then
+    for brain in TiberianDawn.dll RedAlert.dll; do
+        if [ ! -f "$OUT/$brain" ]; then
+            echo "NOTE: --no-brain and no build/win/$brain: the programs build, but cannot start" >&2
+            echo "      a game from build/win until the brain is built (run without --no-brain)." >&2
+            continue
+        fi
+        python3 "$ROOT/tools/win/check-pe-arch.py" "$OUT/$brain" >/dev/null || {
+            echo "ERROR: --no-brain would keep build/win/$brain, which is not a 64-bit brain. A" >&2
+            echo "       64-bit game cannot load it. Run tools/win/build-win.sh once without" >&2
+            echo "       --no-brain to build the brain again for this architecture." >&2
+            exit 1; }
+    done
+fi
+
+# ONE ARCHITECTURE PER FOLDER. build/win outlives every build, and nothing used to empty
+# it, so a checkout that built the 32-bit Windows half still holds 32-bit programs and
+# DLLs there, including names no script writes any more. The packager refuses such a
+# folder, and a program from it left beside a fresh one is exactly the mix error 193 is
+# made of. So the host that filled the folder is written to build/win/.host, and when it
+# is missing or names another host, the folder's programs, its DLLs (except a brain
+# --no-brain has just accepted) and both object folders go before anything is compiled.
+# tools/win/build-launcher-win.sh asks the same file the same question.
+if [ "$(cat "$OUT/.host" 2>/dev/null)" != "$HOST" ]; then
+    echo "== build/win was not built for $HOST: removing its programs, DLLs and objects"
+    for f in "$OUT"/*.exe "$OUT"/*.dll; do
+        [ -f "$f" ] || continue
+        if [ $DO_BRAIN -eq 0 ]; then
+            case "${f##*/}" in TiberianDawn.dll|RedAlert.dll) continue ;; esac
+        fi
+        echo "   removed ${f##*/}"
+        rm -f "$f"
+    done
+    rm -rf "$OUT/obj" "$OUT/obj-launcher"
+fi
+mkdir -p "$OUT"
+printf '%s\n' "$HOST" > "$OUT/.host"
+
+# NO SDL2.dll IN THE FOLDER. SDL2 is linked into every program (see LIBS), so a copy here
+# is a leftover from an older build, and nothing may package it.
+if [ -f "$OUT/SDL2.dll" ]; then
+    rm -f "$OUT/SDL2.dll"
+    echo "   removed build/win/SDL2.dll: SDL2 is linked into the programs, no DLL ships"
+fi
+
+# EVERY COMPILER MESSAGE IS KEPT, AND A POINTER TRUNCATION STOPS THE BUILD.
+#
+# Every compile and link below goes through run_cc. Its messages are appended to
+# build/win/compile.log and shown, the compiler's own exit status decides whether the
+# build goes on, and then the whole log is searched for the three ways GCC reports a
+# pointer cut to a narrower integer: C++ under -fpermissive ("loses precision", a warning
+# there and an error everywhere else), and C ("cast from pointer to integer of different
+# size", "cast to pointer from integer of different size"). One is enough to stop the
+# build. C compiles also carry -Werror for those diagnostics and for int-conversion, so
+# in C the compiler stops first and the search is the second line.
+#
+# NO PIPE between a compiler and the shell, ever. This is sh with set -e and no pipefail
+# (CI runs it under dash), so "gcc ... | tee log" returns tee's status: a compile that
+# FAILED would report success, and the object from the previous run, still in obj/, would
+# be linked into the new program. The redirection keeps the compiler's own status.
+#
+# LC_ALL=C on every compile the search reads, because GCC translates its messages and the
+# patterns are the English ones; a German or French build machine would otherwise find
+# nothing and pass.
+LOG="$OUT/compile.log"
+: > "$LOG"
+TRUNCATION='loses precision|cast from pointer to integer of different size|cast to pointer from integer of different size'
+CWIDTH="-Werror=pointer-to-int-cast -Werror=int-to-pointer-cast -Werror=int-conversion"
+truncation_guard() {   # truncation_guard <log>: stop the build on a pointer truncation in it
+    if grep -E "$TRUNCATION" "$1" >/dev/null; then
+        echo "ERROR: a pointer is cut to a narrower integer (from $1):" >&2
+        grep -nE "$TRUNCATION" "$1" >&2
+        echo "       In a 64-bit program that loses the top half of an address. Cast through" >&2
+        echo "       intptr_t or uintptr_t instead. This build stops here on purpose." >&2
+        exit 1
+    fi
+}
+run_cc() {   # run_cc <compiler command...>
+    _from=$(( $(wc -c < "$LOG") + 1 ))
+    if LC_ALL=C "$@" 2>>"$LOG"; then _rc=0; else _rc=$?; fi
+    tail -c +"$_from" "$LOG" >&2
+    if [ "$_rc" -ne 0 ]; then
+        echo "ERROR: the compiler failed (exit $_rc); its messages are in $LOG" >&2
+        exit "$_rc"
+    fi
+    truncation_guard "$LOG"
+}
 
 # The anti-drift guard, first, before anything is compiled. See tools/win/sources.sh.
 tools/win/check-sources.sh
@@ -58,6 +165,8 @@ CC=$HOST-gcc
 CXX=$HOST-g++
 OBJ="$OUT/obj"
 mkdir -p "$OBJ"
+# Every program and DLL this script writes, for the read-back at the end.
+PRODUCED=""
 
 # compat/win FIRST: it answers <OpenGL/gl.h> and <dlfcn.h> for the renderer. Then game/,
 # for the same reason app/build.sh puts it first -- game/dosbar.c is a strict superset of
@@ -77,29 +186,28 @@ CDEFS="-DGL_SILENCE_DEPRECATION"
 # root, and two checkouts of one commit compile the same paths into their binaries.
 PATHMAP="-ffile-prefix-map=$ROOT=. -ffile-prefix-map=$SDK=winsdk"
 CDEFS="$CDEFS $PATHMAP"
+OPENCNC3D_WIN_HOST="$HOST" python3 tools/map-archive/build.py windows
+INC="$INC -I$ROOT/build-native/map-archive/cache/libarchive-3.8.10/libarchive"
+CDEFS="$CDEFS -DOPENCNC3D_MAP_ARCHIVE_STATIC=1 -DLIBARCHIVE_STATIC"
+ARCHIVE_LIBS="$ROOT/build-native/map-archive/windows/libmaparchive.a $ROOT/build-native/map-archive/windows/libmaplzma.a"
 
-# SSE2 FLOATING POINT FOR THE GAME, NOT THE 1995 x87 UNIT. Left to itself this compiler
-# targets a Pentium Pro and does every float on the x87 stack, and every float-to-int
-# conversion there switches the rounding mode and back (2,004 fldcw in the renderer
-# alone). The renderer converts floats all frame long. Measured with the same scenes on
-# two Windows PCs: GDI 1 under Enhanced 40.4 -> 20.0 ms (RTX 3060, Ryzen 7 5700X) and
-# 24.2 -> 15.4 ms (RX 7900 GRE, Ryzen 5 7500F), the big map with the shroud lifted
-# 71.7 -> 39.1 and 43.7 -> 24.7 ms, nothing else changed. Every CPU that runs Windows 10
-# or 11 has SSE2.
-# -mstackrealign because a 32-bit Windows callback (an SDL thread, the audio callback)
-# arrives with the stack aligned to 4 bytes while SSE code may assume 16; realigning in
-# the functions that need it costs a few instructions and removes the one way this
-# could crash. The brain DLL is built separately and keeps its own flags.
-WIN_CPU="-msse2 -mfpmath=sse -mstackrealign"
+# NO CPU FLAGS, AND THAT IS THE 64-BIT DEFAULT DOING THE WORK. The 32-bit build needed
+# -msse2 -mfpmath=sse to keep its floats off the old x87 unit, whose rounding-mode
+# switches roughly doubled Enhanced frame times, and -mstackrealign because a 32-bit
+# Windows callback arrives with the stack aligned to 4 bytes. x86-64 has neither problem:
+# SSE2 is its floating point unit and its ABI keeps the stack 16-byte aligned. With
+# -msse2 or -mfpmath=sse this compiler writes byte-identical code. The variable stays as
+# the one place a CPU target would go (-march=x86-64-v2, say), which would be a measured
+# decision of its own. The brain DLL is built separately and keeps its own flags.
+WIN_CPU=""
 
 echo "== C sources ($HOST)"
 # THE C DIALECT SPLIT IS THE MAC BUILD'S, NOT A NEW ONE.
 #
 # game/build.sh holds the sidebar rasteriser, the 640x480 HUD, the Options dialog and the
-# audio engine to -std=c89 on purpose, and says why: they carry no GL and no SDL, so a
-# Win98 compiler must be able to take them unchanged. That promise is worth keeping and
-# is kept here, which also means this build is the first thing that would notice if
-# someone broke it.
+# audio engine to -std=c89 on purpose: they carry no GL and no SDL and stay portable C.
+# The split is kept here too, which also means this build is the first thing that would
+# notice if someone broke it.
 #
 # The rest gets gnu99. Apple clang quietly accepts C99 declarations under gnu89 as an
 # extension and GCC does not, so app/campaign.c (declarations inside `for`) is the one
@@ -110,7 +218,7 @@ compile_c() {
     std=$1; shift
     for f in "$@"; do
         o="$OBJ/$(basename "$f" .c).o"
-        $CC -std=$std -O2 -g $WIN_CPU -Wall $CDEFS $INC -c "$f" -o "$o"
+        run_cc $CC -std=$std -O2 -g $WIN_CPU -Wall $CWIDTH $CDEFS $INC -c "$f" -o "$o"
         COBJ="$COBJ $o"
     done
 }
@@ -140,53 +248,75 @@ compile_c gnu89 net/roomcode.c
 compile_c gnu99 $WIN_HTTP_C
 
 # RGBA menu art remains GL 1.1/nearest; compile the shared native renderer once.
-$CXX -std=c++14 -O2 -g $CDEFS $INC -c "$WIN_MENU_CPP" -o "$OBJ/enhanced_menu.o"
-COBJ="$COBJ $OBJ/enhanced_menu.o"
+for f in $WIN_MENU_CPP; do
+    o="$OBJ/$(basename "$f" .cpp).o"
+    run_cc $CXX -std=c++14 -O2 -g $CDEFS $INC -c "$f" -o "$o"
+    COBJ="$COBJ $o"
+done
 
 echo "== renderer"
 # -fpermissive for the same reason the brain build needs it, and only for that reason:
 # these translation units include the Remaster's dllinterface.h, whose MS-style anonymous
-# unions GCC rejects and clang accepts. Nothing in our own code relies on it.
+# unions GCC rejects and clang accepts. Nothing in our own code relies on it. It would
+# also let a pointer-to-int truncation through as a warning, which in a 64-bit program is
+# a real bug; run_cc's search of the log is what stops the build on one.
 # -DOPENCNC3D_NO_MAIN compiles cnc_eyes.cpp as a library for opencnc3d-game.exe, exactly as the Mac
 # app build does. It is compiled twice because cnc_eyes.exe (what the gates drive) needs
 # the main() and opencnc3d-game.exe must not have two. Both take the build header, so
 # cnc_eyes.exe carries the same build mark the Mac renderer does.
-$CXX -std=c++14 -O2 -g $WIN_CPU -fms-extensions -fpermissive -DOPENCNC3D_NO_MAIN \
+run_cc $CXX -std=c++14 -O3 -g $WIN_CPU -fms-extensions -fpermissive -DOPENCNC3D_NO_MAIN \
      $CDEFS -include "$ROOT/game/opencnc3d_build.h" $INC -I"$HDR" -c "$WIN_EYES_CPP" -o "$OBJ/cnc_eyes_lib.o"
-$CXX -std=c++14 -O2 -g $WIN_CPU -fms-extensions -fpermissive \
+run_cc $CXX -std=c++14 -O3 -g $WIN_CPU -fms-extensions -fpermissive \
      $CDEFS -include "$ROOT/game/opencnc3d_build.h" $INC -I"$HDR" -c "$WIN_EYES_CPP" -o "$OBJ/cnc_eyes_main.o"
-$CXX -std=c++14 -O2 -g $WIN_CPU -fms-extensions -fpermissive \
-     $CDEFS $INC -I"$HDR" -c "$WIN_APP_CPP" -o "$OBJ/opencnc3d.o"
-# Same game, settings and renderer; automatic diagnostics is entry-specific.
-$CXX -std=c++14 -O2 -g $WIN_CPU -fms-extensions -fpermissive \
-     -DOPENCNC3D_DIAGNOSTIC_APP=1 $CDEFS $INC -I"$HDR" -c "$WIN_APP_CPP" -o "$OBJ/opencnc3d_diagnostics.o"
+# The app list can contain more than one translation unit. Compile every
+# listed source independently for both entry points; source-list parity alone
+# cannot catch a quoted list passed as one nonexistent filename.
+APP_OBJECTS=""
+APP_DIAGNOSTIC_OBJECTS=""
+for f in $WIN_APP_CPP; do
+    app_object="$OBJ/$(basename "$f" .cpp).o"
+    diagnostic_object="$OBJ/$(basename "$f" .cpp)_diagnostics.o"
+    run_cc $CXX -std=c++14 -O2 -g $WIN_CPU -fms-extensions -fpermissive \
+         $CDEFS $INC -I"$HDR" -c "$f" -o "$app_object"
+    run_cc $CXX -std=c++14 -O2 -g $WIN_CPU -fms-extensions -fpermissive \
+         -DOPENCNC3D_DIAGNOSTIC_APP=1 $CDEFS $INC -I"$HDR" -c "$f" -o "$diagnostic_object"
+    APP_OBJECTS="$APP_OBJECTS $app_object"
+    APP_DIAGNOSTIC_OBJECTS="$APP_DIAGNOSTIC_OBJECTS $diagnostic_object"
+done
 
-# -static-libgcc and -static-libstdc++ are NOT enough on their own: they leave
-# libwinpthread-1.dll as a runtime dependency, and a stock Windows 11 does not have it,
-# so the build would have died on a player's machine with a missing-DLL box and nothing
-# else to go on. The explicit -Bstatic -lwinpthread folds that one in too.
+# EVERYTHING IS LINKED INTO THE PROGRAM, SDL2 INCLUDED, so no DLL travels beside the .exe.
 #
-# A blanket -static was tried first and is wrong: it also drags in the static libSDL2.a,
-# which then wants every Windows multimedia import SDL normally resolves inside its own
-# DLL (it failed on waveOutGetErrorTextW). SDL2 stays dynamic, everything else does not,
-# which leaves SDL2.dll as the only file that has to travel beside the .exe.
+# -static is given to the g++ driver, and that is what folds the GCC runtime, the C++
+# runtime and winpthread in: -static-libgcc and -static-libstdc++ alone leave
+# libwinpthread-1.dll as a dependency, which a stock Windows 11 does not have, and naming
+# -lwinpthread with -Bstatic does not work because the driver appends its own dynamic
+# -lwinpthread after everything we pass.
+#
+# SDL2 comes from the SDK's static libSDL2.a. Inside a DLL, SDL resolves the Windows
+# multimedia, input and device calls it makes against its own imports; linked into the
+# program, those imports become ours, so SDL's private libraries follow it on this line
+# (they are the Libs.private of the SDK's sdl2.pc). A -static link without them fails on
+# the first of those calls, waveOutGetErrorTextW. With SDL inside the program, a folder
+# can no longer pair a 64-bit game with a 32-bit SDL2.dll an older install left behind.
 #
 # Console subsystem on purpose: the gates and every diagnostic in this project talk on
 # stdout and stderr, and -mwindows would throw all of it away.
-# The -Bdynamic island around -lSDL2 is the whole trick. -static on its own makes the
-# linker pick the static libSDL2.a, which then wants every Windows multimedia import SDL
-# normally resolves inside its own DLL (it failed on waveOutGetErrorTextW). Putting
-# -static outside and flipping to dynamic for SDL2 alone gets both halves: SDL2 from its
-# DLL, and the GCC runtime, the C++ runtime and winpthread folded into the binary.
-# Naming -lwinpthread with -Bstatic was tried first and does not work, because the g++
-# driver appends its own dynamic -lwinpthread after everything we pass.
 # -lws2_32 is winsock, for net/net_udp.c. It goes AFTER the objects that reference it,
-# which is what the rest of this line already assumes.
-# -lwininet is the HTTP client's transport, and it sits inside the static island beside
-# -lopengl32 for the same reason everything else here does: this linker resolves left to
-# right, so a library named before the objects that need it resolves nothing. That slot is
-# where the launcher's own working link line puts it.
-LIBS="-lmingw32 -lSDL2main -Wl,-Bdynamic -lSDL2 -Wl,-Bstatic -lopengl32 -lwininet -lz -lws2_32 -static"
+# which is what the rest of this line already assumes. -lwininet is the HTTP client's
+# transport, beside -lopengl32 for the same reason: this linker resolves left to right,
+# so a library named before the objects that need it resolves nothing. That slot is where
+# the launcher's own working link line puts it.
+LIBS="-static -lmingw32 -lSDL2main -lSDL2 -lopengl32 -lwininet -lz -lws2_32 -lm \
+      -ldinput8 -ldxguid -ldxerr8 -luser32 -lgdi32 -lwinmm -limm32 -lole32 -loleaut32 \
+      -lshell32 -lsetupapi -lversion -luuid"
+# LOADED ANYWHERE IN THE 64-BIT SPACE: a relocatable image (--dynamicbase), randomised
+# across the whole 64-bit range (--high-entropy-va), no executable data (--nxcompat).
+# These are the toolchain's defaults for x86-64 today and are named so that a change of
+# default cannot quietly take them away. With them, and the image base above 4 GB that
+# goes with them, a pointer cut to 32 bits faults the first time it is used instead of
+# working until a process grows past 4 GB. tools/win/check-pe-arch.py asks every program
+# for them at the end of this script.
+LDSEC="-Wl,--dynamicbase -Wl,--high-entropy-va -Wl,--nxcompat"
 
 echo "== link"
 # THE ICON AND THE VERSION BLOCK, compiled into opencnc3d-game.exe as resources, so the game
@@ -267,18 +397,28 @@ else
     sed 's/^/  windres: /' "$OBJ/manifest.err" >&2
 fi
 
-# LARGE ADDRESS AWARE, on both. A 32-bit process is given 2 GB of address space unless
-# its header says it can take more, and a mission start maps the engine, every pack, the
-# GL driver and the audio into that space at once. The engine's pointer encoding goes
-# through intptr_t and the same code already runs at 64-bit addresses on macOS, so
-# nothing in it assumes the top bit is clear. With the flag a 64-bit Windows gives the
-# process 4 GB. Read back with objdump -p: the Characteristics word carries 0x20.
-$CXX -Wl,--large-address-aware -o "$OUT/cnc_eyes.exe" "$OBJ/cnc_eyes_main.o" $MANOBJ $COBJ $LIBDIRS $LIBS
-$CXX -Wl,--large-address-aware -o "$OUT/opencnc3d-game.exe"    "$OBJ/opencnc3d.o" "$OBJ/cnc_eyes_lib.o" $RCOBJ $MANOBJ $COBJ $LIBDIRS $LIBS
+# No large-address-aware flag any more: the x86-64 linker refuses it, and a 64-bit program
+# has the whole address space without asking. What a 64-bit build has to keep instead is
+# LDSEC above, and the read-back at the end of this script asks for it.
+#
+# EVERY THREAD'S STACK HAS 512 KB COMMITTED FROM THE START (the reserve stays the default
+# 2 MB). A Windows stack otherwise commits one page at a time as it grows, and under a
+# commit limit (a job object's memory cap, or a machine whose commit is spent) the next page
+# can be refused, which Windows reports as a stack overflow however little of the stack is
+# in use: the game died that way, with no line, at a 4 GB cap. Committed up front, the pages
+# are there. It costs 512 KB of commit per thread (about ten in a game), and it is the
+# default for every thread made with no size of its own, the C runtime's, SDL's and the
+# graphics driver's included. game/fatal_guard.h prints a line if an overflow happens anyway.
+# The linker's option takes "reserve,commit" as one argument, so it is passed with -Xlinker:
+# -Wl splits at every comma and would hand the commit size to the linker as a file name.
+LDSTACK="-Xlinker --stack -Xlinker 2097152,524288"
+run_cc $CXX $LDSEC $LDSTACK -o "$OUT/cnc_eyes.exe" "$OBJ/cnc_eyes_main.o" $MANOBJ $COBJ $LIBDIRS $LIBS
+run_cc $CXX $LDSEC $LDSTACK -o "$OUT/opencnc3d-game.exe"    $APP_OBJECTS "$OBJ/cnc_eyes_lib.o" $RCOBJ $MANOBJ $COBJ $LIBDIRS $ARCHIVE_LIBS $LIBS -lbcrypt -lxmllite -ladvapi32 -lcomdlg32 -lwinspool
 
-$CXX -mwindows -Wl,--large-address-aware -o "$OUT/OpenCNC3D-Diagnostics.exe" "$OBJ/opencnc3d_diagnostics.o" "$OBJ/cnc_eyes_lib.o" $RCOBJ $MANOBJ $COBJ $LIBDIRS $LIBS
-
-cp "$SDL2_ROOT/bin/SDL2.dll" "$OUT/"
+run_cc $CXX -mwindows $LDSEC $LDSTACK -o "$OUT/OpenCNC3D-Diagnostics.exe" $APP_DIAGNOSTIC_OBJECTS "$OBJ/cnc_eyes_lib.o" $RCOBJ $MANOBJ $COBJ $LIBDIRS $ARCHIVE_LIBS $LIBS -lbcrypt -lxmllite -ladvapi32 -lcomdlg32 -lwinspool
+PRODUCED="$PRODUCED $OUT/cnc_eyes.exe $OUT/opencnc3d-game.exe $OUT/OpenCNC3D-Diagnostics.exe"
+python3 tools/map-archive/stage.py build-native/map-archive/windows "$OUT"
+PRODUCED="$PRODUCED $OUT/archive.dll"
 
 # THE CONNECTIVITY TOOL SHIPS WITH THE WINDOWS BUILD, and it has to, because the pairing
 # it is most needed for is this machine against the Mac one. It links only the two net
@@ -301,58 +441,111 @@ cp "$SDL2_ROOT/bin/SDL2.dll" "$OUT/"
 # and kept linking on the Mac. A new net source that netcheck calls needs adding HERE as
 # well as to sources.sh.
 echo "== netcheck.exe"
-$CC -std=gnu89 -O2 -g -Wall $PATHMAP -Wl,--stack,16777216 -o "$OUT/netcheck.exe" \
+run_cc $CC -std=gnu89 -O2 -g -Wall $CWIDTH $PATHMAP $LDSEC -Wl,--stack,16777216 -o "$OUT/netcheck.exe" \
     "$ROOT/net/netcheck.c" "$ROOT/net/lockstep.c" "$ROOT/net/net_udp.c" \
     "$ROOT/net/roomcode.c" -lws2_32
+PRODUCED="$PRODUCED $OUT/netcheck.exe"
 
 # THE HEADLESS BRAIN HOST AND THE TWO-BRAIN GATE, for the Windows half of Phase 0
 # (docs/design-multiplayer.md section 10). Both are dependency-free C over LoadLibrary,
 # compiled unedited from brain/host/, and both need the DLL built below beside them to
-# be useful. Until 3 Sep 2026 the only Windows build rule for cnc_host.c was the Win98
-# one, so the cross architecture determinism run could be captured on the Mac and not
-# here, which is the one machine it needs. gnu99 for the same reason tools/win98/build.sh
-# gives: loop variables in for statements and _Static_assert on the struct mirrors.
+# be useful: the cross architecture determinism run needs both halves. gnu99 for loop
+# variables in for statements and _Static_assert on the struct mirrors.
 # Standalone, like netcheck: nothing links them into the game, and brain/host/* is
 # excluded from tools/win/check-sources.sh by directory.
 echo "== cncbrain.exe, cnc_twobrain.exe"
-$CC -std=gnu99 -O2 -g -Wall -I"$ROOT/brain/host" -o "$OUT/cncbrain.exe" "$ROOT/brain/host/cnc_host.c"
-$CC -std=gnu99 -O2 -g -Wall -I"$ROOT/brain/host" -o "$OUT/cnc_twobrain.exe" "$ROOT/brain/host/cnc_twobrain.c"
+run_cc $CC -std=gnu99 -O2 -g -Wall $CWIDTH $LDSEC -I"$ROOT/brain/host" -o "$OUT/cncbrain.exe" "$ROOT/brain/host/cnc_host.c"
+run_cc $CC -std=gnu99 -O2 -g -Wall $CWIDTH $LDSEC -I"$ROOT/brain/host" -o "$OUT/cnc_twobrain.exe" "$ROOT/brain/host/cnc_twobrain.c"
+PRODUCED="$PRODUCED $OUT/cncbrain.exe $OUT/cnc_twobrain.exe"
 
 if [ $DO_BRAIN -eq 1 ]; then
     echo "== brains (TiberianDawn.dll + RedAlert.dll)"
     # -fpermissive: GCC rejects the Remaster header's MS-style anonymous unions with
     # named struct types, and one extra qualification on a constructor. Both are ISO
     # conformance complaints about name lookup with no effect on generated code, and
-    # clang accepts them silently on the Mac side. The one -fpermissive diagnostic that
-    # WOULD have mattered, the pointer-to-unsigned-int truncation, does not arise at all
-    # at 32 bits, which is why this is a safe flag here and would not have been at 64.
+    # clang accepts them silently on the Mac side. The same flag also turns the one
+    # diagnostic that matters at 64 bits, a pointer cast to a 32-bit integer ("loses
+    # precision"), into a warning. So the brain's compiler output is kept in
+    # build/win/brain-build.log, not thrown away, and truncation_guard reads it below.
     tc="$ROOT/brain/vanilla/cmake/$(echo $HOST | cut -d- -f1)-mingw-w64-toolchain.cmake"
+    # THE BRAIN CACHE IS PER ARCHITECTURE: brain/vanilla/build-win64. A CMake cache keeps
+    # the compiler that configured it, and the 32-bit builds used brain/vanilla/build-win,
+    # so a 64-bit build pointed at that folder would quietly compile 32-bit brains again.
+    # A 32-bit cache there is removed once, so nothing can pick it up by hand either.
+    if [ -f brain/vanilla/build-win/CMakeCache.txt ] && \
+       grep -q 'i686-w64-mingw32' brain/vanilla/build-win/CMakeCache.txt; then
+        echo "   removing brain/vanilla/build-win: a 32-bit brain cache from an older build"
+        rm -rf brain/vanilla/build-win
+    fi
+    BRAINDIR=brain/vanilla/build-win64
     # A cache remembers the cmake and the mingw tools that configured it by absolute path.
     # After the build machine's toolchain moves (an Intel Homebrew in /usr/local replaced
     # by a native one in /opt/homebrew) the cache names programs that no longer run, and
-    # every configure fails in the silent subshell below. It holds nothing that is not
-    # rebuilt from source, so a cache from another cmake is thrown away.
-    if [ -f brain/vanilla/build-win/CMakeCache.txt ] && \
-       [ "$(sed -n 's/^CMAKE_COMMAND:INTERNAL=//p' brain/vanilla/build-win/CMakeCache.txt)" != "$(command -v cmake)" ]; then
-        echo "   brain/vanilla/build-win was configured by another cmake: configuring it fresh"
-        rm -rf brain/vanilla/build-win
+    # every configure fails. It holds nothing that is not rebuilt from source, so a cache
+    # from another cmake, or one whose compiler is not this host's, is thrown away.
+    #
+    # The compiler is asked through two entries the cache really carries. The toolchain
+    # file sets CMAKE_CXX_COMPILER as a plain variable, so that name never reaches
+    # CMakeCache.txt, and a test of it matched nothing and threw every cache away. The
+    # toolchain file's own name says the architecture (x86_64-mingw-w64-toolchain.cmake),
+    # and the archiver CMake found beside the compiler says which mingw it was and where
+    # it lives: this host's prefix, at a path that still runs.
+    if [ -f "$BRAINDIR/CMakeCache.txt" ]; then
+        cached_tc=$(sed -n 's/^CMAKE_TOOLCHAIN_FILE:FILEPATH=//p' "$BRAINDIR/CMakeCache.txt")
+        cached_ar=$(sed -n 's/^CMAKE_CXX_COMPILER_AR:FILEPATH=//p' "$BRAINDIR/CMakeCache.txt")
+        case "$cached_ar" in
+            */$HOST-gcc-ar|*/$HOST-gcc-ar.exe) ar_ok=1 ;;
+            *) ar_ok=0 ;;
+        esac
+        if [ "$(sed -n 's/^CMAKE_COMMAND:INTERNAL=//p' "$BRAINDIR/CMakeCache.txt")" != "$(command -v cmake)" ]; then
+            echo "   $BRAINDIR was configured by another cmake: configuring it fresh"
+            rm -rf "$BRAINDIR"
+        elif [ "${cached_tc##*/}" != "${tc##*/}" ] || [ $ar_ok -eq 0 ]; then
+            echo "   $BRAINDIR was configured for another compiler: configuring it fresh"
+            rm -rf "$BRAINDIR"
+        elif [ ! -x "$cached_ar" ]; then
+            echo "   $BRAINDIR names mingw tools that are no longer there: configuring it fresh"
+            rm -rf "$BRAINDIR"
+        fi
     fi
-    mkdir -p brain/vanilla/build-win
-    (cd brain/vanilla/build-win && \
-     cmake .. -DCMAKE_TOOLCHAIN_FILE="$tc" \
+    # As many compile jobs as the machine has cores, unless OPENCNC3D_WIN_JOBS says
+    # otherwise: a machine busy measuring something else can build one file at a time.
+    JOBS=${OPENCNC3D_WIN_JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}
+    case "$JOBS" in
+        ''|*[!0-9]*|0) echo "OPENCNC3D_WIN_JOBS=$JOBS is not a number of jobs (1 or more)" >&2; exit 1 ;;
+    esac
+    BRAINLOG="$OUT/brain-build.log"
+    : > "$BRAINLOG"
+    mkdir -p "$BRAINDIR"
+    BRAIN_BUILT=1
+    (cd "$BRAINDIR" && \
+     LC_ALL=C cmake .. -DCMAKE_TOOLCHAIN_FILE="$tc" \
               -DCMAKE_CXX_FLAGS="-fms-extensions -fpermissive -flifetime-dse=1 $PATHMAP" \
               -DCMAKE_C_FLAGS="$PATHMAP" \
-              -DCMAKE_SHARED_LINKER_FLAGS="-static" \
+              -DCMAKE_SHARED_LINKER_FLAGS="-static $LDSEC" \
               -DBUILD_REMASTERTD=ON -DBUILD_VANILLATD=OFF -DBUILD_VANILLARA=OFF \
-              -DBUILD_REMASTERRA=ON -DSDL2=OFF -DOPENAL=OFF -DNETWORKING=OFF >/dev/null && \
-     cmake --build . --target TiberianDawn RedAlert -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" >/dev/null) \
-        || { echo "ERROR: the Windows brain did not build. Re-run with the cmake output" >&2
-             echo "       visible, or delete brain/vanilla/build-win and try again: a cache" >&2
-             echo "       generated under a different path refuses every later configure." >&2
-             exit 1; }
+              -DBUILD_REMASTERRA=ON -DSDL2=OFF -DOPENAL=OFF -DNETWORKING=OFF >>"$BRAINLOG" 2>&1 && \
+     LC_ALL=C cmake --build . --target TiberianDawn RedAlert -j"$JOBS" >>"$BRAINLOG" 2>&1) \
+        || BRAIN_BUILT=0
+    # A TRUNCATION IN THE BRAIN ALSO EMPTIES ITS CACHE, whether or not the rest built. CMake
+    # compiles only what changed, so the next run would not compile the offending file
+    # again, print nothing, and pass this search with the very object that carries the
+    # truncation. Thrown away, the next build compiles every brain file and asks again.
+    if grep -E "$TRUNCATION" "$BRAINLOG" >/dev/null; then
+        echo "   removing $BRAINDIR so that the next build compiles every brain file again"
+        rm -rf "$BRAINDIR"
+    fi
+    if [ $BRAIN_BUILT -eq 0 ]; then
+        echo "ERROR: the Windows brain did not build. The end of $BRAINLOG:" >&2
+        tail -n 40 "$BRAINLOG" >&2
+        echo "       A cache generated under a different path refuses every later" >&2
+        echo "       configure; deleting $BRAINDIR and trying again clears that." >&2
+        exit 1
+    fi
+    truncation_guard "$BRAINLOG"
     # THE COPY IS CONDITIONAL, and it used to be unconditional.
     #
-    # Both cmake steps send their output to /dev/null and sit inside a subshell, so a
+    # Both cmake steps used to send their output to /dev/null inside a subshell, so a
     # configure that refused left no message; the cp beneath it then copied whatever
     # TiberianDawn.dll happened to be in the build directory from a previous run, and the
     # script printed the file under "built:" as though it had just made it. A working copy
@@ -362,11 +555,16 @@ if [ $DO_BRAIN -eq 1 ]; then
     # some earlier one, which is the precise failure the both-platforms rule exists to
     # prevent, reported as success.
     for brain in TiberianDawn.dll RedAlert.dll; do
-        [ -f "brain/vanilla/build-win/$brain" ] \
+        [ -f "$BRAINDIR/$brain" ] \
             || { echo "ERROR: cmake reported success but $brain was not produced" >&2; exit 1; }
-        cp "brain/vanilla/build-win/$brain" "$OUT/"
+        cp "$BRAINDIR/$brain" "$OUT/"
     done
 fi
+# The brains in the folder are part of what is asked at the end, whether this run built
+# them or --no-brain kept them: they are what the programs beside them will load.
+for brain in TiberianDawn.dll RedAlert.dll; do
+    if [ -f "$OUT/$brain" ]; then PRODUCED="$PRODUCED $OUT/$brain"; fi
+done
 
 # The RA bootstrap probe is a build/test tool, not a shipped game binary. Keep it in the
 # cross-build output so CI can execute it under its Windows runtime and compare its report
@@ -375,9 +573,23 @@ fi
 # invalidates the gate, and a static link keeps the native runner independent of MinGW DLLs.
 if [ -f "$ROOT/brain/host/ra_bootstrap.c" ]; then
     echo "== ra_bootstrap.exe"
-    $CC -std=c11 -O2 -g -Wall -Wextra -Werror -static -I"$ROOT/brain/host" \
+    run_cc $CC -std=c11 -O2 -g -Wall -Wextra -Werror $CWIDTH -static $LDSEC -I"$ROOT/brain/host" \
         -o "$OUT/ra_bootstrap.exe" "$ROOT/brain/host/ra_bootstrap.c"
+    PRODUCED="$PRODUCED $OUT/ra_bootstrap.exe"
 fi
+
+# AND READ BACK, every file this script wrote and every brain it kept, by content.
+# check-pe-arch.py refuses anything that is not x86-64 PE32+, that has lost the
+# high-entropy relocatable layout LDSEC asks for, or whose import table names SDL2.dll:
+# a link line that fell back to the import library would still build and run here, and
+# would ship a program that stops on any machine without the DLL beside it. It reads the
+# files itself, so this step needs no objdump, which MSYS2's MINGW64 installs unprefixed.
+# It runs here, at the end, on exactly these files: run earlier, over the whole folder,
+# it would trip on programs the rest of this script is about to rewrite.
+echo "== read back"
+python3 "$ROOT/tools/win/check-pe-arch.py" $PRODUCED || {
+    echo "ERROR: a program this build wrote is not a 64-bit Windows program laid out as required" >&2
+    exit 1; }
 
 echo
 echo "built:"

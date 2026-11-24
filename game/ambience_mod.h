@@ -131,6 +131,78 @@ struct AmbienceLevels {
     int riverPan;
 };
 
+/* THE OCEAN COVERAGE IS KEPT WHILE NOTHING IT READS HAS CHANGED. Each of its 336 samples
+   marches a screen ray down through the terrain (screen_to_world), which was about 3% of
+   a late Red Alert skirmish frame on the Mac when it ran every frame. The count depends
+   only on the frame size, the camera, the ground's heights and the water field, so it is
+   kept with all of those and counted again only when one of them moves: a still camera
+   reads it back, a scrolling one counts it every frame as before. The answer is the same
+   integer either way. OPENCNC3D_AMBIENCE_SAMPLE_CACHE=0 counts every frame;
+   OPENCNC3D_AMBIENCE_SAMPLE_VERIFY=1 counts every frame AND compares with the kept
+   count, reported by ambience_sample_report. */
+struct AmbienceSampleKey {
+    int fbw, fbh, camMode, dosClassic, raModule, flat;
+    float zoom, camX, camZ, yaw, pitch, dist, aspect, focal, atY, hTop, hBot;
+    unsigned groundGen, padEpoch, surfaceGen, planeEpoch, holesGen, fieldBuilds;
+    int fieldW, fieldH, fieldRes;
+    size_t classSize;
+};
+static AmbienceSampleKey g_ambSampleKey;
+static bool g_ambSampleValid = false;
+static int  g_ambSampleOcean = 0;
+static unsigned long long g_ambSampleHits = 0, g_ambSampleCounts = 0, g_ambSampleMismatches = 0;
+static int ambience_ocean_samples(int fbw, int fbh)
+{
+    const int w = g_waterFieldW, h = g_waterFieldH, res = g_waterFieldRes;
+    int ocean = 0;
+    // Uniform screen samples measure screen coverage, not a world-space bounding box.
+    for (int row = 0; row < 14; ++row) for (int col = 0; col < 24; ++col) {
+        float x, z;
+        if (!screen_to_world((col + 0.5f) * fbw / 24, (row + 0.5f) * fbh / 14,
+                             fbw, fbh, &x, &z)) continue;
+        int ix = (int)floorf(x * res), iz = (int)floorf(z * res);
+        if (ix >= 0 && iz >= 0 && ix < w && iz < h &&
+            g_waterAudioClass[(size_t)iz * w + ix] == 1) ++ocean;
+    }
+    return ocean;
+}
+static int ambience_ocean_coverage(int fbw, int fbh)
+{
+    static int cacheOn = -1, verify = -1;
+    if (cacheOn < 0) cacheOn = mesh_perf_switch("OPENCNC3D_AMBIENCE_SAMPLE_CACHE") ? 1 : 0;
+    if (verify < 0) {
+        const char* v = getenv("OPENCNC3D_AMBIENCE_SAMPLE_VERIFY");
+        verify = v && *v && strcmp(v, "0") ? 1 : 0;
+    }
+    if (!cacheOn) { g_ambSampleCounts++; return ambience_ocean_samples(fbw, fbh); }
+    AmbienceSampleKey k;
+    memset(&k, 0, sizeof k);             /* the padding too: the key is compared bytewise */
+    k.fbw = fbw; k.fbh = fbh; k.camMode = (int)g_camMode; k.dosClassic = g_fx.dos_classic ? 1 : 0;
+    k.raModule = g_raModule ? 1 : 0; k.flat = g_pack.corner.empty() ? 1 : 0;
+    k.zoom = g_zoom; k.camX = g_camX; k.camZ = g_camZ; k.yaw = g_camYaw;
+    k.pitch = n64_pitch(); k.dist = n64_dist_cells(); k.aspect = cam_aspect(fbw, fbh);
+    k.focal = (float)cam_f(); k.atY = cam_at_y(); k.hTop = g_terrainHTop; k.hBot = g_terrainHBot;
+    k.groundGen = g_groundGen; k.padEpoch = g_padEpoch; k.surfaceGen = terrain_surface_generation();
+    k.planeEpoch = water_plane_epoch(); k.holesGen = g_cellHolesGen; k.fieldBuilds = g_waterFieldBuilds;
+    k.fieldW = g_waterFieldW; k.fieldH = g_waterFieldH; k.fieldRes = g_waterFieldRes;
+    k.classSize = g_waterAudioClass.size();
+    if (g_ambSampleValid && !memcmp(&k, &g_ambSampleKey, sizeof k)) {
+        g_ambSampleHits++;
+        if (verify && ambience_ocean_samples(fbw, fbh) != g_ambSampleOcean) g_ambSampleMismatches++;
+        return g_ambSampleOcean;
+    }
+    g_ambSampleCounts++;
+    g_ambSampleOcean = ambience_ocean_samples(fbw, fbh);
+    g_ambSampleKey = k;
+    g_ambSampleValid = true;
+    return g_ambSampleOcean;
+}
+static void ambience_sample_report(void)
+{
+    printf("AMBIENCESAMPLE|hits=%llu|counted=%llu|mismatches=%llu\n",
+           g_ambSampleHits, g_ambSampleCounts, g_ambSampleMismatches);
+}
+
 static AmbienceLevels ambience_levels(int fbw, int fbh)
 {
     AmbienceLevels levels = {};
@@ -141,17 +213,7 @@ static AmbienceLevels ambience_levels(int fbw, int fbh)
     for (size_t i = 0; i < water_cells().size(); ++i)
         if (water_cells()[i].holes) { hasWater = true; break; }
     if (hasWater && water_field_sync() && !g_waterAudioClass.empty()) {
-        const int w = g_waterFieldW, h = g_waterFieldH, res = g_waterFieldRes;
-        int ocean = 0;
-        // Uniform screen samples measure screen coverage, not a world-space bounding box.
-        for (int row = 0; row < 14; ++row) for (int col = 0; col < 24; ++col) {
-            float x, z;
-            if (!screen_to_world((col + 0.5f) * fbw / 24, (row + 0.5f) * fbh / 14,
-                                 fbw, fbh, &x, &z)) continue;
-            int ix = (int)floorf(x * res), iz = (int)floorf(z * res);
-            if (ix >= 0 && iz >= 0 && ix < w && iz < h &&
-                g_waterAudioClass[(size_t)iz * w + ix] == 1) ++ocean;
-        }
+        const int ocean = ambience_ocean_coverage(fbw, fbh);
         float seaD = 1e6f, riverD = 1e6f, rx = g_camX, rz = g_camZ;
         for (size_t i = 0; i < g_waterAudioSources.size(); ++i) {
             const WaterAudioSource& s = g_waterAudioSources[i];
@@ -172,7 +234,8 @@ static AmbienceLevels ambience_levels(int fbw, int fbh)
     // equal-power: a straight linear blend sags about 3 dB at mid zoom.
     const float nearMix = ambience_near_mix(levels.zoom);
     const float nearG = sinf(nearMix * (float)M_PI * 0.5f), farG = cosf(nearMix * (float)M_PI * 0.5f);
-    bool desert = !strcmp(g_pack.theater, "DESERT");
+    // Red Alert's snow plays the desert bed, and its temperate Tiberian Dawn's temperate one.
+    bool desert = !strcmp(g_pack.theater, "DESERT") || !strcmp(g_pack.theater, "RASNOW");
     bool temperate = !strcmp(g_pack.theater, "TEMPERAT") || !strcmp(g_pack.theater, "RATEMP");
     levels.gains[0] = desert ? nearG * (1 - levels.ocean) : 0;
     levels.gains[1] = desert ? farG * (1 - levels.ocean) : 0;

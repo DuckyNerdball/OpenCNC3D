@@ -1,0 +1,29 @@
+# G474, the Red Alert ships leg (SCU08EA, a Sub Pen at the start): ships are their own
+# category (category 4), queued like the others. The Transport (bid 3) is queued before
+# the Submarine (bid 0). Red Alert's HUD draws no production card strip, so the strip log
+# below reads empty; it is kept so the leg shows the moment a strip is drawn for it.
+tick 30
+cheatset invuln 1
+hudqlog 1
+tick 2
+echo G474-before
+count SS:@me
+count LST:@me
+echo G474-ships
+sbclickitem SS
+sbclickitem LST
+sbclickitem SS
+queuedump
+frames 40
+echo G474-cards
+frames 1
+hudqlog 0
+echo G474-drain
+tick 1000
+queuedump
+tick 1000
+echo G474-after
+queuedump
+count SS:@me
+count LST:@me
+quit

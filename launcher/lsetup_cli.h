@@ -28,6 +28,21 @@
  *       this launcher, so that the launcher can draw the screen offering to install the
  *       game there (lupdate.h, lu_fetch_pack). A pack already there is left alone.
  *
+ *   --uninstall --dir DIR [--keep-settings] [--media-manifest FILE]
+ *
+ *       Take out of DIR everything the installer and this launcher put there, so the
+ *       Windows uninstaller can then delete the launcher itself: every file either
+ *       game's ownership list names (shared ones included), the movies, music and
+ *       language packs of both games, the module download cache, an update's leftover
+ *       download, the launcher's install records, and the game's settings files and
+ *       logs unless --keep-settings. Then the folders that left empty. Files are
+ *       removed by name only, never through a link, and anything else (a map, a
+ *       screenshot, a folder holding one) stays; saves are in the per-user folder and
+ *       are never touched. Refused, with nothing changed, while another launcher holds
+ *       the folder or, on Windows, while the game is running. Prints one
+ *       UNINSTALL|PASS|... or UNINSTALL|FAIL|<why> line; exit 0 or 1. A failed run can
+ *       simply be run again: it finishes an interrupted removal first.
+ *
  * THE PROGRESS FILE, rewritten about four times a second, always whole (a new copy
  * renamed over the old), in this order:
  *

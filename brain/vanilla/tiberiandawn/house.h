@@ -18,6 +18,9 @@
 // were granted by the cheat menu plus a setter and a getter for it.
 // Declarations only; the behaviour that reads the flag lives in house.cpp.
 // It does not change the game simulation.
+// MODIFIED for OpenCNC3D. Declares OpenCNC3D_Widen_Saved, which
+// reads one house as saves from before the Red Alert unit types were added wrote it.
+// A declaration only; it does not change the class layout or the game simulation.
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
@@ -487,6 +490,13 @@ public:
     static unsigned OpenCNC3D_CheatSuperHouses;
     static void OpenCNC3D_Set_Cheat_Supers(HousesType house, bool on);
     static bool OpenCNC3D_Cheat_Supers(HousesType house);
+    /*
+    ** OpenCNC3D: copies one house as an older save wrote it, with fewer unit, infantry and
+    ** aircraft types in its per-type tallies, into this build's layout, the new types'
+    ** entries zero. False when the record is not the size that save format used.
+    ** Used by Load_Game (saveload.cpp).
+    */
+    static bool OpenCNC3D_Widen_Saved(unsigned char const* old_bytes, int old_size, HouseClass* out);
 
     bool Flag_To_Win(void);
     bool Flag_To_Lose(void);

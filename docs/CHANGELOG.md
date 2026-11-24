@@ -1,5 +1,504 @@
 # Changelog
 
+## OpenCNC3D v0.9.12 Alpha (2026-11-23)
+
+### New features
+
+- Match results in both games now have Summary, Score, Units, Structures and Economy tabs and a graph of the whole match; Dawn3D uses the TOP SCORES board in its own style.
+
+### Improvements
+
+- Switching between Classic, N64 and Enhanced is now a one second left-to-right swipe, with a green line in Dawn3D and a red one in RA3D.
+- Your own cloaked Stealth Tank now shows a flickering pale outline in Enhanced; enemy ones stay hidden.
+- Coastline crests in Enhanced are lit smoothly along the shore instead of one flat shade per cell.
+
+### Performance
+
+- Switching from Classic or N64 to Enhanced no longer freezes after a long game; buildings that appear in play are prepared in the background.
+
+### Bugs fixed
+
+- Fixed RA3D's Sub Pen and Naval Yard placement showing water as buildable that the game then refused.
+- Fixed RA3D charging for a Yak or MiG beyond the number of Airfields, which left it stuck in the factory and held up later aircraft.
+- Fixed RA3D tanks dropping an attack order given while they were still moving.
+- Fixed a dark shadow on the ground beside every health bar in Enhanced.
+- Fixed a building's health bar stretching across the screen at the nearest zoom levels in Enhanced.
+- Fixed the Stealth Tank's cloak shimmer picking up its health bar's colour and breaking into chunks at the nearest zoom levels.
+- Fixed the Enhanced Refinery's status lights staying lit; they now fill while a Harvester unloads.
+- Fixed the Modern mouse scheme: left click selects and deselects, only right click gives orders.
+- Fixed the sidebar filling only part of a 1080-row screen or window, and the UI scale setting doing nothing there.
+- Fixed the Mac installer showing an empty box instead of its emblem; it now says where the game is installed and how to find it.
+- Fixed Save Mission writing over your last save once 16 saves existed; there is now room for 100 saves.
+- Fixed attacks on a helicopter parked on its helipad hitting the pad instead of the helicopter.
+- Fixed the waterfall rocks in Enhanced, now repainted to match the cliffs, and a hard line down the middle of narrow rivers.
+- Fixed Mac and Windows players getting different computer start positions on some RA3D maps, and different creature and reinforcement cells in Dawn3D.
+- Fixed RA3D's Unlock Superweapons cheat repeating the superweapon ready announcement endlessly.
+
+---
+
+## OpenCNC3D v0.9.11 Alpha (2026-11-21)
+
+### New features
+
+- Factories queue several unit types at once, up to nine of each, with a count on each picture.
+- Add a Key Bindings page for the command keys and the mouse button that drags the map.
+- Add a Modern mouse scheme (left selects, right orders) beside Classic and Left hand.
+- More of the engine's command keys work: next and previous unit, select all on screen, centre on selection and camera bookmarks.
+- A selected rocket launcher or firing defence shows its weapon range as a slowly turning dashed circle.
+- Separate scroll speeds for the screen edge and arrow keys, right-button drag and middle-button drag.
+- Classic and Enhanced show an arrow at the screen edge while the map scrolls.
+- Skirmish and network result screens show your own score and place, in both games.
+
+### Improvements
+
+- The Dawn3D skirmish computer keeps building its base, adds refineries and sends tanks in its attacks.
+- Your own cloaked Stealth Tank is a dark see-through ghost in N64 and Enhanced, with the ground shimmering through it in Enhanced.
+- Attack-move fights enemies in range, gives up long chases and carries on to its destination.
+- Soldiers re-ordered on the move walk off at once.
+- A held selection box stretches as the map scrolls and takes exactly what it shows.
+- The selection box outline matches what it selects in every camera.
+- In RA3D a drag box over several units gets one voice answer instead of a chorus, and in both games the answer comes from the unit the original game picks.
+- Edge scrolling moves a near-even step every frame, and the N64 and Enhanced views glide over hills.
+- Scrolling is smoother and each scroll speed has a faster top end.
+- Dawn3D says Insufficient funds at the click when a build is started with almost no money, without the game's reminder repeating it.
+- In Dawn3D campaign missions, units a captured factory unlocked leave the sidebar with it, and any in production are refunded.
+- Nod's S.S.M. Launcher has its own grey sidebar slot before it can be built.
+- A Dawn3D save too old to load says it was made by an earlier version, and the file is kept.
+- A window at desktop size sits above the taskbar, to address the bottom screen edge not scrolling the map.
+- In full screen, the bottom screen row scrolls the map even with the taskbar or Dock slid over it, to address the bottom edge not scrolling.
+- The map editor opens at the game's own eye height.
+
+### Bugs fixed
+
+- Fix Dawn3D saves from v0.8.0 to v0.9.6 refusing to load.
+- Fix the next save crashing after a Dawn3D save failed to load.
+- Fix the selection box taking units hidden behind the sidebar.
+- Fix G-key guards chasing too far in RA3D and waiting at the map edge in Dawn3D.
+- Fix Classic scrolling south slower than the other directions.
+- Fix a right-button drag started low on the screen scrolling about a quarter as fast.
+- Fix sidebar tooltips naming the wrong requirements, such as GDI buildings for Nod units.
+- Fix Nod mission 3's prison being named Technology Center.
+- Fix RA3D vehicles cloaked by a crate leaving bright lamp light behind in Enhanced.
+
+---
+
+---
+
+## OpenCNC3D v0.9.10 Alpha (2026-11-19)
+
+### Improvements
+
+- Saves and halls of fame move to a plain OpenCNC3D folder, and existing saves are copied across on first start.
+- The ambient sound fades smoothly from its near bed to its far one while zooming out.
+- Quitting leaves full screen before the graphics driver shuts down, and logs each step, to address freezes on quit in virtual machines.
+
+### Performance
+
+- Soldiers off screen are no longer posed and drawn every frame, so late skirmishes with large armies run faster.
+- RA3D skips buildings and trees whose shadows cannot reach the screen.
+- The ambient sound stops re-measuring the coastline while the camera is still.
+
+### Bugs fixed
+
+- Fix the selection box of the Iron Curtain and other buildings with overhanging tops covering cells they do not stand on.
+- Fix your own cloaked Stealth Tank looking uncloaked under Enhanced.
+- Fix Stealth Tanks staying solid on graphics drivers that cannot draw the cloak pattern.
+
+---
+
+---
+
+## OpenCNC3D v0.9.9 Alpha (2026-11-18)
+
+### Bugs fixed
+
+- Fix the launcher refusing to install Dawn3D with "The module file manifest is invalid".
+- Fix buildings, trees and vehicles turning black after a Stealth Tank cloaks on some graphics drivers.
+- Fix Stealth Tanks not fading as they cloak in Enhanced on some graphics drivers.
+
+---
+
+---
+
+## OpenCNC3D v0.9.8 Alpha (2026-11-18)
+
+### Improvements
+
+- RA3D snow maps play the desert ambience, and temperate maps the temperate one.
+
+### Bugs fixed
+
+- Fix Gun Game refusing to start because GUNRA.MIX was missing from the download.
+- Fix Gun Game's Red Alert vehicles and aircraft lacking their RA3D models in the download.
+
+---
+
+---
+
+## OpenCNC3D v0.9.7 Alpha (2026-11-17)
+
+### New features
+
+- Dawn3D adds Gun Game: each player controls one unit and climbs from Minigunner to the Mammoth Tank, winning with a Mammoth Tank kill.
+- Play Gun Game over a LAN or in Skirmish against computer players that promote, hunt, collect crates and use abilities.
+- Gun Game crates grant one of twenty abilities, each held in its own cameo slot and armed through a short mini-game.
+- Gun Game superweapon crates give an Ion Cannon, nuke or air strike, launched by typing a six-key code on the target.
+- Gun Game units dodge with Z or C: infantry roll and vehicles jump clear of fire.
+- Gun Game shows live standings, the owner's name over a hovered enemy and a PLAYER WINS banner.
+- Gun Game's ladder includes Red Alert units: Tanya, Shock Trooper, Heavy Tank, V2, Tesla Tank, Chrono Tank, Hind, Yak and MiG.
+- Add Pitfall Quarter, a small 31x31 multiplayer map with eight starts.
+- Dawn3D adds Rally: race the game's own vehicles on Tiberium Run, Nod Gauntlet and Frostbite Pass against computer drivers.
+- Race Rally over a LAN or the internet, with a Laps setting from 1 to 9.
+- Rally results offer RACE AGAIN or END; a racer who leaves reads OUT.
+- The lobby map preview draws each Rally course's walls, start and finish lines and grid.
+- Pick Free for All, Gun Game or Rally from the lobby's Game Mode dropdown (Red Alert offers Free for All for now).
+- Match Rules add a Game Speed slider set by the host.
+- Match Rules set Tiberium and Ore regrowth from Off to 4x, and Skirmish remembers it.
+- RA3D Enhanced draws the Chrono Tank as a 3D model in the player's colour.
+- Skirmish and Multiplayer show a user map's own preview with numbered starts, or its outline.
+- Restore GDI's N64 Technology Center rescue as N64 Special Ops 2.
+- Special Ops adds a Funpark tab with the five 1995 dinosaur missions.
+- Picking a territory on the campaign map lights that country and types its 1995 statistics page.
+- Winning GDI 15 or Nod 13 plays the 1995 ending movies, and Nod picks its target city.
+- Red Alert spies show what they found: money, power, production, and fakes labelled.
+- A selected Gap Generator or Mobile Gap Generator shows its owner a ring of its jamming range.
+
+### Improvements
+
+- Enhanced metal surfaces reflect the scene and vehicle headlights glint on metal, in both games.
+- Redesign the Destroyer as a long, low, all-grey warship.
+- Enhanced ships sit in the water and ride a gentle swell.
+- Stealth Tanks fade out and in as they cloak in N64 and Enhanced; your own stays visible as a ghost.
+- Enhanced fake buildings go up part by part like the buildings they copy.
+- Anti-aliasing leaves a shorter trail behind moving vehicles.
+- A drag box keeps only your own units and leaves harvesters, Ore Trucks and MCVs out unless they are all it caught.
+- A drag box over nothing selectable keeps the current selection.
+- Enhanced skirmish and multiplayer soldiers wear their seat's colour.
+- N64 Rocket Launchers turn to face their target.
+- RA3D lobby previews mark every start as a numbered diamond in its player's colour.
+- A defeated multiplayer player sees the whole map.
+- A broken multiplayer match ends and says why, and a player on a different build is turned away by name.
+- After a crash, the next start shows a LAST SESSION box naming the log to send, and keeps the previous log.
+- The launcher says when chosen movies are missing, sizes only those, and Apply fetches them.
+- Every Dawn3D campaign mission runs its 1995 per-mission computer rules.
+- Special Ops lists Nod's cartridge mission as N64 Special Ops 1.
+- Fullscreen on several displays keeps the pointer in the game; --noconfine turns it off.
+- RA3D Enhanced gives the Camouflaged Pillbox and Missile Silo a snow look on snow maps.
+- The RA3D unit card shows the Aftermath portraits.
+- RA3D power mode lights its button, and the Rally lobby lists sides only.
+
+### Performance
+
+- The main menu runs at the screen's refresh rate and redraws only when something changes.
+- The first switch to Enhanced no longer freezes the game.
+- Big blasts and the first building lost no longer stall a frame.
+
+### Platforms and builds
+
+- RA3D installs and starts on its own without Dawn3D.
+- The game starts on Windows 7 again, and Setup warns below Windows 10.
+- The Mac installer states it needs macOS 14 and tells an older Mac why it cannot install.
+- The Windows uninstaller removes both games and their downloads, with an optional Settings and logs choice.
+- The launcher no longer keeps a second 4 GB copy of each game after installing or updating.
+
+### Bugs fixed
+
+- Fix RA3D players not starting on the position picked in the lobby.
+- Fix multiplayer wall lines stopping short of five cells or differing between players.
+- Fix wall lines charging for one piece and selling them making money.
+- Fix the RA3D unit card printing type codes for Aftermath units, civilians and fakes.
+- Fix Enhanced Giant Ants leaving tread marks and flattening grass.
+- Fix the Nod map screen's NOD PROGRESSION label.
+- Fix power mode losing the pointer in N64 and HUDs without a power icon.
+- Fix Back on Skirmish Match Rules keeping the changes.
+- Fix N64 drawing Nod's SSM Launcher as a box.
+- Fix aircraft dropping and jumping over lakes, gullies and cliffs.
+- Fix the RA3D placement grid marking free cells, such as the Iron Curtain's top row.
+- Fix the RA3D Enhanced sidebar's mismatched scroll arrows.
+- Fix N64 switching to the 1995 pointer over the sidebar.
+- Fix Dawn3D Classic losing building aprons, craters and scorch marks on Temperate and Desert.
+- Fix the Repair Bay repairing past full strength.
+- Fix thin dark lines across building aprons with bilinear filtering.
+- Fix Enhanced grass and bushes growing on building aprons.
+- Fix selling a vehicle on the Repair Bay or Service Depot.
+- Fix the RA3D Classic War Factory's selection box and health bar sitting too low.
+- Fix fallen building pieces moving when switching back to Enhanced.
+- Fix harvesters trapped at a powered-down refinery.
+- Fix Allied buildings showing red trim in RA3D Classic and N64.
+- Fix trees and grass swaying faster at higher game speeds.
+- Fix rivers pulsing every two seconds and the N64 water warp stuttering.
+- Fix an RA3D skirmish without music looping the menu theme.
+- Fix map editor timings on high refresh rate displays.
+- Fix RA3D reading freed memory while loading the Aftermath rules.
+- Fix RA3D custom maps misnamed when a folder in the path has a dot.
+- Fix the lighter square under buildings on RA3D Enhanced snow maps.
+- Fix launcher installs missing some campaign movies, including both endings.
+
+---
+
+---
+
+## OpenCNC3D v0.9.6 Alpha (2026-11-06)
+
+- Fix Red Alert installation and updates failing with an invalid module manifest on macOS and Windows.
+
+---
+
+---
+
+## OpenCNC3D v0.9.5 Alpha "Battlefield Fixes" (2026-11-05)
+
+### New features
+
+- RA3D Enhanced adds all three Giant Ant variants with 3D models, combat animations and death effects.
+- Dawn3D Enhanced adds the Nod SSML with engine-driven ballistic rocket flight.
+
+### Bugs fixed
+
+- Fix multiplayer disconnects when the Mac's system clock moves backward, and keep multiplayer desync checks active when world snapshots are buffered in memory.
+- Restore bottom-edge map scrolling over the sidebar in both games.
+- Start offline skirmishes with one AI opponent. Keep accepted roster settings, including Empty and Blocked seats, across map changes and restarts.
+- Restore the full skirmish roster, including colour swaps, when leaving Player Setup with Back or Escape. Done and Enter save the changes.
+- Fade temporary enemy firing reveals over the final second of a three-second window. Repeat fire refreshes the reveal, ordinary scouting stays explored, and temporary marks clear on reload. This addresses five linked anti-air reports.
+- Let players box-select eligible civilians and scientists in RA3D.
+- Draw and accept clicks on partially visible construction options in RA3D Classic. Scrolling to the end brings the last option fully into view.
+- Launch Dawn3D's GDI MLRS rockets from the mouth of the animated pod, including with optional Unity effects disabled.
+- Apply the saved German language from the first Enhanced menu frame in both games. Use original German retail names for 149 RA3D unit and building types in the sidebar and tooltips.
+
+### Improvements
+
+- Blend raised building foundations into the surrounding terrain. Adjacent foundations can adjust height to remove abrupt steps between buildings.
+- Keep the camera steady during construction.
+- Reduce the opacity of Enhanced smoke and flares.
+- Crumble about three quarters of the stones moving vehicles run over. The remaining stones can be pushed aside.
+
+### Performance
+
+- Limit full destruction physics to two building wrecks and two vehicle wrecks at a time in the local viewport. Additional explosions still show particles and leave scorch marks.
+- Limit visible corpse groups to 20 in the local viewport, including their blood splats, debris and Red Alert's older corpse effects.
+- Skip offscreen Enhanced vehicle draws and reduce repeated work on vehicles, wrecks, shadows, shorelines and particles. Reduce repeated wreck-glow and blood-splat work on Windows.
+- Prepare the RA3D Construction Yard and Power Plant during loading to reduce stalls when they first appear.
+- Skip unused lighting calculations in Dawn3D on Apple silicon.
+
+### Platforms and builds
+
+- Show the home-folder installation location (`~/Applications/OpenCNC3D`) and give the macOS installer emblems explicit 160 x 160 dimensions.
+- Update the macOS startup and Apple silicon setup instructions across package types.
+- Fix Windows compilation of the expanded frontend source list.
+
+### Session benchmarks
+
+- Red Alert's four-player blast benchmark on the RTX 3070 improved from about 49 to 60 FPS after the Construction Yard and Power Plant loading change.
+- Dawn3D's eight-player benchmark on Apple silicon improved from about 70 to 81 FPS during normal play. The mass explosion averaged about 52 FPS. Baseline timing varied too much to confirm a gain for the blast.
+- In the later 20-minute RTX Red Alert run, every normal-play interval stayed above 32 FPS. The two broader 60 FPS reports remain open.
+
+### Existing fixes verified
+
+- Rechecked single-click selection, Repair and Sell, exiting repair mode, routing through newly explored areas, APC unloading and Nod Helipad production on Mac and Windows. These report resolutions were recorded against v0.9.4.
+- Rechecked RA3D skirmish construction and country labels, and the direct-launch menu routes for saves, skirmish, custom maps and multiplayer.
+- Rechecked Visuals Reset to Defaults in both games and the full-resolution emblems in the game chooser.
+- Rechecked first-mission German speech in both games with the German language packs installed.
+- Rechecked building materials during construction, save/load and graphics-mode switches.
+- Rechecked attack-move target acquisition and route resumption in both games, and crossing and destroying the bridge in RA3D's second Soviet mission.
+- Rechecked both games through all three v0.9.4 Windows launcher filenames. A separate native Windows test passed eight windowed, borderless and fullscreen transitions using the shared display controls.
+- The Windows foundation-renderer naming conflict was already fixed in v0.9.4.
+
+### Database closeout
+
+- Moved the specific skirmish report about dropping below 20 FPS after five minutes to In Build after native retests passed.
+- Corrected the bug-board rule that kept a newly fixed skirmish report in To Do when it had an older release association.
+- Closed 11 crash and freeze reports from older builds after current-build checks. The 34-report October batch ended with 32 entries In Build and two spam entries declined.
+- Closed the request to load v0.72 saves as unsupported. Incompatible saves are preserved and the game explains the format mismatch.
+
+---
+
+---
+
+## OpenCNC3D v0.9.4 Alpha "Map Importer" (2026-11-02)
+
+### New features
+
+- Added Import Map under User Maps in Dawn3D and RA3D.
+- Added an in-game file browser with folder navigation, typed paths, keyboard controls and double-click selection.
+- Added map previews and progress reporting during inspection, terrain generation and import.
+- Added support for original Tiberian Dawn INI/BIN maps and Red Alert INI, MPR and MAP scenarios.
+- Added ZIP, RAR, RAR5 and 7Z support, including archives containing multiple maps.
+- Added automatic game and singleplayer/multiplayer detection.
+- Added imported singleplayer missions to User Maps and multiplayer maps to Skirmish and Multiplayer.
+- Added automatic heightmap generation while retaining valid supplied heightmaps.
+- Added support for Tiberian Dawn's sparse 128x128 map format.
+- Added labelled terrain-only recovery for incomplete Tiberian Dawn multiplayer maps with suitable Remastered metadata.
+
+### Improvements
+
+- Preserve original source files alongside imported maps and reuse existing entries when importing duplicates.
+- Added import validation, clearer errors and cleanup of incomplete writes.
+- Prevent map bundles from replacing installed executables, menus, shared rules and renderer packs.
+- Preserve original multiplayer starting positions and player-slot order.
+- Added growing-base and long-match diagnostic probes for both games.
+- Corrected performance diagnostics to measure normal gameplay separately from screenshot synchronization.
+
+### Platforms and builds
+
+- Built native archive-reading support into the Windows and macOS game executables, retaining compatibility with existing launcher updates.
+
+### Bugs fixed
+
+- Fixed invalid benchmark durations being accepted.
+- Fixed imported Red Alert maps starting without the shared rules required for correct gameplay.
+- Fixed custom Red Alert missions using an original filename loading the installed mission instead of the selected file.
+- Fixed imported Red Alert missions choosing the wrong faction HUD and music.
+- Fixed scripted singleplayer maps being misclassified from their waypoints or leftover metadata.
+- Fixed stale map checksums interfering with imported scenarios.
+- Fixed multiplayer fingerprints resolving maps outside the managed User Maps folder.
+- Fixed Red Alert ships being omitted from drag selection and same-type selection.
+- Fixed invisible Red Alert ants by loading their expansion artwork before unit initialization.
+- Fixed armed defensive buildings ignoring Stop after receiving a forced attack order.
+- Enabled ground force-fire for defensive buildings that support it in both games.
+- Fixed player attack-move failing to acquire enemies along its route, hold targets during combat and resume afterward.
+- Fixed player-controlled guard-area units abandoning an active combat target prematurely.
+- Fixed the GDI mission 6 commando airstrip objective failing to skip mission 7.
+- Fixed Red Alert editor Trace operations shifting or losing objects with differently sized rendering packs.
+- Added Red Alert building-proximity validation when placement orders execute.
+- Fixed uphill construction raising neighbouring buildings in both games.
+- Replaced shared foundation platforms with independent building elevations and closed stepped terrain faces.
+- Fixed terrain caches and height queries retaining outdated foundation geometry after construction or map changes.
+- Preserved the existing save format and reconstruct foundations when loading saved games.
+
+---
+
+---
+
+## OpenCNC3D v0.9.3 Alpha "New Light" (2026-11-01)
+
+### New features
+
+- Added modern lighting to Enhanced in Dawn3D and RA3D: linear light with a film curve, ambient occlusion, lit building and vehicle materials, ground bounce, flash glints and blast shadows, ground materials, light shafts and lit smoke.
+- Added temporal anti-aliasing to Enhanced.
+- Added falling snow on RA3D's snow maps, tunable in the F5 Weather tab.
+- Added an optional full Retina resolution on the Mac, off by default and shared by both games.
+- Added a Launch button beside Update in the launcher, so the installed build stays playable while an update waits.
+
+### Improvements
+
+- Menus use the Enhanced style in every graphics mode, in both games.
+- A mission that stops responding now logs where it stopped.
+
+### Performance
+
+- Removed the wait for the previous frame at the start of every frame on Windows.
+- Reduced the work of drawing shores and RA3D's sea.
+- Reduced the per-frame cost of fire glow on damaged buildings.
+- Trees sway on the graphics card on Windows with NVIDIA.
+- Soldiers are posed on the graphics card on the Mac and on Windows with NVIDIA.
+- The shroud and fog are worked out only when they change.
+- The HUD and sidebar are redrawn only when something on them changes.
+- Reduced the cost of destroyed buildings' flying pieces.
+- Windows uses about 1 GB less memory in Enhanced, with the same pictures.
+
+### Platforms and builds
+
+- Windows builds are 64-bit only and need 64-bit Windows 10 or 11; v0.9.2 is the last build for 32-bit Windows.
+- Saves from 32-bit Windows builds are listed greyed and refused with a message, and the files are kept.
+- Windows saves from this build must not be loaded in v0.9.2 or earlier.
+- Setup refuses 32-bit Windows and Windows 10 on ARM with a message.
+- Windows packages no longer carry SDL2.dll, and the launcher removes an old one once nothing needs it.
+- The temperate river colour pack bakes identically on every build.
+
+### Bugs fixed
+
+- Fixed movies longer than 49 seconds freezing on Windows.
+- Fixed RA3D's first Allied briefing playing silent.
+- Fixed EVA repeating the mission-failed line after surrendering against computer players.
+- Fixed RA3D's battle themes looping for the whole mission.
+- Fixed the top-right corner of both Enhanced HUDs not scrolling the map.
+- Fixed the oversized pointer over the Enhanced sidebar and the pause dialog.
+- Fixed RA3D soldiers' click boxes reaching far above them on the N64 infantry row.
+- Fixed selected RA3D vehicles and aircraft having no health bar in N64 and Enhanced.
+- Fixed RA3D's Iron Curtain not turning its targets red in Classic and N64.
+- Fixed blown bridges in RA3D still being drawn standing.
+- Fixed RA3D's skirmish AI never building a navy on coastal maps.
+- Fixed cloaked enemy units pushing rocks and bodies, and rocks all flying at once when switched back on.
+- Fixed RA3D's wall line laying walls across bridge decks.
+- Fixed a refused Dawn3D save emptying the mission that was running.
+- Fixed the launcher's small update missing data that changed at the same size.
+
+---
+
+---
+
+## OpenCNC3D v0.9.2 Alpha "Field Repairs" (2026-10-27)
+
+### New features
+
+- Added Enhanced 3D walls to RA3D's seven indoor missions, with plain floors in place of the shadow floor pieces.
+- Added a second directional sun with independent structure, vehicle and infantry power.
+
+### Improvements
+
+- Updated the shared visual and theater lighting defaults in Dawn3D and RA3D.
+
+### Performance
+
+- Reduced damaged-building rendering work in Dawn3D and RA3D while preserving existing visuals.
+
+### Platforms and builds
+
+- Made clean release builds regenerate their base runtime packs from source.
+
+### Bugs fixed
+
+- Restored Enhanced vehicle machine-gun flashes and shell casings.
+- Fixed RA3D Mission Disks catalogs being omitted from downloadable modules.
+- Fixed launcher updates overlooking newer releases and updating games that are not installed.
+- Fixed updated games displaying the bootstrap launcher version and repeatedly offering the same update.
+- Added fallback mirrors for Dawn3D's music downloads.
+- Fixed the menu music stopping a few seconds after Settings, Load Mission or a notice opened.
+- Fixed RA3D offering Dawn3D's Database in its missions.
+- Fixed RA3D's skirmish lobby naming GDI and Nod instead of the seat's country.
+- Fixed an order click that drifts slightly becoming an empty selection box that drops the selection.
+- Added RA3D's control-group numbers on selected units in all three graphics modes.
+- Fixed the pointer disappearing under the fog of war in Enhanced.
+- Added RA3D's attack pointer over targets on the mission map.
+- Added RA3D's mission timer in Classic and Enhanced.
+- Fixed RA3D's build clock darkening cameos unevenly.
+- Fixed crashes on 32-bit Windows when memory runs short.
+- Fixed Dawn3D's Enhanced lobby colour squares not matching the army's colour.
+- Fixed RA3D's grey and blue player colours being swapped, including France and Germany in the campaigns.
+- Fixed player-list name colours in both games, and RA3D's list header sitting on the frame in N64 mode.
+
+---
+
+---
+
+## OpenCNC3D v0.9.1 Alpha "Mission Disks" (2026-10-27)
+
+### New features
+
+- RA3D Mission Disks includes all 16 Counterstrike and 18 Aftermath missions with original rules, sprites and audio.
+- Hold Shift and click Red Alert's title-screen speaker to play the four Ant missions, including campaign carryover.
+
+### Improvements
+
+- Generated individual 3D terrain heightmaps for all 38 expansion and Ant missions.
+- Smoothed Fog of War edges and kept hidden terrain black after lighting and colour grading.
+- Applied the latest saved Temperate and Desert lighting defaults to both games.
+- Organized developer lighting controls by theater, with separate global Fog of War controls.
+
+### Bugs fixed
+
+- Fixed rectangular terrain shading and missing land shadows on Windows in both games.
+- Fixed fallback trees ignoring tree shadow controls.
+- Fixed RA3D structures remaining unavailable after deploying a Skirmish MCV.
+- Fixed Skirmish elimination settings carrying into RA3D singleplayer after surrender.
+- Fixed expansion-menu naming and delivery to the actual Dock installation.
+- Fixed visual switches and Reset ignoring the selected theater, preset reloads and unnecessary settings writes.
+- Fixed fog coverage leaving units brighter than their dark surroundings.
+
+---
+
+---
+
 ## OpenCNC3D v0.9.0 Alpha "Red Alert Arrives" (2026-10-26)
 
 ### New features

@@ -1,0 +1,31 @@
+# S14 Red Alert SCG01EA started cold in Classic: Soviet soldiers are killed in Classic,
+# then the game switches to Enhanced and the same ground is framed (the soldiers and
+# their deaths as Enhanced draws them after a Classic start).
+game: ra
+scen: SCG01EA
+modes: cls
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+cam 63 60
+frames 2
+shot {OUT}/t0001_classic.png
+hurtunit E1:USSR 1 1000
+hurtunit E1:USSR 2 1000
+hurtunit E1:USSR 3 1000
+hurtunit E1:USSR 4 1000
+hurtunit DOG 0 1000
+tick 8
+frames 2
+shot {OUT}/t0009_classic.png
+gfxmode 2
+frames 2
+memledger t9
+shot {OUT}/t0009_enhanced.png
+tick 30
+frames 2
+shot {OUT}/t0039_enhanced.png
+quit

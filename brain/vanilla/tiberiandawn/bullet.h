@@ -159,6 +159,18 @@ public:
         return Altitude;
     };
 
+    // Honest John's arcing shots store their flight duration in the existing
+    // vertical-motion byte. A zero value is a straight shot from an older save.
+    int OpenCNC3D_SSML_Duration(void) const
+    {
+        return Class->Type == BULLET_HONEST_JOHN && Riser > 0 ? Riser : 0;
+    }
+
+    int OpenCNC3D_SSML_Elapsed(void) const
+    {
+        return OpenCNC3D_SSML_Duration() - Timer;
+    }
+
 private:
     // Crude animation flag.
     unsigned IsToAnimate : 1;

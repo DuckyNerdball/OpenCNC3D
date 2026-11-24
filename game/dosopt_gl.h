@@ -129,7 +129,10 @@ static void opt_draw(int fbw, int fbh, int mouse_fx, int mouse_fy)
         em_title_mode(g_optOnTitle ? 1 : 0);
         em_options(&g_optState); em_viewport(fbw, fbh);
         int unused_x, unused_y; em_to_legacy(mouse_fx, mouse_fy, &unused_x, &unused_y);
-        em_draw(fbw, fbh, g_optOnTitle ? 2 : 0); g_optScale = em_density(); return;
+        gls_foreign_begin("options dialog");
+        em_draw(fbw, fbh, g_optOnTitle ? 2 : 0); g_optScale = em_density();
+        gls_forget_foreign();   /* the dialog drew in another translation unit, unseen by the cache */
+        return;
     }
 
     /* 1. rasterise. Index 0 is transparent, so the surface starts as all-transparent

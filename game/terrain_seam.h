@@ -35,6 +35,7 @@
  */
 #ifndef OPENCNC3D_TERRAIN_SEAM_H
 #define OPENCNC3D_TERRAIN_SEAM_H
+#include "ground_mem.h"   /* ground_mem_note: a strip sheet is part of a measured ground build */
 
 #define TS_MAGIC "C3DSEAM\0"
 #define TS_VARS 4     /* a slot's first painting and its variants (enh_cell_variant) */
@@ -60,15 +61,26 @@ static void terrain_seams_free(void)
 
 static int ts_pot(int v) { int p = 1; while (p < v) p *= 2; return p; }
 
-/* One sheet of strips of sw x sh texels, each with a one-texel gutter of its own edge. */
-static GLuint ts_sheet(const std::vector<const unsigned char*>& strips, int sw, int sh,
-                       int* outW, int* outH, int* cols)
+/* The size and columns ts_sheet lays `count` strips of sw x sh texels out at. */
+static void ts_sheet_dims(size_t count, int sw, int sh, int* outW, int* outH, int* cols)
 {
     const int pw = sw + 2, ph = sh + 2;
     *cols = 4096 / pw; if (*cols < 1) *cols = 1;
-    const int rows = ((int)strips.size() + *cols - 1) / *cols;
+    const int rows = ((int)count + *cols - 1) / *cols;
     *outW = ts_pot(*cols * pw); *outH = ts_pot(rows * ph);
+}
+
+/* One sheet of strips of sw x sh texels, each with a one-texel gutter of its own edge.
+   `into`, when not 0, is an existing texture of exactly this sheet's size (ts_sheet_dims)
+   that is filled in place (glTexSubImage2D) instead of a new one being made; it is given
+   the parameters a new sheet gets. */
+static GLuint ts_sheet(const std::vector<const unsigned char*>& strips, int sw, int sh,
+                       int* outW, int* outH, int* cols, GLuint into = 0)
+{
+    const int pw = sw + 2, ph = sh + 2;
+    ts_sheet_dims(strips.size(), sw, sh, outW, outH, cols);
     std::vector<unsigned char> px((size_t)*outW * *outH * 4, 0);
+    ground_mem_note();
     for (size_t k = 0; k < strips.size(); k++) {
         const int x0 = (int)(k % *cols) * pw, y0 = (int)(k / *cols) * ph;
         for (int y = -1; y <= sh; y++) {
@@ -80,15 +92,16 @@ static GLuint ts_sheet(const std::vector<const unsigned char*>& strips, int sw, 
             }
         }
     }
-    GLuint t = 0;
-    glGenTextures(1, &t);
+    GLuint t = into;
+    if (!t) glGenTextures(1, &t);
     glBindTexture(GL_TEXTURE_2D, t);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, fx_filter_mode(GL_NEAREST));
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, fx_filter_mode(GL_NEAREST));
     fx_filter_note(t, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, *outW, *outH, 0, GL_RGBA, GL_UNSIGNED_BYTE, &px[0]);
+    if (into) glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, *outW, *outH, GL_RGBA, GL_UNSIGNED_BYTE, &px[0]);
+    else glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, *outW, *outH, 0, GL_RGBA, GL_UNSIGNED_BYTE, &px[0]);
     glBindTexture(GL_TEXTURE_2D, 0);
     return t;
 }
@@ -277,7 +290,7 @@ static inline void ts_corner_geo(const TerrainSeams& S, int pass, const TsPass& 
     if (!pass) { u = sx0 + (fx - (1 - mf)) / mf * (float)sw; v = sy0 + fz * (float)sh; }
     else       { u = sx0 + fx * (float)sw; v = sy0 + (fz - (1 - mf)) / mf * (float)sh; }
     const float wx = (float)ax + fx, wz = (float)ay + fz;
-    out[0] = wx; out[1] = terrain_y(wx, wz); out[2] = wz;
+    out[0] = wx; out[1] = terrain_y_cell(wx,wz,ax,ay); out[2] = wz;
     out[3] = u / W; out[4] = v / H;
     out[5] = (au0 + (au1 - au0) * fx) * aus;
     out[6] = (av0 + (av1 - av0) * fz) * avs;

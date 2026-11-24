@@ -1,6 +1,6 @@
 {
- "bytes": 263716,
- "count": 9,
+ "bytes": 380228,
+ "count": 13,
  "frame": [
   120,
   120
@@ -69,7 +69,7 @@
     57,
     58
    ],
-   "cells_touching_water": 467,
+   "cells_touching_water": 460,
    "image_rect": [
     1,
     0,
@@ -123,7 +123,7 @@
     59,
     61
    ],
-   "cells_touching_water": 282,
+   "cells_touching_water": 274,
    "image_rect": [
     2,
     0,
@@ -177,7 +177,7 @@
     56,
     59
    ],
-   "cells_touching_water": 476,
+   "cells_touching_water": 444,
    "image_rect": [
     3,
     0,
@@ -227,7 +227,7 @@
     57,
     61
    ],
-   "cells_touching_water": 255,
+   "cells_touching_water": 252,
    "image_rect": [
     4,
     0,
@@ -277,7 +277,7 @@
     62,
     61
    ],
-   "cells_touching_water": 671,
+   "cells_touching_water": 662,
    "image_rect": [
     0,
     1,
@@ -327,7 +327,7 @@
     62,
     57
    ],
-   "cells_touching_water": 189,
+   "cells_touching_water": 187,
    "image_rect": [
     0,
     5,
@@ -389,7 +389,7 @@
     62,
     62
    ],
-   "cells_touching_water": 200,
+   "cells_touching_water": 196,
    "image_rect": [
     0,
     0,
@@ -443,7 +443,7 @@
     62,
     62
    ],
-   "cells_touching_water": 534,
+   "cells_touching_water": 524,
    "image_rect": [
     0,
     0,
@@ -489,6 +489,384 @@
    "starts": 8,
    "theater": "DESERT",
    "tiberium_cells": 360
+  },
+  {
+   "cell_rect": [
+    16,
+    16,
+    31,
+    31
+   ],
+   "cells_touching_water": 48,
+   "image_rect": [
+    0,
+    0,
+    120,
+    120
+   ],
+   "name": "Pitfall Quarter",
+   "scenario": "SCM92EA",
+   "start_cells": [
+    [
+     21,
+     20
+    ],
+    [
+     31,
+     19
+    ],
+    [
+     39,
+     27
+    ],
+    [
+     21,
+     32
+    ],
+    [
+     31,
+     31
+    ],
+    [
+     41,
+     38
+    ],
+    [
+     21,
+     42
+    ],
+    [
+     35,
+     42
+    ]
+   ],
+   "starts": 8,
+   "theater": "TEMPERATE",
+   "tiberium_cells": 45
+  },
+  {
+   "cell_rect": [
+    1,
+    1,
+    62,
+    62
+   ],
+   "cells_touching_water": 0,
+   "image_rect": [
+    0,
+    0,
+    120,
+    120
+   ],
+   "name": "Tiberium Run",
+   "race_course": {
+    "finish_leptons": [
+     6144,
+     13840,
+     6144,
+     15344
+    ],
+    "finish_pixels": 22,
+    "grid_facing": 64,
+    "grid_pixels": [
+     [
+      43,
+      106
+     ],
+     [
+      43,
+      109
+     ],
+     [
+      40,
+      106
+     ],
+     [
+      40,
+      109
+     ],
+     [
+      37,
+      106
+     ],
+     [
+      37,
+      109
+     ],
+     [
+      34,
+      106
+     ],
+     [
+      34,
+      109
+     ]
+    ],
+    "grid_slots": 8,
+    "start_line_cells": [
+     24.0,
+     54.062,
+     24.0,
+     59.938
+    ],
+    "start_pixels": 22,
+    "wall_cells": 412,
+    "wall_cells_shown": 412
+   },
+   "scenario": "SCM70EA",
+   "start_cells": [
+    [
+     23,
+     56
+    ],
+    [
+     23,
+     57
+    ],
+    [
+     21,
+     56
+    ],
+    [
+     21,
+     57
+    ],
+    [
+     20,
+     56
+    ],
+    [
+     20,
+     57
+    ],
+    [
+     18,
+     56
+    ],
+    [
+     18,
+     57
+    ]
+   ],
+   "starts": 8,
+   "theater": "TEMPERATE",
+   "tiberium_cells": 116
+  },
+  {
+   "cell_rect": [
+    1,
+    1,
+    62,
+    62
+   ],
+   "cells_touching_water": 0,
+   "image_rect": [
+    0,
+    0,
+    120,
+    120
+   ],
+   "name": "Nod Gauntlet",
+   "race_course": {
+    "finish_leptons": [
+     5632,
+     1296,
+     5632,
+     2800
+    ],
+    "finish_pixels": 22,
+    "grid_facing": 64,
+    "grid_pixels": [
+     [
+      39,
+      12
+     ],
+     [
+      39,
+      15
+     ],
+     [
+      36,
+      12
+     ],
+     [
+      36,
+      15
+     ],
+     [
+      33,
+      12
+     ],
+     [
+      33,
+      15
+     ],
+     [
+      30,
+      12
+     ],
+     [
+      30,
+      15
+     ]
+    ],
+    "grid_slots": 8,
+    "start_line_cells": [
+     22.0,
+     5.062,
+     22.0,
+     10.938
+    ],
+    "start_pixels": 22,
+    "wall_cells": 404,
+    "wall_cells_shown": 404
+   },
+   "scenario": "SCM71EA",
+   "start_cells": [
+    [
+     21,
+     7
+    ],
+    [
+     21,
+     8
+    ],
+    [
+     19,
+     7
+    ],
+    [
+     19,
+     8
+    ],
+    [
+     18,
+     7
+    ],
+    [
+     18,
+     8
+    ],
+    [
+     16,
+     7
+    ],
+    [
+     16,
+     8
+    ]
+   ],
+   "starts": 8,
+   "theater": "DESERT",
+   "tiberium_cells": 88
+  },
+  {
+   "cell_rect": [
+    1,
+    1,
+    62,
+    62
+   ],
+   "cells_touching_water": 0,
+   "image_rect": [
+    0,
+    0,
+    120,
+    120
+   ],
+   "name": "Frostbite Pass",
+   "race_course": {
+    "finish_leptons": [
+     784,
+     11264,
+     2288,
+     11264
+    ],
+    "finish_pixels": 22,
+    "grid_facing": 0,
+    "grid_pixels": [
+     [
+      8,
+      84
+     ],
+     [
+      11,
+      84
+     ],
+     [
+      8,
+      87
+     ],
+     [
+      11,
+      87
+     ],
+     [
+      8,
+      90
+     ],
+     [
+      11,
+      90
+     ],
+     [
+      8,
+      93
+     ],
+     [
+      11,
+      93
+     ]
+    ],
+    "grid_slots": 8,
+    "start_line_cells": [
+     3.062,
+     44.0,
+     8.938,
+     44.0
+    ],
+    "start_pixels": 22,
+    "wall_cells": 416,
+    "wall_cells_shown": 416
+   },
+   "scenario": "SCM72EA",
+   "start_cells": [
+    [
+     5,
+     44
+    ],
+    [
+     6,
+     44
+    ],
+    [
+     5,
+     46
+    ],
+    [
+     6,
+     46
+    ],
+    [
+     5,
+     47
+    ],
+    [
+     6,
+     47
+    ],
+    [
+     5,
+     49
+    ],
+    [
+     6,
+     49
+    ]
+   ],
+   "starts": 8,
+   "theater": "WINTER",
+   "tiberium_cells": 40
   }
  ],
  "margin_index": 0,
@@ -510,6 +888,54 @@
  "palette": "embedded in TITLE.CPS (data/dosdata/LOCAL.MIX), the menu's own",
  "palette_widening": "v << 2",
  "quantiser": "cnc_eyes.cpp pal_index: nearest in RGB over a 5:5:5 cube, index 0 excluded",
+ "race_course_legend": {
+  "courses": [
+   "SCM70EA",
+   "SCM71EA",
+   "SCM72EA"
+  ],
+  "grid_slot": "one pixel, index 12",
+  "lines": "checkered, 2 px across in 1 px squares, black index 12 and white index 15",
+  "marked_plane": "the same as plain: no start diamonds on a course",
+  "not_drawn": [
+   "course centre line",
+   "defences",
+   "crate spots"
+  ],
+  "start_line": "rly_draw_ground's construction: 0.75 cells ahead of the grid, 0.75 cells past it a side, or P000's half width",
+  "wall_clearance_from_ground": {
+   "DESERT": 178,
+   "TEMPERAT": 236,
+   "WINTER": 219
+  },
+  "wall_distance_from_lobby_markers": {
+   "SK_START_IDLE": 214.7,
+   "SK_START_RIM": 355.5,
+   "seat0": 85.9,
+   "seat1": 81.9,
+   "seat2": 219.7,
+   "seat3": 174.8,
+   "seat4": 164.0,
+   "seat5": 162.1,
+   "seat6": 99.5,
+   "seat7": 145.0,
+   "start_ink": 111.7,
+   "tiberium": 176.9
+  },
+  "wall_index": 48,
+  "wall_overlays": [
+   "SBAG",
+   "CYCL",
+   "BRIK",
+   "BARB",
+   "WOOD"
+  ],
+  "wall_rgb": [
+   244,
+   212,
+   148
+  ]
+ },
  "record_bytes": 29128,
  "start_colour_ground_clearance": 90,
  "start_colour_min_separation": 80.9,
@@ -517,7 +943,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 197,
-    "TEMPERAT": 250
+    "TEMPERAT": 250,
+    "WINTER": 240
    },
    "index": 5,
    "label": "yellow",
@@ -531,7 +958,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 163,
-    "TEMPERAT": 203
+    "TEMPERAT": 203,
+    "WINTER": 202
    },
    "index": 127,
    "label": "red",
@@ -545,7 +973,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 268,
-    "TEMPERAT": 316
+    "TEMPERAT": 316,
+    "WINTER": 296
    },
    "index": 15,
    "label": "white",
@@ -559,7 +988,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 180,
-    "TEMPERAT": 155
+    "TEMPERAT": 155,
+    "WINTER": 144
    },
    "index": 2,
    "label": "cyan",
@@ -573,7 +1003,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 97,
-    "TEMPERAT": 142
+    "TEMPERAT": 142,
+    "WINTER": 121
    },
    "index": 57,
    "label": "derived",
@@ -587,7 +1018,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 99,
-    "TEMPERAT": 153
+    "TEMPERAT": 153,
+    "WINTER": 152
    },
    "index": 26,
    "label": "derived",
@@ -601,7 +1033,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 93,
-    "TEMPERAT": 114
+    "TEMPERAT": 114,
+    "WINTER": 120
    },
    "index": 191,
    "label": "derived",
@@ -615,7 +1048,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 176,
-    "TEMPERAT": 232
+    "TEMPERAT": 232,
+    "WINTER": 213
    },
    "index": 44,
    "label": "derived",
@@ -629,7 +1063,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 118,
-    "TEMPERAT": 184
+    "TEMPERAT": 184,
+    "WINTER": 168
    },
    "index": 242,
    "label": "derived",
@@ -643,7 +1078,8 @@
   {
    "clearance_from_ground": {
     "DESERT": 137,
-    "TEMPERAT": 184
+    "TEMPERAT": 184,
+    "WINTER": 181
    },
    "index": 158,
    "label": "derived",
@@ -665,6 +1101,11 @@
    68,
    85,
    56
+  ],
+  "WINTER": [
+   79,
+   85,
+   80
   ]
  },
  "tiberium_frames": 12,
@@ -674,7 +1115,7 @@
   252,
   84
  ],
- "tiberium_mask_source": "playable/dostib.pack",
+ "tiberium_mask_source": "game/dostib.pack",
  "tiberium_shapes": 12,
  "version": 1,
  "water_rgb": [

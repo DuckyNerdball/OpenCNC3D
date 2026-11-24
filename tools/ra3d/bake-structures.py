@@ -6,6 +6,7 @@ Usage: tools/ra3d/bake-structures.py [--export-root build-native/remaster-ra] [T
        tools/ra3d/bake-structures.py --include-review --out MODULE/ebld [TYPE ...]
        tools/ra3d/bake-structures.py --lock TYPE ...
        tools/ra3d/bake-structures.py --take-model TYPE ...   (a remodel approved: its new lock)
+       tools/ra3d/bake-structures.py --win [HBOX MSLO]      (the snow looks)
 
 The engine source supplies footprints; the RA lab supplies plot turns, sizes on the plot
 (art/remaster-ra/scale.json) and textures.
@@ -28,6 +29,15 @@ TWO KINDS OF FILE, chosen per type (game/ebld_mod.h draws both):
 Every full file is held to the stage budget: its destroyed stage at most DESTROYED_PIECES
 pieces and DESTROYED_TRIANGLES triangles (the recipe's numbers; an older all-shattered stage
 must never ship). An approved one over it is refused.
+
+THE SNOW LOOKS (--win). Two structures have a 1996 graphic of their own on snow (bdata.cpp's
+theater-specific flag): the Camouflaged Pillbox and the Missile Silo (WIN_TYPES). Each look
+is baked from the export <TYPE>_WIN (tools/art/remaster/winter/snow_ra.py paints the approved
+export's atlases for snow) into <TYPE>_WIN.ebld beside <TYPE>.ebld, which the engine draws on
+a snow map. It is the same model: its geometry, stage and effect files must be the ones the
+plain type's lock records, and it is baked as the plain file is (with its stages when the
+plain file has them), so it wears down and breaks alike. Its record goes in the manifest's
+`looks`, beside `models` (one per type), with its own review state.
 
 --include-review bakes the stages still in review too, for a test folder (stage-structures.py
 --include-review passes it with the module's ebld/ as --out; a build never does): a stage over
@@ -53,6 +63,9 @@ TYPES = 'AFLD AGUN APWR ATEK BARR DOME FACT FCOM FIX FTUR GAP GUN HBOX HPAD IRON
 # starts where the damage ended and breaks by material within a piece budget. Stages approved
 # before it are the old all-shattered kind.
 RECIPE_FROM = '2026-10-11'
+# the types whose 1996 graphic changes on snow, and so have a snow look (--win)
+WIN_TYPES = ('HBOX', 'MSLO')
+WIN_FILES = ('remaster.json', 'destroy.json', 'destroyed.json', 'fx.json')
 DESTROYED_PIECES = 150
 DESTROYED_TRIANGLES = 30000
 
@@ -296,6 +309,56 @@ def bake_types(types, export_root, out, include_review=False, lock=False, quiet=
     return manifest
 
 
+def bake_win(types, export_root, out):
+    """THE SNOW LOOKS: <TYPE>_WIN.ebld from the export <TYPE>_WIN, the plain type's model with
+    its atlases painted for snow. Returns the manifest's `looks` records."""
+    reviews = json.loads((TOOLS / 'reviews-ra.json').read_text())
+    locked = json.loads(INPUTS.read_text())['models']
+    sys.path[:0] = [str(TOOLS / 'ra'), str(TOOLS / 'infantry')]
+    structs = load('ra_structure_source', TOOLS / 'ra/structs.py')
+    baker = baker_for(structs.classes())
+    plain = json.loads((out / 'manifest.json').read_text())['models'] if (out / 'manifest.json').is_file() else {}
+    looks = {}
+    for code in types:
+        look = f'{code}_WIN'
+        view = export_root / look / 'viewer'
+        if not (view / 'remaster.json').is_file():
+            raise SystemExit(f'bake-structures: no snow look export {view} '
+                             f'(tools/art/remaster/winter/snow_ra.py {code})')
+        if code not in plain:
+            raise SystemExit(f'bake-structures: {code} has no plain file in {out}: the snow look follows it')
+        lock = locked[code]
+        want = dict(lock['sources'], **(lock.get('stage_sources') or {}))
+        # (the same model: what the look does not repaint is the plain type's approved export)
+        for name in WIN_FILES:
+            if name in want and (not (view / name).is_file() or sha(view / name) != want[name]):
+                raise SystemExit(f'bake-structures: {look}: {name} is not the approved {code} export\'s; '
+                                 'the snow look repaints the atlases only')
+        # (and painted from the approved atlases: snow_ra.py records what it read)
+        wj = export_root / look / 'winter.json'
+        painted = json.loads(wj.read_text()).get('sources', {}) if wj.is_file() else {}
+        if not painted:
+            raise SystemExit(f'bake-structures: {look}: no winter.json naming what it was painted from')
+        for name, digest in want.items():
+            if name in painted and painted[name] != digest:
+                raise SystemExit(f'bake-structures: {look}: painted from a {name} that is not the approved one')
+        intact_only = plain[code].get('stages') == 'intact only'
+        with tempfile.TemporaryDirectory() as tmp:
+            src, riders = riding_view(view, Path(tmp) / look / 'viewer')
+            info = baker.bake(look, str(src), str(out), str(export_root), intact_only=intact_only)
+        if riders:
+            info['sources']['remaster.json'] = sha(view / 'remaster.json')
+        info['export'] = f'build-native/remaster-ra/{look}/viewer'
+        info['look_of'] = code
+        info['stages'] = plain[code].get('stages')
+        rv = reviews.get(look, {})
+        info['approval'] = {k: rv[k] for k in ('state', 'phase', 'at') if k in rv} or {'state': 'review'}
+        looks[look] = info
+        print(f'RA snow look {look}: baked with the plain file\'s stages ({info["stages"]}); '
+              f'the look itself is in state {info["approval"].get("state")}')
+    return looks
+
+
 def geometry_added(a, b):
     """How many triangles export b adds to export a, or -1 when b lacks any of a's (corners,
     texture corners and textures alike, whatever groups they are split into)."""
@@ -398,8 +461,22 @@ def main():
                     help='with --relock: the new export may add triangles of its clip\'s own')
     ap.add_argument('--take-model', action='store_true',
                     help='move the lock onto a remodel the lab approved (new geometry)')
+    ap.add_argument('--win', action='store_true',
+                    help='bake the snow looks <TYPE>_WIN from their exports (HBOX, MSLO)')
     ap.add_argument('types', nargs='*', choices=TYPES)
     args = ap.parse_args()
+    if args.win:
+        bad = [t for t in args.types if t not in WIN_TYPES]
+        if bad:
+            ap.error(f'{", ".join(bad)}: no snow look in 1996 (only {", ".join(WIN_TYPES)})')
+        if (args.out / 'manifest.json').is_file():
+            mpath = args.out / 'manifest.json'
+            whole = json.loads(mpath.read_text())
+            whole['looks'] = dict(sorted(dict(whole.get('looks', {}),
+                                              **bake_win(args.types or WIN_TYPES, args.export_root, args.out)).items()))
+            mpath.write_text(json.dumps(whole, indent=1) + '\n')
+            return
+        ap.error('--win writes beside the plain files: give a folder holding their manifest.json')
     if args.take_model:
         return take_model(args.types, args.export_root)
     if args.relock:
@@ -412,9 +489,13 @@ def main():
     mpath = args.out / 'manifest.json'
     if mpath.is_file():
         # (a few types re-baked: the others' entries kept)
-        old = json.loads(mpath.read_text()).get('models', {})
+        was = json.loads(mpath.read_text())
+        old = was.get('models', {})
         old.update(manifest['models'])
         manifest['models'] = dict(sorted(old.items()))
+        if was.get('looks'):
+            # (the snow looks, baked by --win, are kept)
+            manifest['looks'] = was['looks']
     mpath.write_text(json.dumps(manifest, indent=1) + '\n')
 
 

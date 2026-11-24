@@ -24,9 +24,13 @@
 #ifndef GL_QUERY_RESULT_AVAILABLE
 #define GL_QUERY_RESULT_AVAILABLE 0x8867
 #endif
+/* Room for every section a frame marks, the frame profiler's own count. A name past the
+   end is not recorded, and its time then lands in the next section that is, so the trace
+   says so once on stderr when the table fills. */
+#define PERFTRACE_SECTIONS 64
 struct PerfTraceRow {
     Uint64 id=0, begin=0, events=0, tick0=0, tick1=0, draw0=0, draw1=0, overlay1=0, swap1=0, end=0;
-    Uint64 sim=0, refresh=0, extra[48]={}, section[40]={};
+    Uint64 sim=0, refresh=0, extra[48]={}, section[PERFTRACE_SECTIONS]={};
     double gpuMs=-1.0;
     int tickBefore=0,tickAfter=0,paused=0,options=0,held=0,objects=0,w=0,h=0;
     int requested=0,returned=0,display=0,hz=0,mode=0,terrain=0,infantry=0,trees=0,tiberium=0,water=0,bilinear=0;
@@ -46,7 +50,8 @@ struct PerfTraceQuery { GLuint q[2]={}; Uint64 id=0; size_t slot=0; bool pending
 struct PerfTraceState {
     bool enabled=false,active=false,checked=false,permanent=false; unsigned session=0;
     char rootPath[1024]={},path[1100]={},columns[2048]={};
-    const char* sections[40]={}; size_t sectionCount=0; Uint64 sectionLast=0;
+    const char* sections[PERFTRACE_SECTIONS]={}; size_t sectionCount=0; Uint64 sectionLast=0;
+    bool sectionsFull=false;
     size_t extraCount=0,next=0,count=0;
     Uint64 freq=0,origin=0,serial=0,dropped=0,cancelled=0;
     int requested=0,returned=0,display=-99,hz=0,gpuState=0,currentQuery=-1,lastW=0,lastH=0; Uint32 lastFlags=0;
@@ -195,8 +200,10 @@ static void perf_trace_section(const char* name) {
     if(!g_perfTrace.active)return;
     const Uint64 now=SDL_GetPerformanceCounter();
     size_t k=0;while(k<g_perfTrace.sectionCount&&strcmp(g_perfTrace.sections[k],name))k++;
-    if(k==g_perfTrace.sectionCount&&k<40){g_perfTrace.sections[k]=name;g_perfTrace.sectionCount++;}
-    if(k<40){g_perfTrace.current.section[k]+=now-g_perfTrace.sectionLast;
+    if(k==g_perfTrace.sectionCount&&k<PERFTRACE_SECTIONS){g_perfTrace.sections[k]=name;g_perfTrace.sectionCount++;}
+    if(k==PERFTRACE_SECTIONS&&!g_perfTrace.sectionsFull){
+        g_perfTrace.sectionsFull=true;fprintf(stderr,"PERFTRACE|sections_full|%d|dropped=%s\n",PERFTRACE_SECTIONS,name);}
+    if(k<PERFTRACE_SECTIONS){g_perfTrace.current.section[k]+=now-g_perfTrace.sectionLast;
         if(g_perfTrace.permanent&&g_perfTraceHooks.section)g_perfTraceHooks.section(name,k);}
     g_perfTrace.sectionLast=now;
 }

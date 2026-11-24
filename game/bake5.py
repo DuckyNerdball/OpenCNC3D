@@ -2490,8 +2490,13 @@ class _LeanSkip(Exception):
     """A lean bake skips the house-colour variants of models it does not carry."""
 
 
-def build(scen, outpath, verbose=True, heights=None, cmvals=None, lean=False, cursors=False):
-    """`lean` bakes the SCENE alone -- terrain, heights, tint and water, with no models,
+def build(scen, outpath, verbose=True, heights=None, cmvals=None, lean=False, cursors=False,
+          label=None):
+    """`label` is the scenario code written into the pack header when the pack is played
+    under a code other than the cartridge scene it is baked from (SCG90EA is installed as
+    SCG99EA); every input is still read by `scen`.
+
+    `lean` bakes the SCENE alone -- terrain, heights, tint and water, with no models,
     effects, sprite sheets or shadows. `cursors` retains the shared cursor rigs and
     flipbooks in that scene so the remastered 3D cursors can attach. A Red Alert mission draws none of Tiberian Dawn's
     models (its objects are its own sprites, game/ra3d_sprites_mod.h), and the full model
@@ -2793,7 +2798,7 @@ def build(scen, outpath, verbose=True, heights=None, cmvals=None, lean=False, cu
         w32(f, 16)
         w32(f, gw)
         w32(f, gh)
-        wname(f, scen, 16)
+        wname(f, label or scen, 16)
         wname(f, terr["theater"], 16)
 
         w32(f, len(bank.items))
@@ -3057,5 +3062,9 @@ if __name__ == "__main__":
     if heights is not None and len(scens) != 1:
         raise SystemExit("bake5: --heights applies to exactly one scenario, got %d"
                          % len(scens))
-    for scen in scens or ["SCB01EA", "SCG01EA"]:
-        build(scen, os.path.join(outdir, "game", "%s.pack" % scen), heights=heights)
+    # TARGET=SOURCE bakes the cartridge scene SOURCE into TARGET.pack, the alias form of
+    # runtime-scenarios.txt (SCG99EA=SCG90EA).
+    for arg in scens or ["SCB01EA", "SCG01EA"]:
+        out, _, scen = arg.partition("=")
+        build(scen or out, os.path.join(outdir, "game", "%s.pack" % out), heights=heights,
+              label=out if scen else None)

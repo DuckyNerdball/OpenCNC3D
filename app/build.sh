@@ -57,13 +57,19 @@ done
 [ -n "$HDR" ] || { echo "cannot find dllinterface.h" >&2; exit 1; }
 
 INC="-I../game -I../menu -I../video -I../audio"
-CDEFS="-DGL_SILENCE_DEPRECATION"
+python3 ../tools/map-archive/build.py mac
+INC="$INC -I../build-native/map-archive/cache/libarchive-3.8.10/libarchive"
+ARCHIVE_LIBS="../build-native/map-archive/mac/libmaparchive.a ../build-native/map-archive/mac/libmaplzma.a"
+CDEFS="-DGL_SILENCE_DEPRECATION -DOPENCNC3D_MAP_ARCHIVE_STATIC=1 -DLIBARCHIVE_STATIC"
 # A COOKED BUILD: tools/release.sh sets OPENCNC3D_COOKED=1 for the packages it cuts, and the
 # define removes the F5 tuning panel's every door (game/fx_panel.h). A developer's own
 # build never sets it. It has to reach cnc_eyes.cpp and opencnc3d.cpp, which is why both
 # clang++ lines below now take $CDEFS -- neither did before, and a define that missed
 # the very file the panel lives in would be a cook that cooked nothing.
 [ -n "$OPENCNC3D_COOKED" ] && CDEFS="$CDEFS -DOPENCNC3D_COOKED=1"
+# No optional module is built into this binary (game/module_switches.h).
+MODULE_OBJ=""
+MODULE_FRAMEWORKS=""
 
 # The C half: DOS rasteriser, menu, menu shell, movie decoder, and the audio engine.
 #
@@ -108,9 +114,10 @@ cc $OPENCNC3D_ARCH -std=gnu89 -O2 -g -c ../net/netmatch.c -o netmatch.o
 cc $OPENCNC3D_ARCH -std=gnu89 -O2 -g -c ../net/netbeacon.c -o netbeacon.o
 
 clang++ $OPENCNC3D_ARCH -std=c++14 -O2 -g -DGL_SILENCE_DEPRECATION $CDEFS $INC $(sdl2-config --cflags) -c ../menu/enhanced_menu.cpp -o enhanced_menu.o
+clang++ $OPENCNC3D_ARCH -std=c++14 -O2 -g -DGL_SILENCE_DEPRECATION $CDEFS $INC $(sdl2-config --cflags) -c ../menu/map_import_ui.cpp -o map_import_ui.o
 
 # The C++ half: the tactical renderer as a library, plus the state machine.
-clang++ $OPENCNC3D_ARCH -std=c++14 -O2 -g \
+clang++ $OPENCNC3D_ARCH -std=c++14 -O3 -g \
     -fms-extensions -fdeclspec -D__int64="long long" -DOPENCNC3D_NO_MAIN $CDEFS \
     -include "$BUILD_STAMP" -c ../game/cnc_eyes.cpp -o cnc_eyes.o \
     -I"$HDR" $INC $(sdl2-config --cflags)
@@ -122,10 +129,11 @@ clang++ $OPENCNC3D_ARCH -std=c++14 -O2 -g -include "$BUILD_STAMP" -c opencnc3d.c
 # (a 50 character Homebrew path becomes a 36 character @executable_path one) so it would
 # fit anyway, but that is luck, not a property, and it stops being true the moment the
 # library or the prefix is renamed.
-clang++ $OPENCNC3D_ARCH -o opencnc3d opencnc3d.o cnc_eyes.o dosbar.o hud640.o dosopt.o dossave.o dosmenu.o dosops.o doslobby.o dosmp.o dosmenu_shell.o enhanced_menu.o \
+clang++ $OPENCNC3D_ARCH -o opencnc3d opencnc3d.o $MODULE_OBJ cnc_eyes.o dosbar.o hud640.o dosopt.o dossave.o dosmenu.o dosops.o doslobby.o dosmp.o dosmenu_shell.o enhanced_menu.o map_import_ui.o \
     vqaplay.o movieplay.o moviesnd.o pngwrite.o campaign.o logo3d.o lockstep.o net_udp.o netmatch.o netbeacon.o roomcode.o \
     mpbrowse.o lnet.o ljson.o $AUDIO_OBJ \
-    $(sdl2-config --libs) -Wl,-headerpad_max_install_names -framework OpenGL -lz -lcurl
+    $ARCHIVE_LIBS $(sdl2-config --libs) -Wl,-headerpad_max_install_names -framework OpenGL -lz -lcurl \
+    $MODULE_FRAMEWORKS
 
 # MAKE THE BINARY LOAD SDL FROM BESIDE ITSELF, not from the build machine's Homebrew.
 # The linker writes the absolute path it linked against (/usr/local/opt/sdl2-compat/...),
@@ -135,6 +143,9 @@ clang++ $OPENCNC3D_ARCH -o opencnc3d opencnc3d.o cnc_eyes.o dosbar.o hud640.o do
 # including why SDL3 has to travel too. Run here rather than only in make-build.sh so
 # that app/opencnc3d is runnable in place and so the fix cannot be skipped by a hand build.
 sh ../tools/bundle-sdl.sh . opencnc3d
+
+# Paired ZIP/RAR/7Z reader; no system extractor is required.
+python3 ../tools/map-archive/stage.py ../build-native/map-archive/mac .
 
 # STAGE IT, for the same reason game/build.sh stages cnc_eyes: the play folder is what is
 # actually run and what the suite gates, and a binary that stops at app/ is a correct fix

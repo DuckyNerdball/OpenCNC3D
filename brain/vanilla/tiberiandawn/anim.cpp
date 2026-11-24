@@ -23,6 +23,11 @@
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
+// MODIFIED for OpenCNC3D in November 2026. In a Rally match (rally.h) the ion cannon
+// animation does no damage of its own, because the Rally item that calls it deals its
+// own. Outside a Rally match nothing changes. In a Rally match it DOES change the
+// game simulation.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\anim.cpv   2.18   16 Oct 1995 16:48:48   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -65,6 +70,10 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "rally.h"
+
+extern void OpenCNC3D_Tag_SSML_Smoke(AnimClass*, BulletClass*);
 
 /***********************************************************************************************
  * AnimClass::Validate -- validates anim pointer															  *
@@ -596,6 +605,7 @@ void* AnimClass::operator new(size_t) noexcept
 void AnimClass::operator delete(void* ptr)
 {
     if (ptr) {
+        OpenCNC3D_Tag_SSML_Smoke((AnimClass*)ptr, NULL);
         ((AnimClass*)ptr)->IsActive = false;
     }
     Anims.Free((AnimClass*)ptr);
@@ -1165,7 +1175,8 @@ void AnimClass::Middle(void)
                     continue;
 
                 int damage = rawdamage / ((ABS(radius) / 2) + 1);
-                Explosion_Damage(Cell_Coord(tcell), damage, building, WARHEAD_FIRE);
+                if (Gun_Game_Active()) Gun_Game_Strike_Damage(Cell_Coord(tcell), damage, OwnerHouse, WARHEAD_FIRE);
+                else Explosion_Damage(Cell_Coord(tcell), damage, building, WARHEAD_FIRE);
                 new SmudgeClass(Random_Pick(SMUDGE_SCORCH1, SMUDGE_SCORCH6), Cell_Coord(tcell));
             }
         }
@@ -1237,6 +1248,9 @@ void AnimClass::Middle(void)
     */
     switch (Class->Type) {
     case ANIM_ION_CANNON: {
+        if (Rally_Ion_Anim()) {
+            break;
+        }
         BuildingClass* building = NULL;
         TechnoClass* backup = NULL;
         if (OwnerHouse != HOUSE_NONE) {
@@ -1255,7 +1269,8 @@ void AnimClass::Middle(void)
             if (!building)
                 building = (BuildingClass*)backup;
         }
-        Explosion_Damage(Center_Coord(), 600, building, WARHEAD_PB);
+        if (Gun_Game_Active()) Gun_Game_Strike_Damage(Center_Coord(), 600, OwnerHouse, WARHEAD_PB);
+        else Explosion_Damage(Center_Coord(), 600, building, WARHEAD_PB);
     } break;
 
     case ANIM_NAPALM1:

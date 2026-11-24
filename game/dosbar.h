@@ -296,9 +296,14 @@ int db_state_add(DB_State *st, int column, const char *cameo);
 void db_draw_sidebar(DB_Surface *s, const DB_Pack *p, const DB_State *st);
 /* The 1996 Red Alert 320x200 Classic sidebar, using its own LORES.MIX shapes. */
 void db_draw_ra_sidebar(DB_Surface *s, const DB_Pack *p, const DB_State *st);
+void db_draw_ra_buttons(DB_Surface *s, const DB_Pack *p, const DB_State *st);
 void db_draw_ra_sidebar_win95(DB_Surface *s, const DB_Pack *p,
                               const DB_State *st, int credits, int extra_rows,
                               int padding);
+/* Red Alert's mission timer plate: TABS `frame` at (tabx, 0) and `text` centred on
+ * textx at y 0, lettered as the credits are. */
+void db_draw_ra_timer_tab(DB_Surface *s, const DB_Pack *p, const char *text,
+                          int frame, int tabx, int textx);
 
 /* One conversion at the end. `rgba` must hold w*h*4 bytes. Index 0 -> opaque black
  * (the DOS screen has no alpha); pass want_alpha to get index 0 as transparent. */

@@ -60,7 +60,13 @@ def match_clear_ground_edges(cells, grass_tile):
     fade = 1-smoothstep(0, band-1, np.arange(band, dtype=np.float32))
     targets = {"L": grass_tile[:, 0], "R": grass_tile[:, -1],
                "T": grass_tile[0], "B": grass_tile[-1]}
-    for name, icon, side in borders:
+    # Each side's fade reads its edge as the sides before it left it, so where two
+    # matched sides meet the order decides the corner. A set of strings iterates in
+    # per-process hash order, which baked one of two different packs at random.
+    # Sorted runs B, L, R, T within a cell. In RV01 icon 6, a top-then-right pass tints
+    # the right edge's last grassy row until it no longer reads as grass and stays
+    # unjoined; right before top joins it and leaves the rock below it untouched.
+    for name, icon, side in sorted(borders):
         image = cells[(name, icon)]
         edge = {"L": image[:, 0], "R": image[:, -1],
                 "T": image[0], "B": image[-1]}[side].copy()

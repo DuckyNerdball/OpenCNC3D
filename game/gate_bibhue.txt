@@ -1,6 +1,10 @@
 tick 4
 gfxmode 2
 gfx bloom_on 0
+# The temporal anti-aliasing jitters the projection by under a pixel from frame to
+# frame, which moves the apron rectangle bibdump reports by a row between the shots
+# that gate_bibhue.py requires to share one rectangle, so it is off.
+gfx aa_mode 0
 cam VIEW
 tick 1
 bibhue 1

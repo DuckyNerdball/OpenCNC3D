@@ -27,6 +27,24 @@
 // Persists per-house fair AI plans, exploration, levels and random streams; validates the optional footer and normalizes old skirmish handicaps.
 // This changes multiplayer simulation; campaign rules remain on their original path.
 
+// MODIFIED for OpenCNC3D. Load_Game also reads saves written before the Red
+// Alert unit, infantry and aircraft types were added to Tiberian Dawn's type lists: their houses
+// are widened to this build's layout as they are read, the new types' tallies zero. The current
+// save format is pinned at compile time, so a class that changes size fails the build until
+// the change carries its own way of reading older saves. A save in the current format loads
+// exactly as before. It does not change the game simulation.
+// MODIFIED for OpenCNC3D. A load refused before Clear_Scenario puts back the state
+// DLLLoad read from the refused file, and records why it was refused (OpenCNC3D_Load_Refusal). This
+// replaces the limit noted on 30 October below. An accepted load is unchanged. It does not change the
+// game simulation.
+// MODIFIED for OpenCNC3D. Load_Game reads and checks the
+// save-game version before Clear_Scenario instead of after it, as Red Alert's
+// Load_Game already does, so a save that is refused at that check no longer clears
+// the map, the objects and the houses of the running scenario. It does not undo
+// DLLLoad, which runs first: the multiplayer settings, sidebars, building placement
+// and Special read from the refused file stay in place. A save that is accepted
+// loads exactly as before. It does not change the game simulation.
+
 /* $Header:   F:\projects\c&c\vcs\code\saveload.cpv   2.18   16 Oct 1995 16:48:44   JOE_BOSTIC  $ */
 /***********************************************************************************************
  ***             C O N F I D E N T I A L  ---  W E S T W O O D   S T U D I O S               ***
@@ -63,6 +81,9 @@
 
 extern bool DLLSave(FileClass& file);
 extern bool DLLLoad(FileClass& file);
+extern void DLLLoad_Snapshot(void);
+extern void DLLLoad_Restore(void);
+
 
 /*
 ********************************** Defines **********************************
@@ -84,6 +105,257 @@ extern bool DLLLoad(FileClass& file);
         + sizeof(TerrainClass) + sizeof(TerrainTypeClass) + sizeof(UnitClass) + sizeof(UnitTypeClass)                  \
         + sizeof(MouseClass) + sizeof(CellClass) + sizeof(FactoryClass) + sizeof(BaseClass) + sizeof(LayerClass)       \
         + sizeof(Scen.BriefingText) + sizeof(Scen.Waypoint)))
+
+/*
+** OpenCNC3D: why the last Load_Game refused its file (dllinterface.cpp,
+** OpenCNC3D_Load_Refusal), and the refusal itself: a load refused before Clear_Scenario
+** puts back what DLLLoad overwrote, so the running game is as it was.
+*/
+int OpenCNC3DLoadRefusal = 0;
+unsigned int OpenCNC3DLoadRefusalFound = 0;
+unsigned int OpenCNC3DLoadRefusalExpected = SAVEGAME_VERSION;
+
+static bool OpenCNC3D_Refuse_Load(CDFileClass& file, bool dll_read)
+{
+#ifdef REMASTER_BUILD
+    if (dll_read) {
+        DLLLoad_Restore();
+    }
+#else
+    (void)dll_read;
+#endif
+    file.Close();
+    return false;
+}
+
+/*
+** OpenCNC3D: the save formats this build reads.
+**
+** SAVEGAME_VERSION is a sum of class sizes, so it is only a format number for one ABI.
+** These are its values on the two this engine ships to: 64-bit Windows (LLP64) and macOS
+** on either CPU (LP64, the same layout on both). The current value is pinned so that a
+** change to any saved class's size stops the build here, rather than shipping a build that
+** quietly refuses every save made before it. When that happens, give Load_Game a way to
+** read the format being left behind, the way the one below reads saves that predate the
+** Red Alert types, then move the pins.
+**
+** "Fewer types": the format before the Red Alert units (4), infantry (2) and aircraft (3)
+** were appended to Tiberian Dawn's type lists, written by v0.8.0 to v0.9.6. Of the saved
+** classes only HouseClass changed size with that: its per-type tallies
+** (UnitTrackerClass<...> and the UQuantity/IQuantity/AQuantity arrays) each grew by the
+** new types at their end. Nothing else in the class moved apart from those growths, on
+** either ABI, which the size pins below hold in place.
+*/
+#if defined(_WIN64)
+#define OPENCNC3D_SAVE_FORMATS          1
+#define OPENCNC3D_SAVEGAME_VERSION_NOW  16857335u
+#define OPENCNC3D_HOUSE_SIZE_NOW        7176
+#define OPENCNC3D_SAVEGAME_VERSION_FEWER_TYPES 16857223u
+#elif defined(__APPLE__) && defined(__LP64__)
+#define OPENCNC3D_SAVE_FORMATS          1
+#define OPENCNC3D_SAVEGAME_VERSION_NOW  16857135u
+#define OPENCNC3D_HOUSE_SIZE_NOW        7168
+#define OPENCNC3D_SAVEGAME_VERSION_FEWER_TYPES 16857031u
+#else
+#define OPENCNC3D_SAVE_FORMATS 0
+#endif
+
+#define OPENCNC3D_HOUSE_SIZE_FEWER_TYPES 7064
+#define OPENCNC3D_FEWER_UNIT_TYPES       22
+#define OPENCNC3D_FEWER_INFANTRY_TYPES   21
+#define OPENCNC3D_FEWER_AIRCRAFT_TYPES   5
+
+#if OPENCNC3D_SAVE_FORMATS
+static_assert(SAVEGAME_VERSION == OPENCNC3D_SAVEGAME_VERSION_NOW,
+              "A saved Tiberian Dawn class changed size, so saves from earlier builds will no longer load. "
+              "Teach Load_Game to read the format being left behind (see OPENCNC3D_SAVEGAME_VERSION_FEWER_TYPES), "
+              "then update the pinned OPENCNC3D_SAVEGAME_VERSION_NOW.");
+static_assert(sizeof(HouseClass) == OPENCNC3D_HOUSE_SIZE_NOW,
+              "HouseClass changed size: HouseClass::OpenCNC3D_Widen_Saved maps the older layout onto this one "
+              "and must be checked against the new layout before the pin moves.");
+#endif
+static_assert(sizeof(UnitTrackerClass<UNIT_COUNT>)
+                  == sizeof(UnitTrackerClass<OPENCNC3D_FEWER_UNIT_TYPES>)
+                         + (UNIT_COUNT - OPENCNC3D_FEWER_UNIT_TYPES) * sizeof(int),
+              "a unit tally grows by one int per unit type, at its end");
+static_assert(sizeof(UnitTrackerClass<INFANTRY_COUNT>)
+                  == sizeof(UnitTrackerClass<OPENCNC3D_FEWER_INFANTRY_TYPES>)
+                         + (INFANTRY_COUNT - OPENCNC3D_FEWER_INFANTRY_TYPES) * sizeof(int),
+              "an infantry tally grows by one int per infantry type, at its end");
+static_assert(sizeof(UnitTrackerClass<AIRCRAFT_COUNT>)
+                  == sizeof(UnitTrackerClass<OPENCNC3D_FEWER_AIRCRAFT_TYPES>)
+                         + (AIRCRAFT_COUNT - OPENCNC3D_FEWER_AIRCRAFT_TYPES) * sizeof(int),
+              "an aircraft tally grows by one int per aircraft type, at its end");
+
+/*
+** Copies the bytes before each grown tally's new entries, leaves those entries zero, and
+** carries on after them. The bytes after the last tally are the same members in both
+** layouts; the two records differ there only by the class's tail padding.
+*/
+bool HouseClass::OpenCNC3D_Widen_Saved(unsigned char const* old_bytes, int old_size, HouseClass* out)
+{
+    if (old_bytes == NULL || out == NULL || old_size != OPENCNC3D_HOUSE_SIZE_FEWER_TYPES) {
+        return false;
+    }
+    unsigned char* const base = (unsigned char*)out;
+    struct Grown
+    {
+        size_t end;   // where the member ends in this build's layout
+        size_t added; // bytes this build added at its end
+    };
+#define OPENCNC3D_GROWN(member, now, before)                                                                         \
+    {(size_t)((unsigned char*)&out->member - base) + sizeof(out->member), (size_t)((now) - (before)) * sizeof(int)}
+    const Grown grown[] = {
+        OPENCNC3D_GROWN(AircraftTotals, AIRCRAFT_COUNT, OPENCNC3D_FEWER_AIRCRAFT_TYPES),
+        OPENCNC3D_GROWN(InfantryTotals, INFANTRY_COUNT, OPENCNC3D_FEWER_INFANTRY_TYPES),
+        OPENCNC3D_GROWN(UnitTotals, UNIT_COUNT, OPENCNC3D_FEWER_UNIT_TYPES),
+        OPENCNC3D_GROWN(DestroyedAircraft, AIRCRAFT_COUNT, OPENCNC3D_FEWER_AIRCRAFT_TYPES),
+        OPENCNC3D_GROWN(DestroyedInfantry, INFANTRY_COUNT, OPENCNC3D_FEWER_INFANTRY_TYPES),
+        OPENCNC3D_GROWN(DestroyedUnits, UNIT_COUNT, OPENCNC3D_FEWER_UNIT_TYPES),
+        OPENCNC3D_GROWN(UQuantity, UNIT_COUNT, OPENCNC3D_FEWER_UNIT_TYPES),
+        OPENCNC3D_GROWN(IQuantity, INFANTRY_COUNT, OPENCNC3D_FEWER_INFANTRY_TYPES),
+        OPENCNC3D_GROWN(AQuantity, AIRCRAFT_COUNT, OPENCNC3D_FEWER_AIRCRAFT_TYPES),
+    };
+#undef OPENCNC3D_GROWN
+
+    memset(base, 0, sizeof(HouseClass));
+    size_t from = 0; // read position in the older record
+    size_t to = 0;   // write position in this build's record
+    for (size_t i = 0; i < sizeof(grown) / sizeof(grown[0]); i++) {
+        const size_t kept_end = grown[i].end - grown[i].added;
+        if (kept_end < to) {
+            return false; // the members are not in the order listed
+        }
+        const size_t n = kept_end - to;
+        if (from + n > (size_t)old_size) {
+            return false;
+        }
+        memcpy(base + to, old_bytes + from, n);
+        from += n;
+        to = grown[i].end;
+    }
+    const size_t rest_new = sizeof(HouseClass) - to;
+    const size_t rest_old = (size_t)old_size - from;
+    const size_t rest = rest_new < rest_old ? rest_new : rest_old;
+    const size_t slack = rest_new < rest_old ? rest_old - rest_new : rest_new - rest_old;
+    if (slack >= alignof(HouseClass)) {
+        return false; // something other than the tallies changed size
+    }
+    memcpy(base + to, old_bytes + from, rest);
+    return true;
+}
+
+/*
+** Hands the house heap's loader one older house record per read of a whole house, widened
+** as above. Every other read, and every other call, goes to the save file unchanged.
+*/
+class OpenCNC3DFewerTypesHouseFile : public FileClass
+{
+public:
+    explicit OpenCNC3DFewerTypesHouseFile(FileClass& file)
+        : File(file)
+        , Failed(false)
+    {
+    }
+    virtual char const* File_Name(void) const
+    {
+        return File.File_Name();
+    }
+    virtual char const* Set_Name(char const* filename)
+    {
+        return File.Set_Name(filename);
+    }
+    virtual int Create(void)
+    {
+        return File.Create();
+    }
+    virtual int Delete(void)
+    {
+        return File.Delete();
+    }
+    virtual int Is_Available(int forced = false)
+    {
+        return File.Is_Available(forced);
+    }
+    virtual int Is_Open(void) const
+    {
+        return File.Is_Open();
+    }
+    virtual int Open(char const* filename, int rights = READ)
+    {
+        return File.Open(filename, rights);
+    }
+    virtual int Open(int rights = READ)
+    {
+        return File.Open(rights);
+    }
+    virtual int Read(void* buffer, int size)
+    {
+        if (size != (int)sizeof(HouseClass)) {
+            return File.Read(buffer, size);
+        }
+        unsigned char old[OPENCNC3D_HOUSE_SIZE_FEWER_TYPES];
+        if (File.Read(old, (int)sizeof(old)) != (int)sizeof(old)
+            || !HouseClass::OpenCNC3D_Widen_Saved(old, (int)sizeof(old), (HouseClass*)buffer)) {
+            Failed = true;
+            return 0;
+        }
+        return size;
+    }
+    virtual int Seek(int pos, int dir = SEEK_CUR)
+    {
+        return File.Seek(pos, dir);
+    }
+    virtual int Size(void)
+    {
+        return File.Size();
+    }
+    virtual int Write(void const* buffer, int size)
+    {
+        return File.Write(buffer, size);
+    }
+    virtual void Close(void)
+    {
+        File.Close();
+    }
+    virtual unsigned int Get_Date_Time(void)
+    {
+        return File.Get_Date_Time();
+    }
+    virtual bool Set_Date_Time(unsigned int date_time)
+    {
+        return File.Set_Date_Time(date_time);
+    }
+    virtual void Error(int error, int canretry = false, char const* filename = NULL)
+    {
+        File.Error(error, canretry, filename);
+    }
+
+    FileClass& File;
+    bool Failed;
+};
+
+/*
+** Whether a save's version word names a format Load_Game can read.
+*/
+static bool OpenCNC3D_Version_Readable(unsigned int version, bool* fewer_types)
+{
+    if (fewer_types) {
+        *fewer_types = false;
+    }
+    if (version == SAVEGAME_VERSION) {
+        return true;
+    }
+#if OPENCNC3D_SAVE_FORMATS
+    if (version == OPENCNC3D_SAVEGAME_VERSION_FEWER_TYPES) {
+        if (fewer_types) {
+            *fewer_types = true;
+        }
+        return true;
+    }
+#endif
+    return false;
+}
 
 /***************************************************************************
  * Save_Game -- saves a game to disk                                       *
@@ -354,6 +626,12 @@ bool Load_Game(const char* file_name)
     HousesType house;
     char descr_buf[DESCRIP_MAX];
 
+    bool dll_read = false;
+
+    OpenCNC3DLoadRefusal = 0;
+    OpenCNC3DLoadRefusalFound = 0;
+    OpenCNC3DLoadRefusalExpected = SAVEGAME_VERSION;
+
     /*
     **	Open the file
     */
@@ -363,11 +641,13 @@ bool Load_Game(const char* file_name)
 #ifdef REMASTER_BUILD
     /*
     ** Load the DLLs variables first, in case we need to do something different based on version
+    ** OpenCNC3D: after a copy of what that overwrites, which every refusal below puts back.
     */
     if (RunningAsDLL) {
+        DLLLoad_Snapshot();
+        dll_read = true;
         if (!DLLLoad(file)) {
-            file.Close();
-            return false;
+            return OpenCNC3D_Refuse_Load(file, dll_read);
         }
     }
 #endif
@@ -375,21 +655,38 @@ bool Load_Game(const char* file_name)
     **	Read & discard the save-game's header info
     */
     if (file.Read(descr_buf, DESCRIP_MAX) != DESCRIP_MAX) {
-        file.Close();
-        return (false);
+        return OpenCNC3D_Refuse_Load(file, dll_read);
     }
 
     if (file.Read(&scenario, sizeof(scenario)) != sizeof(scenario)) {
-        file.Close();
-        return (false);
+        return OpenCNC3D_Refuse_Load(file, dll_read);
     }
 
     if (file.Read(&house, sizeof(house)) != sizeof(house)) {
-        file.Close();
-        return (false);
+        return OpenCNC3D_Refuse_Load(file, dll_read);
     }
 
     Call_Back();
+
+    /*
+    **	Read in & verify the save-game ID code.
+    **	OpenCNC3D: this comes BEFORE Clear_Scenario, as it does in Red Alert's
+    **	Load_Game, so a save refused here leaves the map, the objects and the houses
+    **	as they were. DLLLoad above has already replaced the state the DLL keeps
+    **	(multiplayer settings, sidebars, building placement, Special) with the
+    **	refused file's; OpenCNC3D_Refuse_Load puts that back.
+    */
+    if (file.Read(&version, sizeof(version)) != sizeof(version)) {
+        return OpenCNC3D_Refuse_Load(file, dll_read);
+    }
+
+    bool fewer_types = false;
+    if (!OpenCNC3D_Version_Readable(version, &fewer_types)) {
+        OpenCNC3DLoadRefusal = 1;
+        OpenCNC3DLoadRefusalFound = version;
+        return OpenCNC3D_Refuse_Load(file, dll_read);
+    }
+
     /*
     **	Clear the scenario so we start fresh; this calls the Init_Clear() routine
     **	for the Map, and all object arrays.  It has the following important
@@ -402,19 +699,6 @@ bool Load_Game(const char* file_name)
     **	- The list of currently-selected objects is cleared
     */
     Clear_Scenario();
-
-    /*
-    **	Read in & verify the save-game ID code
-    */
-    if (file.Read(&version, sizeof(version)) != sizeof(version)) {
-        file.Close();
-        return (false);
-    }
-
-    if (version != SAVEGAME_VERSION) {
-        file.Close();
-        return (false);
-    }
 
     Call_Back();
     /*
@@ -461,7 +745,13 @@ bool Load_Game(const char* file_name)
     /*
     **	Load the object data.
     */
-    if (!Houses.Load(file) || !TeamTypes.Load(file) || !Teams.Load(file) || !Triggers.Load(file) || !Aircraft.Load(file)
+    /*
+    **	OpenCNC3D: a save from before the Red Alert types reads its houses through the
+    **	wrapper that widens each one; the rest of the file is the same in both formats.
+    */
+    OpenCNC3DFewerTypesHouseFile fewer_types_file(file);
+    if (!(fewer_types ? Houses.Load(fewer_types_file) && !fewer_types_file.Failed : Houses.Load(file))
+        || !TeamTypes.Load(file) || !Teams.Load(file) || !Triggers.Load(file) || !Aircraft.Load(file)
         || !Anims.Load(file) || !Buildings.Load(file) || !Bullets.Load(file) || !Infantry.Load(file)
         || !Overlays.Load(file) || !Smudges.Load(file) || !Templates.Load(file) || !Terrains.Load(file)
         || !Units.Load(file) || !Factories.Load(file)) {
@@ -1063,7 +1353,7 @@ bool Get_Savefile_Info(int id, char* buf, unsigned* scenp, HousesType* housep)
             return (false);
         }
 
-        if (version != SAVEGAME_VERSION) {
+        if (!OpenCNC3D_Version_Readable(version, NULL)) {
             file.Close();
             return (false);
         }

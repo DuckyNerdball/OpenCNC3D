@@ -77,6 +77,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "../common/fire_visibility.h"
 #include "vortex.h"
 
 /*
@@ -3257,6 +3258,7 @@ bool CellClass::Can_Tiberium_Germinate(void) const
  *=============================================================================================*/
 void CellClass::Set_Mapped(HousesType house, bool set)
 {
+    g_cncFireVisibility.touch(Cell_Number(),(int)house,Is_Mapped(house),Is_Visible(house),Frame);
     int shift = (int)house;
     if (set) {
         IsMappedByPlayerMask |= (1 << shift);
@@ -3319,6 +3321,7 @@ bool CellClass::Is_Mapped(HouseClass* player) const
  *=============================================================================================*/
 void CellClass::Set_Visible(HousesType house, bool set)
 {
+    g_cncFireVisibility.touch(Cell_Number(),(int)house,Is_Mapped(house),Is_Visible(house),Frame);
     int shift = (int)house;
     if (set) {
         IsVisibleByPlayerMask |= (1 << shift);

@@ -121,9 +121,11 @@ int do_hit_test(const DO_State *st, int mx, int my)
 
     if (!st)
         return DO_HIT_NONE;
-    if (in_rect(mx, my, DO_PLAY_X, DO_BTN_Y, DO_PLAY_W, DO_BTN_H))
+    if (st->user_maps && in_rect(mx, my, DO_IMPORT_X, DO_BTN_Y, DO_IMPORT_W, DO_BTN_H))
+        return DO_HIT_IMPORT;
+    if (in_rect(mx, my, st->user_maps ? 220 : DO_PLAY_X, DO_BTN_Y, DO_PLAY_W, DO_BTN_H))
         return DO_HIT_PLAY;
-    if (in_rect(mx, my, DO_CANCEL_X, DO_BTN_Y, DO_CANCEL_W, DO_BTN_H))
+    if (in_rect(mx, my, st->user_maps ? 24 : DO_CANCEL_X, DO_BTN_Y, DO_CANCEL_W, DO_BTN_H))
         return DO_HIT_CANCEL;
     if (in_rect(mx, my, DO_LIST_X, DO_LIST_Y, DO_LIST_W, DO_LIST_H)) {
         row = (my - DO_LIST_Y) / DO_ROW_H;
@@ -171,9 +173,9 @@ void do_draw(DB_Surface *s, const DB_Pack *p, const DO_State *st)
     dm_green_dialog(s, DO_DLG_X, DO_DLG_Y, DO_DLG_W, DO_DLG_H);
 
     /* Title. The cartridge's own words, ROM 0x22384C. */
-    tx = DO_DLG_X + (DO_DLG_W >> 1) - (db_string_width(grad, "SPECIAL OPS",
+    tx = DO_DLG_X + (DO_DLG_W >> 1) - (db_string_width(grad, st->user_maps ? "USER MAPS" : st->ants ? "ANT MISSIONS" : st->red_alert ? "MISSION DISKS" : "SPECIAL OPS",
                                                        DB_FONT6_XSPACING) >> 1);
-    db_print(s, grad, "SPECIAL OPS", tx, DO_DLG_Y + 8, fpsel, DB_FONT6_XSPACING);
+    db_print(s, grad, st->user_maps ? "USER MAPS" : st->ants ? "ANT MISSIONS" : st->red_alert ? "MISSION DISKS" : "SPECIAL OPS", tx, DO_DLG_Y + 8, fpsel, DB_FONT6_XSPACING);
 
     /* The list well: BOXSTYLE_GREEN_BORDER again, one size down. */
     dm_green_dialog(s, DO_LIST_X - 2, DO_LIST_Y - 2, DO_LIST_W + 4, DO_LIST_H + 4);
@@ -207,7 +209,7 @@ void do_draw(DB_Surface *s, const DB_Pack *p, const DO_State *st)
 
         /* Under a heading the side is already said, so the row is indented instead
            of prefixed; a flat list (the user maps) keeps its GDI/NOD column. */
-        if (st->grouped) {
+        if (st->grouped || st->ants) {
             nx = DO_LIST_X + 14;
         } else {
             db_print(s, grad, m->nod ? "NOD" : "GDI", DO_LIST_X + 3, y, pal,
@@ -230,11 +232,14 @@ void do_draw(DB_Surface *s, const DB_Pack *p, const DO_State *st)
     }
 
     if (st->count <= 0)
-        db_print(s, grad, "NO SPECIAL OPS MISSIONS INSTALLED", DO_LIST_X + 3,
+        db_print(s, grad, st->user_maps ? "NO SINGLEPLAYER MAPS INSTALLED" : "NO SPECIAL OPS MISSIONS INSTALLED", DO_LIST_X + 3,
                  DO_LIST_Y + 2, fpdim, DB_FONT6_XSPACING);
 
-    do_draw_button(s, grad, "Play", DO_PLAY_X, DO_BTN_Y, DO_PLAY_W,
+    do_draw_button(s, grad, "Play", st->user_maps ? 220 : DO_PLAY_X, DO_BTN_Y, DO_PLAY_W,
                    st->pressed == DO_HIT_PLAY);
-    do_draw_button(s, grad, "Cancel", DO_CANCEL_X, DO_BTN_Y, DO_CANCEL_W,
+    do_draw_button(s, grad, "Back", st->user_maps ? 24 : DO_CANCEL_X, DO_BTN_Y, DO_CANCEL_W,
                    st->pressed == DO_HIT_CANCEL);
+    if (st->user_maps)
+        do_draw_button(s, grad, "Import Map", DO_IMPORT_X, DO_BTN_Y, DO_IMPORT_W,
+                       st->pressed == DO_HIT_IMPORT);
 }

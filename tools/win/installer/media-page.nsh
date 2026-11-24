@@ -20,6 +20,7 @@ Function MediaChoice
   ${EndIf}
 FunctionEnd
 Function .onInit
+  !insertmacro RequireX64
   InitPluginsDir
   StrCpy $DlProc 0
   StrCpy $DlRunning 0

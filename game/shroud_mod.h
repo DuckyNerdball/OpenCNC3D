@@ -79,6 +79,8 @@
 typedef bool (*shroud_getstate_fn)(GameStateRequestEnum, uint64, unsigned char*, unsigned int);
 /* The renderer's own per-cell view test (cnc_eyes cell_shown), int for C linkage. */
 typedef int (*shroud_cellshown_fn)(int cellx, int celly);
+/* Narrows the cell range [*x0,*x1) x [*y0,*y1) to the cells the camera can see. */
+typedef void (*shroud_viewrect_fn)(int* x0, int* y0, int* x1, int* y1);
 
 static int g_shroudOn = 1;   /* master switch; CLI flips it */
 
@@ -94,6 +96,70 @@ static int g_shroudValid = 0;          /* a good snapshot is in g_shroudCell */
 static int g_shroudCornersDirty = 1;
 static int g_shroudWhined = 0;         /* count-mismatch reported once, not per frame */
 
+/* ---------------------------------------------------------------------------------- *
+ *  KEEPING WHAT THE SHROUD DERIVES UNTIL THE SHROUD CHANGES
+ *
+ *  The engine's shroud moves at most once a tick, and in most ticks it does not move at
+ *  all. What is drawn from it (the corner field, the blanket's vertices, the Enhanced
+ *  fog field and its texture, the air's visibility texture, the shroud term of the mesh
+ *  batch keys, the ground patches' colours) used to be worked out again every frame
+ *  anyway, the blanket twice a frame under Enhanced. Each is now built when what it is
+ *  made of changes, and kept otherwise; a frame redoes only the view test, which moves
+ *  with the camera. The blanket's cells and the ground patches are worked out one by one
+ *  as a frame first draws them, never the ones off screen, so a frame in which the
+ *  shroud moves does no more of that work than a frame did before anything was kept. A
+ *  kept copy holds the very floats the per-frame code made, made by the same code, so
+ *  the picture does not change by a bit.
+ *
+ *  g_shroudFieldGen is the shroud's own part of every such key. It moves when the
+ *  per-cell opacity the corner field is averaged from changes, and only then: a fetched
+ *  snapshot equal to the last one, or a mode switch that lands where it started, leaves
+ *  it where it was.
+ *
+ *  OPENCNC3D_SHROUD_CACHE, read once:
+ *     1 (or unset)  keep and reuse: the default;
+ *     0             build everything again every frame, as before the copies existed;
+ *     verify        keep and reuse, and every frame build everything again from scratch
+ *                   and compare it bit for bit with what is kept. A difference prints
+ *                   SHROUDCACHE|verify|mismatch|<what>|<count> and is counted, and the
+ *                   shroudcache script verb prints the counts. Slow; for gates and checks.
+ * ---------------------------------------------------------------------------------- */
+static int g_shroudCacheMode = -1;
+static int shroud_cache_mode(void)
+{
+    if (g_shroudCacheMode < 0) {
+        const char* e = getenv("OPENCNC3D_SHROUD_CACHE");
+        g_shroudCacheMode = (e && !strcmp(e, "verify")) ? 2 : (e && !strcmp(e, "0")) ? 0 : 1;
+        if (g_shroudCacheMode != 1)
+            printf("SHROUDCACHE|mode|%s\n", g_shroudCacheMode ? "verify" : "off");
+    }
+    return g_shroudCacheMode;
+}
+/* What the copies did, for the shroudcache verb: built is a copy made again because its
+   inputs moved, kept is one reused as it stood. */
+struct ShroudCacheStats {
+    unsigned long fieldBuilt, fieldKept;     /* the corner field, on each rebuild request */
+    unsigned long blanketBuilt, blanketKept; /* the soft blanket's kept cells: forgotten, or
+                                                still good, per draw */
+    unsigned long fogBuilt, fogKept;         /* the Enhanced fog field, per frame */
+    unsigned long visBuilt, visKept;         /* the air's visibility texture, per request */
+    unsigned long sigReset;                  /* the mesh shroud-key memo, emptied */
+    unsigned long mottleBuilt, mottleKept;   /* the ground patches, per frame */
+    unsigned long checks, mismatches;        /* verify: comparisons made, and failed */
+    unsigned long blanketCells, mottleCells; /* blanket cells and ground patches worked out */
+    unsigned long blanketView, blanketRange; /* the last draw's cells on screen, and in all */
+};
+static ShroudCacheStats g_shroudCache;
+static void shroud_cache_mismatch(const char* what, long count)
+{
+    g_shroudCache.mismatches++;
+    if (g_shroudCache.mismatches <= 16)
+        printf("SHROUDCACHE|verify|mismatch|%s|%ld\n", what, count);
+}
+static unsigned g_shroudFieldGen = 1;
+/* A key is a list of words, compared whole. Floats go in by their bits. */
+static unsigned shroud_key_bits(float f) { unsigned u; memcpy(&u, &f, sizeof u); return u; }
+
 #include "c3d_ceiling.h"
 
 /* One byte per grid entry, SHROUD_* values, sized from the RENDERER's ceiling like every
@@ -101,6 +167,16 @@ static int g_shroudWhined = 0;         /* count-mismatch reported once, not per 
    is a different number that moves for different reasons, and that is how the shroud came
    to have a ceiling of its own that nothing named. */
 static unsigned char g_shroudCell[C3D_MAP_MAX * C3D_MAP_MAX];
+/* Optional engine extension: a three-second firing reveal fades during its last
+   second, before the native exploration bits return to their saved state. */
+typedef int (*shroud_firestate_fn)(int* rows,int capacity);
+static shroud_firestate_fn g_shroudFireState = NULL;
+static float g_shroudFireAlpha[C3D_MAP_MAX * C3D_MAP_MAX];
+static std::vector<float> g_shroudFireNext;
+static std::vector<int> g_shroudFireRows;
+static std::vector<int> g_shroudFireFading; /* x,y pairs for Classic's overlay */
+static float shroud_dark_alpha(void);
+
 /* Original partial fog frame from DisplayClass::Cell_Shadow, -1 when absent. */
 static signed char g_shroudShadow[C3D_MAP_MAX * C3D_MAP_MAX];
 
@@ -178,6 +254,7 @@ static void shroud_free(void)
     g_shroudValid = 0;
     g_shroudWhined = 0;
     memset(g_shroudCell, 0, sizeof(g_shroudCell));
+    memset(g_shroudFireAlpha,0,sizeof g_shroudFireAlpha);g_shroudFireFading.clear();
     memset(g_shroudShadow, -1, sizeof(g_shroudShadow));
     g_shroudCornersDirty = 1;          /* no rect, no rim, no snapshot */
 }
@@ -209,6 +286,26 @@ static int shroud_fetch(shroud_getstate_fn getstate)
         g_shroudValid = 0;
         return 0;
     }
+    /* The corner field is marked for a rebuild only when a cell's state really moved, or
+       when the snapshot becomes valid: most ticks hand back the same shroud. The partial
+       fog frames are read by the Classic view directly and are not part of the field. */
+    int changed = !g_shroudValid || shroud_cache_mode() == 0;
+    g_shroudFireNext.resize(n);std::fill(g_shroudFireNext.begin(),g_shroudFireNext.end(),0.0f);
+    g_shroudFireFading.clear();
+    const int fireCount=g_shroudFireState?g_shroudFireState(NULL,0):0;
+    if(fireCount>0&&fireCount<=C3D_MAP_MAX*C3D_MAP_MAX) {
+        g_shroudFireRows.resize((size_t)fireCount*4);
+        const int got=g_shroudFireState(g_shroudFireRows.data(),fireCount);
+        if(got==fireCount)for(int fi=0;fi<fireCount;fi++) {
+            const int *row=&g_shroudFireRows[(size_t)fi*4];
+            const int x=row[0]-g_shroudGX,y=row[1]-g_shroudGY;
+            if(x<0||y<0||x>=g_shroudGW||y>=g_shroudGH||row[2]<1||row[2]>=15)continue;
+            const float target=row[3]==SHROUD_HIDDEN?1.0f:shroud_dark_alpha();
+            g_shroudFireNext[(size_t)y*g_shroudGW+x]=target*(15-row[2])/15.0f;
+            g_shroudFireFading.push_back(row[0]);g_shroudFireFading.push_back(row[1]);
+        }
+    }
+
     for (i = 0; i < n; i++) {
         /* ASSEMBLY CHANGE (cursors x shroud reconciliation, measured on SCG01EB):
            the engine reports edge-of-reveal cells as IsVisible=1 IsMapped=0 with a
@@ -223,15 +320,19 @@ static int shroud_fetch(shroud_getstate_fn getstate)
            (IsMapped && !IsVisible) ever becomes reachable, units standing there
            will need a cull bit DARK cannot carry today. */
         const CNCShroudEntryStruct* e = &sh->Entries[i];
-        g_shroudShadow[i] = (signed char)e->ShadowIndex;
-        g_shroudCell[i] = (unsigned char)(e->IsVisible
+        const unsigned char state = (unsigned char)(e->IsVisible
                                               ? (e->IsMapped ? SHROUD_CLEAR
                                                              : SHROUD_DARK)
                                               : (e->IsMapped ? SHROUD_DARK
                                                              : SHROUD_HIDDEN));
+        g_shroudShadow[i] = (signed char)e->ShadowIndex;
+        if(g_shroudFireAlpha[i]!=g_shroudFireNext[i])changed=1;
+        g_shroudFireAlpha[i]=g_shroudFireNext[i];
+        if (g_shroudCell[i] != state) changed = 1;
+        g_shroudCell[i] = state;
     }
     g_shroudValid = 1;
-    g_shroudCornersDirty = 1;
+    if (changed) g_shroudCornersDirty = 1;
     return 1;
 }
 
@@ -364,7 +465,14 @@ static void shroud_counts(int* hidden, int* dark, int* clear)
 
 /* How dark a mapped-but-unseen cell goes. The DOS original used translucency table
    entries for this job; a flat alpha is the GL 1.1 equivalent. */
-#define SHROUD_DARK_ALPHA 0.45f
+static int shroud_fow_enhanced(void) { return fx_mode_of(&g_fx)==FX_MODE_ENHANCED; }
+static float shroud_dark_alpha(void) { return shroud_fow_enhanced()?g_fx.fow_darkness:0.45f; }
+#define SHROUD_DARK_ALPHA (shroud_dark_alpha())
+static int g_shroudMaskPass=0;
+static void shroud_colour(float a) {
+    const float c=g_shroudMaskPass?1.0f:0.0f;
+    glColor4f(c,c,c,a);
+}
 /* Quad heights: terrain is y=0, water -0.015, selection brackets 0.09. The shroud sits
    between ground and brackets, dark slightly under black so coincident edges cannot
    z-fight. */
@@ -408,29 +516,36 @@ static void shroud_draw(int x0, int y0, int x1, int y1, shroud_cellshown_fn show
     glDisable(GL_ALPHA_TEST);
     glDepthMask(GL_FALSE);
 
+    /* Written through an OverlayArrays (overlay_arrays.h): immediate mode by default,
+       or with the overlay_arrays dial one array draw a pass. Both passes are one flat
+       colour each, set before the pass, so the batch carries positions only. */
+    static OverlayArrays quads;
+    quads.reset(false, false);
+
     /* Pass 1: darkened (blended) */
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glColor4f(0.0f, 0.0f, 0.0f, SHROUD_DARK_ALPHA);
-    glBegin(GL_QUADS);
+    shroud_colour(SHROUD_DARK_ALPHA);
+    quads.begin(GL_QUADS);
     for (y = y0; y < y1; y++) {
         for (x = x0; x < x1; x++) {
             if (shroud_state_at(x, y) != SHROUD_DARK)
                 continue;
             if (shown && !shown(x, y))
                 continue;
-            glVertex3f((float)x, SHROUD_DARK_Y + shroud_gy((float)x, (float)y), (float)y);
-            glVertex3f((float)x + 1.0f, SHROUD_DARK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
-            glVertex3f((float)x + 1.0f, SHROUD_DARK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
-            glVertex3f((float)x, SHROUD_DARK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
+            quads.vertex((float)x, SHROUD_DARK_Y + shroud_gy((float)x, (float)y), (float)y);
+            quads.vertex((float)x + 1.0f, SHROUD_DARK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
+            quads.vertex((float)x + 1.0f, SHROUD_DARK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
+            quads.vertex((float)x, SHROUD_DARK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
         }
     }
-    glEnd();
+    quads.end();
+    quads.flush();
     glDisable(GL_BLEND);
 
     /* Pass 2: unexplored (opaque black) */
-    glColor3f(0.0f, 0.0f, 0.0f);
-    glBegin(GL_QUADS);
+    shroud_colour(1.0f);
+    quads.begin(GL_QUADS);
     for (y = y0; y < y1; y++) {
         for (x = x0; x < x1; x++) {
             s = shroud_state_at(x, y);
@@ -438,13 +553,14 @@ static void shroud_draw(int x0, int y0, int x1, int y1, shroud_cellshown_fn show
                 continue;
             if (shown && !shown(x, y))
                 continue;
-            glVertex3f((float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y), (float)y);
-            glVertex3f((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
-            glVertex3f((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
-            glVertex3f((float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
+            quads.vertex((float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y), (float)y);
+            quads.vertex((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
+            quads.vertex((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
+            quads.vertex((float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
         }
     }
-    glEnd();
+    quads.end();
+    quads.flush();
 
     glDepthMask(GL_TRUE);
 }
@@ -495,14 +611,19 @@ static int g_shroudSoft = 1;   /* 1 = soft (N64 look), 0 = hard per-cell squares
 #define SHROUD_SOFT_MAXA 0.784f
 #define SHROUD_SOFT_OPAQ 0.9999f   /* >= this counts as fully interior */
 
+static float shroud_fire_alpha(int cellx,int celly) {
+    if(!g_shroudOn||!g_shroudValid||g_shroudEditorOff||g_shroudRevealed)return 0.0f;
+    const int x=cellx-g_shroudGX,y=celly-g_shroudGY;
+    return x>=0&&y>=0&&x<g_shroudGW&&y<g_shroudGH?g_shroudFireAlpha[(size_t)y*g_shroudGW+x]:0.0f;
+}
 static float shroud_opacity(int cellx, int celly)
 {
     if (shroud_is_rim(cellx, celly)) return 1.0f;
     if (g_shroudRevealed) return 0.0f;             /* rim-only: the rest is open */
     switch (shroud_state_at(cellx, celly)) {
         case SHROUD_HIDDEN: return 1.0f;
-        case SHROUD_DARK:   return SHROUD_DARK_ALPHA;
-        default:            return 0.0f;
+        case SHROUD_DARK:   return std::max(SHROUD_DARK_ALPHA,shroud_fire_alpha(cellx,celly));
+        default:            return shroud_fire_alpha(cellx,celly);
     }
 }
 
@@ -512,15 +633,55 @@ static float shroud_opacity(int cellx, int celly)
    shroud_set_world_grid at the top of this file). */
 static float g_shroudCornerA[SHROUD_CORN_MAX * SHROUD_CORN_MAX];
 
+/* The opacity of every cell a corner reads, cells -1 .. CornW-1 by -1 .. CornH-1, row
+   by row at a stride of CornW+1. The field is a function of this grid and nothing else,
+   so the grid is what says whether the field moved. */
+static std::vector<float> g_shroudOpac;
+static int g_shroudOpacW = 0, g_shroudOpacH = 0;
+static void shroud_opacity_grid(std::vector<float>& op, int ow, int oh)
+{
+    op.resize((size_t)ow * oh);
+    for (int y = -1; y < oh - 1; y++)
+        for (int x = -1; x < ow - 1; x++)
+            op[(size_t)(y + 1) * ow + (x + 1)] = shroud_opacity(x, y);
+}
+
 static void shroud_build_corners(void)
 {
     int x, y;
+    g_shroudCornersDirty = 0;
+    if (shroud_cache_mode() == 0) {
+        for (y = 0; y < g_shroudCornH; y++)
+            for (x = 0; x < g_shroudCornW; x++)
+                g_shroudCornerA[y * g_shroudCornW + x] =
+                    0.25f * (shroud_opacity(x - 1, y - 1) + shroud_opacity(x, y - 1) +
+                             shroud_opacity(x - 1, y)     + shroud_opacity(x, y));
+        g_shroudFieldGen++;
+        g_shroudCache.fieldBuilt++;
+        return;
+    }
+    /* Each cell's opacity once instead of four times, then the same four-term average
+       summed in the same order, which gives the same bits. Nothing moves, and the
+       generation stays, when the grid is the one the field was last built from. */
+    const int ow = g_shroudCornW + 1, oh = g_shroudCornH + 1;
+    static std::vector<float> op;
+    shroud_opacity_grid(op, ow, oh);
+    if (ow == g_shroudOpacW && oh == g_shroudOpacH
+        && !memcmp(op.data(), g_shroudOpac.data(), op.size() * sizeof(float))) {
+        g_shroudCache.fieldKept++;
+        return;
+    }
+    g_shroudOpac.swap(op);
+    g_shroudOpacW = ow;
+    g_shroudOpacH = oh;
+    const float* o = g_shroudOpac.data();
     for (y = 0; y < g_shroudCornH; y++)
         for (x = 0; x < g_shroudCornW; x++)
             g_shroudCornerA[y * g_shroudCornW + x] =
-                0.25f * (shroud_opacity(x - 1, y - 1) + shroud_opacity(x, y - 1) +
-                         shroud_opacity(x - 1, y)     + shroud_opacity(x, y));
-    g_shroudCornersDirty = 0;
+                0.25f * (o[y * ow + x]       + o[y * ow + x + 1] +
+                         o[(y + 1) * ow + x] + o[(y + 1) * ow + x + 1]);
+    g_shroudFieldGen++;
+    g_shroudCache.fieldBuilt++;
 }
 
 /* The corner field depends on which MODE built it (the shroud proper, or the rim
@@ -530,7 +691,9 @@ static int g_shroudCornersMode = -1;
 static void shroud_corners_sync(void)
 {
     const int mode = (g_shroudRimOn << 2) | (shroud_rim_only() << 1) | (g_shroudRevealed ? 1 : 0);
-    if (g_shroudCornersDirty || mode != g_shroudCornersMode) {
+    static float lastDark=-1.0f;
+    if (g_shroudCornersDirty || mode != g_shroudCornersMode || lastDark!=SHROUD_DARK_ALPHA) {
+        lastDark=SHROUD_DARK_ALPHA;
         shroud_build_corners();
         g_shroudCornersMode = mode;
     }
@@ -541,6 +704,43 @@ static float shroud_corner_a(int x, int y)
     if (x < 0) x = 0; else if (x >= g_shroudCornW) x = g_shroudCornW - 1;
     if (y < 0) y = 0; else if (y >= g_shroudCornH) y = g_shroudCornH - 1;
     return g_shroudCornerA[y * g_shroudCornW + x];
+}
+
+/* Verify, once a frame: the field worked out again from the live shroud, the way the
+   per-frame build made it, against the kept one. This is also the check that every
+   writer of the shroud still marks the field for a rebuild. */
+static void shroud_cache_check_field(void)
+{
+    if (shroud_cache_mode() != 2) return;
+    shroud_corners_sync();
+    g_shroudCache.checks++;
+    long bad = 0;
+    for (int y = 0; y < g_shroudCornH; y++)
+        for (int x = 0; x < g_shroudCornW; x++) {
+            const float a = 0.25f * (shroud_opacity(x - 1, y - 1) + shroud_opacity(x, y - 1) +
+                                     shroud_opacity(x - 1, y)     + shroud_opacity(x, y));
+            if (memcmp(&a, &g_shroudCornerA[y * g_shroudCornW + x], sizeof a)) bad++;
+        }
+    static std::vector<float> op;
+    shroud_opacity_grid(op, g_shroudCornW + 1, g_shroudCornH + 1);
+    if (g_shroudOpacW != g_shroudCornW + 1 || g_shroudOpacH != g_shroudCornH + 1
+        || memcmp(op.data(), g_shroudOpac.data(), op.size() * sizeof(float)))
+        bad++;
+    if (bad) shroud_cache_mismatch("field", bad);
+}
+
+/* Continuous Enhanced edge. Shared by the blanket and final fog mask. Four-by-four
+   tessellation removes the centre-fan ridges; endpoints stay exactly clear/black. */
+static float shroud_fow_curve(float a) {
+    if(!shroud_fow_enhanced() || a<=0.0f || a>=1.0f)return a;
+    return powf(a, g_fx.fow_falloff);
+}
+static float shroud_fow_at(float wx,float wz) {
+    const int x=(int)floorf(wx), y=(int)floorf(wz);
+    const float u=wx-x,v=wz-y;
+    const float a=(shroud_corner_a(x,y)*(1-u)+shroud_corner_a(x+1,y)*u)*(1-v)
+                 +(shroud_corner_a(x,y+1)*(1-u)+shroud_corner_a(x+1,y+1)*u)*v;
+    return shroud_fow_curve(a);
 }
 
 /* 0 reproduces the older draw, in which the ground under the shroud was lit as though
@@ -590,7 +790,7 @@ static float shroud_corner_vis(int x, int y)
     if (!g_shroudRimOn && (!g_shroudOn || !g_shroudValid || g_shroudRevealed))
         return 1.0f;
     shroud_corners_sync();
-    return 1.0f - shroud_corner_a(x, y);
+    return 1.0f - shroud_fow_curve(shroud_corner_a(x, y));
 }
 
 /* ---- the shroud on WORLD OBJECTS, not just on the ground -------------------------
@@ -621,6 +821,7 @@ static float shroud_vis_at(float wx, float wz)
         return 1.0f;
     shroud_corners_sync();
     const int cx = (int)floorf(wx), cz = (int)floorf(wz);
+    if(shroud_fow_enhanced() && g_fx.fow_smooth)return 1.0f-shroud_fow_at(wx,wz);
     const float fx = wx - (float)cx, fz = wz - (float)cz;
     const float v00 = 1.0f - shroud_corner_a(cx,     cz);
     const float v10 = 1.0f - shroud_corner_a(cx + 1, cz);
@@ -638,13 +839,287 @@ static float shroud_env_at(float wx, float wz)
     return e > SHROUD_SOFT_MAXA ? SHROUD_SOFT_MAXA : e;
 }
 
-/* Same GL contract as shroud_draw: inside the 3D scene after every object pass,
-   depth test ON (near buildings keep occluding), depth write OFF, leaves blend and
-   texture off. Same call signature so the call site can pick either. */
-static void shroud_draw_soft(int x0, int y0, int x1, int y1, shroud_cellshown_fn shown)
+/* THE SOFT BLANKET, CELL BY CELL. What one cell of the blanket draws depends on the shroud
+   around it and the ground under it, and on nothing the camera does: the core quad's four
+   corners, or the feather fan's vertices with an alpha each. So a cell is worked out the
+   first time a draw needs it after the shroud or the ground last changed, kept, and
+   handed over again by every later draw that needs it. A draw takes the cells of the
+   camera's box, row by row and column by column, which is the order the blanket always
+   drew them in, and a cell off screen is not worked out at all: a frame in which the
+   shroud changes costs no more than one blanket cost before anything was kept, and a
+   scroll works out only the strip that comes into view. The colour is not kept, because
+   it is 0 in the picture and 1 in the fog mask (shroud_colour), the same for every
+   vertex of a pass. */
+enum { SHROUD_SOFT_CORE = 1, SHROUD_SOFT_FEATHER = 2 };
+#define SHROUD_SOFT_CELL_VERTS 96            /* the smooth Enhanced fan, 4 x 4 x 6 */
+
+/* One cell, worked out: the blocks it draws in, the core quad's corners (x y z each),
+   and the feather vertices with their alphas. */
+struct ShroudSoftCell {
+    int blocks, n;
+    float core[12];
+    float pos[3 * SHROUD_SOFT_CELL_VERTS], a[SHROUD_SOFT_CELL_VERTS];
+};
+static void shroud_soft_put(float* p, float x, float y, float z)
+{
+    p[0] = x; p[1] = y; p[2] = z;
+}
+/* One feather vertex: its alpha, and where it lies. */
+static void shroud_soft_feather(ShroudSoftCell& c, float a, float x, float y, float z)
+{
+    c.a[c.n] = a;
+    shroud_soft_put(&c.pos[3 * c.n], x, y, z);
+    c.n++;
+}
+/* One vertex of the continuous Enhanced edge, which the fog mask shares. */
+static void shroud_fow_vertex(ShroudSoftCell& c, float x, float y)
+{
+    shroud_soft_feather(c, shroud_fow_at(x, y), x, SHROUD_BLACK_Y + shroud_gy(x, y), y);
+}
+
+/* Works out cell (x, y), which `ring` must admit (NULL admits every cell): the tests and
+   the arithmetic of the two blocks the blanket draws, unchanged. */
+static void shroud_soft_work(ShroudSoftCell& c, int x, int y, shroud_cellshown_fn ring)
+{
+    c.blocks = 0;
+    c.n = 0;
+
+    /* Block 1: the deep black core, unblended. A cell is core when its centre and all
+       four corners are fully opaque, i.e. it and every neighbour that touches it
+       through a corner is HIDDEN. */
+    if (!(shroud_opacity(x, y) < 1.0f) &&
+        !(shroud_corner_a(x, y)         < 1.0f ||
+          shroud_corner_a(x + 1, y)     < 1.0f ||
+          shroud_corner_a(x, y + 1)     < 1.0f ||
+          shroud_corner_a(x + 1, y + 1) < 1.0f) &&
+        !(ring && !ring(x, y))) {
+        /* ALL FOUR corners ride the heightfield. Two of them once did not: the
+           west pair was pinned to the absolute plane while the east pair rode
+           the ground, so every deep-shroud cell drew as a RAMP, not a lid.
+           Uphill the ramp sank under the terrain and let the ground show
+           through (black stripes); downhill it floated a whole cell up and
+           painted black over sand and water (the shoreline wedges). */
+        c.blocks |= SHROUD_SOFT_CORE;
+        shroud_soft_put(&c.core[0], (float)x,        SHROUD_BLACK_Y + shroud_gy((float)x, (float)y), (float)y);
+        shroud_soft_put(&c.core[3], (float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
+        shroud_soft_put(&c.core[6], (float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
+        shroud_soft_put(&c.core[9], (float)x,        SHROUD_BLACK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
+    }
+
+    /* Block 2: the feather ring, one blended pass. Every remaining cell that any
+       non-zero alpha touches becomes a 4-triangle fan; the fan (rather than one quad)
+       keeps the interpolation symmetric so no diagonal seam shows. */
+    float a00, a10, a01, a11, ac, cx, cy;
+    a00 = shroud_corner_a(x, y);
+    a10 = shroud_corner_a(x + 1, y);
+    a01 = shroud_corner_a(x, y + 1);
+    a11 = shroud_corner_a(x + 1, y + 1);
+    ac  = shroud_opacity(x, y);
+    if (ac >= 1.0f && a00 >= 1.0f && a10 >= 1.0f && a01 >= 1.0f && a11 >= 1.0f)
+        return;                                 /* the core block already owns it */
+    if (a00 <= 0.0f && a10 <= 0.0f && a01 <= 0.0f && a11 <= 0.0f && ac <= 0.0f)
+        return;                                 /* fully clear, nothing to draw */
+    if (ring && !ring(x, y))
+        return;
+    c.blocks |= SHROUD_SOFT_FEATHER;
+    if(shroud_fow_enhanced() && g_fx.fow_smooth) {
+        for(int j=0;j<4;j++)for(int i=0;i<4;i++) {
+            const float u0=x+i*0.25f,v0=y+j*0.25f,u1=u0+0.25f,v1=v0+0.25f;
+            shroud_fow_vertex(c,u0,v0);shroud_fow_vertex(c,u1,v0);shroud_fow_vertex(c,u1,v1);
+            shroud_fow_vertex(c,u0,v0);shroud_fow_vertex(c,u1,v1);shroud_fow_vertex(c,u0,v1);
+        }
+        return;
+    }
+    /* ROM 0xC8 ceiling (see SHROUD_SOFT_MAXA), applied per vertex and on the
+       SAME test for all five: clamp a value only when it is inside the band,
+       which is to say when that vertex is not fully interior. The centre used
+       to be clamped unconditionally, which held the centre of a cell that is
+       itself completely unexplored at the 0.784 ceiling merely because one of
+       its corners touched the reveal edge: 21.6% of the ground under it stayed
+       visible in the middle of territory the player has never seen. */
+    if (a00 < SHROUD_SOFT_OPAQ && a00 > SHROUD_SOFT_MAXA) a00 = SHROUD_SOFT_MAXA;
+    if (a10 < SHROUD_SOFT_OPAQ && a10 > SHROUD_SOFT_MAXA) a10 = SHROUD_SOFT_MAXA;
+    if (a01 < SHROUD_SOFT_OPAQ && a01 > SHROUD_SOFT_MAXA) a01 = SHROUD_SOFT_MAXA;
+    if (a11 < SHROUD_SOFT_OPAQ && a11 > SHROUD_SOFT_MAXA) a11 = SHROUD_SOFT_MAXA;
+    if (ac  < SHROUD_SOFT_OPAQ && ac  > SHROUD_SOFT_MAXA) ac  = SHROUD_SOFT_MAXA;
+    cx = (float)x + 0.5f;
+    cy = (float)y + 0.5f;
+
+    /* four triangles around the centre vertex */
+    shroud_soft_feather(c, ac,  cx, SHROUD_BLACK_Y + shroud_gy(cx, cy), cy);
+    shroud_soft_feather(c, a00, (float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y), (float)y);
+    shroud_soft_feather(c, a10, (float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
+
+    shroud_soft_feather(c, ac,  cx, SHROUD_BLACK_Y + shroud_gy(cx, cy), cy);
+    shroud_soft_feather(c, a10, (float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
+    shroud_soft_feather(c, a11, (float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
+
+    shroud_soft_feather(c, ac,  cx, SHROUD_BLACK_Y + shroud_gy(cx, cy), cy);
+    shroud_soft_feather(c, a11, (float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
+    shroud_soft_feather(c, a01, (float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
+
+    shroud_soft_feather(c, ac,  cx, SHROUD_BLACK_Y + shroud_gy(cx, cy), cy);
+    shroud_soft_feather(c, a01, (float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
+    shroud_soft_feather(c, a00, (float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y), (float)y);
+}
+
+/* The kept cells of one cell range. A cell's stamp says which epoch worked it out; a new
+   epoch (the shroud, the ground or the range moved) leaves every cell to be worked out
+   again on its next draw. The vertices go into three pools in the order cells are
+   worked out, which is not the order they are drawn in: each cell knows where its own
+   are. */
+struct ShroudSoftCells {
+    int x0, y0, w, h;
+    unsigned epoch;
+    std::vector<unsigned> stamp;
+    std::vector<unsigned char> blocks;
+    std::vector<unsigned> core;              /* the first float of its quad in corePos */
+    std::vector<unsigned> first;             /* its first feather vertex */
+    std::vector<unsigned short> n;           /* and how many it has */
+    std::vector<float> corePos, featherPos, featherA;
+};
+static ShroudSoftCells g_shroudSoftCells;
+
+/* Forgets every kept cell, and sizes the table for range [x0,x1) x [y0,y1). */
+static void shroud_soft_forget(ShroudSoftCells& t, int x0, int y0, int x1, int y1)
+{
+    const int w = x1 > x0 ? x1 - x0 : 0, h = y1 > y0 ? y1 - y0 : 0;
+    if (w != t.w || h != t.h || x0 != t.x0 || y0 != t.y0 || ++t.epoch == 0) {
+        const size_t n = (size_t)w * h;
+        t.x0 = x0; t.y0 = y0; t.w = w; t.h = h;
+        t.stamp.assign(n, 0u);
+        t.blocks.resize(n); t.core.resize(n); t.first.resize(n); t.n.resize(n);
+        t.epoch = 1;
+    }
+    t.corePos.clear(); t.featherPos.clear(); t.featherA.clear();
+}
+
+/* Cell (x, y) of the table, worked out now if this epoch has not done it yet. */
+static size_t shroud_soft_at(ShroudSoftCells& t, int x, int y, shroud_cellshown_fn ring)
+{
+    const size_t i = (size_t)(y - t.y0) * t.w + (size_t)(x - t.x0);
+    if (t.stamp[i] == t.epoch)
+        return i;
+    static ShroudSoftCell c;
+    shroud_soft_work(c, x, y, ring);
+    t.blocks[i] = (unsigned char)c.blocks;
+    if (c.blocks & SHROUD_SOFT_CORE) {
+        t.core[i] = (unsigned)t.corePos.size();
+        t.corePos.insert(t.corePos.end(), c.core, c.core + 12);
+    }
+    if (c.blocks & SHROUD_SOFT_FEATHER) {
+        t.first[i] = (unsigned)t.featherA.size();
+        t.n[i] = (unsigned short)c.n;
+        t.featherA.insert(t.featherA.end(), c.a, c.a + c.n);
+        t.featherPos.insert(t.featherPos.end(), c.pos, c.pos + 3 * c.n);
+    }
+    t.stamp[i] = t.epoch;
+    g_shroudCache.blanketCells++;
+    return i;
+}
+
+/* Draws the cells of [vx0,vx1) x [vy0,vy1), the camera's part of the table, working out
+   any not yet kept. Written through OverlayArrays (overlay_arrays.h): immediate mode by
+   default, or with the overlay_arrays dial one array draw a block. The core is positions
+   under one colour, the feather carries a colour per vertex; the calls are the ones the
+   blanket made when it worked each vertex out as it drew it, in the same order with the
+   same values. */
+static void shroud_soft_replay(ShroudSoftCells& t, int vx0, int vy0, int vx1, int vy1,
+                               shroud_cellshown_fn ring)
 {
     int x, y;
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_ALPHA_TEST);
+    glDepthMask(GL_FALSE);
 
+    static OverlayArrays core, feather;
+    core.reset(false, false);
+    feather.reset(true, false);
+
+    glDisable(GL_BLEND);
+    shroud_colour(1.0f);
+    core.begin(GL_QUADS);
+    for (y = vy0; y < vy1; y++)
+        for (x = vx0; x < vx1; x++) {
+            const size_t i = shroud_soft_at(t, x, y, ring);
+            if (!(t.blocks[i] & SHROUD_SOFT_CORE))
+                continue;
+            const float* p = &t.corePos[t.core[i]];
+            core.vertex(p[0], p[1], p[2]);
+            core.vertex(p[3], p[4], p[5]);
+            core.vertex(p[6], p[7], p[8]);
+            core.vertex(p[9], p[10], p[11]);
+        }
+    core.end();
+    core.flush();
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    const float k = g_shroudMaskPass ? 1.0f : 0.0f;   /* shroud_colour's own value */
+    feather.begin(GL_TRIANGLES);
+    for (y = vy0; y < vy1; y++)
+        for (x = vx0; x < vx1; x++) {
+            const size_t i = (size_t)(y - t.y0) * t.w + (size_t)(x - t.x0);
+            if (!(t.blocks[i] & SHROUD_SOFT_FEATHER))
+                continue;
+            const float* a = &t.featherA[t.first[i]];
+            const float* p = &t.featherPos[3 * (size_t)t.first[i]];
+            for (int v = 0; v < t.n[i]; v++, p += 3) {
+                feather.color(k, k, k, a[v]);
+                feather.vertex(p[0], p[1], p[2]);
+            }
+        }
+    feather.end();
+    feather.flush();
+    glDisable(GL_BLEND);
+
+    glDepthMask(GL_TRUE);
+}
+
+/* Verify, per draw: every drawn cell worked out again from scratch against its kept
+   copy, and the camera's rectangle against the per-cell view test it stands for. */
+static void shroud_soft_check(ShroudSoftCells& t, int x0, int y0, int x1, int y1,
+                              int vx0, int vy0, int vx1, int vy1,
+                              shroud_cellshown_fn ring, shroud_cellshown_fn inview)
+{
+    static ShroudSoftCell c;
+    long bad = 0, badView = 0;
+    for (int y = vy0; y < vy1; y++)
+        for (int x = vx0; x < vx1; x++) {
+            const size_t i = (size_t)(y - t.y0) * t.w + (size_t)(x - t.x0);
+            shroud_soft_work(c, x, y, ring);
+            g_shroudCache.checks++;
+            if (t.stamp[i] != t.epoch || c.blocks != t.blocks[i]) { bad++; continue; }
+            if ((c.blocks & SHROUD_SOFT_CORE)
+                && memcmp(c.core, &t.corePos[t.core[i]], sizeof c.core))
+                bad++;
+            else if ((c.blocks & SHROUD_SOFT_FEATHER)
+                     && (c.n != t.n[i]
+                         || memcmp(c.a, &t.featherA[t.first[i]], (size_t)c.n * sizeof(float))
+                         || memcmp(c.pos, &t.featherPos[3 * (size_t)t.first[i]], (size_t)c.n * 3 * sizeof(float))))
+                bad++;
+        }
+    if (inview)
+        for (int y = y0; y < y1; y++)
+            for (int x = x0; x < x1; x++)
+                if ((inview(x, y) != 0) != (x >= vx0 && x < vx1 && y >= vy0 && y < vy1)) badView++;
+    if (bad) shroud_cache_mismatch("blanket", bad);
+    if (badView) shroud_cache_mismatch("blanket view", badView);
+}
+
+/* Same GL contract as shroud_draw: inside the 3D scene after every object pass,
+   depth test ON (near buildings keep occluding), depth write OFF, leaves blend and
+   texture off. The view test comes in two halves: `ring`, which depends only on the
+   map rectangle and the drawn margin, is asked when a cell is worked out; the camera's
+   box is asked per draw, as the rectangle `viewrect` narrows the range to (NULL draws
+   the whole range). `inview` is the same box asked cell by cell, used only by verify to
+   check the rectangle. hostKey lists everything else the cells are made of that this
+   module cannot see (the ground heights' generations, the rectangle `ring` reads); the
+   kept cells are forgotten when it or the shroud changes. */
+static void shroud_draw_soft(int x0, int y0, int x1, int y1, shroud_cellshown_fn ring,
+                             shroud_viewrect_fn viewrect, shroud_cellshown_fn inview,
+                             const unsigned* hostKey, int nHostKey)
+{
     if (!g_shroudRimOn && (!g_shroudOn || !g_shroudValid))
         return;                       /* the rim alone still draws, see shroud_is_rim */
 
@@ -654,7 +1129,7 @@ static void shroud_draw_soft(int x0, int y0, int x1, int y1, shroud_cellshown_fn
        invisible because the next cell's lid covers the gap; at the OUTERMOST ring there
        is no next cell, so the last strip of terrain was left uncovered and read as a
        bright lit line along the map edge -- measured at 3 screen rows on SCG01EB, and
-       the second half of the project owner's "the border is very clear to see".
+       the second half of why the map's border was so easy to see.
        terrain_y clamps both coordinates to the world grid before indexing, so a ring vertex at
        -1 or 65 reuses the edge corner height and the lid simply extends flat outward:
        no out-of-bounds read and no phantom cliff, because nothing textured is drawn out
@@ -666,98 +1141,39 @@ static void shroud_draw_soft(int x0, int y0, int x1, int y1, shroud_cellshown_fn
 
     shroud_corners_sync();
 
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_ALPHA_TEST);
-    glDepthMask(GL_FALSE);
+    ShroudSoftCells& t = g_shroudSoftCells;
+    static std::vector<unsigned> keptKey, key;
+    key.clear();
+    key.push_back(g_shroudFieldGen);
+    key.push_back((unsigned)g_shroudCornW);
+    key.push_back((unsigned)g_shroudCornH);
+    key.push_back((unsigned)shroud_fow_enhanced());
+    key.push_back(g_fx.fow_smooth ? 1u : 0u);
+    key.push_back(shroud_key_bits(g_fx.fow_falloff));
+    key.push_back((unsigned)x0); key.push_back((unsigned)y0);
+    key.push_back((unsigned)x1); key.push_back((unsigned)y1);
+    key.insert(key.end(), hostKey, hostKey + nHostKey);
+    const int mode = shroud_cache_mode();
+    if (mode == 0 || key != keptKey) {
+        shroud_soft_forget(t, x0, y0, x1, y1);
+        keptKey = key;
+        g_shroudCache.blanketBuilt++;
+    } else
+        g_shroudCache.blanketKept++;
 
-    /* Pass 1: the deep black core, unblended. A cell is core when its centre and all
-       four corners are fully opaque, i.e. it and every neighbour that touches it
-       through a corner is HIDDEN. */
-    glDisable(GL_BLEND);
-    glColor3f(0.0f, 0.0f, 0.0f);
-    glBegin(GL_QUADS);
-    for (y = y0; y < y1; y++) {
-        for (x = x0; x < x1; x++) {
-            if (shroud_opacity(x, y) < 1.0f)
-                continue;
-            if (shroud_corner_a(x, y)         < 1.0f ||
-                shroud_corner_a(x + 1, y)     < 1.0f ||
-                shroud_corner_a(x, y + 1)     < 1.0f ||
-                shroud_corner_a(x + 1, y + 1) < 1.0f)
-                continue;
-            if (shown && !shown(x, y))
-                continue;
-            /* ALL FOUR corners ride the heightfield. Two of them once did not: the
-               west pair was pinned to the absolute plane while the east pair rode
-               the ground, so every deep-shroud cell drew as a RAMP, not a lid.
-               Uphill the ramp sank under the terrain and let the ground show
-               through (the project owner's black stripes); downhill it floated a whole cell up
-               and painted black over sand and water (the shoreline wedges). */
-            glVertex3f((float)x,        SHROUD_BLACK_Y + shroud_gy((float)x, (float)y), (float)y);
-            glVertex3f((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
-            glVertex3f((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
-            glVertex3f((float)x,        SHROUD_BLACK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
-        }
-    }
-    glEnd();
-
-    /* Pass 2: the feather ring, one blended pass. Every remaining cell that any
-       non-zero alpha touches becomes a 4-triangle fan; the fan (rather than one quad)
-       keeps the interpolation symmetric so no diagonal seam shows. */
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glBegin(GL_TRIANGLES);
-    for (y = y0; y < y1; y++) {
-        for (x = x0; x < x1; x++) {
-            float a00, a10, a01, a11, ac, cx, cy;
-            a00 = shroud_corner_a(x, y);
-            a10 = shroud_corner_a(x + 1, y);
-            a01 = shroud_corner_a(x, y + 1);
-            a11 = shroud_corner_a(x + 1, y + 1);
-            ac  = shroud_opacity(x, y);
-            if (ac >= 1.0f && a00 >= 1.0f && a10 >= 1.0f && a01 >= 1.0f && a11 >= 1.0f)
-                continue;                       /* core pass already owns it */
-            if (a00 <= 0.0f && a10 <= 0.0f && a01 <= 0.0f && a11 <= 0.0f && ac <= 0.0f)
-                continue;                       /* fully clear, nothing to draw */
-            if (shown && !shown(x, y))
-                continue;
-            /* ROM 0xC8 ceiling (see SHROUD_SOFT_MAXA), applied per vertex and on the
-               SAME test for all five: clamp a value only when it is inside the band,
-               which is to say when that vertex is not fully interior. The centre used
-               to be clamped unconditionally, which held the centre of a cell that is
-               itself completely unexplored at the 0.784 ceiling merely because one of
-               its corners touched the reveal edge: 21.6% of the ground under it stayed
-               visible in the middle of territory the player has never seen. */
-            if (a00 < SHROUD_SOFT_OPAQ && a00 > SHROUD_SOFT_MAXA) a00 = SHROUD_SOFT_MAXA;
-            if (a10 < SHROUD_SOFT_OPAQ && a10 > SHROUD_SOFT_MAXA) a10 = SHROUD_SOFT_MAXA;
-            if (a01 < SHROUD_SOFT_OPAQ && a01 > SHROUD_SOFT_MAXA) a01 = SHROUD_SOFT_MAXA;
-            if (a11 < SHROUD_SOFT_OPAQ && a11 > SHROUD_SOFT_MAXA) a11 = SHROUD_SOFT_MAXA;
-            if (ac  < SHROUD_SOFT_OPAQ && ac  > SHROUD_SOFT_MAXA) ac  = SHROUD_SOFT_MAXA;
-            cx = (float)x + 0.5f;
-            cy = (float)y + 0.5f;
-
-            /* four triangles around the centre vertex */
-            glColor4f(0, 0, 0, ac);  glVertex3f(cx, SHROUD_BLACK_Y + shroud_gy(cx, cy), cy);
-            glColor4f(0, 0, 0, a00); glVertex3f((float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y), (float)y);
-            glColor4f(0, 0, 0, a10); glVertex3f((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
-
-            glColor4f(0, 0, 0, ac);  glVertex3f(cx, SHROUD_BLACK_Y + shroud_gy(cx, cy), cy);
-            glColor4f(0, 0, 0, a10); glVertex3f((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y), (float)y);
-            glColor4f(0, 0, 0, a11); glVertex3f((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
-
-            glColor4f(0, 0, 0, ac);  glVertex3f(cx, SHROUD_BLACK_Y + shroud_gy(cx, cy), cy);
-            glColor4f(0, 0, 0, a11); glVertex3f((float)x + 1.0f, SHROUD_BLACK_Y + shroud_gy((float)x + 1.0f, (float)y + 1.0f), (float)y + 1.0f);
-            glColor4f(0, 0, 0, a01); glVertex3f((float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
-
-            glColor4f(0, 0, 0, ac);  glVertex3f(cx, SHROUD_BLACK_Y + shroud_gy(cx, cy), cy);
-            glColor4f(0, 0, 0, a01); glVertex3f((float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y + 1.0f), (float)y + 1.0f);
-            glColor4f(0, 0, 0, a00); glVertex3f((float)x, SHROUD_BLACK_Y + shroud_gy((float)x, (float)y), (float)y);
-        }
-    }
-    glEnd();
-    glDisable(GL_BLEND);
-
-    glDepthMask(GL_TRUE);
+    int vx0 = x0, vy0 = y0, vx1 = x1, vy1 = y1;
+    if (viewrect) viewrect(&vx0, &vy0, &vx1, &vy1);
+    if (vx0 < x0) vx0 = x0;
+    if (vy0 < y0) vy0 = y0;
+    if (vx1 > x1) vx1 = x1;
+    if (vy1 > y1) vy1 = y1;
+    if (vx1 < vx0) vx1 = vx0;
+    if (vy1 < vy0) vy1 = vy0;
+    g_shroudCache.blanketView = (unsigned long)(vx1 - vx0) * (unsigned long)(vy1 - vy0);
+    g_shroudCache.blanketRange = (unsigned long)t.w * (unsigned long)t.h;
+    shroud_soft_replay(t, vx0, vy0, vx1, vy1, ring);
+    if (mode == 2)
+        shroud_soft_check(t, x0, y0, x1, y1, vx0, vy0, vx1, vy1, ring, inview);
 }
 
 /* ---------------------------------------------------------------------------------- *

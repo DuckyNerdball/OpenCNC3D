@@ -60,6 +60,10 @@ shots/
 # checkout could not bake a scenario pack. A new place a binary is built gets its own
 # anchored line here.
 /app/opencnc3d
+# The map archive reader's manifest and licence, copied next to the program by
+# tools/map-archive/stage.py on every build.
+/app/map-archive.json
+/app/map-archive-LICENSE.txt
 /game/cnc_eyes
 /tools/bakery/sharecopy/eyes/cnc_eyes
 /menu/preview
@@ -225,3 +229,9 @@ tools/art/remaster/fxviewer/inbox-ra.jsonl
 /game/.grassmask_TEMPERAT.materialized.json
 /game/.grassmask-unpack-*
 /game/.grassmask-record-*
+
+# v0.9.1 expansion downloads and generated scenes (receipts and mission sources retained).
+/data/radata/expansions/discs/
+/data/radata/expansions/*/SCORES.MIX
+/data/ra3d/expansions/3d/
+

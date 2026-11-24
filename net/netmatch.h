@@ -66,6 +66,10 @@ extern "C" {
    the simulation throws away. 1995 calls this machine's copy MPlayerName and the table
    MPlayerNames[]. */
 #define NM_PLAYER_NAME_MAX 12
+/* A BUILD'S NAME AS IT CROSSES THE WIRE, terminator included: "v0.9.7" for a release,
+   "v0.9.7+3a1f2c4-dirty" for anything else. The longest stamp the version script can
+   write is well inside it. */
+#define NM_BUILD_MAX 32
 
 /* THE SPEED A ROOM OPENS AT, and the ONE place that number is written on this side of
    the network seam. Three callers build an NmSetup from scratch -- the skirmish answer
@@ -82,6 +86,8 @@ extern "C" {
    crossed the wire: the host decides and every joiner adopts, so a peer whose default
    is different still runs the host's number and the two worlds keep the same clock. */
 #define NM_DEFAULT_SPEED 4
+#define NM_MAX_SPEED 6
+#define NM_MAX_REGROWTH 4
 
 /* What the host decided and the joiner adopts before either reads the scenario. Every
    field here changes the simulation, so every field must agree, and the joiner's own
@@ -93,10 +99,16 @@ extern "C" {
 typedef struct NmSetup {
     char scenario[16];
     int credits;
-    int tiberium;
+    int tiberium;    /* resource regrowth: 0 off, 1 through NM_MAX_REGROWTH */
     int crates;
     int aitake;      /* v6 */
     int shortgame;   /* v6 */
+    int gun_game;    /* v15: TD LAN free-for-all */
+    /* v23: A RALLY ROOM'S LAPS, 1..9, and zero for every other kind of room. A course is
+       always raced whatever this says (every peer reads the same map); what has to agree
+       is how many laps, so the host's number travels and every joiner races it. Nonzero
+       is also how a joiner's screens know the room is a Rally before its map is read. */
+    int rally_laps;
     int superweapons;
     int bases;
     int unit_count;
@@ -324,6 +336,11 @@ int nm_seat(void);
 /* How many seats the match ended up with, and how many of them are people. Both are
    decided by the HOST and adopted by every joiner, so every peer answers the same. */
 int nm_seats(void);
+/* HOW MANY TURNS AHEAD THIS MATCH STAMPS ITS ORDERS: the room's agreed lookahead
+   (lockstep.h, ls_ahead), 0 when no match is running. An order drained on the brain's
+   frame F runs on frame F + this at every peer. The race reads it to know when the
+   controls it has sent will execute (game/rally_mod.h); the wire is unchanged. */
+int nm_ahead(void);
 /* Which seats the current turn is still waiting on, as a bit per seat, or 0 when the turn
    is ready or no match is live. For a message that names who is late rather than only
    that somebody is. */
@@ -514,10 +531,45 @@ void nm_probe_clear_all(void);
 void nm_probe_shutdown(void);
 
 /* The host has left and this peer is not the host: the relay every other player was
-   reached through has gone, so the match is over rather than merely short-handed. */
+   reached through has gone, so the match is over rather than merely short-handed. True
+   for a goodbye and for the host going silent past the limit alike; nm_seat_left_silent(0)
+   tells the two apart. */
 int nm_host_gone(void);
 unsigned nm_abi(void);
 unsigned nm_scen(void);
+
+/* ---- WHICH BUILD THIS IS, AND WHY THE ROOM ASKS ------------------------------------
+   Two builds whose simulations differ play the same match perfectly well until the first
+   moment a changed rule is used, and then the machines stop agreeing: a match that breaks
+   at an unpredictable time, typically once the fighting starts. Nothing in the order-wire
+   layout or the scenario bytes changes when gameplay code does, so the handshake also
+   carries the build's own name and a host refuses a joiner whose name differs, saying
+   both. The two halves of one release are stamped alike, so a Mac and a Windows player on
+   the same release still play each other; any two different builds do not.
+
+   nm_set_build is called once, before any room is opened, with the program's build
+   string. OPENCNC3D_NETTEST_BUILD_ID, when set, replaces it, so a test can stand two
+   different builds up from one binary. An empty build is "unknown" and is not compared,
+   which is what a test harness that never names one gets. */
+void nm_set_build(const char* build);
+const char* nm_build(void);
+/* THE ORDER-WIRE HASH WITH THE BUILD FOLDED IN, for every caller that hands one to the
+   handshake or advertises one in the game list: the list greys a room whose hash differs
+   from this machine's, so folding the build in is what greys a room of another build
+   before anybody presses JOIN. Zero stays zero ("could not read the engine"). */
+unsigned nm_abi_with_build(unsigned engine_abi);
+/* DID THIS SEAT LEAVE BY GOING SILENT rather than by saying goodbye? True on the host for a
+   seat its own silence timer dropped, and on a joiner once the host's goodbye for that
+   seat says so. For the debrief, which names a player who stopped answering. */
+int nm_seat_left_silent(int seat);
+/* DID THIS MACHINE ITSELF STOP SERVICING THE MATCH for longer than the silence limit, a
+   frozen process, a hung main thread, a laptop lid? Every other machine has dropped it by
+   then, so whatever ends the match next is this machine's doing, and the debrief must not
+   blame the host for it. True only during the network match the stall happened in, and
+   only for two silence limits after it was noticed: a stall long past, which nobody
+   dropped this machine for, does not explain a later break, and a stall never outlives
+   nm_shutdown into whatever is played next. */
+int nm_self_stalled(void);
 
 void nm_set_engine(NmDrainFn drain, NmPostFn post, void* user, int event_size);
 

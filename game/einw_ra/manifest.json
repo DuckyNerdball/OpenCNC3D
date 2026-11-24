@@ -1,0 +1,116 @@
+{
+ "approval": {
+  "remaster_approved": "2026-10-27 12:25",
+  "row": "civil/INT_WALLS"
+ },
+ "atlas": {
+  "file": "walls_atlas.rgbz",
+  "sha256": "5d5908fc674e2a9fc31e17de67df5883f21bfd443ab0f4a3a36cd4de70a864e6",
+  "size": [
+   2048,
+   1024
+  ]
+ },
+ "baked": "2026-10-27 13:31",
+ "made_by": "tools/ra3d/bake-interior.py",
+ "missions": {
+  "SCA04EA": {
+   "bytes": 4446856,
+   "cells": 762,
+   "open_edges": 0,
+   "rect": [
+    23,
+    37,
+    99,
+    47
+   ],
+   "sha256": "2f1490c1bc2eca6cbe709a89c3d02834441ad6810fe230e3aa6aa7d47826c7ed",
+   "triangles": 46226
+  },
+  "SCG10EB": {
+   "bytes": 4777852,
+   "cells": 817,
+   "open_edges": 0,
+   "rect": [
+    42,
+    36,
+    49,
+    77
+   ],
+   "sha256": "aba5a505863b8d2d4fa06f82436cfae600d4e0c57f9879e1a4b0ea8ae62d45f1",
+   "triangles": 49667
+  },
+  "SCG13EA": {
+   "bytes": 4956772,
+   "cells": 847,
+   "open_edges": 0,
+   "rect": [
+    8,
+    30,
+    92,
+    58
+   ],
+   "sha256": "cc74b793d144ef397e15e2f71cebbcf75e11f990c60607187236a3c3d3cd0834",
+   "triangles": 51527
+  },
+  "SCG21EA": {
+   "bytes": 5308972,
+   "cells": 901,
+   "open_edges": 10,
+   "rect": [
+    2,
+    36,
+    112,
+    52
+   ],
+   "sha256": "9c26f1c23c7ab178de3d0799f9cdf62f2b0f783f087360542e98eb51382d45f4",
+   "triangles": 55189
+  },
+  "SCU07EA": {
+   "bytes": 3273976,
+   "cells": 614,
+   "open_edges": 0,
+   "rect": [
+    39,
+    42,
+    72,
+    47
+   ],
+   "sha256": "29217c87cf011cba01ae02c14eca1d0f9f109074a7e10dd372c33052d64d98c7",
+   "triangles": 34027
+  },
+  "SCU33EA": {
+   "bytes": 4456024,
+   "cells": 758,
+   "open_edges": 0,
+   "rect": [
+    27,
+    31,
+    84,
+    54
+   ],
+   "sha256": "ec862e7143f59916f1a805d89e9a850d3c9f727f600e4459b30faba133334b57",
+   "triangles": 46322
+  },
+  "SCU42EA": {
+   "bytes": 5514148,
+   "cells": 943,
+   "open_edges": 0,
+   "rect": [
+    39,
+    32,
+    81,
+    68
+   ],
+   "sha256": "9090e16066d101a82e69614e370996a612b4d4b18e1946c7d4d59215fed93b5d",
+   "triangles": 57321
+  }
+ },
+ "sources": {
+  "data/radata/INTERIOR.MIX": "f24caa121864510410fd31f4c1104de5feb432331d8117cce0ae9e0ada25c530",
+  "tools/art/remaster/ra/build_INT_WALLS.py": "2308d7d82112d74cfd05a922717ed131860f3e07d41c3e6e3a1ad4423b5d6793",
+  "tools/art/remaster/ra/interior.py": "cfd107e7ef1711f22c353b9d0344a080b142f496c35b5637bbb76b82f18a6fba",
+  "tools/art/remaster/ra/paint_INT_WALLS.py": "49db9cda150bbf32a813ea204b304236cf08f7eac18308a80278c23dba12a254"
+ },
+ "wall_height": 1.15
+}

@@ -111,6 +111,43 @@ static void eh_raw(unsigned char *dst,int dw,int dh,const unsigned char *rgba,in
     h6_blit(dst,dw,dh,&a,0,x,y);
 }
 
+/* The minimap's own 160x144 picture: the dark fill, then the radar or the faction emblem. */
+static void eh_map_pixels(unsigned char *map,const H6_Pack *p,const EH_State *s)
+{
+    const H6_Asset *off;
+    int x,y;
+    for(y=0;y<144;y++)for(x=0;x<160;x++){
+        unsigned char *q=map+(y*160+x)*4;q[0]=8;q[1]=9;q[2]=11;q[3]=255;
+    }
+    if(s->base.radar_active&&s->base.radar_rgba)eh_raw(map,160,144,s->base.radar_rgba,160,144,0,0);
+    else {
+        off=hud640_asset(p,s->base.nod?"radar_off_nod":"radar_off");
+        /* Enlarge only faction artwork, never the authored frame or corner pixels. */
+        if(off&&off->rgba)for(y=0;y<144;y++)for(x=0;x<160;x++) {
+            int sx=x*off->w/160,sy=y*off->h/144;
+            memcpy(map+(y*160+x)*4,off->rgba+(sy*off->w+sx)*4,4);
+        }
+    }
+}
+
+/* THE MINIMAP REGION ON ITS OWN, for a frame on which only the radar's pixels changed.
+   Columns 72..231 and rows 31..174 of the bar receive, in hud_enhanced_bar's order,
+   nothing, the wing's right edge, the map and the map's frame, and nothing composed before
+   or after them reaches into that rectangle. Each blit's result for a pixel depends only
+   on that pixel and its source, so the same steps composed into a rectangle of that size
+   and copied in give the bytes a whole compose gives. */
+void hud_enhanced_map_region(unsigned char *dst,const H6_Pack *p,const EH_State *s)
+{
+    static unsigned char map[160*144*4],region[160*144*4];
+    int y;
+    memset(region,0,sizeof region);
+    h6_blit(region,160,144,hud640_asset(p,"eh_wing"),0,0-72,32-31);
+    eh_map_pixels(map,p,s);
+    eh_raw(region,160,144,map,160,144,0,0);
+    h6_blit(region,160,144,hud640_asset(p,"eh_map"),0,EH_MAIN_X-72,18-31);
+    for(y=0;y<144;y++)memcpy(dst+((size_t)(31+y)*EH_WIDTH+72)*4,region+(size_t)y*160*4,160*4);
+}
+
 void hud_enhanced_bar(unsigned char *dst,const H6_Pack *p,const EH_State *s)
 {
     static unsigned char base[160*624*4],button[35*35*4],map[160*144*4];
@@ -118,7 +155,7 @@ void hud_enhanced_bar(unsigned char *dst,const H6_Pack *p,const EH_State *s)
     static const char *cats[4]={"eh_structures","eh_infantry","eh_vehicles","eh_aircraft"};
     static const int tx[4]={7,44,81,118};
     H6_State bs=s->base;
-    const H6_Asset *frame=hud640_asset(p,"eh_body"),*off,*lit,*mark;
+    const H6_Asset *frame=hud640_asset(p,"eh_body"),*lit,*mark;
     int rows=s->rows,h=hud_enhanced_height(rows),footer=h-30,body=275,bodyh=footer-body;
     int x,y,k,segments=(238+(rows-5)*48)/12,level,on,meterFloor=449+(rows-5)*48+66;
     memset(dst,0,(size_t)EH_WIDTH*h*4);
@@ -144,18 +181,7 @@ void hud_enhanced_bar(unsigned char *dst,const H6_Pack *p,const EH_State *s)
     }
     /* Wing first, minimap rail above it: the painted contact shadow stays underneath. */
     h6_blit(dst,EH_WIDTH,h,hud640_asset(p,"eh_wing"),0,0,32);
-    for(y=0;y<144;y++)for(x=0;x<160;x++){
-        unsigned char *q=map+(y*160+x)*4;q[0]=8;q[1]=9;q[2]=11;q[3]=255;
-    }
-    if(s->base.radar_active&&s->base.radar_rgba)eh_raw(map,160,144,s->base.radar_rgba,160,144,0,0);
-    else {
-        off=hud640_asset(p,s->base.nod?"radar_off_nod":"radar_off");
-        /* Enlarge only faction artwork, never the authored frame or corner pixels. */
-        if(off&&off->rgba)for(y=0;y<144;y++)for(x=0;x<160;x++) {
-            int sx=x*off->w/160,sy=y*off->h/144;
-            memcpy(map+(y*160+x)*4,off->rgba+(sy*off->w+sx)*4,4);
-        }
-    }
+    eh_map_pixels(map,p,s);
     eh_raw(dst,EH_WIDTH,h,map,160,144,72,31);
     h6_blit(dst,EH_WIDTH,h,hud640_asset(p,"eh_map"),0,EH_MAIN_X,18);
     /* Retain both corner joins when the housing is shortened, never scale an edge. */

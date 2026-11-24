@@ -1,0 +1,41 @@
+# M1 Red Alert, first Allied mission (SCG01EA, snow), Enhanced, then the SAME mission again
+# in the same process (`remission`: game_shutdown then game_boot, as the menu shell runs
+# between two missions). Frames the lake, its coast and the base beside it in both
+# missions, so whatever one mission leaves behind for the next shows in the second.
+game: ra
+scen: SCG01EA
+modes: enh
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger m1t1
+cam 57 56
+frames 2
+shot {OUT}/m1_t0001_water.png
+tick 299
+frames 2
+cam 57 56
+frames 2
+shot {OUT}/m1_t0300_water.png
+remission
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger m2t1
+cam 57 56
+frames 2
+shot {OUT}/m2_t0001_water.png
+cam 62.5 61.5
+frames 2
+shot {OUT}/m2_t0001_west.png
+tick 299
+frames 2
+memledger m2t300
+cam 57 56
+frames 2
+shot {OUT}/m2_t0300_water.png
+quit

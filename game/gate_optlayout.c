@@ -151,9 +151,9 @@ static int layout_slots(void *user, DOPT_SlotRow *out, int max)
 {
     int i;
     (void)user;
-    for (i = 0; i < 16 && i < max; i++) {
-        out[i].slot = 15 - i;
-        sprintf(out[i].text, "(GDI) slot %d", 15 - i);
+    for (i = 0; i < DOPT_SL_SLOTS && i < max; i++) {
+        out[i].slot = DOPT_SL_SLOTS - 1 - i;
+        sprintf(out[i].text, "(GDI) slot %d", DOPT_SL_SLOTS - 1 - i);
     }
     return i;
 }
@@ -479,8 +479,8 @@ int main(int argc, char **argv)
         }
     }
 
-    /* THE SLOT DIALOG, in LOAD and in SAVE mode, with the row supplier answering a full
-     * sixteen so the well is fuller than it can show. The list and the field print no
+    /* THE SLOT DIALOG, in LOAD and in SAVE mode, with the row supplier answering every
+     * slot taken, so the well is fuller than it can show. The list and the field print no
      * centred label and are taller than any button, so leg (b) measures their names
      * against their own width, which they pass by a mile; what this is here for is legs
      * (a), (d) and (e): every rectangle inside the 250x156 box, and no two of them
@@ -490,28 +490,46 @@ int main(int argc, char **argv)
         int li;
         dopt_bind_slots(&st, layout_slots);
         dopt_open_slots(&st, p, DOPT_SL_LOAD);
-        if (st.sl.nrows != 16) {
-            printf("  FAIL the LOAD dialog lists %d rows from a supplier that gave 16\n",
-                   st.sl.nrows);
+        if (st.sl.nrows != DOPT_SL_SLOTS) {
+            printf("  FAIL the LOAD dialog lists %d rows from a supplier that gave %d\n",
+                   st.sl.nrows, DOPT_SL_SLOTS);
             fails++;
         }
         page(&st, p, DOPT_PAGE_SLOTS, "SLOTS-LOAD", DOPT_SL_X, DOPT_SL_Y, DOPT_SL_W,
              DOPT_SL_H);
+        dopt_slots_default(&st, "default words");
         dopt_open_slots(&st, p, DOPT_SL_SAVE);
-        /* SAVE puts the empty slot first, and with sixteen taken there is none: the
-           rows are the sixteen, and the field opens on the row's own description. */
-        if (st.sl.nrows != 16 || strcmp(dopt_slot_row_text(&st, 0), "(GDI) slot 15") != 0) {
-            printf("  FAIL the SAVE dialog's first row is [%s] of %d; with sixteen slots "
+        /* SAVE puts the empty slot first, and with every slot taken there is none: the
+           rows are the saves, newest first, and NONE is chosen, so Save is grey until the
+           player picks the save to replace and cannot go over the newest one unasked. */
+        if (st.sl.nrows != DOPT_SL_SLOTS
+            || strcmp(dopt_slot_row_text(&st, 0), "(GDI) slot 99") != 0) {
+            printf("  FAIL the SAVE dialog's first row is [%s] of %d; with every slot "
                    "taken there is no empty row and the newest comes first\n",
                    dopt_slot_row_text(&st, 0) ? dopt_slot_row_text(&st, 0) : "(none)",
                    st.sl.nrows);
             fails++;
         }
-        if (strcmp(dopt_slot_descr(&st), "slot 15") != 0) {
-            printf("  FAIL the SAVE field opened on [%s], want the first row's own "
-                   "description with the (GDI) stripped\n", dopt_slot_descr(&st));
+        if (st.sl.sel != -1 || !dopt_item_disabled(&st, DOPT_SL_OK)
+            || strcmp(dopt_slot_descr(&st), "default words") != 0) {
+            printf("  FAIL the full SAVE dialog opened with row %d chosen, Save %s and the "
+                   "field [%s]; want no row, Save grey and the default description\n",
+                   st.sl.sel, dopt_item_disabled(&st, DOPT_SL_OK) ? "grey" : "LIVE",
+                   dopt_slot_descr(&st));
             fails++;
         }
+        /* picking the newest row by key is the explicit choice: Save goes live and the
+           field takes that row's own description with the (GDI) stripped */
+        st.selected = DOPT_SL_LIST;
+        dopt_key(&st, DOPT_KEY_DOWN);
+        if (st.sl.sel != 0 || dopt_item_disabled(&st, DOPT_SL_OK)
+            || strcmp(dopt_slot_descr(&st), "slot 99") != 0) {
+            printf("  FAIL picking the first row left row %d, Save %s, field [%s]; want "
+                   "row 0, Save live, field [slot 99]\n", st.sl.sel,
+                   dopt_item_disabled(&st, DOPT_SL_OK) ? "grey" : "live", dopt_slot_descr(&st));
+            fails++;
+        }
+        st.selected = DOPT_SL_EDIT;
         /* the rows the well shows must end above the field's label */
         for (li = 0; li < DOPT_SL_LIST_H_SAVE / DOPT_SL_ROW_H; li++) {
             const int ry = DOPT_SL_LIST_Y + 1 + li * DOPT_SL_ROW_H;

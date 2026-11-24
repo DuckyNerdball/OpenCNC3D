@@ -10,7 +10,7 @@
    question: Full_Name() returns a text id, and Text_String() reads a table
    the DLL front end never initialises. See bake_dosnames.py.
 
-   114 buildables, 5 chrome labels, 0 missing.
+   114 buildables, 6 chrome labels, 0 missing.
 */
 #ifndef DOSNAMES_H
 #define DOSNAMES_H
@@ -137,6 +137,7 @@ static const DosName DOSNAMES[] = {
     { "SB_DEMOLISH", "Demolish Structure", 7 },   /* TXT_DEMOLISH, chrome */
     { "SB_MAP", "Map", 612 },   /* TXT_MAP, chrome */
     { "SB_OPTIONS", "Options", 65 },   /* TXT_OPTIONS, chrome */
+    { "MISS_PRISON", "Prison", 698 },   /* TXT_PRISON, chrome */
 };
 #define DOSNAMES_COUNT ((int)(sizeof(DOSNAMES)/sizeof(DOSNAMES[0])))
 

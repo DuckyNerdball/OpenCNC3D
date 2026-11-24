@@ -33,10 +33,20 @@ The build scripts find that SDL by themselves. `OPENCNC3D_MAC_ARCHS=arm64` (or `
 makes a quicker one-CPU development build; the play folder check then says it is not
 universal, so it cannot be shipped by mistake.
 
-**Windows**: the shipped binary is 32-bit, built with mingw-w64 i686. The 32-bit choice
-is deliberate: the Remaster DLL casts a pointer through `unsigned int`, which is lossless
-at 32 bits and truncates at 64. The scripts below drive that toolchain from a Unix shell,
-which is also how CI builds it.
+**Windows**: the shipped programs are 64-bit (x86_64, PE32+), built with mingw-w64
+(`x86_64-w64-mingw32`; the build scripts refuse any other compiler). 32-bit Windows is not
+supported. SDL2 is linked into every program, so no `SDL2.dll` travels beside them.
+
+Windows is LLP64: `long` stays 32 bits there while it is 64 bits on macOS, so anything that
+crosses the brain's ABI, the network or a file uses fixed-width types. The engine's save
+code passes a small building number through a pointer and back through `unsigned int`.
+That was harmless, but the patch in `brain/patches/` widens it to `intptr_t` so that the
+Windows build can stop on every pointer cast that loses precision, with no exceptions. The
+stop is a search of the compiler's messages (`build/win/compile.log`,
+`build/win/brain-build.log`), because the brain needs `-fpermissive`, which turns that
+diagnostic from an error into a warning.
+
+The scripts below drive that toolchain from a Unix shell, which is also how CI builds it.
 
 ```
 tools/win/setup-toolchain.sh          # once: fetches the two SDKs mingw-w64 lacks, into ~/.opencnc3d-winsdk
@@ -106,18 +116,13 @@ The SDL libraries are copied into the macOS build by `tools/bundle-sdl.sh`, whic
 called with no file list on purpose so it scans the whole output folder. Skipping that
 step produces a build that runs only on the machine that made it.
 
-## 6. Two render tiers
+## 6. One render target
 
-Tier 2 is the modern desktop build, Windows and macOS, and may use shaders. Tier 1 is
-the constrained one kept reachable as a stretch goal: Windows 98 on a 3dfx Voodoo 2
-through Glide, fixed function, no shaders, no render targets, 640x480, 16-bit colour.
-
-`docs/tier1-gap.md` is the contract between them. Any feature that cannot run on Tier 1
-is listed there with its fallback. A Tier 2 feature that is not in that file is a bug,
-because it turns a known list of compromises into a surprise.
-
-The desktop presentation chain (bloom, ambient occlusion, sun shadows, colour grade, CRT)
-is off unless asked for, so the default build draws the same picture on both tiers.
+The game targets the modern desktop only: macOS and 64-bit Windows 10/11, with OpenGL
+shaders, buffer objects and render targets. An earlier plan for a second, fixed-function
+build for Windows 98 on a 3dfx Voodoo 2 was dropped, and its code is no longer in the tree.
+Comments that still describe a "Tier 1" fallback or cite the Voodoo 2 are historical, and
+so are comments that call the Windows build 32-bit.
 
 ## 7. If it does not run
 

@@ -17,6 +17,11 @@ def stage(root,dest):
  for name in ['manifest.json','instances.json','labels.json']:shutil.copy2(source.parent/name,materials/name)
  for name in ['groundmask_DESERT.pack','groundmask_SAND.pack']:
   if(dest/name).is_file():
+   # Revert saved connector edits before the ground-contact producer rewrites
+   # its shade bytes, then compile those edits after that last writer below.
+   sys.path.insert(0,str(root/'tools/bakery'))
+   from terrain_connectors import normalize
+   (dest/name).write_bytes(normalize((dest/name).read_bytes(),'groundmask_DESERT.pack',strict=False))
    m.append_masks(dest/name,source/'desert_details_masks.pack',surface_source=root/'art/remaster/textures/unified_daylight_v01')
    # The decoration compiler reapplies older saved ground-contact minimums.
    # Compile connector borders after that last writer; SAND shares these exact

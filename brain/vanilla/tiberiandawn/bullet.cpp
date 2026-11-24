@@ -21,6 +21,11 @@
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
+// MODIFIED for OpenCNC3D in November 2026. In a Rally match (rally.h)
+// BulletClass::Unlimbo aims a round fired at a racer where that racer will be when the
+// round lands. Outside a Rally match nothing changes. In a Rally match it DOES change
+// the game simulation.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\bullet.cpv   2.18   16 Oct 1995 16:50:00   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -55,6 +60,10 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "rally.h"
+
+extern void OpenCNC3D_Tag_SSML_Smoke(AnimClass*, BulletClass*);
 
 #define GRAVITY 3
 
@@ -336,7 +345,8 @@ void BulletClass::AI(void)
     **	they only do so every other game frame (improves game speed and makes
     **	missiles not so deadly).
     */
-    if ((Frame & 0x01) && Class->IsHoming && Target_Legal(TarCom)) {
+    const bool jumpingTarget = Gun_Game_Airborne(As_Techno(TarCom));
+    if ((Frame & 0x01) && Class->IsHoming && Target_Legal(TarCom) && !jumpingTarget) {
         PrimaryFacing.Set_Desired(Direction256(Coord, ::As_Coord(TarCom)));
     }
 
@@ -347,7 +357,8 @@ void BulletClass::AI(void)
     coord = Coord;
     if (Class->IsFlameEquipped) {
         if (IsToAnimate) {
-            new AnimClass(ANIM_SMOKE_PUFF, coord, 1);
+            AnimClass* puff = new AnimClass(ANIM_SMOKE_PUFF, coord, 1);
+            if (Class->Type == BULLET_HONEST_JOHN) OpenCNC3D_Tag_SSML_Smoke(puff, this);
         }
         IsToAnimate = !IsToAnimate;
     }
@@ -360,7 +371,26 @@ void BulletClass::AI(void)
         PrimaryFacing.Rotation_Adjust(Class->ROT);
     }
 
-    switch (Physics(coord, PrimaryFacing)) {
+    const int flightTicks = OpenCNC3D_SSML_Duration();
+    ImpactType impact = IMPACT_NORMAL;
+    if (flightTicks > 0) {
+        // Travel a straight horizontal line to the already armed impact point.
+        // Dividing the remaining displacement by the remaining ticks keeps the
+        // coordinates and timing resumable from the existing save fields.
+        const COORDINATE target = Fuse_Target();
+        if (Timer) {
+            const int dx = Coord_X(target) - Coord_X(Coord);
+            const int dy = Coord_Y(target) - Coord_Y(Coord);
+            coord = XY_Coord(Coord_X(Coord) + dx / Timer, Coord_Y(Coord) + dy / Timer);
+            --Timer;
+        }
+        const int apex = MIN(800, MAX(112, (flightTicks - 4) * 12));
+        Altitude = 4 * apex * OpenCNC3D_SSML_Elapsed() * Timer / (flightTicks * flightTicks);
+    } else {
+        impact = Physics(coord, PrimaryFacing);
+    }
+
+    switch (impact) {
 
     /*
     **	When a projectile reaches the edge of the world, it
@@ -423,7 +453,9 @@ void BulletClass::AI(void)
             opencnc3d_crossed = (ax * bx + ay * by) <= 0;
         }
 
-        if (!forced && !opencnc3d_crossed && (Class->IsDropping || !Fuse_Checkup(coord))) {
+        const bool stillFlying = flightTicks > 0 ? Timer != 0
+            : (Class->IsDropping || (!forced && !opencnc3d_crossed && !Fuse_Checkup(coord)));
+        if (!forced && !opencnc3d_crossed && stillFlying) {
             Coord = coord;
             Mark();
 
@@ -436,6 +468,19 @@ void BulletClass::AI(void)
             }
 
         } else {
+            // Keep a direct shot on its current path when its target jumps.
+            if (jumpingTarget && !forced && !Class->IsArcing && !Class->IsDropping) {
+                if (Get_Speed() == MPH_IMMOBILE) {
+                    Delete_This();
+                    break;
+                }
+                TarCom = TARGET_NONE;
+                PrimaryFacing.Set_Desired(PrimaryFacing.Current());
+                Arm_Fuse(coord, Coord_Move(coord, PrimaryFacing.Current(), 0x0100), 8);
+                Coord = coord;
+                Mark();
+                break;
+            }
 
             /*
             **	When the target is reached, explode and do the damage
@@ -460,8 +505,9 @@ void BulletClass::AI(void)
                 **	Special damage apply for SAM missiles. This is the only way that missile
                 **	damage affects the aircraft target.
                 */
-                if (Distance(TarCom) < 0x0080) {
-                    AircraftClass* object = As_Aircraft(TarCom);
+                AircraftClass* object = As_Aircraft(TarCom);
+                const int radius = Gun_Game_Combat_Aircraft(object) ? 0x0100 : 0x0080;
+                if (Distance(TarCom) < radius) {
 
                     int str = Strength;
                     if (object)
@@ -667,6 +713,12 @@ bool BulletClass::Unlimbo(COORDINATE coord, DirType dir)
         COORDINATE tcoord = As_Coord(TarCom);
 
         /*
+        **	OpenCNC3D Rally: a racer moves many times faster than the units these weapons
+        **	were made for, so a round fired at one is aimed where it will be on impact.
+        */
+        tcoord = Rally_Lead(TarCom, Payback, Class->Type, coord, tcoord);
+
+        /*
         **	Homing projectiles (missiles) do NOT override facing. They just fire in the
         **	direction specified and let the chips fall where they may.
         */
@@ -760,6 +812,8 @@ bool BulletClass::Unlimbo(COORDINATE coord, DirType dir)
         /*
         **	Arm the fuse.
         */
+        const bool honestJohn = Class->Type == BULLET_HONEST_JOHN;
+        if (honestJohn) range = MIN(127, MAX(10, range));
         Arm_Fuse(Coord, tcoord, range, ((As_Aircraft(TarCom) != 0) ? 0 : Class->Arming));
 
         /*
@@ -773,7 +827,7 @@ bool BulletClass::Unlimbo(COORDINATE coord, DirType dir)
         **	of square root and an arcsine lookup table. OUCH!
         */
         Altitude = 0;
-        Riser = 0;
+        Riser = honestJohn ? (signed char)range : 0;
         if (Class->IsArcing) {
             Altitude = 1;
             Riser = ((Distance(tcoord) / 2) / (speed + 1)) * GRAVITY;

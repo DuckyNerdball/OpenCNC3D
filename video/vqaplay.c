@@ -136,9 +136,10 @@ static int sos_step(VQ_Movie *m, int nybble)
     return m->adpcm_sample;
 }
 
-static void pcm_push(VQ_Movie *m, const unsigned char *src, long n)
+/* Room for `bytes` more at the tail of the queue. */
+static void pcm_reserve(VQ_Movie *m, long bytes)
 {
-    long need, i;
+    long need;
 
     /* Compact first: the queue is drained from the head every frame. */
     if (m->pcm_head > 0 && m->pcm_head == m->pcm_len) {
@@ -149,7 +150,7 @@ static void pcm_push(VQ_Movie *m, const unsigned char *src, long n)
         m->pcm_head = 0;
     }
 
-    need = m->pcm_len + n * 4;
+    need = m->pcm_len + bytes;
     if (need > m->pcm_cap) {
         long cap = m->pcm_cap ? m->pcm_cap : 65536;
         while (cap < need)
@@ -157,6 +158,24 @@ static void pcm_push(VQ_Movie *m, const unsigned char *src, long n)
         m->pcm = (unsigned char *)realloc(m->pcm, (size_t)cap);
         m->pcm_cap = cap;
     }
+}
+
+/* SND0 is the soundtrack stored as plain 16-bit PCM, so it goes into the queue as it
+ * is. vqaloader.cpp VQA_Load_SND0 takes it at the top level of the file as well as
+ * inside a frame, and Red Alert's first Allied briefing, ALLY1.VQA, carries its whole
+ * soundtrack in top-level SND0 chunks: skipped, that briefing played silent. */
+static void pcm_push_raw(VQ_Movie *m, const unsigned char *src, long n)
+{
+    pcm_reserve(m, n);
+    memcpy(m->pcm + m->pcm_len, src, (size_t)n);
+    m->pcm_len += n;
+}
+
+static void pcm_push(VQ_Movie *m, const unsigned char *src, long n)
+{
+    long i;
+
+    pcm_reserve(m, n * 4);
 
     for (i = 0; i < n; i++) {
         short s;
@@ -417,17 +436,7 @@ static int frame_chunk(VQ_Movie *m, long end)
             memcpy(m->vpt, buf, (size_t)n);
             unvq(m);
         } else if (!memcmp(tag, "SND0", 4)) {
-            /* Uncompressed PCM, passed straight through. */
-            long need = m->pcm_len + (long)size;
-            if (need > m->pcm_cap) {
-                long cap = m->pcm_cap ? m->pcm_cap : 65536;
-                while (cap < need)
-                    cap *= 2;
-                m->pcm = (unsigned char *)realloc(m->pcm, (size_t)cap);
-                m->pcm_cap = cap;
-            }
-            memcpy(m->pcm + m->pcm_len, buf, size);
-            m->pcm_len += (long)size;
+            pcm_push_raw(m, buf, (long)size);
         } else if (!memcmp(tag, "SND2", 4)) {
             pcm_push(m, buf, (long)size);
         }
@@ -468,13 +477,16 @@ int vq_next_frame(VQ_Movie *m)
             return 1;
         }
 
-        if (!memcmp(tag, "SND2", 4)) {
+        if (!memcmp(tag, "SND2", 4) || !memcmp(tag, "SND0", 4)) {
             unsigned char *buf = scratch(m, (long)size + 2);
             if (!rd(m, buf, (long)size))
                 return 0;
             if (size & 1)
                 fgetc(m->fh);
-            pcm_push(m, buf, (long)size);
+            if (tag[3] == '2')
+                pcm_push(m, buf, (long)size);
+            else
+                pcm_push_raw(m, buf, (long)size);
             continue;
         }
 

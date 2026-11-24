@@ -103,6 +103,8 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "gun_game_ability.h"
 #include "ccini.h"
 
 /***********************************************************************************************
@@ -365,6 +367,7 @@ void AircraftClass::Draw_It(int x, int y, WindowNumberType window)
     if (!shapefile)
         return;
     shapenum = UnitClass::BodyShape[facing];
+    if (Class->IsFixedWing && Gun_Game_Combat_Aircraft(this)) shapenum /= 2;
 
     /*
     **	The orca attack helicopter uses a special shape set when it is travelling
@@ -1715,6 +1718,12 @@ ResultType AircraftClass::Take_Damage(int& damage, int distance, WarheadType war
 int AircraftClass::Mission_Move(void)
 {
     Validate();
+    if (Class->IsFixedWing && Gun_Game_Combat_Aircraft(this)) {
+        Gun_Game_Fly(NavCom);
+        if (Target_Legal(NavCom) && Distance(NavCom) < 128) Assign_Destination(TARGET_NONE);
+        return 1;
+    }
+
     if (Class->IsFixedWing) {
 
         /*
@@ -2303,9 +2312,33 @@ DirType AircraftClass::Pose_Dir(void) const
  * HISTORY:                                                                                    *
  *   06/19/1995 JLB : Created.                                                                 *
  *=============================================================================================*/
+// The playable jets keep moving. When idle or past a destination they circle
+// instead of entering the reinforcement aircraft's retreat state.
+void AircraftClass::Gun_Game_Fly(TARGET destination)
+{
+    const int x = Cell_X(Coord_Cell(Coord)), y = Cell_Y(Coord_Cell(Coord));
+    if (x < Map.MapCellX + 3 || x >= Map.MapCellX + Map.MapCellWidth - 3
+        || y < Map.MapCellY + 3 || y >= Map.MapCellY + Map.MapCellHeight - 3) {
+        PrimaryFacing.Set_Desired(Direction(Cell_Coord(XY_Cell(Map.MapCellX + Map.MapCellWidth / 2,
+                                                               Map.MapCellY + Map.MapCellHeight / 2))));
+    } else if (Target_Legal(destination) && Distance(destination) >= 128) {
+        PrimaryFacing.Set_Desired(Direction(destination));
+    } else {
+        PrimaryFacing.Set_Desired((DirType)((PrimaryFacing.Current() + 32) & 255));
+    }
+    Set_Speed(0xff);
+}
+
 int AircraftClass::Mission_Attack(void)
 {
     Validate();
+    if (Class->IsFixedWing && Gun_Game_Combat_Aircraft(this)) {
+        Gun_Game_Fly(TarCom);
+        if (!Target_Legal(TarCom)) Assign_Mission(MISSION_GUARD);
+        else if (Can_Fire(TarCom, 0) == FIRE_OK) Fire_At(TarCom, 0);
+        return 1;
+    }
+
     if (Class->IsFixedWing) {
         Assign_Mission(MISSION_HUNT);
         return (1);
@@ -3229,6 +3262,7 @@ void AircraftClass::Set_Speed(int speed)
 {
     Validate();
     MPHType sp = MPHType(min((unsigned)(Class->MaxSpeed * House->AirspeedBias), MPH_LIGHT_SPEED));
+    sp = MPHType(Gun_Ability_Speed(this, sp));
     Fly_Speed(speed, sp);
 }
 
@@ -3395,6 +3429,11 @@ int AircraftClass::Threat_Range(int control) const
 int AircraftClass::Mission_Guard(void)
 {
     Validate();
+    if (Class->IsFixedWing && Gun_Game_Combat_Aircraft(this)) {
+        Gun_Game_Fly(TARGET_NONE);
+        return 1;
+    }
+
     if (Altitude == FLIGHT_LEVEL) {
 
         /*

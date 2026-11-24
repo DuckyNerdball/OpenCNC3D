@@ -25,7 +25,8 @@
  *
  *  Also read here, from the same INI's [Basic] block: the requirement= and Action= movie
  *  names, which are what goptions.cpp:375-381 plays when the player asks for the video
- *  (the requirement if its file exists, otherwise the action movie).
+ *  (the requirement if its file exists, otherwise the action movie), and Theme=, the score a
+ *  Red Alert mission opens on (scenario.cpp Start_Scenario).
  * ==================================================================================== */
 
 #ifndef BRIEF_MOD_H
@@ -41,6 +42,7 @@
 static char g_briefText[BRIEF_TEXT_MAX];
 static char g_briefMovie[16];    /* [Basic] Brief=  ("x" or empty means none) */
 static char g_actionMovie[16];   /* [Basic] Action= */
+static char g_scenTheme[24];     /* [Basic] Theme=  ("No theme" or empty means none) */
 static char g_briefFrom[32];     /* "INI", "MISSION.INI" or "" for the log line */
 
 /* Trailing blanks and the CR a DOS file carries. Leading blanks too, as INIClass's
@@ -223,6 +225,7 @@ static void brief_load(const char* dir, const char* scen, const char* dosdata)
     g_briefText[0] = 0;
     g_briefMovie[0] = 0;
     g_actionMovie[0] = 0;
+    g_scenTheme[0] = 0;
     g_briefFrom[0] = 0;
     if (!scen || !scen[0]) return;
 
@@ -247,6 +250,7 @@ static void brief_load(const char* dir, const char* scen, const char* dosdata)
     if (ini) {
         brief_basic_key(ini, len, "Brief", g_briefMovie, sizeof g_briefMovie);
         brief_basic_key(ini, len, "Action", g_actionMovie, sizeof g_actionMovie);
+        brief_basic_key(ini, len, "Theme", g_scenTheme, sizeof g_scenTheme);
         if (!g_briefText[0] && brief_text_block(ini, len, "Briefing", g_briefText, BRIEF_TEXT_MAX) > 0)
             snprintf(g_briefFrom, sizeof g_briefFrom, "INI");
         free(ini);

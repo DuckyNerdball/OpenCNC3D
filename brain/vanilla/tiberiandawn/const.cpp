@@ -102,6 +102,16 @@ WeaponTypeClass const Weapons[WEAPON_COUNT] = {
     {BULLET_HONEST_JOHN, 100, 200, 0x0A00, VOC_ROCKET1, ANIM_NONE}, //	WEAPON_HONEST_JOHN
     {BULLET_HEADBUTT, 100, 30, 0x0180, VOC_DINOATK1, ANIM_NONE},    // WEAPON_STEG
     {BULLET_TREXBITE, 155, 30, 0x0180, VOC_DINOATK1, ANIM_NONE},    // WEAPON_TREX
+
+    // Red Alert combatants in Gun Game. Ranges are in TD leptons per cell.
+    {BULLET_SNIPER, 50, 5, 0x05C0, VOC_MGUN2, ANIM_NONE},          // Colt .45
+    {BULLET_LASER, 45, 70, 0x0380, VOC_LASER, ANIM_NONE},           // Portable Tesla
+    {BULLET_APDS, 30, 70, 0x04C0, VOC_TANK3, ANIM_MUZZLE_FLASH},    // Twin 105 mm
+    {BULLET_RA_SCUD, 250, 250, 0x0A00, VOC_ROCKET1, ANIM_NONE}, // SCUD (full damage/reload handled in Gun Game)
+    {BULLET_SSM, 75, 80, 0x0500, VOC_ROCKET2, ANIM_NONE},           // AP Tusk
+    {BULLET_LASER, 100, 120, 0x0700, VOC_LASER, ANIM_NONE},         // Tesla Tank
+    {BULLET_BULLET, 40, 3, 0x0500, VOC_MGUN11, ANIM_GUN_N},        // Aircraft chaingun
+    {BULLET_SSM, 50, 3, 0x0600, VOC_ROCKET2, ANIM_NONE},           // Maverick
 };
 
 /***************************************************************************

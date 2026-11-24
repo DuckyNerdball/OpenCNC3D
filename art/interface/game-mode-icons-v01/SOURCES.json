@@ -1,0 +1,255 @@
+{
+  "what": "Game-mode picker tiles, 136x120 RGBA, one per mode per game",
+  "baker": "tools/art/gun_abilities/bake_mode_icons.py",
+  "tiles": {
+    "td-mode-ffa.png": "Dawn Free for All: TD MTNK.SHP body+turret frames 20/52, 12/44, 28/60, 4/36 with RemapGold, RemapRed, RemapLtBlue, RemapGreen (tiberiandawn/const.cpp), Scale2x, converging on TD FBALL1.SHP frame 5 at its own size; Dawn gunmetal plate",
+    "td-mode-gungame.png": "Dawn Gun Game: TD E1ICON.SHP, MTNKICON.SHP, HTNKICON.SHP, Scale2x and cut to their central 56x40, climbing from bottom left to top right, drawn gold chevrons between; Dawn gunmetal plate",
+    "ra-mode-ffa.png": "Red Alert Free for All: RA 2TNK.SHP body+turret frames 20/52, 12/44, 28/60, 4/36 remapped through PALETTE.CPS rows gold, red, light blue, green, Scale2x, converging on RA FBALL1.SHP frame 5 at its own size; Red Alert dialog-steel plate",
+    "ra-mode-gungame.png": "Red Alert Gun Game: RA E1ICON.SHP, 3TNKICON.SHP, 4TNKICON.SHP from HIRES.MIX at native size, cut to their central 56x39 (which drops the caption strip), climbing; Red Alert dialog-steel plate",
+    "td-mode-rally.png": "Dawn Rally: TD BGGY.SHP (RemapRed) leading JEEP.SHP (RemapGold), body+turret frames 28/60 (north-east), Scale2x, racing for a drawn chequered line of 6px squares; TD FLAGFLY.SHP frame 0 with its cloth (indices 176..191 and 115..119) chequered in its own shading, Scale2x; Dawn gunmetal plate",
+    "ra-mode-rally.png": "Red Alert Rally: RA JEEP.SHP (PALETTE.CPS red row) leading 1TNK.SHP (gold row), body+turret frames 28/60, Scale2x, racing for a drawn chequered line; RA FLAGFLY.SHP frame 0 with its cloth (indices 176..191 and 82..89) chequered in its own shading, Scale2x; Red Alert dialog-steel plate"
+  },
+  "chassis": {
+    "dawn": "faction-Nod.png border band (gunmetal) with its emblem covered by a recessed well; corner bolt cut from slots-frame.png (x 657..665, y 3..11)",
+    "red_alert": "RA HIRES.MIX DD-TOP.SHP rows 0..3 in the HIRES.MIX TITLE.PCX palette, darkened to 55% (the RA menu kit's plate()), dark inset, 1px bevel; brass rivet heads cut from DD-CRNR.SHP frames 0..3"
+  },
+  "kit_files_sha1": {
+    "art/interface/enhanced-menu-v06/faction-Nod.png": "50d85d1797dae3971dc9fd0c75779f52ece3c2ce",
+    "art/interface/enhanced-menu-v06/slots-frame.png": "e0b8eb8739b6cc6b441d669b3bbf2c78bf756cab"
+  },
+  "source_entries": [
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "1TNK.SHP",
+      "bytes": 8824,
+      "sha1": "1a93638cc05cb36448d24e1b42f2200456744dce",
+      "frames": [
+        28,
+        60
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "2TNK.SHP",
+      "bytes": 12517,
+      "sha1": "0076c8a81770a955da1f398e878aca4bcca5200e",
+      "frames": [
+        4,
+        12,
+        20,
+        28,
+        36,
+        44,
+        52,
+        60
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "FBALL1.SHP",
+      "bytes": 5941,
+      "sha1": "422754e78827f0ff763ed44eb68fdcec85ecfafd",
+      "frames": [
+        5
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "FLAGFLY.SHP",
+      "bytes": 1990,
+      "sha1": "1d7001f211fad0b8597fd26ada20268f338b2df9",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "JEEP.SHP",
+      "bytes": 10124,
+      "sha1": "0b278ace7856df1b47976ef6012b23904cee7b10",
+      "frames": [
+        28,
+        60
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/HIRES.MIX",
+      "entry": "3TNKICON.SHP",
+      "bytes": 2644,
+      "sha1": "a28623fba6356f4d0fa16c52f0f26da668b12580",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/HIRES.MIX",
+      "entry": "4TNKICON.SHP",
+      "bytes": 2113,
+      "sha1": "fa13a43e3ee2bf3e58983b0324ce938c937ca59f",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/HIRES.MIX",
+      "entry": "DD-CRNR.SHP",
+      "bytes": 1475,
+      "sha1": "79181f8accb4ef1e1247bc42b40d722d883cacb4",
+      "frames": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/HIRES.MIX",
+      "entry": "DD-TOP.SHP",
+      "bytes": 898,
+      "sha1": "d4af6fc98654d5285ce48a94836de8cee4f23b40",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/HIRES.MIX",
+      "entry": "E1ICON.SHP",
+      "bytes": 2408,
+      "sha1": "1a2c814a3f839b789f9ba0681eb29cdb9cc0a1ab",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/HIRES.MIX",
+      "entry": "TITLE.PCX",
+      "bytes": 116771,
+      "sha1": "4d3a9ad7ff632cfe306a71e9e2b703ccdbcbc9c8",
+      "frames": []
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/LOCAL.MIX",
+      "entry": "PALETTE.CPS",
+      "bytes": 4770,
+      "sha1": "8f5487de6f9088403fe31fd011f7008dfd0ea3f5",
+      "frames": []
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/LOCAL.MIX",
+      "entry": "TEMPERAT.PAL",
+      "bytes": 768,
+      "sha1": "f33b181b38738ac32164e5585d1a1ee84d38f0e6",
+      "frames": []
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "BGGY.SHP",
+      "bytes": 8813,
+      "sha1": "8b0b853db3187d17f79c52f3e2bca45af0d64947",
+      "frames": [
+        28,
+        60
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "E1ICON.SHP",
+      "bytes": 642,
+      "sha1": "843dcdd3dc464bdcf43bed8e98853254053754ae",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "FBALL1.SHP",
+      "bytes": 6187,
+      "sha1": "05ef74c76af180845dbbcc5627f696e72cef4576",
+      "frames": [
+        5
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "FLAGFLY.SHP",
+      "bytes": 1889,
+      "sha1": "9e6f399e7ef2fb9b551dbaa2e9be394752380a50",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "HTNKICON.SHP",
+      "bytes": 531,
+      "sha1": "29ddf32526e5b5b372be50990a06f4dd635baffd",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "JEEP.SHP",
+      "bytes": 9388,
+      "sha1": "e3936aa1f9586400ba035eae4de512c08154fae8",
+      "frames": [
+        28,
+        60
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "MTNK.SHP",
+      "bytes": 13725,
+      "sha1": "f78763ecf5b5d820df540ee8b44715854a1253db",
+      "frames": [
+        4,
+        12,
+        20,
+        28,
+        36,
+        44,
+        52,
+        60
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "MTNKICON.SHP",
+      "bytes": 439,
+      "sha1": "12b3ba2c8f715ef8de1794693ab74e415ab6f479",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/LOCAL.MIX",
+      "entry": "TEMPERAT.PAL",
+      "bytes": 768,
+      "sha1": "50ed5d4b086ec7d9faf3dfdc021f7b9f3063aab3",
+      "frames": []
+    }
+  ]
+}

@@ -40,11 +40,12 @@ placements, which share the code; Classic, which has no placement.
 import os
 import sys
 
-# the type, the frames of its animation to profile, and the cell the sidebar's own auto
-# placement chooses for it on this seeded map (the camera stands on it: the auto placement
-# puts the structures north of the yard, where a camera left on the yard sees only their foot)
+# The type, the frames of its animation to profile, and a legal adjacent site on this
+# seeded map. Sites remain inside the base's native placement range. Old PROC/WEAP sites
+# relied on the placement event accepting a location the sidebar reported illegal.
+# Keep the camera on each placement so the whole animation is in view.
 # (the windows end inside the animations: 3.45, 3.85 and 3.75 seconds at 15 ticks a second)
-TYPES = [('POWR', 50, (46, 75)), ('PROC', 55, (51, 74)), ('WEAP', 54, (54, 75))]
+TYPES = [('POWR', 50, (46, 75)), ('PROC', 55, (49, 73)), ('WEAP', 54, (52, 74))]
 STAND = 30
 # (a placement still sends each of its runs once as it starts, the at-rest copy every pass
 # draws, which averaged over the window is about 26 a frame for the Power Plant's 284 runs,
@@ -87,7 +88,8 @@ def script(d):
     # The same seeded timeline, camera and ticks, with only the target placement absent.
     # Both sidebar commands advance one tick; the control must keep those two ticks.
     control = '\n'.join(v[:v.index('build WEAP')])
-    command = 'startplace PROC\nplace 51 74\n'
+    px, py = next(site for name, _, site in TYPES if name == 'PROC')
+    command = 'startplace PROC\nplace %d %d\n' % (px, py)
     if control.count(command) != 1:
         raise ValueError('the matched PROC control no longer identifies one placement')
     control = control.replace(command, 'tick 2\n')
@@ -173,6 +175,9 @@ def matched_proc(main, control):
         b = [l for l in control if l.startswith(prefix)]
         if not a or a != b:
             raise ValueError('matched PROC initial scene differs: ' + prefix)
+    px, py = next(site for name, _, site in TYPES if name == 'PROC')
+    site = '|x=%d|y=%d|' % (px, py)
+    harvester_site = '|x=%d|y=%d|' % (px + 1, py + 2)
     times = []
     for phase, expected in enumerate((2162, 2217)):
         frame, a = snapshot(main, phase)
@@ -181,14 +186,14 @@ def matched_proc(main, control):
             raise ValueError('matched PROC engine clocks differ from the seeded window')
         times.append(frame)
         ta, tb = [l for l in a if target(l)], [l for l in b if target(l)]
-        if len(ta) != 1 or len(tb) != 1 or '|x=51|y=74|' not in ta[0] or '|limbo=0|' not in ta[0] or '|limbo=1|' not in tb[0]:
+        if len(ta) != 1 or len(tb) != 1 or site not in ta[0] or '|limbo=0|' not in ta[0] or '|limbo=1|' not in tb[0]:
             raise ValueError('matched PROC target/queued-building counterpart differs')
         aa, bb = [l for l in a if not target(l)], [l for l in b if not target(l)]
         # The completed Refinery grants this exact engine-owned Harvester. Count its
         # upload cost as part of placement; permit no other new unit or shared-state drift.
         if phase == 1:
             harvesters = [l for l in aa if l.startswith('OBJ|UNIT|HARV|Multi1|') and '|id=1|' in l]
-            if len(harvesters) != 1 or '|x=52|y=76|' not in harvesters[0] or '|limbo=0|' not in harvesters[0] or '|str=600|max=600|' not in harvesters[0]:
+            if len(harvesters) != 1 or harvester_site not in harvesters[0] or '|limbo=0|' not in harvesters[0] or '|str=600|max=600|' not in harvesters[0]:
                 raise ValueError('matched PROC free-Harvester consequence differs')
             aa.remove(harvesters[0])
         if len(aa) != 37 or len(bb) != 37 or aa != bb:
@@ -207,6 +212,11 @@ def check(path):
     if not any(l.startswith('SCRIPT|begin') for l in lines):
         return 0, 'the run did not start (no SCRIPT|begin in %s)' % path
     W = windows(lines)
+    for name, _, (cx, cy) in TYPES:
+        placements = [l for l in lines if l.startswith('SIDEBAR-PLACE|%s|' % name)]
+        if (len(placements) != 1 or '|cell=%d,%d|' % (cx, cy) not in placements[0]
+                or '|legal=1' not in placements[0]):
+            return 0, '%s: the fixture must make exactly one legal placement at its declared site' % name
     try:
         control_path = os.path.join(os.path.dirname(path), 'proc-standing.log')
         control = open(control_path, errors='replace').read().splitlines()

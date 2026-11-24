@@ -74,4 +74,4 @@ WIN_HTTP_C="launcher/lnet.c launcher/ljson.c"
 WIN_EYES_CPP="game/cnc_eyes.cpp"
 WIN_APP_CPP="app/opencnc3d.cpp"
 
-WIN_MENU_CPP="menu/enhanced_menu.cpp"
+WIN_MENU_CPP="menu/enhanced_menu.cpp menu/map_import_ui.cpp"

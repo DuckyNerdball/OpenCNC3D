@@ -1,10 +1,16 @@
 /* doslobby.c -- see doslobby.h. Renders and hit-tests; owns nothing else. */
 
 #include "doslobby.h"
+#include "../net/netmatch.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 /* CC_BRIGHT_GREEN, defines.h:2886. The underline under a caption, the tick inside a
  * check box and the travelled part of a gauge are all this one colour, and it is the
@@ -87,7 +93,6 @@ enum
     SK_ST_GDI,
     SK_ST_NOD,
     SK_ST_BASES,
-    SK_ST_TIBERIUM,
     SK_ST_SUPER_ON,
     SK_ST_SUPER_OFF,
     SK_ST_CRATES_ON,
@@ -126,7 +131,6 @@ static const char *const SK_STATUS[SK_ST_COUNT] = {
     "",   /* was "You play GDI; every computer plays Nod." -- no explanatory text here, by request */
     ""   /* was "You play Nod; every computer plays GDI." -- no explanatory text here, by request */,
     "Bases stay on: the match would end in a second.",
-    "Tiberium stays on: off leaks into the campaign.",
     "",   /* was "Superweapons may be built by every house." -- no explanatory text here, by request */
     "",   /* was "No house may build a superweapon." -- no explanatory text here, by request */
     "",   /* was "Crates are scattered; drive over one to open it." -- no explanatory text here, by request */
@@ -198,8 +202,9 @@ static const char *sk_status_side(int side)
  *       u16  img_x, img_y, img_w, img_h
  *       u16  starts, tiberium
  *       max_starts x { u16 cell_x, cell_y, px, py; u8 colour, reserved }
- *       u8   plain [frame_w * frame_h]     terrain only
- *       u8   marked[frame_w * frame_h]     the same with start diamonds drawn on
+ *       u8   plain [frame_w * frame_h]     the ground, and on a race course the course
+ *       u8   marked[frame_w * frame_h]     the same with start diamonds drawn on (none
+ *                                         on a race course)
  *   }
  *
  * All little-endian, read byte by byte so the reader does not care what this machine
@@ -418,7 +423,7 @@ int sk_row_team(const SK_State *st, int seat)
 {
     if (!st || seat < 0 || seat >= SK_ROSTER_ROWS)
         return 0;
-    return st->team[seat];
+    return st->gun_game ? seat : st->team[seat];
 }
 
 int sk_row_colour(const SK_State *st, int seat)
@@ -514,6 +519,24 @@ int sk_row_start(const SK_State *st, int seat)
     return st->start[seat] < 0 ? -1 : st->start[seat];
 }
 
+/* TWO STARTS ON ONE CELL ARE ONE START. A map can list the same cell twice (Red Alert's
+ * Equal Opportunity does, its fourth and fifth), and two bases cannot begin on it, so
+ * whoever holds either one holds both: the twin is drawn in that seat's colour and
+ * refused to everyone else. Known only where the map carries its start cells; the
+ * engine keeps a random seat off a held cell the same way. */
+static int sk_same_start_cell(const SK_State *st, int a, int b)
+{
+    const SK_Map *m;
+    if (a == b)
+        return 1;
+    if (!st || st->sel < 0 || st->sel >= st->count || a < 0 || b < 0)
+        return 0;
+    m = &st->maps[st->sel];
+    if (a >= m->start_cells || b >= m->start_cells || a >= 8 || b >= 8)
+        return 0;
+    return m->start_x[a] == m->start_x[b] && m->start_y[a] == m->start_y[b];
+}
+
 /* Over the SEATED rows only: a seat past the roster cannot be holding anything the
  * screen shows, and a pick it kept from a wider room must not lock a start nobody can
  * see the holder of. */
@@ -525,6 +548,9 @@ int sk_start_holder(const SK_State *st, int start)
     players = sk_players(st);
     for (i = 0; i < players; i++)
         if (st->start[i] == start)
+            return i;
+    for (i = 0; i < players; i++)
+        if (st->start[i] >= 0 && sk_same_start_cell(st, st->start[i], start))
             return i;
     return -1;
 }
@@ -758,6 +784,9 @@ static void sk_gauge_range(const SK_State *st, int ctrl, int *lo, int *hi, int *
         *lo = SK_UNITS_MIN;
         *hi = SK_UNITS_MAX;
         break;
+    case SK_I_SPEED:
+        *hi = NM_MAX_SPEED;
+        break;
     default:
         break;
     }
@@ -765,7 +794,7 @@ static void sk_gauge_range(const SK_State *st, int ctrl, int *lo, int *hi, int *
 
 static int sk_is_gauge(int item)
 {
-    return item >= SK_I_BUILD && item <= SK_I_UNITS;
+    return item >= SK_I_BUILD && item <= SK_I_SPEED;
 }
 
 static int sk_value(const SK_State *st, int ctrl)
@@ -774,6 +803,7 @@ static int sk_value(const SK_State *st, int ctrl)
     case SK_I_BUILD: return st->build;
     case SK_I_CREDITS: return st->credits;
     case SK_I_UNITS: return st->units;
+    case SK_I_SPEED: return st->speed;
     default: return 0;
     }
 }
@@ -791,6 +821,7 @@ static void sk_set_value(SK_State *st, int ctrl, int v)
     switch (ctrl) {
     case SK_I_BUILD: st->build = v; break;
     case SK_I_CREDITS: st->credits = v; break;
+    case SK_I_SPEED: st->speed = v; break;
     case SK_I_UNITS:
         st->units = v;
         /* Said on every move of this gauge, including back to zero, because a player who
@@ -815,6 +846,7 @@ void sk_init(SK_State *st, const SK_Map *maps, int count, const SK_Prev *prev)
     st->count = count;
     st->prev = prev;
     st->sel = -1;          /* sk_select_map below chooses map 0 and sizes the roster */
+    st->remembered_course = -1;
     st->top = 0;
     st->picker = 0;
     st->pick_sel = -1;
@@ -823,8 +855,8 @@ void sk_init(SK_State *st, const SK_Map *maps, int count, const SK_Prev *prev)
      * a skirmish has no campaign behind it to unlock one.
      *
      * The exception is the opponent count. --ai still defaults to one because a switch
-     * has no map in front of it when it is read; the lobby does, so it seats the map it
-     * is showing (sk_select_map, below): one computer per start, no gauge. */
+     * has no map in front of it when it is read; the lobby does, so it sizes the roster to the map it
+     * is showing (sk_select_map, below): one initial computer, preserving accepted choices on a map change. */
     st->side = 0;
     st->build = SK_BUILD_MAX;
     st->credits = 5000;
@@ -832,6 +864,11 @@ void sk_init(SK_State *st, const SK_Map *maps, int count, const SK_Prev *prev)
     st->crates = 0;
     st->aitake = 0;
     st->shortgame = 0;
+    st->gun_game = 0;
+    st->rally = 0;
+    st->laps = SK_LAPS_DEFAULT;
+    st->speed = NM_DEFAULT_SPEED;
+    st->tiberium = 1;
     st->units = SK_UNITS_MIN;
     st->ai_difficulty = 1;
     st->selected = SK_I_CHANGEMAP;
@@ -861,8 +898,76 @@ void sk_init(SK_State *st, const SK_Map *maps, int count, const SK_Prev *prev)
      * starts on map 0, and selecting it sizes the roster to that map's starts. */
     st->net_seats = 2;
     st->status = sk_status_side(st->side);
+    /* the first map the mode lists, which before sk_set_rally is the first that is not a
+       course */
     if (count > 0)
-        sk_select_map(st, 0);
+        sk_select_map(st, sk_first_offered(st));
+}
+
+void sk_set_rally(SK_State *st, int rally)
+{
+    if (!st) return;
+    st->rally = (rally && !st->countries) ? 1 : 0;
+    if (st->rally) st->gun_game = 0;
+    if (st->laps < SK_LAPS_MIN || st->laps > SK_LAPS_MAX) st->laps = SK_LAPS_DEFAULT;
+    if (st->net != 2 && (st->sel < 0 || !sk_map_offered(st, st->sel))) {
+        const int first = sk_first_offered(st);
+        if (first >= 0) sk_select_map(st, first);
+        else st->sel = -1;
+    }
+}
+
+int sk_mode(const SK_State *st)
+{
+    if (!st || st->countries) return SK_MODE_FFA;
+    if (st->rally) return SK_MODE_RALLY;
+    return st->gun_game ? SK_MODE_GUN_GAME : SK_MODE_FFA;
+}
+
+int sk_mode_offered(const SK_State *st, int mode)
+{
+    if (!st) return 0;
+    if (mode == SK_MODE_FFA) return 1;
+    if (st->countries) return 0;              /* Red Alert plays neither yet */
+    if (mode == SK_MODE_GUN_GAME) return !st->net_relayed;
+    if (mode == SK_MODE_RALLY) {
+        int i;
+        for (i = 0; i < st->count; ++i)
+            if (st->maps[i].course) return 1;
+        return 0;
+    }
+    return 0;
+}
+
+int sk_mode_locked(const SK_State *st)
+{
+    return !st || st->net == 2 || st->net_starting;
+}
+
+int sk_set_mode(SK_State *st, int mode)
+{
+    const int before = sk_mode(st);
+    const int laps = st ? st->laps : 0, sel = st ? st->sel : -1;
+    if (!st || sk_mode_locked(st) || !sk_mode_offered(st, mode)) return 0;
+    if (mode == SK_MODE_RALLY) {
+        st->gun_game = 0;
+        sk_set_rally(st, 1);
+        /* the course this skirmish last raced, rather than the first */
+        if (st->net != 2 && st->remembered_course >= 0 && st->remembered_course < st->count
+            && sk_map_offered(st, st->remembered_course) && st->sel != st->remembered_course)
+            sk_select_map(st, st->remembered_course);
+    } else {
+        sk_set_rally(st, 0);
+        st->gun_game = mode == SK_MODE_GUN_GAME;
+        /* A network Gun Game seats people only: a computer seat in a room would hold its
+           START forever. A skirmish plays Gun Game against computers, so it keeps them. */
+        if (st->gun_game && st->net == 1) {
+            int i;
+            for (i = 1; i < SK_ROSTER_ROWS; ++i)
+                if (st->mode[i] == SK_SEAT_BOT) st->mode[i] = SK_SEAT_OPEN;
+        }
+    }
+    return sk_mode(st) != before || st->laps != laps || st->sel != sel;
 }
 
 void sk_result(const SK_State *st, SK_Lobby *out)
@@ -876,7 +981,7 @@ void sk_result(const SK_State *st, SK_Lobby *out)
     out->build = st->build;
     out->credits = st->credits;
     out->superweapons = st->super ? 1 : 0;
-    /* Bases and tiberium are drawn locked ON and these are the values those locks stand
+    /* Bases are drawn locked ON and this is the value that lock stands
      * for. CRATES ARE NOT LOCKED and this comment said they were: sk_item_disabled
      * un-locks them and the box is drawn and clickable, so the sentence claiming
      * otherwise was false before this change and visibly false after it.
@@ -890,10 +995,14 @@ void sk_result(const SK_State *st, SK_Lobby *out)
      * row's doing already: scenarioini.cpp:1416 maps build level to unit type, level 6 to
      * the SSM launcher and level 7 to Mammoth for GDI and Stealth for Nod. */
     out->bases = 1;
-    out->tiberium = 1;
+    out->tiberium = st->tiberium;
     out->crates = st->crates;
     out->aitake = st->aitake;
     out->shortgame = st->shortgame;
+    out->gun_game = !st->countries && !st->net_relayed && st->gun_game;
+    out->rally_laps = (!st->countries && st->rally)
+        ? (st->laps < SK_LAPS_MIN ? SK_LAPS_MIN : (st->laps > SK_LAPS_MAX ? SK_LAPS_MAX : st->laps)) : 0;
+    out->speed = st->speed;
     out->unit_count = st->units;
     out->ai_difficulty = st->ai_difficulty;
     /* Red Alert's shroud and flag rules; difficulty is shared by both games. */
@@ -1063,13 +1172,15 @@ const char *sk_item_label(const SK_State *st, int item)
      * "Starting Units:" it replaces measured 85 and would have printed from x=15, one
      * pixel outside the dialog's left edge. */
     case SK_I_UNITS: return "Unit Count:";
+    case SK_I_SPEED: return "Game Speed:";
     case SK_I_BASES: return "Bases";
-    /* nulldlg.cpp:377's own wording. Red Alert calls the same field Ore Spreads. */
-    case SK_I_TIBERIUM: return "Tiberium Regrows";
+    case SK_I_TIBERIUM: return "Regrowth Rate";
     case SK_I_SUPER: return "Superweapons";
     case SK_I_CRATES: return "Crates";
     case SK_I_AITAKE: return "AI Takeover";
     case SK_I_SHORTGAME: return "Short Game";
+    case SK_I_GUN_GAME: return "Gun Game";
+    case SK_I_LAPS: return "Laps:";
     case SK_I_PLAY:
         /* One button, three jobs, and the word has to say which. "Play" starts a skirmish
            at once; "Start Game" is refused until the room is full and ready; "Ready" is
@@ -1142,6 +1253,23 @@ int sk_item_disabled(const SK_State *st, int item)
        Everything the host owns is still DRAWN, so the joiner can read what they are
        being asked to agree to; it simply will not take a click. */
     if (st && st->net == 2 && !sk_net_mine(st, item)) return 1;
+    /* The mode is chosen with the Enhanced lobby's Game Mode dropdown (sk_set_mode), never
+       here; the item stays only for the 1995 layout the gates draw. */
+    if (item == SK_I_GUN_GAME) return 1;
+    if (item == SK_I_SPEED) return !st || st->net != 1;
+    /* THE LAPS ARE A RALLY'S, and a point-to-point course is one run whatever they say */
+    if (item == SK_I_LAPS)
+        return !st || !st->rally || st->countries || st->sel < 0 || st->sel >= st->count
+            || st->maps[st->sel].course == SK_COURSE_RUN;
+    /* A RACE READS NONE OF THE ECONOMY OR THE BASES, and every racer is on its own; what
+       it honours is the speed, the laps, the computer taking a seat that leaves, and the
+       roster itself */
+    if (st && st->rally && (sk_is_gauge(item) || (item >= SK_I_BASES && item <= SK_I_SHORTGAME
+                                                   && item != SK_I_AITAKE)
+        || (item >= SK_I_POP_T1 && item < SK_I_POP_T1 + SK_POP_TEAMS))) return 1;
+    if (st && st->gun_game && (sk_is_gauge(item) || (item >= SK_I_BASES && item <= SK_I_SHORTGAME)
+        || (item == SK_I_POP_BOT && st->net)   /* a skirmish plays Gun Game against bots */
+        || (item >= SK_I_POP_T1 && item < SK_I_POP_T1 + SK_POP_TEAMS))) return 1;
     if (SK_IS_LEVEL(item))
         return !st || st->net == 2 || item - SK_I_LEVEL0 >= sk_players(st)
             || sk_row_mode(st, item - SK_I_LEVEL0) != SK_SEAT_BOT;
@@ -1176,6 +1304,9 @@ int sk_item_disabled(const SK_State *st, int item)
         const int n = item - SK_I_POP_S1;
         int holder, starts;
         if (!st || st->popup < 0)
+            return 1;
+        /* A RACE DRAWS ITS GRID AT RANDOM, so a start chosen here would be ignored */
+        if (st->rally)
             return 1;
         if (!st->net && (sk_row_mode(st, st->popup) == SK_SEAT_OPEN
                          || sk_row_mode(st, st->popup) == SK_SEAT_BLOCK))
@@ -1221,7 +1352,6 @@ int sk_item_disabled(const SK_State *st, int item)
         return (st && st->popup >= 0) ? 0 : 1;
     switch (item) {
     case SK_I_BASES:
-    case SK_I_TIBERIUM:
         return 1; /* drawn, checked, locked; the header says why */
     /* CRATES ARE LIVE and this row is no longer locked. The engine
      * always had the feature -- Place_Random_Crate scatters them under MPlayerGoodies,
@@ -1398,13 +1528,23 @@ int sk_item_rect(const SK_State *st, int item, int *x, int *y, int *w, int *h)
     case SK_I_CHANGEMAP:
         *x = SK_CHGMAP_X; *y = SK_CHGMAP_Y; *w = SK_CHGMAP_W; *h = SK_CHGMAP_H;
         return 1;
+    case SK_I_LAPS:
+        /* A RALLY'S LAPS take the first gauge's place, whose tech level a race does not
+           read; any other lobby has no laps to place */
+        if (!st || !st->rally) return 0;
+        *x = SK_GAUGE_X;
+        *y = SK_GAUGE_Y;
+        *w = st->net ? SK_NET_GAUGE_W : SK_GAUGE_W;
+        *h = SK_GAUGE_H;
+        return 1;
     case SK_I_BUILD:
     case SK_I_CREDITS:
     case SK_I_UNITS:
-        /* One row, three columns, the caption above each (sk_draw_gauge). */
-        *x = SK_GAUGE_X + (item - SK_I_BUILD) * SK_GAUGE_PITCH;
+    case SK_I_SPEED:
+        if (item == SK_I_SPEED && (!st || !st->net)) return 0;
+        *x = SK_GAUGE_X + (item - SK_I_BUILD) * (st && st->net ? SK_NET_GAUGE_PITCH : SK_GAUGE_PITCH);
         *y = SK_GAUGE_Y;
-        *w = SK_GAUGE_W;
+        *w = st && st->net ? SK_NET_GAUGE_W : SK_GAUGE_W;
         *h = SK_GAUGE_H;
         return 1;
     case SK_I_BASES:
@@ -1413,6 +1553,8 @@ int sk_item_rect(const SK_State *st, int item, int *x, int *y, int *w, int *h)
     case SK_I_CRATES:
     case SK_I_AITAKE:
     case SK_I_SHORTGAME:
+    case SK_I_GUN_GAME:
+        if (item == SK_I_GUN_GAME && (!st || !st->net || st->countries || st->net_relayed)) return 0;
         /* THE WHOLE ROW, not the seven pixel box. dopt_item_rect does the same and it
          * is the right call: 7x7 is what a 1995 dialog drew and what a mouse misses
          * today. The box itself is drawn at the left of this rectangle. */
@@ -1477,14 +1619,38 @@ int sk_hit_test(const SK_State *st, int mx, int my)
     return SK_HIT_NONE;
 }
 
+/* THE MODE'S MAPS (doslobby.h, sk_map_fits_mode): a Rally lists courses and nothing
+   else, every other mode hides them. */
+int sk_map_fits_mode(const SK_Map *m, int rally)
+{
+    if (!m) return 0;
+    return rally ? m->course != SK_COURSE_NONE : m->course == SK_COURSE_NONE;
+}
+
+int sk_map_offered(const SK_State *st, int ix)
+{
+    if (!st || !st->maps || ix < 0 || ix >= st->count) return 0;
+    return sk_map_fits_mode(&st->maps[ix], st->rally);
+}
+
+int sk_first_offered(const SK_State *st)
+{
+    int i;
+    if (!st) return -1;
+    for (i = 0; i < st->count; i++)
+        if (sk_map_offered(st, i)) return i;
+    return -1;
+}
+
 /* THE FILTERED VIEW. `sel` and `maps[]` are absolute; the rows on screen are the maps of
-   the current tab only. Every conversion goes through these two, so the draw, the hit
-   test and the keyboard cannot disagree about which map row 3 is. */
+   the current tab only, and of those only the ones the lobby's mode lists. Every
+   conversion goes through these two, so the draw, the hit test and the keyboard cannot
+   disagree about which map row 3 is. */
 static int sk_tab_count(const SK_State *st)
 {
     int i, n = 0;
     for (i = 0; i < st->count; i++)
-        if ((int)st->maps[i].user == st->tab) n++;
+        if ((int)st->maps[i].user == st->tab && sk_map_offered(st, i)) n++;
     return n;
 }
 
@@ -1496,9 +1662,9 @@ static int sk_row_of(const SK_State *st, int ix)
 {
     int i, k = 0;
     if (ix < 0 || ix >= st->count) return -1;
-    if ((int)st->maps[ix].user != st->tab) return -1;
+    if ((int)st->maps[ix].user != st->tab || !sk_map_offered(st, ix)) return -1;
     for (i = 0; i < ix; i++)
-        if ((int)st->maps[i].user == st->tab) k++;
+        if ((int)st->maps[i].user == st->tab && sk_map_offered(st, i)) k++;
     return k;
 }
 
@@ -1508,7 +1674,7 @@ static int sk_map_at(const SK_State *st, int n)
     int i, k = 0;
     if (n < 0) return -1;
     for (i = 0; i < st->count; i++)
-        if ((int)st->maps[i].user == st->tab && k++ == n) return i;
+        if ((int)st->maps[i].user == st->tab && sk_map_offered(st, i) && k++ == n) return i;
     return -1;
 }
 
@@ -1639,18 +1805,20 @@ static void sk_select_map(SK_State *st, int ix)
                 if (k > 0) st->mode[k] = SK_SEAT_OPEN;
             st->net_seats = starts;
         } else if (st->net == 0) {
-            /* A SKIRMISH SEATS THE MAP: one computer per start, which is what the old
-             * gauge reset did on every map change. A map whose starts are not known is
-             * left as wide as it was (there is no number to seat it to). Blocks do not
-             * survive a map change: the seats are the map's. */
+            /* A SKIRMISH SIZES ITS ROSTER TO THE MAP. A map with unknown starts
+             * keeps the previous width. Seat choices survive; only start positions,
+             * which identify locations on one map, are cleared. */
             int starts = st->maps[ix].starts;
             if (starts > 0) {
                 if (starts < 2) starts = 2;
                 if (starts > SK_ROSTER_ROWS) starts = SK_ROSTER_ROWS;
                 st->net_seats = starts;
             }
-            for (k = 1; k < SK_ROSTER_ROWS; k++)
-                st->mode[k] = SK_SEAT_BOT;
+            /* A fresh game has one opponent. Map changes preserve the accepted
+               roster, including Empty/Blocked seats and their difficulty/colour. */
+            if (st->sel < 0)
+                for (k = 1; k < SK_ROSTER_ROWS; k++)
+                    st->mode[k] = k == 1 ? SK_SEAT_BOT : SK_SEAT_OPEN;
         }
     }
     st->sel = ix;
@@ -1739,6 +1907,20 @@ void sk_scroll(SK_State *st, int delta)
         st->top = last;
 }
 
+/* WHAT A SEAT'S SIDE IS CALLED IN A SENTENCE. Red Alert's seats are countries and are
+ * named as its Country list names them (SK_State::country, in the engine's HousesType
+ * order); Tiberian Dawn's are its two sides. */
+static const char *sk_side_word(const SK_State *st, int seat)
+{
+    static const char *const ra_country[8] = {
+        "Spain", "Greece", "USSR", "England", "Ukraine", "Germany", "France", "Turkey"
+    };
+    const int c = sk_row_country(st, seat);
+    if (c >= 0 && c < 8)
+        return ra_country[c];
+    return sk_row_house(st, seat) ? "Nod" : "GDI";
+}
+
 /* THE ONE LINE THAT SAYS WHAT A SEAT NOW IS, built rather than looked up because it has
  * to name a seat. It goes into the state's own buffer and `status` is pointed at it;
  * sk_check_layout measures the widest form it can take. The wording is deliberately the
@@ -1761,15 +1943,24 @@ static void sk_say_seat(SK_State *st, int seat)
             && sk_row_team(st, i) == sk_row_team(st, seat))
             mates++;
     sk_seat_name(st, seat, name, (int)sizeof name);
-    if (mates > 0)
+    if (st->rally)
+        /* A RACE HAS NO TEAMS: every racer is on its own, whatever the team field holds */
+        snprintf(st->statusbuf, sizeof st->statusbuf, "%s: %s, racing on their own.",
+                 name, sk_side_word(st, seat));
+    else if (mates > 0)
         snprintf(st->statusbuf, sizeof st->statusbuf, "%s: %s, team %d with %d other%s.",
-                 name, sk_row_house(st, seat) ? "Nod" : "GDI", sk_row_team(st, seat) + 1,
+                 name, sk_side_word(st, seat), sk_row_team(st, seat) + 1,
                  mates, mates == 1 ? "" : "s");
+    else if (st->countries)
+        /* A country runs to seven letters against Nod's three, and the longer ending
+           measured 522 pixels in Red Alert's lettering against the 496 the Enhanced
+           lobby's status row has, so the line lost its last word under the roster. */
+        snprintf(st->statusbuf, sizeof st->statusbuf, "%s: %s, team %d, no allies.",
+                 name, sk_side_word(st, seat), sk_row_team(st, seat) + 1);
     else
         snprintf(st->statusbuf, sizeof st->statusbuf, "%s: %s, team %d, allied with "
                                                       "nobody.",
-                 name, sk_row_house(st, seat) ? "Nod" : "GDI",
-                 sk_row_team(st, seat) + 1);
+                 name, sk_side_word(st, seat), sk_row_team(st, seat) + 1);
     st->status = st->statusbuf;
 }
 
@@ -1835,8 +2026,18 @@ static void sk_say_sides(SK_State *st)
         st->status = sk_status_side(st->side);
         return;
     }
-    snprintf(st->statusbuf, sizeof st->statusbuf, "You play %s. Computers: %d Nod, %d GDI.",
-             st->side ? "Nod" : "GDI", nod, gdi);
+    /* RED ALERT'S COMPUTERS ARE ALLIED OR SOVIET, and every one of its rows is set by hand
+       (sk_set_red_alert gives each seat its country), so this line is the one it shows on
+       any change of a seat's type. The player is named by country, in the short form for
+       the same 496 pixel reason as sk_say_seat's. */
+    if (st->countries)
+        snprintf(st->statusbuf, sizeof st->statusbuf, "You: %s. Computers: %d Allied, "
+                                                      "%d Soviet.",
+                 sk_side_word(st, 0), gdi, nod);
+    else
+        snprintf(st->statusbuf, sizeof st->statusbuf, "You play %s. Computers: %d Nod, "
+                                                      "%d GDI.",
+                 st->side ? "Nod" : "GDI", nod, gdi);
     st->status = st->statusbuf;
 }
 
@@ -1847,18 +2048,37 @@ static void sk_popup_open(SK_State *st, int seat)
 {
     if (!st || seat < 0 || seat >= sk_players(st))
         return;
+    st->edit_valid = !st->net;
+    st->edit_side = st->side;
+    if (st->edit_valid) {
+#define SK_EDIT_KEEP(field) memcpy(st->edit_##field, st->field, sizeof st->field)
+        SK_EDIT_KEEP(house); SK_EDIT_KEEP(house_set); SK_EDIT_KEEP(country);
+        SK_EDIT_KEEP(team); SK_EDIT_KEEP(colour); SK_EDIT_KEEP(start);
+        SK_EDIT_KEEP(mode); SK_EDIT_KEEP(ai_levels);
+#undef SK_EDIT_KEEP
+    }
     st->popup = seat;
     st->selected = SK_I_POP_GDI;
     sk_say_seat(st, seat);
 }
 
-static void sk_popup_close(SK_State *st)
+void sk_seat_edit_finish(SK_State *st, int accept)
 {
-    if (!st || st->popup < 0)
-        return;
+    if (!st || st->popup < 0) return;
+    if (!accept && st->edit_valid && !st->net) {
+        st->side = st->edit_side;
+#define SK_EDIT_RESTORE(field) memcpy(st->field, st->edit_##field, sizeof st->field)
+        SK_EDIT_RESTORE(house); SK_EDIT_RESTORE(house_set); SK_EDIT_RESTORE(country);
+        SK_EDIT_RESTORE(team); SK_EDIT_RESTORE(colour); SK_EDIT_RESTORE(start);
+        SK_EDIT_RESTORE(mode); SK_EDIT_RESTORE(ai_levels);
+#undef SK_EDIT_RESTORE
+    }
+    st->edit_valid = 0;
     st->selected = SK_ROW_ITEM(st->popup);
     st->popup = -1;
+    st->status = NULL;
 }
+static void sk_popup_close(SK_State *st) { sk_seat_edit_finish(st, 1); }
 
 static int sk_activate(SK_State *st, int item)
 {
@@ -1977,6 +2197,16 @@ static int sk_activate(SK_State *st, int item)
     case SK_I_AITAKE:
         st->aitake = !st->aitake;
         return SK_ACT_NONE;
+    case SK_I_GUN_GAME:
+        if (!sk_item_disabled(st, item)) {
+            st->gun_game = !st->gun_game;
+            if (st->gun_game) {
+                int i;
+                for (i = 1; i < SK_ROSTER_ROWS; ++i)
+                    if (st->mode[i] == SK_SEAT_BOT) st->mode[i] = SK_SEAT_OPEN;
+            }
+        }
+        return SK_ACT_NONE;
     case SK_I_SHORTGAME:
         st->shortgame = !st->shortgame;
         return SK_ACT_NONE;
@@ -1984,7 +2214,7 @@ static int sk_activate(SK_State *st, int item)
         st->status = SK_STATUS[SK_ST_BASES];
         return SK_ACT_NONE;
     case SK_I_TIBERIUM:
-        st->status = SK_STATUS[SK_ST_TIBERIUM];
+        st->tiberium = (st->tiberium + 1) % (NM_MAX_REGROWTH + 1);
         return SK_ACT_NONE;
     case SK_I_CHANGEMAP:
         /* CHECKED, unlike the two check boxes above it: a joiner is refused this button
@@ -2203,6 +2433,8 @@ int sk_key(SK_State *st, int key)
     if (st->popup >= 0) {
         switch (key) {
         case SK_KEY_ESC:
+            sk_seat_edit_finish(st, 0);
+            return SK_ACT_NONE;
         case SK_KEY_ENTER:
             sk_popup_close(st);
             return SK_ACT_NONE;
@@ -2862,6 +3094,14 @@ static void sk_draw_preview_at(DB_Surface *s, const DB_Pack *p, const DB_Font *f
     if (ix >= 0 && ix < st->count && st->maps[ix].starts > 0 &&
         st->maps[ix].starts < shown)
         shown = st->maps[ix].starts;
+    /* A RACE COURSE GETS NO START MARKERS. A race lines its cars up on the course's own
+     * grid, which the baker draws into the picture, and deals the grid slots at random,
+     * so no start can be picked (the START strip is locked in a Rally). The course's
+     * start waypoints are the grid's own cells, eight of them within a few cells of each
+     * other: diamonds and numbers there only stamp a blob over the start line and the
+     * grid it is meant to show. */
+    if (ix >= 0 && ix < st->count && st->maps[ix].course != SK_COURSE_NONE)
+        shown = 0;
     (void)players;
     for (i = 0; i < shown; i++) {
         const unsigned char *mk = r + SK_PR_MARKS + (long)i * SK_PR_MARK_BYTES;
@@ -2944,18 +3184,18 @@ int sk_preview_rgba(const SK_State *st, const DB_Pack *p, int ix, unsigned char 
 /* THE ROOM A GAUGE'S CAPTION AND VALUE HAVE, per column: a column is SK_GAUGE_PITCH wide
  * and the last one ends at the content edge instead. One place for the draw and the
  * audit, so a caption that fits the audit fits the screen. */
-static int sk_gauge_label_room(int x)
+static int sk_gauge_label_room(const SK_State *st, int x)
 {
-    int r = SK_GAUGE_PITCH - 2;
+    int r = (st && st->net ? SK_NET_GAUGE_PITCH : SK_GAUGE_PITCH) - 2;
     if (x + r > SK_CONTENT_R)
         r = SK_CONTENT_R - x;
     return r;
 }
 
-static int sk_gauge_read_room(int x)
+static int sk_gauge_read_room(const SK_State *st, int x, int w)
 {
-    const int vx = x + SK_GAUGE_W + SK_READ_GAP;
-    int r = SK_GAUGE_PITCH - SK_GAUGE_W - SK_READ_GAP - 2;
+    const int vx = x + w + SK_READ_GAP;
+    int r = (st && st->net ? SK_NET_GAUGE_PITCH : SK_GAUGE_PITCH) - w - SK_READ_GAP - 2;
     if (vx + r > SK_CONTENT_R)
         r = SK_CONTENT_R - vx;
     return r;
@@ -3006,9 +3246,9 @@ static void sk_draw_gauge(DB_Surface *s, const DB_Font *f, const SK_State *st, i
                          DB_TBLACK);
     /* THE CAPTION ABOVE ITS GAUGE, left-aligned with it (three gauges in
      * one row, and three captions beside three gauges do not fit 276 pixels). */
-    sk_print_fit(s, f, label, x, SK_GLABEL_Y, sk_gauge_label_room(x), fp);
-    snprintf(num, sizeof num, "%d", sk_value(st, ctrl));
-    sk_print_fit(s, f, num, x + w + SK_READ_GAP, y - 1, sk_gauge_read_room(x), fp);
+    sk_print_fit(s, f, label, x, SK_GLABEL_Y, sk_gauge_label_room(st, x), fp);
+    snprintf(num, sizeof num, "%d", sk_value(st, ctrl) + (ctrl == SK_I_SPEED));
+    sk_print_fit(s, f, num, x + w + SK_READ_GAP, y - 1, sk_gauge_read_room(st, x, w), fp);
 }
 
 /* A CHECK BOX, and there is no checkbox primitive in the 1995 toolkit because 1995 had
@@ -3016,6 +3256,12 @@ static void sk_draw_gauge(DB_Surface *s, const DB_Font *f, const SK_State *st, i
  * thumb uses -- with the bright green the gauge fills its travel with. A ticked box
  * therefore reads like a pressed control and an unticked one like a raised one, which
  * is the only visual grammar this screen has. */
+const char *sk_regrowth_rate_name(int rate)
+{
+    static const char *const names[] = {"Off", "1x", "2x", "3x", "4x"};
+    return names[rate >= 0 && rate <= NM_MAX_REGROWTH ? rate : 1];
+}
+
 static void sk_draw_check(DB_Surface *s, const DB_Font *f, const SK_State *st, int item,
                           int on)
 {
@@ -3220,17 +3466,27 @@ void sk_draw(DB_Surface *s, const DB_Pack *p, const SK_State *st)
      * SK_I_UNITS already had a range, a rectangle, a caption, a mouse arm, a keyboard arm
      * and a field in the result, so Unit Count was a live control that drew nothing: Tab
      * reached it, the arrows moved it, and the value was visible nowhere. */
-    for (i = SK_I_BUILD; i <= SK_I_UNITS; i++)
+    for (i = SK_I_BUILD; i <= SK_I_SPEED; i++)
         sk_draw_gauge(s, grad, st, i);
     sk_draw_check(s, grad, st, SK_I_BASES, 1);
-    sk_draw_check(s, grad, st, SK_I_TIBERIUM, 1);
-    sk_draw_check(s, grad, st, SK_I_SUPER, st->super);
+    {
+        char label[32];
+        int x, y, w, h;
+        if (sk_item_rect(st, SK_I_TIBERIUM, &x, &y, &w, &h)) {
+            snprintf(label, sizeof label, "Regrowth Rate %s", sk_regrowth_rate_name(st->gun_game ? 0 : st->tiberium));
+            sk_button(s, grad, label, x, y, w, h, st->pressed == SK_I_TIBERIUM,
+                      st->selected == SK_I_TIBERIUM, sk_item_disabled(st, SK_I_TIBERIUM));
+        }
+    }
+    sk_draw_check(s, grad, st, SK_I_SUPER, st->gun_game || (st->super));
     /* THE SAME OMISSION ONE COLUMN OVER. SK_I_CRATES is not locked, takes clicks and Space,
      * and writes MPlayerGoodies, so leaving it undrawn made crates a setting the player
      * could switch by accident and could not read. */
-    sk_draw_check(s, grad, st, SK_I_CRATES, st->crates);
+    sk_draw_check(s, grad, st, SK_I_CRATES, st->gun_game || (st->crates));
     sk_draw_check(s, grad, st, SK_I_AITAKE, st->aitake);
     sk_draw_check(s, grad, st, SK_I_SHORTGAME, st->shortgame);
+    if (st->net && !st->countries && !st->net_relayed)
+        sk_draw_check(s, grad, st, SK_I_GUN_GAME, st->gun_game);
 
     /* THE STATUS ROW HAS TWO HOMES. In a room the chat pane owns these rows and prints
      * the status as its last line; a skirmish has no chat and prints it where it always
@@ -3508,15 +3764,15 @@ int sk_check_layout(const DB_Pack *p, const SK_State *st)
      * distance from the dialog's own content edge to that column. */
     /* Per gauge, against ITS column: the caption above it and the widest value it can
      * show (its own hi), so swapping the columns later is caught rather than assumed. */
-    for (i = SK_I_BUILD; i <= SK_I_UNITS; i++) {
+    for (i = SK_I_BUILD; i <= SK_I_SPEED; i++) {
         int lo, hi, step;
         if (!sk_item_rect(st, i, &x, &y, &w, &h))
             continue;
-        bad += sk_fits(f, "gauge.label", sk_item_label(st, i), sk_gauge_label_room(x),
+        bad += sk_fits(f, "gauge.label", sk_item_label(st, i), sk_gauge_label_room(st, x),
                        &checked);
         sk_gauge_range(st, i, &lo, &hi, &step);
-        snprintf(line, sizeof line, "%d", hi);
-        bad += sk_fits(f, "gauge.value", line, sk_gauge_read_room(x), &checked);
+        snprintf(line, sizeof line, "%d", hi + (i == SK_I_SPEED));
+        bad += sk_fits(f, "gauge.value", line, sk_gauge_read_room(st, x, w), &checked);
     }
 
     for (i = SK_I_BASES; i <= SK_I_SHORTGAME; i++)
@@ -3742,14 +3998,118 @@ int sk_enh_action(SK_State *st, int item)
 }
 void sk_enh_control(SK_State *st, int item, int value)
 {
-    if (st && !sk_item_disabled(st, item) && item >= SK_I_BUILD && item <= SK_I_UNITS)
+    if (st && item == SK_I_LAPS && !sk_item_disabled(st, item)) {
+        st->laps = value < SK_LAPS_MIN ? SK_LAPS_MIN : (value > SK_LAPS_MAX ? SK_LAPS_MAX : value);
+        return;
+    }
+    if (st && !sk_item_disabled(st, item) && sk_is_gauge(item))
         sk_set_value(st, item, value);
 }
 void sk_enh_pick_row(SK_State *st, int ix)
 {
-    if (st && st->picker && ix >= 0 && ix < st->count && st->maps[ix].user == st->tab) sk_pick_set(st, ix);
+    if (st && st->picker && ix >= 0 && ix < st->count && st->maps[ix].user == st->tab
+        && sk_map_offered(st, ix)) sk_pick_set(st, ix);
 }
 void sk_enh_random_start(SK_State *st)
 {
     if (st && st->popup >= 0 && (st->net != 2 || st->popup == sk_local_seat(st))) sk_set_row_start(st, st->popup, -1);
+}
+
+/* Offline skirmish preferences: names identify maps, never array indices. Read
+   transactionally so a truncated/foreign/invalid file cannot partly edit a lobby. */
+int sk_prefs_read(const char *path, SK_State *st)
+{
+    FILE *f; SK_State next; char magic[32], game[8], scen[32], end[16];
+    int version, side, build, credits, super, crates, aitake, shortgame, units, level, shroud, ctf;
+    int tiberium = 1, laps = SK_LAPS_DEFAULT;
+    int i, j, matched = -1; long bytes;
+    if (!path || !st || st->net || st->popup >= 0) return 0;
+    f = fopen(path, "rb"); if (!f) return 0;
+    if (fseek(f, 0, SEEK_END) || (bytes = ftell(f)) < 0 || bytes > 4096 || fseek(f, 0, SEEK_SET)) { fclose(f); return 0; }
+    next = *st;
+    if (fscanf(f, "%31s %d %7s %31s", magic, &version, game, scen) != 4
+        || strcmp(magic, "CNC3D_SKIRMISH") || version < 1 || version > 3
+        || strcmp(game, st->countries ? "ra" : "td")) { fclose(f); return 0; }
+    if (fscanf(f, "%d %d %d %d %d %d %d %d %d %d %d", &side, &build, &credits,
+        &super, &crates, &aitake, &shortgame, &units, &level, &shroud, &ctf) != 11
+        || side < 0 || side > 1 || build < SK_BUILD_MIN || build > (st->build_max ? st->build_max : SK_BUILD_MAX)
+        || credits < SK_CREDITS_MIN || credits > SK_CREDITS_MAX || credits % 500
+        || super < 0 || super > 1 || crates < 0 || crates > 1 || aitake < 0 || aitake > 1
+        || shortgame < 0 || shortgame > 1 || units < SK_UNITS_MIN || units > SK_UNITS_MAX
+        || level < 0 || level > 3 || shroud < 0 || shroud > 1 || ctf < 0 || ctf > 1
+        || (version >= 2 && (fscanf(f, "%d", &tiberium) != 1
+            || tiberium < 0 || tiberium > NM_MAX_REGROWTH))
+        /* v3: a Rally's laps */
+        || (version >= 3 && (fscanf(f, "%d", &laps) != 1
+            || laps < SK_LAPS_MIN || laps > SK_LAPS_MAX))) { fclose(f); return 0; }
+    /* THE REMEMBERED MAP, if this lobby's mode lists it: a course is remembered from a
+       Rally and is not offered to the next Free for All, which keeps its own default */
+    for (i = 0; i < st->count; i++)
+        if (!strcmp(st->maps[i].scen, scen) && sk_map_offered(st, i)) { matched = i; break; }
+    if (matched >= 0) sk_select_map(&next, matched);
+    else
+        for (i = 0; i < st->count; i++)
+            if (!strcmp(st->maps[i].scen, scen) && st->maps[i].course) { next.remembered_course = i; break; }
+    next.side = side; next.build = build; next.credits = credits; next.super = super;
+    next.crates = crates; next.aitake = aitake; next.shortgame = shortgame; next.units = units;
+    next.ai_difficulty = level; next.shroud = shroud; next.ctf = ctf;
+    next.tiberium = tiberium;
+    next.laps = laps;
+    for (i = 0; i < SK_ROSTER_ROWS; i++) {
+        int row, mode, house, set, country, team, colour, start, difficulty;
+        if (fscanf(f, "%d %d %d %d %d %d %d %d %d", &row, &mode, &house, &set,
+                   &country, &team, &colour, &start, &difficulty) != 9 || row != i
+            || mode < SK_SEAT_HUMAN || mode > SK_SEAT_BLOCK || (i == 0 ? mode != SK_SEAT_HUMAN : mode == SK_SEAT_HUMAN)
+            || house < 0 || house > 1 || set < 0 || set > 1 || country < 0 || country > 7
+            || team < 0 || team >= SK_ROSTER_ROWS || colour < 0 || colour >= SK_PLAYER_COLOUR_N
+            || start < -1 || start >= SK_ROSTER_ROWS || difficulty < 0 || difficulty > 3) { fclose(f); return 0; }
+        next.mode[i] = mode; next.house[i] = house; next.house_set[i] = set;
+        next.country[i] = country; next.team[i] = team; next.colour[i] = colour;
+        next.ai_levels[i] = (unsigned char)difficulty;
+        next.start[i] = matched >= 0 && i < sk_players(&next) && start < next.maps[next.sel].starts
+                        && (mode == SK_SEAT_HUMAN || mode == SK_SEAT_BOT) ? start : -1;
+        for (j = 0; j < i; j++) if (next.colour[j] == colour
+            || (next.start[i] >= 0 && next.start[i] == next.start[j])) { fclose(f); return 0; }
+        if (next.countries) sk_enh_set_country(&next, i, country);
+    }
+    if (fscanf(f, "%15s", end) != 1 || strcmp(end, "end")) { fclose(f); return 0; }
+    do { i = fgetc(f); } while (i == ' ' || i == '\r' || i == '\n' || i == '\t');
+    fclose(f); if (i != EOF) return 0;
+    next.status = NULL; next.edit_valid = 0; *st = next;
+    return 1;
+}
+
+int sk_prefs_write(const char *path, const SK_State *st)
+{
+    FILE *f; char tmp[1024]; int i, ok;
+    unsigned long pid;
+    if (!path || !*path || !st || st->net || st->popup >= 0 || st->sel < 0 || st->sel >= st->count
+        || strlen(path) > 940) return 0;
+#ifdef _WIN32
+    pid = (unsigned long)GetCurrentProcessId();
+#else
+    pid = (unsigned long)getpid();
+#endif
+    snprintf(tmp, sizeof tmp, "%s.tmp-%lu", path, pid);
+    f = fopen(tmp, "wb"); if (!f) return 0;
+    ok = fprintf(f, "CNC3D_SKIRMISH 3 %s %s\n%d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+        st->countries ? "ra" : "td", st->maps[st->sel].scen,
+        st->side, st->build, st->credits, st->super, st->crates, st->aitake,
+        st->shortgame, st->units, st->ai_difficulty, st->shroud, st->ctf, st->tiberium,
+        (st->laps >= SK_LAPS_MIN && st->laps <= SK_LAPS_MAX) ? st->laps : SK_LAPS_DEFAULT) > 0;
+    for (i = 0; i < SK_ROSTER_ROWS; i++)
+        if (fprintf(f, "%d %d %d %d %d %d %d %d %d\n", i, sk_row_mode(st, i), st->house[i],
+            st->house_set[i], st->country[i], st->team[i], st->colour[i], st->start[i],
+            sk_row_level(st, i)) < 0) ok = 0;
+    if (fprintf(f, "end\n") < 0 || fflush(f)) ok = 0;
+    if (fclose(f)) ok = 0;
+    if (ok) {
+#ifdef _WIN32
+        ok = MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+        ok = rename(tmp, path) == 0;
+#endif
+    }
+    if (!ok) remove(tmp);
+    return ok;
 }

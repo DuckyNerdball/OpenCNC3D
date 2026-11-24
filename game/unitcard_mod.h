@@ -7,8 +7,9 @@
  *  tabs, keyed 1..9 then 0 the way the keyboard is, each printing how many units the
  *  group holds and recalling the group when clicked.
  *
- *  ENHANCED ONLY, AND ONLY WITH THE 640x480 HUD, on exactly the gate the DATABASE plate
- *  uses (codex_available). Classic is the 1995 game and the 1995 game has no such card.
+ *  ENHANCED ONLY, AND ONLY WITH THE 640x480 HUD, on the gate the DATABASE plate starts
+ *  from (enhanced_hud_ready). Classic is the 1995 game and the 1995 game has no such card.
+ *  Not the plate's own answer, codex_available, which is no in Red Alert: the card is not.
  *
  *  HOW IT DRAWS. The card is composed on the CPU by hud640_draw_card out of the HUD's
  *  own pack -- the radar bezel widened, slices of the blank tab plate, the well at half
@@ -52,7 +53,8 @@ static bool g_ucShownNow = false;   /* what the last draw decided; the hit tests
    and only when the pack carries the card's art. */
 static bool uc_available(void)
 {
-    return codex_available() && !g_editOn && (rah_enabled() || hud640_card_ok(g_h6Pack));
+    return !g_sb.GunPlayers && enhanced_hud_ready() && !g_editOn
+        && (rah_enabled() || hud640_card_ok(g_h6Pack));
 }
 
 static bool uc_shown(void)
@@ -82,7 +84,7 @@ enum { UC_NONE = 0, UC_BODY, UC_MAIN, UC_MINI, UC_TAB };
 static int uc_hit(float col, float row, int fbw, int fbh, int* idx)
 {
     if (idx) *idx = -1;
-    if (!g_ucShownNow) return UC_NONE;
+    if (!g_ucShownNow || g_sb.GunPlayers) return UC_NONE;
     const UcLayout L = uc_layout(fbw, fbh);
     const float cx = (col - L.x0) / L.s, cy = (row - L.y0) / L.s;   /* card pixels */
     if(rah_enabled()){
@@ -178,11 +180,11 @@ static void uc_fill(H6_Card* c, int fbw, int fbh)
         const int oi = uc_object_for_key(g_selected[0]);
         if (oi >= 0) {
             const SimObject& o = g_objects[oi];
-            const char* title = sb_title_for(o.type);
+            const char* title = object_title(o.type);
             g_ucMainKey = g_selected[0];
             snprintf(c->name, sizeof c->name, "%s", title ? title : o.type);
             snprintf(c->code, sizeof c->code, "%s", o.type);
-            c->cameo = rah_enabled()?rah_cameo_plain(o.type):h6_tdr_find(o.type);
+            c->cameo = rah_enabled()?rah_cameo_art(o.type):h6_tdr_find(o.type);
             c->str = o.str;
             c->maxstr = o.maxstr;
             c->health_color = uc_health_class(o.str, o.maxstr);
@@ -198,7 +200,7 @@ static void uc_fill(H6_Card* c, int fbw, int fbh)
             if (c->overflow > 0 && m == slots - 1) break;   /* the +N well */
             const int oi = uc_object_for_key(g_selected[(size_t)m + 1]);
             g_ucMiniKey[m] = g_selected[(size_t)m + 1];
-            if (oi >= 0) c->mini[m].rgba = rah_enabled()?rah_cameo_plain(g_objects[oi].type):h6_tdr_find(g_objects[oi].type);
+            if (oi >= 0) c->mini[m].rgba = rah_enabled()?rah_cameo_art(g_objects[oi].type):h6_tdr_find(g_objects[oi].type);
             c->mini[m].frame = (hoverWhat == UC_MINI && hoverIdx == m) ? 1 : 0;
         }
         g_ucMiniN = slots;
@@ -233,13 +235,41 @@ static void uc_draw(int fbw, int fbh)
     if (!g_ucShownNow) return;
     H6_Card c;
     uc_fill(&c, fbw, fbh);
-    if(rah_enabled()){
-        rah_card_pixels(c);const UcLayout L=uc_layout(fbw,fbh);
-        glPushAttrib(GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT|GL_TEXTURE_BIT|GL_CURRENT_BIT);glDisable(GL_ALPHA_TEST);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glEnable(GL_TEXTURE_2D);glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);glColor4f(1,1,1,1);
-        h6_upload(&g_ucTex,g_rahCard,272,166);h6_tex_quad(g_ucTex,272,166,L.x0,L.y0,L.x0+272*L.s,L.y0+166*L.s);glPopAttrib();return;
+    /* COMPOSED ONLY ON CHANGE (hud_compose.h). uc_fill memsets the card and fills it in
+       place, so its bytes, padding included, are exactly what the compose reads: the
+       cameo pointers name pixels that never change while the pack is loaded. */
+    static HudSurface raSurf, tdSurf;
+    static HudKey key;
+    const bool ra = rah_enabled();
+    HudSurface& surf = ra ? raSurf : tdSurf;
+    hud_surface_register(surf, ra ? "ra card" : "td card", &g_ucTex);
+    key.clear(); key.p(ra ? g_raHudPack : g_h6Pack); key.i(hud640_cell_frame_on); key.raw(&c, sizeof c);
+    unsigned char* const px = ra ? g_rahCard : g_ucBuf;
+    const size_t n = ra ? sizeof g_rahCard : sizeof g_ucBuf;
+    const bool fresh = hud_surface_fresh(surf, key);
+    if (fresh) {
+        g_hudSkipped++;
+        if (hud_compose_verify()) {
+            static std::vector<unsigned char> kept;
+            kept.assign(px, px + n);
+            if (ra) rah_card_pixels(c); else hud640_draw_card(g_ucBuf, g_h6Pack, &c);
+            hud_verify_compare(surf.name, kept.data(), px, n);
+            memcpy(px, kept.data(), n);
+        }
     }
-    hud640_draw_card(g_ucBuf, g_h6Pack, &c);
-    h6_upload(&g_ucTex, g_ucBuf, H6_CARD_W, H6_CARD_H);
+    if(ra){
+        if (!fresh) rah_card_pixels(c);
+        const UcLayout L=uc_layout(fbw,fbh);
+        glPushAttrib(GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT|GL_TEXTURE_BIT|GL_CURRENT_BIT);glDisable(GL_ALPHA_TEST);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glEnable(GL_TEXTURE_2D);glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);glColor4f(1,1,1,1);
+        if (!fresh) { h6_upload(&g_ucTex,g_rahCard,272,166); g_hudComposed++; hud_surface_store(surf, key); }
+        h6_tex_quad(g_ucTex,272,166,L.x0,L.y0,L.x0+272*L.s,L.y0+166*L.s);glPopAttrib();return;
+    }
+    if (!fresh) {
+        hud640_draw_card(g_ucBuf, g_h6Pack, &c);
+        h6_upload(&g_ucTex, g_ucBuf, H6_CARD_W, H6_CARD_H);
+        g_hudComposed++;
+        hud_surface_store(surf, key);
+    }
     const UcLayout L = uc_layout(fbw, fbh);
     glEnable(GL_TEXTURE_2D);
     glEnable(GL_BLEND);
@@ -345,13 +375,19 @@ static void uc_script_report(int fbw, int fbh)
     g_ucShownNow = uc_shown();
     uc_fill(&c, fbw, fbh);
     const UcLayout L = uc_layout(fbw, fbh);
+    /* cameo_lit: how many of the picture's pixels carry colour. A picture the card
+       is handed but that is all clear draws an empty well, which cameo=1 alone cannot
+       tell from a portrait. */
+    int lit = 0;
+    for (int k = 0; c.cameo && k < H6_CAMEO_W * H6_CAMEO_H; k++)
+        if (c.cameo[k * 4 + 3] && (c.cameo[k * 4] | c.cameo[k * 4 + 1] | c.cameo[k * 4 + 2])) lit++;
     printf("UNITCARD|shown=%d|count=%d|main=%s|name=%s|str=%d/%d|dmg=%d|cameo=%d"
-           "|minis=%d|overflow=%d|groups=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+           "|minis=%d|overflow=%d|groups=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d|cameo_lit=%d\n",
            g_ucShownNow ? 1 : 0, c.count, c.code[0] ? c.code : "-", c.name[0] ? c.name : "-",
            c.str, c.maxstr, c.damage, c.cameo ? 1 : 0, c.nmini, c.overflow,
            c.group_count[0], c.group_count[1], c.group_count[2], c.group_count[3],
            c.group_count[4], c.group_count[5], c.group_count[6], c.group_count[7],
-           c.group_count[8], c.group_count[9]);
+           c.group_count[8], c.group_count[9], lit);
     printf("UNITCARD|rect|x=%.0f|y=%.0f|w=%.0f|h=%.0f|scale=%.2f\n",
            L.x0, L.y0, (float)(rah_enabled()?272:H6_CARD_W) * L.s, (float)H6_CARD_H * L.s, L.s);
     for (int g = 0; g < H6_CARD_TABS; g++) {

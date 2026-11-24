@@ -35,6 +35,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "../common/fire_visibility.h"
 #include "logic.h"
 
 static unsigned FramesPerSecond = 0;
@@ -177,6 +178,7 @@ void LogicClass::Debug_Dump(MonoClass* mono) const
  *=============================================================================================*/
 void LogicClass::AI(void)
 {
+    CncFireRevealTick();
     int index;
 
     FramesPerSecond++;

@@ -223,8 +223,10 @@ def main():
             script, phases = make_script(case, folder, cfg, args)
             (folder / 'script.txt').write_text(script)
             env = {k: v for k, v in os.environ.items() if not k.startswith('OPENCNC3D_')}
-            env.update(OPENCNC3D_BACKGROUND='1', OPENCNC3D_MESH_WIND_DIRECT='1',
-                       OPENCNC3D_MESH_WIND_MATRIX='1')
+            # OPENCNC3D_MESH_WIND_GPU=0: the CPU's wind paths are what is compared, and on a
+            # driver where the card poses the trees by default it would take every pose first.
+            env.update(OPENCNC3D_BACKGROUND='1', OPENCNC3D_MESH_WIND_GPU='0',
+                       OPENCNC3D_MESH_WIND_DIRECT='1', OPENCNC3D_MESH_WIND_MATRIX='1')
             switch = ('OPENCNC3D_MESH_WIND_DEPTH' if args.optimization == 'shadow'
                       else 'OPENCNC3D_MESH_WIND_MATRIX')
             env[switch] = '0' if arm == 'off' else '1'

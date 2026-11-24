@@ -197,7 +197,7 @@ static void treadmark_note_tick(void)
            599-tick dock, and without this it lays a point at the refinery door on every
            one of them. id >= 0 or smooth_key means nothing. */
         if (o.kind != K_UNIT || o.id < 0 || o.limbo) continue;
-        if (water_is_boat(o)) continue;
+        if (water_is_boat(o) || (g_raModule && ant3d::type(o.type))) continue;
 
         const int key = smooth_key(o);
         TMarkTrail& tr = g_tmTrail[key];

@@ -19,10 +19,10 @@ def inspect(path):
         raise ValueError(path.name + ': invalid PE header')
     machine, _, _, _, _, opt_size, flags = struct.unpack_from('<HHIIIHH', data, pe + 4)
     opt = pe + 24
-    if machine != 0x14c or opt_size < 70 or opt + opt_size > len(data):
-        raise ValueError(path.name + ': expected a complete i386 PE32 header')
-    if struct.unpack_from('<H', data, opt)[0] != 0x10b or not (flags & 0x20):
-        raise ValueError(path.name + ': expected large-address-aware PE32')
+    if machine != 0x8664 or opt_size < 240 or opt + opt_size > len(data):
+        raise ValueError(path.name + ': expected a complete x86-64 PE32+ header')
+    if struct.unpack_from('<H', data, opt)[0] != 0x20b or not (flags & 0x20):
+        raise ValueError(path.name + ': expected large-address-aware PE32+')
     marks = set(re.findall(rb'OPENCNC3D\|build\|[^\0\r\n]{1,200}', data))
     if len(marks) != 1:
         raise ValueError(path.name + ': missing or conflicting build marks')
@@ -62,7 +62,7 @@ def main():
     except (OSError, UnicodeError, ValueError, struct.error) as error:
         print('Windows diagnostic package refused: ' + str(error), file=sys.stderr)
         return 1
-    print('diagnostics: matching ' + mark + '; dedicated PE32 GUI entry, large-address-aware')
+    print('diagnostics: matching ' + mark + '; dedicated PE32+ (x86-64) GUI entry, large-address-aware')
     return 0
 
 

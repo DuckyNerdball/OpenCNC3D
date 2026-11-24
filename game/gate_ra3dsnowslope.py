@@ -7,12 +7,12 @@ to flat white.
     python3 gate_ra3dsnowslope.py DIR
 
 DIR holds, for Soviet 1 (u) and Allied 3 (a), both on Red Alert's snow with their auto
-heightmaps, one camera over a sun-facing hillside, three frames of the same tick:
+heightmaps, one camera over a sun-facing hillside, four frames at the same camera:
 
     <m>_on.png       the shipped dials
     <m>_nobloom.png  the same with the bloom off
-    <m>_off.png      the same with the highlight rolloff off (tonemap 0), which is the
-                     switch the slope's rolloff answers to (fx_post.h, uSlopeWhite)
+    <m>_stress_on.png  rolloff on at the frozen reference sun energy 1.25893
+    <m>_off.png        the same stress case with rolloff off (tonemap 0)
 
 and the runs' logs <m>.log.
 
@@ -28,7 +28,7 @@ tactical view (the sidebar and the top strip left out).
   * with the bloom off no more than 1%: what white is left with it on is the bloom
     spreading off the brightest level snow, not the slopes;
   * the control: with the rolloff off the same view is more than 2% white and more
-    than twice the shipped frame, so the views really hold a sun-facing pale slope that
+    than twice the paired stress frame, so the views really hold a sun-facing pale slope that
     would clip, and the measure can see it.
 
 Prints one line per check and a verdict line "G351 1 ..." or "G351 0 ..."; exits 0 only
@@ -71,20 +71,23 @@ def main():
         try:
             on = white_pct(os.path.join(d, m + "_on.png"))
             nb = white_pct(os.path.join(d, m + "_nobloom.png"))
+            stress = white_pct(os.path.join(d, m + "_stress_on.png"))
             off = white_pct(os.path.join(d, m + "_off.png"))
         except OSError as e:
             fails.append("%s: a frame is missing (%s)" % (name, e))
             continue
-        print("G351 %s: pure white %.2f%% shipped, %.2f%% without bloom, %.2f%% without the rolloff"
-              % (name, on, nb, off))
+        print("G351 %s: pure white %.2f%% shipped, %.2f%% without bloom, %.2f%% stress on, %.2f%% stress without the rolloff"
+              % (name, on, nb, stress, off))
         if on > ON_MAX:
             fails.append("%s: %.2f%% of the view is clipped to white at the shipped sun (at most %.0f%%)"
                          % (name, on, ON_MAX))
         if nb > NOBLOOM_MAX:
             fails.append("%s: %.2f%% clipped with the bloom off (at most %.0f%%)" % (name, nb, NOBLOOM_MAX))
-        if off <= OFF_MIN or off <= 2.0 * on:
+        if stress > ON_MAX:
+            fails.append("%s: stress rolloff clipped %.2f%% (at most %.0f%%)" % (name, stress, ON_MAX))
+        if off <= OFF_MIN or off <= 2.0 * stress:
             fails.append("%s: the control does not clip (%.2f%% with the rolloff off against %.2f%% on), "
-                         "so this view proves nothing" % (name, off, on))
+                         "so this view proves nothing" % (name, off, stress))
         notes.append("%s %.1f%% (%.1f%% without the rolloff)" % (name, on, off))
     if fails:
         print("G351 0 " + "; ".join(fails))

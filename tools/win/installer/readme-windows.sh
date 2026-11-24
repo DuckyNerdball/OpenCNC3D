@@ -12,6 +12,12 @@
 # OPENCNC3D_COOKED set means a cooked build, whose binaries carry no F5 tuning panel, so
 # the key list leaves F5 out (make-build-win.sh proves the binaries match).
 set -e
+
+# THE LAST BUILD FOR 32-BIT WINDOWS, which the notes send 32-bit players back to. It is
+# named once, here, and tools/release.sh refuses to cut a build while any tag after it
+# still predates the 64-bit switch: a 32-bit build released later would make this the
+# wrong number.
+LAST_32BIT=v0.9.2
 OUTF="$1"
 GITDESC="$2"
 [ -n "$OUTF" ] && [ -n "$GITDESC" ] || {
@@ -83,11 +89,23 @@ binary the test suite drives, and the map editor the Editor button starts. There
 still no reason to run it by hand; press Editor instead.
 
 WHAT THIS BUILD IS
-  A 32-bit Windows build, cross compiled on the Mac from the same sources as the
-  Mac build, commit $GITDESC. 32-bit is on purpose and not a limitation: it is
-  what the engine's own pointer arithmetic assumes, and it is the architecture
-  the eventual Windows 98 / Voodoo 2 tier needs. It runs on 64-bit Windows 11
-  with nothing extra installed.
+  A 64-bit Windows build, cross compiled on the Mac from the same sources as the
+  Mac build, commit $GITDESC. It needs 64-bit Windows 10 or 11 and runs with
+  nothing extra installed. 32-bit Windows is not supported, and neither is
+  Windows 10 on an ARM processor. Windows 11 on ARM should run it through
+  Windows' own x64 emulation, but that has not been tried yet.
+
+  On 32-bit Windows the last build that runs is $LAST_32BIT. A $LAST_32BIT folder keeps
+  working there if you start it with OpenCNC3D.exe --play, which starts the game
+  without updating it.
+
+OLD SAVES
+  A save made by a 32-bit Windows build ($LAST_32BIT and earlier) or on a Mac cannot
+  be loaded by this 64-bit build. It stays in the list, greyed and marked
+  "(32-bit or Mac save)"; loading it shows a message and changes nothing, and the
+  save is kept. You can save over it. Finish a mission you saved in $LAST_32BIT in
+  $LAST_32BIT. Do not load a save made by this build in $LAST_32BIT: $LAST_32BIT cannot
+  read it, and in Tiberian Dawn trying empties the mission you are playing.
 
 WINDOWS WILL WARN YOU THE FIRST TIME, AND HERE IS HOW TO GET PAST IT
   You will see a blue "Windows protected your PC" box, or the game will simply
@@ -115,9 +133,13 @@ WINDOWS WILL WARN YOU THE FIRST TIME, AND HERE IS HOW TO GET PAST IT
   was when you report it, because that is worth knowing.
 
 WHAT IS AND IS NOT VERIFIED
-  The game boots, loads its data and runs a mission on Windows.
-  None of the 31 gates has been run on Windows, so "it starts and looks right"
-  is the standard met here, not the one this project normally uses.
+  The 64-bit build was run on one Windows 11 PC with NVIDIA graphics: Setup
+  installed it, the movies and music downloaded and played, the launcher started
+  the game, and the first mission of each game booted, loaded its data and ran in
+  automated runs, in all three looks. It has not been run on Windows 10, on AMD or
+  Intel graphics, or on Windows on ARM. The project's test suite runs on the Mac,
+  not on Windows, so on Windows "it starts and looks right" is the most that has
+  been checked, not the standard this project normally uses.
 
 PERFORMANCE REPORTS
   Run OpenCNC3D-Diagnostics.exe beside the game, reproduce the problem, and exit.
@@ -127,14 +149,22 @@ PERFORMANCE REPORTS
   Nothing is uploaded automatically. Inspect the folder before sharing.
 
 IF SOMETHING IS WRONG
-  Send opencnc3d-log.txt. It is written beside OpenCNC3D.exe every time the game starts, so
-  run the game once, reproduce the problem, then send the file. The things worth
-  checking in it first:
+  Send opencnc3d-log.txt. It is written beside OpenCNC3D.exe every time the game starts
+  (or in %APPDATA%\OpenCNC3D when that folder cannot be written), so
+  run the game once, reproduce the problem, then send the file. Starting the game again
+  does not erase the last session: its log is kept as opencnc3d-log-previous.txt, and a
+  session that crashed is also kept as opencnc3d-crash-<date>-<time>.txt (the newest
+  five). After a crash the game says so on its next start and names the file to send.
+  If the game closes as soon as it starts, the launcher says so with the exit code, and
+  writes opencnc3d-launcher-log.txt beside itself; send that file too.
+  The things worth checking in the game's log first:
     * GL_RENDERER          a software or fallback GL is the usual cause of a
                            black 3D view while the sidebar still looks perfect
     * GL_MULTITEX = NO     the terrain pass needs two texture units
     * GL_GOT depth 0       with no depth buffer the depth test discards the world
     * LoadLibrary / 126    the brain DLL, or something it depends on, is missing
+    * LoadLibrary / 193    a 32-bit DLL from an older build is beside the 64-bit
+                           game; install again with the current Setup
     * BOOTFAIL|            a mission that would not start says why on this line,
                            and the same sentence was shown on screen; send the
                            line as it is, it names the file or the step

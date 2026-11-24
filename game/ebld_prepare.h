@@ -11,6 +11,14 @@ struct EbldPrepareState {
     unsigned generation = 0;
     uint64_t cpu = 0, gpu = 0, transientPeak = 0;
     unsigned textures = 0, meshes = 0, steps = 0, failures = 0;
+    /* jobs refused, once each, by why: the caps above, the memory test (lowmem.h), the
+       one-texture transient cap; and whether a loading walk ended on its time budget with
+       work left. Printed after each loading walk and whenever play refuses something new
+       (EBLDPREPARE|rejected) so a player's log says whether first hits fell back to
+       building on the spot. */
+    unsigned rejectedCap = 0, rejectedHeadroom = 0, rejectedTransient = 0;
+    size_t rejectedPrinted = 0;
+    bool budgetHit = false;
     uint64_t loadingUs = 0, loadingWaitUs = 0, idleUs = 0, constructionUs = 0, maxConstructionUs = 0;
     std::set<uint64_t> rejected;
     std::map<uint64_t, std::pair<uint64_t, uint64_t> > meshCharges;
@@ -18,6 +26,7 @@ struct EbldPrepareState {
     bool loadingAttempted = false;
     bool requiredAttempted = false, requiredReady = false;
     bool raLoaded = false;                    /* Red Alert's first-tick preparation done */
+    int coreModels[2] = {-1, -1};
     unsigned requiredPlanned = 0, requiredCompleted = 0;
     uint64_t requiredCpuBound = 0, requiredGpuBound = 0, requiredUs = 0, requiredWaitUs = 0;
     uint64_t requiredCpuCharged = 0, requiredGpuCharged = 0;
@@ -49,9 +58,12 @@ static void ebld_prepare_reset(void)
     g_ebldPrepare = EbldPrepareState();
     g_ebldPrepare.generation = g_ebldPrepareGeneration;
 }
+/* While Enhanced is on screen, and also while another mode is in a run that can switch to
+   it (enh_ahead_on): the first Enhanced tick after a switch then finds the files read, the
+   textures on the card and the cuts made, as a mission started in Enhanced does. */
 static bool ebld_prepare_on(void)
 {
-    return ebld_rule_now() && !g_fx.dos_classic
+    return ((ebld_rule_now() && !g_fx.dos_classic) || (g_ebldOn && enh_ahead_on()))
         && mesh_perf_switch("OPENCNC3D_EBLD_PREPARE");
 }
 static bool ebld_prepare_required_on(void)
@@ -159,20 +171,35 @@ static uint64_t ebld_prepare_footprint(void)
     }
     return n;
 }
-static bool ebld_prepare_headroom(const EbldPrepareCost& cost)
+/* ROOM FOR ONE MORE PIECE OF WORK (lowmem.h). Two limits, both of which have to hold: the
+   process's room to commit, which must take the work's system memory, its card bytes at what
+   the driver charges for them, its transient bytes and 256 MB besides; and physical memory,
+   which must take the system memory and transient bytes and the same 256 MB (card bytes are
+   charged by the driver as a reservation, not held in memory). The room is the commit room
+   of a 64-bit Windows process; elsewhere it is unlimited unless a test sets it.
+   Optional work is tested against the optional room, which counts only half of what the
+   page file can still grow by: the stages a building does not show yet and the cut meshes.
+   The stage each building shows now, and the work done while loading for it, see the whole
+   room. Each has its own refusal line (site=ebld_prepare, site=ebld_prepare_optional). */
+static LowmemNeed ebld_prepare_need(const EbldPrepareCost& cost)
 {
-#ifdef _WIN32
-    MEMORYSTATUSEX mem = {}; mem.dwLength = sizeof(mem);
-    if (!GlobalMemoryStatusEx(&mem)) return false;
-    uint64_t reserve = 256u * 1024u * 1024u;
-    if (!ebld_prepare_add_checked(reserve, cost.cpu)
-        || !ebld_prepare_add_checked(reserve, cost.gpu)
-        || !ebld_prepare_add_checked(reserve, cost.transient)) return false;
-    if (mem.ullAvailVirtual < reserve || mem.ullAvailPhys < reserve) return false;
-#else
-    (void)cost;
-#endif
-    return true;
+    LowmemNeed need;
+    need.heap = cost.cpu;
+    need.texture = cost.gpu;
+    need.transient = cost.transient;
+    return need;
+}
+static bool ebld_prepare_headroom(const EbldPrepareCost& cost, bool optional = false)
+{
+    return lowmem_fits(ebld_prepare_need(cost), optional ? "ebld_prepare_optional" : "ebld_prepare",
+                       LOWMEM_RESERVE_REQUIRED, optional);
+}
+/* work admitted by the test above and now done: its bytes leave the room */
+static void ebld_prepare_charged(const EbldPrepareCost& cost)
+{
+    EbldPrepareCost kept = cost;
+    kept.transient = 0;
+    lowmem_charge(ebld_prepare_need(kept));
 }
 static uint64_t ebld_prepare_mesh_cost(const EbldModel& M)
 {
@@ -220,11 +247,14 @@ static void ebld_prepare_observe_impl(void)
             break;
         }
     };
+    /* (ahead of a switch, Enhanced's own tree switch, not the one of the mode on screen) */
+    const bool trees3d = ebld_rule_now() ? g_fx.tree3d != 0
+                                         : g_fx.mode_row[FX_MODE_ENHANCED][FXR_TREES] >= 0.5f;
     for (const SimObject& o : g_objects) {
         if ((o.kind != K_BUILDING && o.kind != K_TERRAIN) || o.limbo || o.str <= 0) continue;
         const bool ordinaryTree=o.type[0]=='T' && o.type[1]>='0' && o.type[1]<='9';
-        if (o.kind == K_TERRAIN && ordinaryTree && !g_fx.tree3d) continue;
-        if (g_raModule && o.kind == K_BUILDING) ebld_model_of(o.type);
+        if (o.kind == K_TERRAIN && ordinaryTree && !trees3d) continue;
+        if (g_raModule && o.kind == K_BUILDING) ebld_model_ahead(o.type);
         const bool constructing = o.kind == K_BUILDING && building_constructing(o);
         const EbldBld* entry = ebld_find(o);
         if (stageAware && entry && entry->model >= 0 && (size_t)entry->model < g_ebld.size())
@@ -241,6 +271,13 @@ static void ebld_prepare_observe_impl(void)
         for (const SbEntry& entry : g_sbState.entry)
             if (entry.type == BUILDING_TYPE && (entry.constructing || entry.onHold || entry.completed))
                 note(entry.name, true);
+
+    /* Loading may have observed the local MCV's two construction dependencies.
+       Retain their exact damage-stage request across the loading observer refresh. */
+    for (int index : g_ebldPrepare.coreModels) {
+        noteModel(index, EB_INTACT, false);
+        noteModel(index, EB_DAMAGED, false);
+    }
 
 }
 static void ebld_prepare_observe(void)
@@ -287,7 +324,7 @@ static bool ebld_prepare_texture_safe(EbldModel& M, size_t texture, bool all,
     if (service!=M.service.tex.end())
         for(int index:service->second) if(wanted<4)indices[wanted++]=(size_t)index;
     const bool resident=M.resident, residentAll=M.residentAll, attached=M.attached;
-    const long bytes=g_ebldResidentBytes;
+    const int64_t bytes=g_ebldResidentBytes;
     const uint64_t footprintBefore=ebld_prepare_footprint();
     try {
         bool valid=true;
@@ -348,10 +385,54 @@ static bool ebld_prepare_mesh_safe(EbldModel& M)
         return false;
     }
 }
+/* HAND TEXTURE t OF MODEL index TO THE WORKER (ebld_mod.h, ebld_async_run), with copies of
+   everything it reads, and the liveries livery_build_range would paint for it at upload
+   (Red Alert's masked rule, the colours seated now; within EBLD_PREPARE_TRANSIENT and the
+   optional room, the rest painted on the frame as before). */
+static void ebld_async_start(int index, size_t t)
+{
+    if (g_ebldAsyncJob || index < 0 || (size_t)index >= g_ebld.size()) return;
+    const EbldModel& M = g_ebld[(size_t)index];
+    if (t >= M.tex.size()) return;
+    EbldAsyncJob* J = new EbldAsyncJob();
+    J->generation = g_ebldPrepareGeneration;
+    J->model = index; J->texture = t;
+    J->path = M.path; J->type = M.type; J->fileSize = M.fileSize; J->T = M.tex[t];
+    if (M.hasSpec && t < M.spec.size() && M.spec[t].from >= 0
+        && (size_t)M.spec[t].from < M.spec.size()) {
+        J->spec = true; J->specR = M.spec[t]; J->specS = M.spec[(size_t)M.spec[t].from];
+        J->specPath = M.specPath;
+    }
+    J->faction = g_raModule != 0;
+    const uint64_t texels = (uint64_t)M.tex[t].w * (uint64_t)M.tex[t].h;
+    if (g_raModule && g_liveryLive && g_teamColours && (M.tex[t].house & 3) == 3
+        && !ebld_redecode_all_on()) {
+        bool want[LIVERY_COUNT];
+        livery_wanted(want);
+        uint64_t bytes = 0;
+        for (int c = 2; c < LIVERY_COUNT; c++) {
+            if (!want[c] || team_livery_slot(c) < 2) continue;
+            if (bytes + texels * 4 > EBLD_PREPARE_TRANSIENT) break;
+            EbldPrepareCost extra; extra.transient = bytes + texels * 4;
+            if (!ebld_prepare_headroom(extra, true)) break;
+            bytes += texels * 4;
+            J->colours[c] = true;
+        }
+    }
+    /* (livery_recolour's table is made here, on this thread, before the worker reads it) */
+    { unsigned char a[4] = { 0, 0, 0, 255 }, b[4]; livery_recolour(a, 0, 2, b); }
+    SDL_AtomicSet(&g_ebldAsyncDone, 0);
+    g_ebldAsyncJob = J;
+    g_ebldAsyncThread = SDL_CreateThread(ebld_async_run, "ebldtex", J);
+    if (!g_ebldAsyncThread) { delete J; g_ebldAsyncJob = NULL; }
+}
 /* One indivisible original job. Texture jobs can take tens of milliseconds and are
-   therefore permitted ONLY while loading or explicitly paused, never under a nominal
-   per-frame budget. Mesh kinds may run during construction, one per frame at most. */
-static bool ebld_prepare_step_impl(bool texturesAllowed, bool constructionOnly)
+   therefore done in one go ONLY while loading or explicitly paused, never under a nominal
+   per-frame budget. In play (asyncTextures) a texture's CPU work goes to the worker first
+   and only its upload, a few milliseconds, is done here. Mesh kinds may run during
+   construction, one per frame at most. */
+static bool ebld_prepare_step_impl(bool texturesAllowed, bool constructionOnly,
+                                   bool asyncTextures = false)
 {
     if (!ebld_prepare_on()) return false;
     if (g_ebldPrepare.generation != g_ebldPrepareGeneration) ebld_prepare_reset();
@@ -362,7 +443,7 @@ static bool ebld_prepare_step_impl(bool texturesAllowed, bool constructionOnly)
         EbldModel& M = g_ebld[index];
         if (!M.attached || M.texOwner >= 0) continue;
         if (phase != 1) {
-            if (!texturesAllowed) continue;
+            if (!texturesAllowed && !asyncTextures) continue;
             for (size_t t = 0; t < M.tex.size(); t++) {
                 bool required = M.texIntact[t] != 0;
                 if (mesh_perf_switch("OPENCNC3D_EBLD_STAGE_RESIDENCY")) {
@@ -375,12 +456,26 @@ static bool ebld_prepare_step_impl(bool texturesAllowed, bool constructionOnly)
                 const uint64_t job = ((uint64_t)(unsigned)index << 32) | (uint64_t)t;
                 if (g_ebldPrepare.rejected.count(job)) continue;
                 const EbldPrepareCost cost = ebld_prepare_texture_cost(M, t);
+                unsigned* why = NULL;
                 if (cost.cpu > ebld_prepare_remaining(EBLD_PREPARE_CPU,g_ebldPrepare.cpu)
-                    || cost.gpu > ebld_prepare_remaining(EBLD_PREPARE_GPU,g_ebldPrepare.gpu)
-                    || cost.transient > EBLD_PREPARE_TRANSIENT || !ebld_prepare_headroom(cost)) {
-                    g_ebldPrepare.rejected.insert(job); continue;
+                    || cost.gpu > ebld_prepare_remaining(EBLD_PREPARE_GPU,g_ebldPrepare.gpu))
+                    why = &g_ebldPrepare.rejectedCap;
+                else if (cost.transient > EBLD_PREPARE_TRANSIENT) why = &g_ebldPrepare.rejectedTransient;
+                else if (!ebld_prepare_headroom(cost, phase != 0
+                        || index == g_ebldPrepare.coreModels[0] || index == g_ebldPrepare.coreModels[1]))
+                    why = &g_ebldPrepare.rejectedHeadroom;
+                if (why) { (*why)++; g_ebldPrepare.rejected.insert(job); continue; }
+                /* IN PLAY, THROUGH THE WORKER: the texture goes on the card below only once
+                   the worker has its CPU work done, which the upload then takes (ebld_async_take);
+                   until then this step does nothing. A finished job this step no longer
+                   wants (its texture put up on demand meanwhile, its model gone) is let go. */
+                if (!texturesAllowed) {
+                    if (!g_ebldAsyncJob) { ebld_async_start(index, t); return false; }
+                    const EbldAsyncJob* J = ebld_async_finished();
+                    if (!J) return false;
+                    if (!ebld_async_matches(J, M, t)) { ebld_async_drop(); return false; }
                 }
-                const long before = g_ebldResidentBytes;
+                const int64_t before = g_ebldResidentBytes;
                 const uint64_t cpuBefore = ebld_prepare_footprint();
                 if (!ebld_prepare_texture_safe(M, t, !M.texIntact[t], ebld_prepare_remaining(EBLD_PREPARE_CPU,g_ebldPrepare.cpu))) {
                     g_ebldPrepare.failures++;
@@ -391,6 +486,7 @@ static bool ebld_prepare_step_impl(bool texturesAllowed, bool constructionOnly)
                 const uint64_t cpuAfter = ebld_prepare_footprint();
                 g_ebldPrepare.cpu += cpuAfter > cpuBefore ? cpuAfter - cpuBefore : 0;
                 g_ebldPrepare.gpu += cost.gpu;
+                ebld_prepare_charged(cost);
                 if (cost.transient > g_ebldPrepare.transientPeak) g_ebldPrepare.transientPeak = cost.transient;
                 if (g_ebldResidentBytes != before) g_ebldPrepare.textures++;
                 g_ebldPrepare.steps++; return true;
@@ -410,8 +506,11 @@ static bool ebld_prepare_step_impl(bool texturesAllowed, bool constructionOnly)
             if (g_ebldPrepare.rejected.count(job)) continue;
             const uint64_t bytes = M.cutBlock == 0 && M.cutPiece == 0 ? ebld_prepare_mesh_cost(M) : 0;
             EbldPrepareCost cost; cost.cpu = bytes;
-            if (bytes > ebld_prepare_remaining(EBLD_PREPARE_CPU,g_ebldPrepare.cpu) || !ebld_prepare_headroom(cost)) {
-                g_ebldPrepare.rejected.insert(job); continue;
+            if (bytes > ebld_prepare_remaining(EBLD_PREPARE_CPU,g_ebldPrepare.cpu)) {
+                g_ebldPrepare.rejectedCap++; g_ebldPrepare.rejected.insert(job); continue;
+            }
+            if (!ebld_prepare_headroom(cost, true)) {
+                g_ebldPrepare.rejectedHeadroom++; g_ebldPrepare.rejected.insert(job); continue;
             }
             if (bytes) {
                 g_ebldPrepare.meshCharges[job] = std::make_pair(bytes, ebld_prepare_footprint());
@@ -421,6 +520,7 @@ static bool ebld_prepare_step_impl(bool texturesAllowed, bool constructionOnly)
                 if (g_ebldPrepare.disabledByFailure) return false;
                 continue;
             }
+            if (bytes) ebld_prepare_charged(cost);
             if (M.cutBlock == 0 && M.cutPiece == 0) {
                 g_ebldPrepare.meshes++;
                 const auto charge = g_ebldPrepare.meshCharges.find(job);
@@ -442,9 +542,10 @@ static bool ebld_prepare_step_impl(bool texturesAllowed, bool constructionOnly)
     }
     return false;
 }
-static bool ebld_prepare_step(bool texturesAllowed, bool constructionOnly = false)
+static bool ebld_prepare_step(bool texturesAllowed, bool constructionOnly = false,
+                              bool asyncTextures = false)
 {
-    try { return ebld_prepare_step_impl(texturesAllowed, constructionOnly); }
+    try { return ebld_prepare_step_impl(texturesAllowed, constructionOnly, asyncTextures); }
     catch (const std::bad_alloc&) {
         g_ebldPrepare.disabledByFailure=true;g_ebldPrepare.failures++;
         return false;
@@ -518,9 +619,8 @@ static bool ebld_prepare_required_models(void)
             if (file.path.size() < 5 || !ebld_prepare_source_cost(file.path, type, false, sourceBytes)) {
                 state.requiredReason = "model-source-refusal"; return false;
             }
-            const std::string base = file.path.substr(0, file.path.size() - 5);
-            if (!ebld_prepare_source_cost(base + "_BURN.ebld", type, true, sourceBytes)
-                || !ebld_prepare_source_cost(base + "_SNAG.ebld", type, true, sourceBytes)) {
+            if (!ebld_prepare_source_cost(ebld_stage_path(file.path, "BURN"), type, true, sourceBytes)
+                || !ebld_prepare_source_cost(ebld_stage_path(file.path, "SNAG"), type, true, sourceBytes)) {
                 state.requiredReason = "model-source-refusal"; return false;
             }
         }
@@ -585,6 +685,8 @@ static bool ebld_prepare_required_models(void)
         const uint64_t after = ebld_prepare_footprint() + g_ebld.capacity() * sizeof(EbldModel);
         const uint64_t retained = after > before ? after - before : 0;
         const uint64_t charge = loaded ? costs[index].cpu : retained;
+        EbldPrepareCost taken; taken.cpu = charge;
+        ebld_prepare_charged(taken);
         if (!ebld_prepare_add_checked(state.cpu, charge)
             || !ebld_prepare_add_checked(state.requiredCpuCharged, charge)) {
             state.disabledByFailure = true; state.requiredReason = "model-charge-overflow"; return false;
@@ -599,11 +701,114 @@ static bool ebld_prepare_required_models(void)
     }
     return true;
 }
+/* Bounded RA loading work. Only a live local MCV introduces these two
+   types; no installation-wide catalog or live-frame texture job is introduced. */
+static void ebld_prepare_ra_core_impl(void)
+{
+    const char* enabled = getenv("OPENCNC3D_EBLD_CORE_PREPARE");
+    /* The native qualification covers 64-bit builds. Older 32-bit runtimes
+       retain first-demand loading unless a diagnostic explicitly opts in. */
+    if ((enabled ? strcmp(enabled, "1") != 0 : sizeof(void*) < 8)
+        || !g_raModule || !g_playerHouse[0]) return;
+    bool mcv = false;
+    for (const SimObject& object : g_objects)
+        if (object.kind == K_UNIT && !object.limbo && object.str > 0
+            && !strcmp(object.type, "MCV") && !strcmp(object.house, g_playerHouse)) mcv = true;
+    if (!mcv) return;
+    const char* const types[2] = {"FACT", "POWR"};
+    const size_t sourceCap = 48u * 1024u * 1024u;
+    for (unsigned slot = 0; slot < 2; slot++) {
+        const char* type = types[slot];
+        if (!ebld_prepare_attached_type(type)) {
+            uint64_t bytes = 0;
+            bool valid = true, found = false;
+            const int theater = ebld_pack_theater();
+            for (const EbldFile& file : g_ebldFiles) {
+                if (file.tried || !file.lazy || strcmp(EBLD_TYPES[file.ti], type)
+                    || (file.th >= 0 && file.th != theater)) continue;
+                found = true;
+                FILE* source = fopen(file.path.c_str(), "rb");
+                unsigned char header[32] = {};
+                long size = -1;
+                if (source) {
+                    if (!fseek(source, 0, SEEK_END)) size = ftell(source);
+                    if (size < 32 || fseek(source, 0, SEEK_SET)
+                        || fread(header, 1, sizeof header, source) != sizeof header) valid = false;
+                    fclose(source);
+                } else valid = false;
+                uint32_t version = 0, sets = 0;
+                memcpy(&version, header + 4, 4); memcpy(&sets, header + 20, 4);
+                if (size < 32 || (uint64_t)size > sourceCap || memcmp(header, "EBLD", 4)
+                    || memcmp(header + 8, type, strlen(type)) || version < 3 || version > 6
+                    || sets < 1 || sets > 3 || !ebld_prepare_add_checked(bytes, (uint64_t)size)) valid = false;
+            }
+            EbldPrepareCost cost;
+            cost.cpu = bytes * 8u + g_ebld.capacity() * sizeof(EbldModel)
+                     + g_pack.mesh.capacity() * sizeof(PackMesh) + g_pack.tex.capacity() * sizeof(PackTex);
+            cost.transient = EBLD_PREPARE_TRANSIENT;
+            if (!found || !valid || cost.cpu > ebld_prepare_remaining(EBLD_PREPARE_CPU, g_ebldPrepare.cpu)
+                || !ebld_prepare_headroom(cost, true)) {
+                fprintf(stderr, "EBLDPREPARE|core|type=%s|ready=0|reason=source-or-budget\n", type);
+                continue;
+            }
+            const size_t models = g_ebld.size(), meshes = g_pack.mesh.size(), textures = g_pack.tex.size();
+            const unsigned serial = g_ebldPackSerial;
+            std::vector<bool> tried, attached;
+            for (const EbldFile& file : g_ebldFiles) tried.push_back(file.tried);
+            for (const EbldModel& model : g_ebld) attached.push_back(model.attached);
+            const uint64_t before = ebld_prepare_footprint() + g_ebld.capacity() * sizeof(EbldModel);
+            bool loaded = false;
+            try {
+                loaded = ebld_ensure(type, sourceCap, true) && ebld_prepare_attached_type(type);
+                if (!mesh_perf_switch("OPENCNC3D_EBLD_CORE_ALLOC_OK")) loaded = false;
+            } catch (const std::bad_alloc&) { loaded = false; }
+            const uint64_t grown = ebld_prepare_footprint() + g_ebld.capacity() * sizeof(EbldModel);
+            if (grown > before && grown - before > cost.cpu) loaded = false;
+            if (!loaded) {
+                g_pack.mesh.resize(meshes); g_pack.tex.resize(textures); g_ebld.resize(models);
+                for (size_t i = 0; i < tried.size(); i++) g_ebldFiles[i].tried = tried[i];
+                for (size_t i = 0; i < attached.size(); i++) g_ebld[i].attached = attached[i];
+                g_ebldPackSerial = serial; g_ebldResolveGen++;
+            }
+            const uint64_t after = ebld_prepare_footprint() + g_ebld.capacity() * sizeof(EbldModel);
+            EbldPrepareCost charged;
+            charged.cpu = loaded ? cost.cpu : after > before ? after - before : 0;
+            ebld_prepare_charged(charged);
+            if (!ebld_prepare_add_checked(g_ebldPrepare.cpu, charged.cpu)) {
+                g_ebldPrepare.disabledByFailure = true; return;
+            }
+            g_ebldPrepare.transientPeak = std::max(g_ebldPrepare.transientPeak, cost.transient);
+            if (!loaded) {
+                fprintf(stderr, "EBLDPREPARE|core|type=%s|ready=0|reason=load-refusal\n", type);
+                continue;
+            }
+        }
+        for (size_t index = 0; index < g_ebld.size(); index++) {
+            const EbldModel& model = g_ebld[index];
+            if (model.type == type && model.attached && model.texOwner < 0 && ebld_meshes_ok(model)) {
+                g_ebldPrepare.coreModels[slot] = (int)index;
+                fprintf(stderr, "EBLDPREPARE|core|type=%s|ready=1|model=%zu\n", type, index);
+                break;
+            }
+        }
+        SDL_PumpEvents();
+        if (g_au) audio_frame(g_au, 0);
+        if (SDL_QuitRequested()) break;
+    }
+}
+static void ebld_prepare_ra_core(void)
+{
+    try { ebld_prepare_ra_core_impl(); }
+    catch (const std::bad_alloc&) {
+        fprintf(stderr, "EBLDPREPARE|core|ready=0|reason=allocation\n");
+    }
+}
 static std::map<int, uint64_t> ebld_prepare_required_census(void)
 {
     std::map<int, uint64_t> masks;
-    const auto note = [&](int index, int stage) {
+    const auto note = [&](int index, int stage, bool effectsOnly=false) {
         if (index < 0 || (size_t)index >= g_ebld.size()) return;
+        const int scorch=effectsOnly?(int)g_ebld[index].param[EBP_SCORCH_TEX]:-1;
         bool shared = false;
         for (size_t depth = 0; g_ebld[index].texOwner >= 0; depth++) {
             if (depth >= g_ebld.size()) return;
@@ -613,7 +818,8 @@ static std::map<int, uint64_t> ebld_prepare_required_census(void)
         }
         const EbldModel& model = g_ebld[index];
         if (!model.attached) return;
-        masks[index] |= shared ? ebld_all_texture_mask(model) : ebld_texture_mask_for_stage(model, stage);
+        masks[index] |= effectsOnly ? ebld_texture_bit(model,scorch)
+                      : shared ? ebld_all_texture_mask(model) : ebld_texture_mask_for_stage(model, stage);
     };
     const auto noteObject = [&](const SimObject& object) {
         if (object_model3d(object) >= 0 || building_constructing(object)
@@ -623,7 +829,7 @@ static std::map<int, uint64_t> ebld_prepare_required_census(void)
         if (object.kind == K_TERRAIN && ordinaryTree && !g_fx.tree3d) return;
         const EbldBld* entry = ebld_find(object);
         if (object.kind == K_BUILDING && entry && entry->model >= 0 && (size_t)entry->model < g_ebld.size()) {
-            note(entry->model, entry->stage);
+            note(entry->model, entry->stage, entry->effectsOnly);
             return;
         }
         const char* type = ebld_alias(object.type);
@@ -684,7 +890,7 @@ static std::map<int, uint64_t> ebld_prepare_required_census(void)
             const EbldModel& model = g_ebld[entry.model];
             if (!(model.flags & EBX_WALL) && model.wallMask < 0) continue;
         }
-        note(entry.model, entry.stage);
+        note(entry.model, entry.stage, entry.effectsOnly);
     }
     return masks;
 }
@@ -749,6 +955,7 @@ static void ebld_prepare_required_loading_impl(void)
         }
         state.requiredCpuCharged += retained;
         state.requiredGpuCharged += job.cost.gpu;
+        ebld_prepare_charged(job.cost);
         state.transientPeak = std::max(state.transientPeak, job.cost.transient);
         state.textures++; state.steps++; state.requiredCompleted++;
         remaining.cpu -= job.cost.cpu; remaining.gpu -= job.cost.gpu;
@@ -800,6 +1007,16 @@ static void ebld_prepare_required_loading(void)
             (unsigned long long)g_ebldPrepare.requiredWaitUs, engineFrame, g_engineFrame,
             simTicks, g_simTicks, g_ebldPrepare.requiredReason);
 }
+/* The refusals so far, cumulative: after each loading walk, and in play whenever a step
+   refused something new, so the last line in a log is the whole mission's count. */
+static void ebld_prepare_print_rejected(const char* when)
+{
+    g_ebldPrepare.rejectedPrinted = g_ebldPrepare.rejected.size();
+    fprintf(stderr, "EBLDPREPARE|rejected|cap=%u|headroom=%u|transient=%u|budget=%d|failed=%d|when=%s\n",
+            g_ebldPrepare.rejectedCap, g_ebldPrepare.rejectedHeadroom, g_ebldPrepare.rejectedTransient,
+            g_ebldPrepare.budgetHit ? 1 : 0, g_ebldPrepare.disabledByFailure ? 1 : 0, when);
+}
+static void evhc_prepare_tick(void);  /* evhc_mod.h */
 static void ebld_prepare_loading(double budgetMs = 2000.0, bool deferRequired = false)
 {
     if (!ebld_prepare_on()) return;
@@ -809,9 +1026,10 @@ static void ebld_prepare_loading(double budgetMs = 2000.0, bool deferRequired = 
     g_ebldPrepare.loadingAttempted = true;
     const Uint64 start = SDL_GetPerformanceCounter();
     unsigned jobs = 0;
+    bool done = false;
     while (jobs < 8192 && (double)(SDL_GetPerformanceCounter() - start) * 1000.0
                              / SDL_GetPerformanceFrequency() < budgetMs) {
-        if (!ebld_prepare_step(true)) break;
+        if (!ebld_prepare_step(true)) { done = true; break; }
         jobs++;
         SDL_PumpEvents();                  /* loading remains responsive, never advances sim */
         if (g_au) audio_frame(g_au, 0);     /* refill music without advancing world/audio clocks */
@@ -834,6 +1052,12 @@ static void ebld_prepare_loading(double budgetMs = 2000.0, bool deferRequired = 
             (unsigned long long)g_ebldPrepare.transientPeak,
             (unsigned long long)g_ebldPrepare.loadingWaitUs,
             (double)(SDL_GetPerformanceCounter() - start) * 1000.0 / SDL_GetPerformanceFrequency());
+    /* (a walk stopped by a quit or the job limit is not a budget's doing) */
+    if (!done && jobs < 8192 && !SDL_QuitRequested()) g_ebldPrepare.budgetHit = true;
+    ebld_prepare_print_rejected("loading");
+    /* Tiberian Dawn's vehicles' wrecks after the buildings, at loading (evhc_mod.h); Red
+       Alert's follow its first-tick preparation from the tick instead */
+    if (!g_raModule && !SDL_QuitRequested()) evhc_prepare_tick();
 }
 /* RED ALERT'S BUILDINGS ARE READ AT FIRST SIGHT (ebld_type_lazy): when the mission's loading
    preparation runs, none of its structures' files is read yet and there is nothing to prepare,
@@ -847,6 +1071,7 @@ static void ebld_prepare_ra(void)
     if (g_ebldPrepare.generation != g_ebldPrepareGeneration) ebld_prepare_reset();
     if (g_ebldPrepare.raLoaded) return;
     g_ebldPrepare.raLoaded = true;
+    const Uint64 started = SDL_GetPerformanceCounter();
     g_ebldPrepare.loadingAttempted = false;
     g_ebldPrepare.observedFrame = -2;          /* (look again: the files are read now) */
     ebld_prepare_observe();
@@ -861,6 +1086,28 @@ static void ebld_prepare_ra(void)
     g_ebldPrepare.models = staged;
     ebld_prepare_loading(8000.0);
     g_ebldPrepare.models = all;
+    /* Current structures keep the original first claim on loading time and memory.
+       Only their unused budget may prepare the local MCV's future core structures. */
+    const double elapsed = (double)(SDL_GetPerformanceCounter() - started) * 1000.0
+                         / SDL_GetPerformanceFrequency();
+    if (g_ebldPrepare.disabledByFailure || elapsed >= 8000.0) return;
+    ebld_prepare_ra_core();
+    if (g_ebldPrepare.coreModels[0] < 0 && g_ebldPrepare.coreModels[1] < 0) return;
+    g_ebldPrepare.loadingAttempted = false;
+    g_ebldPrepare.observedFrame = -2;
+    ebld_prepare_observe();
+    std::vector<int> stagedCore;
+    try {
+        for (int index : g_ebldPrepare.models)
+            if (index >= 0 && (size_t)index < g_ebld.size() && g_ebld[(size_t)index].nset >= 2
+                && !(g_ebld[(size_t)index].flags & EBX_WALL) && g_ebld[(size_t)index].stageOf < 0)
+                stagedCore.push_back(index);
+    } catch (const std::bad_alloc&) { return; }
+    g_ebldPrepare.models.swap(stagedCore);
+    const double remaining = 8000.0 - (double)(SDL_GetPerformanceCounter() - started)
+                                      * 1000.0 / SDL_GetPerformanceFrequency();
+    if (remaining > 0.0) ebld_prepare_loading(remaining);
+    g_ebldPrepare.models.swap(stagedCore);
 }
 
 /* One live geometry slice, or one indivisible legacy job while explicitly paused.
@@ -870,7 +1117,10 @@ static void ebld_prepare_idle(bool paused)
     ebld_prepare_observe();
     if (!ebld_prepare_on() || g_editOn) return;
     const Uint64 start = SDL_GetPerformanceCounter();
-    if (!ebld_prepare_step(paused, !paused)) return;
+    /* (in play the textures go up through the worker, ebld_async_start, a texture at a time) */
+    const bool stepped = ebld_prepare_step(paused, !paused, !paused && ebld_async_on());
+    if (g_ebldPrepare.rejected.size() != g_ebldPrepare.rejectedPrinted) ebld_prepare_print_rejected("play");
+    if (!stepped) return;
     const uint64_t elapsed = (SDL_GetPerformanceCounter() - start) * 1000000u / SDL_GetPerformanceFrequency();
     if (paused) g_ebldPrepare.idleUs += elapsed;
     else {

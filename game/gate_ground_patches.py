@@ -35,7 +35,7 @@ def render(name, body, scenario):
     cmd = [str(run/'cnc_eyes'), '--scen', scenario, '--pack', scenario+'.pack',
            '--cameos', 'cameos.pack', '--dospack', 'dossidebar.pack', '--dosinf', 'dosinfantry.pack',
            '--dylib', 'TiberianDawn.dylib', '--dir', 'missions/', '--content', 'content/',
-           '--enhanced', '--nosound', '--noshroud', '--w', '1000', '--h', '650', '--script', str(script)]
+           '--dist', '3000', '--enhanced', '--nosound', '--noshroud', '--w', '1000', '--h', '650', '--script', str(script)]
     r = subprocess.run(cmd, cwd=run, env={**os.environ,'OPENCNC3D_BACKGROUND':'1'},
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
     log = r.stdout.decode(errors='replace')
@@ -54,7 +54,8 @@ def dry(name):
     # and the sidebar. A nonzero whole-screen delta alone is not patch evidence.
     return pixels(name)[24:-24,20:300] if name.startswith('temperate') else pixels(name)[24:-24,300:810]
 
-setup = ('tick 20\ngfx show_stats 0\ngfx ss_scale 1\ngfx cloud_on 0\n'
+# Patch visibility is measured under fixed lighting; shipped defaults are checked separately.
+setup = ('gfxload '+str(run/'gate_visual_lighting_20261026.txt')+'\ntick 20\ngfx show_stats 0\ngfx ss_scale 1\ngfx cloud_on 0\n'
          'gfx fog_fx 0\ngfx sand_fx 0\ngfx dfog_on 0\ngfx bloom_on 0\ngfx fol_on 0\n'
          'gfx rock_on 0\ngfx mottle_on 1\ngfx mottle_density 0.0625\n'
          'gfx mottle_strength 0.41071\ncam 30 40\n')

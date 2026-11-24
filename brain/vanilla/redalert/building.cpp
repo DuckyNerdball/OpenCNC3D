@@ -1,4 +1,7 @@
 // MODIFIED for OpenCNC3D. Revalidates AI purchases and enforces one normal production queue per category.
+// MODIFIED for OpenCNC3D. The wall line fills only cells a placed wall piece could stand on, so it never closes a bridge.
+// MODIFIED for OpenCNC3D. A switched-off building offers no dock in answer to RADIO_CAN_LOAD (its other answers are unchanged), so no harvester chooses a switched-off refinery, and a refinery switched off during an unload lets it finish.
+// MODIFIED for OpenCNC3D. Every piece the wall line lays is paid for at the factory's price, and a gap is laid only when the house can pay for all of it, so a line sold back never returns more than it cost.
 //
 // Copyright 2020 Electronic Arts Inc.
 //
@@ -17,9 +20,11 @@
 // MODIFIED for OpenCNC3D in October 2026. This is not EA's original file.
 // Four separate changes. First, the building power switch: a building whose
 // owner has switched it off (IsPowerOff, toggled by Toggle_Power) produces
-// and drains no power, refuses docking, fires no weapon, releases nothing
-// from its factory, does not jam as a gap generator and sleeps in its attack,
-// harvest and repair missions until switched back on. Second, rally points
+// and drains no power, refuses docking (both the RADIO_CAN_LOAD question a
+// harvester or aircraft asks when it picks where to dock and the RADIO_HELLO
+// that opens contact), fires no weapon, releases nothing from its factory,
+// does not jam as a gap generator and sleeps in its attack and repair
+// missions until switched back on; an unload already under way finishes. Second, rally points
 // for factories: OpenCNC3D_Can_Rally (a factory the local player owns that is
 // not a Construction Yard, a helipad or an airstrip), a move click on such a
 // building posts the existing ARCHIVE event to store a rally cell, What_Action
@@ -193,8 +198,14 @@ RadioMessageType BuildingClass::Receive_Message(RadioClass* from, RadioMessageTy
     assert(IsActive);
 
     /*
-    **	OpenCNC3D: a building switched off takes no new contact, so nothing docks at a
-    **	switched-off refinery, repair bay, helipad or airstrip until it is switched back on.
+    **	OpenCNC3D: a building switched off takes no new contact and offers no dock, so
+    **	nothing docks at a switched-off refinery, repair bay, helipad or airstrip until it
+    **	is switched back on. RADIO_HELLO is refused here; RADIO_CAN_LOAD is answered
+    **	below as usual except that an offer to dock (RADIO_ROGER) becomes RADIO_NEGATIVE.
+    **	Find_Docking_Bay and What_Action ask RADIO_CAN_LOAD, and a harvester that picked a
+    **	switched-off refinery would otherwise wait beside it with a full load forever.
+    **	Every other answer stays as it was, because InfantryClass::What_Action asks every
+    **	allied building and shows the no-entry pointer on any RADIO_NEGATIVE.
     */
     if (IsPowerOff && message == RADIO_HELLO) {
         return (RADIO_NEGATIVE);
@@ -216,20 +227,20 @@ RadioMessageType BuildingClass::Receive_Message(RadioClass* from, RadioMessageTy
         switch (Class->Type) {
         case STRUCT_AIRSTRIP:
             if (from->What_Am_I() == RTTI_AIRCRAFT && ((AircraftClass const*)from)->Class->IsFixedWing) {
-                return (RADIO_ROGER);
+                return (IsPowerOff ? RADIO_NEGATIVE : RADIO_ROGER);
             }
             break;
 
         case STRUCT_HELIPAD:
             if (from->What_Am_I() == RTTI_AIRCRAFT && !((AircraftClass const*)from)->Class->IsFixedWing) {
-                return (RADIO_ROGER);
+                return (IsPowerOff ? RADIO_NEGATIVE : RADIO_ROGER);
             }
             break;
 
         case STRUCT_REPAIR:
             if (from->What_Am_I() == RTTI_UNIT || (from->What_Am_I() == RTTI_AIRCRAFT)) {
                 if (Transmit_Message(RADIO_ON_DEPOT, from) != RADIO_ROGER) {
-                    return (RADIO_ROGER);
+                    return (IsPowerOff ? RADIO_NEGATIVE : RADIO_ROGER);
                 }
             }
             return (RADIO_NEGATIVE);
@@ -238,7 +249,7 @@ RadioMessageType BuildingClass::Receive_Message(RadioClass* from, RadioMessageTy
             if (from->What_Am_I() == RTTI_UNIT && *((UnitClass*)from) == UNIT_HARVESTER
                 && (ScenarioInit || !Is_Something_Attached())) {
 
-                return ((Contact_With_Whom() != from) ? RADIO_ROGER : RADIO_NEGATIVE);
+                return ((Contact_With_Whom() != from && !IsPowerOff) ? RADIO_ROGER : RADIO_NEGATIVE);
             }
             break;
 
@@ -1134,14 +1145,21 @@ void BuildingClass::AI(void)
  *                                                                                             *
  *    A wall piece has just been put down on `cell`. Along each of the four cell axes, walk    *
  *    out at most OpenCNC3D_WallFill cells. The first wall of the same overlay type that the    *
- *    same house owns is the anchor; if every cell before it is on the map and generally clear  *
- *    it gets a piece of that wall, owned as a placed piece is. Anything else in the way (a    *
- *    different wall, a unit, a building, a tree, the map's edge) ends that direction with      *
- *    nothing laid. The filled pieces cost nothing, as in the games this comes from.           *
+ *    same house owns is the anchor; if every cell before it is on the map and clear to build  *
+ *    on, by the test a placed piece must pass, it gets a piece of that wall, owned as a placed *
+ *    piece is. Anything else in the way (a different wall, a unit, a building, a tree, a      *
+ *    bridge, the map's edge) ends that direction with nothing laid.                           *
+ *                                                                                             *
+ *    Every filled piece is paid for at the price the factory charges for one (Cost_Of times   *
+ *    the house's CostBias), and a direction's gap is laid only if the house can pay for the   *
+ *    whole of it, so no half line is left. The 1996 sell-back refunds part of the price of    *
+ *    every owned wall cell; a free piece would sell for money the player never spent. The     *
+ *    walk order N, E, S, W is fixed, so every peer of a match spends the same.                *
  *=============================================================================================*/
-static void OpenCNC3D_Wall_Fill(CELL cell, OverlayType otype, HouseClass* house)
+static void OpenCNC3D_Wall_Fill(CELL cell, OverlayType otype, BuildingTypeClass const* btype, HouseClass* house)
 {
     static FacingType const _dirs[4] = {FACING_N, FACING_E, FACING_S, FACING_W};
+    int const cost = btype->Cost_Of() * house->CostBias;
     for (int d = 0; d < 4; d++) {
         CELL gap[16];
         int count = 0;
@@ -1157,18 +1175,28 @@ static void OpenCNC3D_Wall_Fill(CELL cell, OverlayType otype, HouseClass* house)
                 anchored = true;
                 break;
             }
-            if (!c.Is_Clear_To_Build()) {
+            /* SPEED_NONE is the building test, the one TechnoTypeClass::Legal_Placement
+               puts a placed wall piece through. The default, SPEED_TRACK, is the driving
+               test, and it passes a bridge deck, where no placed piece may stand: the line
+               could close a bridge to every unit. */
+            if (!c.Is_Clear_To_Build(SPEED_NONE)) {
                 break;
             }
             gap[count++] = at;
         }
-        if (!anchored) {
+        if (!anchored || count == 0) {
+            continue;
+        }
+        if (house->Available_Money() < count * cost) {
             continue;
         }
         for (int i = 0; i < count; i++) {
             ObjectClass* o = OverlayTypeClass::As_Reference(otype).Create_One_Of(house);
             if (o && o->Unlimbo(Cell_Coord(gap[i]))) {
                 Map[gap[i]].Owner = house->Class->House;
+                if (cost > 0) {
+                    house->Spend_Money(cost);
+                }
             } else if (o) {
                 delete o;
             }
@@ -1227,7 +1255,7 @@ bool BuildingClass::Unlimbo(COORDINATE coord, DirType dir)
                     **	1996 did.
                     */
                     if (OpenCNC3D_WallFill > 0 && House->IsHuman) {
-                        OpenCNC3D_Wall_Fill(Coord_Cell(coord), otype, House);
+                        OpenCNC3D_Wall_Fill(Coord_Cell(coord), otype, Class, House);
                     }
                     Transmit_Message(RADIO_OVER_OUT);
                     Map.Sight_From(Coord_Cell(coord), Class->SightRange, House);
@@ -4319,11 +4347,6 @@ int BuildingClass::Mission_Harvest(void)
 {
     assert(Buildings.ID(this) == ID);
     assert(IsActive);
-
-    /* OpenCNC3D: a refinery switched off does not unload a docked harvester. */
-    if (IsPowerOff) {
-        return (TICKS_PER_SECOND / 2);
-    }
 
     enum
     {

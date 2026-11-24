@@ -37,12 +37,14 @@ extern "C" {
 #endif
 
 /* dms_run returns one of the DM_* items, or one of these. */
+#define DMS_ANTS 100 /* hidden RA title-speaker route; never a main-menu button */
 #define DMS_QUIT (-1)  /* the window was closed: close the program        */
 /* CANCEL IS NOT QUIT, and until v0.6.0 it was the same number. The Special Ops list
    returned -1 for its Cancel button and for ESC, the caller tested that against
    DMS_QUIT, and pressing Cancel therefore closed the whole game -- exactly as reported.
    The comment below this line has always said the two are different; only the values
    disagreed. */
+#define DMS_IMPORT (-6) /* User Maps asks the app to open the importer */
 #define DMS_CANCEL (-2) /* the user backed out: return to the menu, do NOT exit */
 #define DMS_NONE (-2)  /* dms_run_frame only: nothing decided this frame  */
 
@@ -67,6 +69,7 @@ typedef struct DMS_Config {
        tactical view's is how you end up with two mixers fighting over one sound
        card and a menu whose music survives into the mission. NULL is legal and
        means the menu is silent. */
+    int ants_available; /* four installed original missions and their own scenes */
     struct CncAudio* au;
 } DMS_Config;
 
@@ -76,6 +79,7 @@ struct SK_State;
 struct SK_Map;
 struct SK_Prev;
 struct SK_Lobby;
+struct DMS_MapImportState;
 
 typedef struct DMS {
     SDL_Window* win;
@@ -97,6 +101,7 @@ typedef struct DMS {
        main menu's buttons. Owned by dms_special for the length of its own loop and
        NULL everywhere else, so the ordinary menu path is untouched. */
     struct DO_State* ops;
+    const struct DMS_MapImportState* importer;
     /* The same seam again for the skirmish lobby, and a second pointer rather than a
        mode number for the same reason: whichever one is set is the screen, and with
        both NULL the ordinary menu path cannot be affected by either. */
@@ -109,6 +114,14 @@ int  dms_logo(DMS* s);         /* 1 played/skipped, 0 the window was closed */
 int  dms_intro(DMS* s);        /* the same, for the Intro & Sneak Peek button */
 int dms_enh_choice(DMS *s, int which);
 int  dms_run(DMS* s);          /* DM_* item, or DMS_QUIT                    */
+/* The end of one pass of a menu loop, after the swap: sleep only for what is left of one
+   display refresh, at the display's rate (at least 60 a second), and not at all when the
+   swap already waited for one. A recording run (--audiowav) keeps a fixed 16 ms pass. */
+void dms_pace(DMS* s);
+/* HARNESS ONLY (--menubench): the next dms_run holds the main menu idle for idle_ms, then
+   with a stand-in pointer on `item` for hover_ms, prints a MENUBENCH line per leg, writes
+   dir/idle.png and dir/hover.png when dir is given, and returns DMS_CANCEL. */
+void dms_menubench(unsigned idle_ms, unsigned hover_ms, int item, const char* dir);
 /* Red Alert's original title-page new-game choice. Returns 0 Allies, 1 Soviet,
    DMS_CANCEL on Escape, or DMS_QUIT. auto_side is harness-only (-1 normally). */
 int  dms_ra_choose_side(DMS* s, int auto_side, const char* shot);
@@ -118,11 +131,25 @@ int  dms_ra_choose_difficulty(DMS* s, int auto_difficulty, const char* shot);
    DMS_CANCEL or DMS_QUIT, the difficulty (0..2) through *difficulty. auto_side and
    auto_difficulty are for automated runs (-1 normally); shot is written from the first frame. */
 int  dms_ra_enh_side(DMS* s, int auto_side, int auto_difficulty, const char* shot, int* difficulty);
-/* Red Alert's match debrief in its Enhanced kit (em_ra_debrief), until a click or a key;
+/* The mode the next lobby OPENS in: 1 Gun Game, 0 Free for All (dms_lobby_set_rally for a
+   Rally). A lobby opens in Free for All; these seed another mode for the automated runs
+   (--lobbyplay --gungame), and the player changes it with the lobby's Game Mode dropdown
+   (sk_set_mode). */
+void dms_lobby_set_gun_game(int gun_game);
+/* THE GAME MODES, in the Game Mode dropdown's order (SK_MODE_* in doslobby.h). */
+#define DMS_MODE_FFA 0
+#define DMS_MODE_GUN_GAME 1
+#define DMS_MODE_RALLY 2
+/* The next lobby opens as a Rally's, listing only courses (SK_State.rally): an automated run's seed. */
+void dms_lobby_set_rally(int rally);
+/* The room-list label a host advertises, "Green Acres / Gun Game": the map's name followed
+   by the room's mode (DMS_MODE_*). */
+const char* dms_room_label(const char* map, int mode);
+/* The match debrief in the game's Enhanced kit (em_match_debrief), until a click or a key;
    with `nowait` it is drawn once (and written to `shot` when given) and returns at once.
    Answers 1 to carry on, DMS_QUIT when the window was closed. */
 struct EM_Debrief;
-int  dms_ra_debrief(DMS* s, const struct EM_Debrief* d, const char* shot, int nowait);
+int  dms_match_debrief(DMS* s, const struct EM_Debrief* d, const char* shot, int nowait);
 /* Whether this shell draws the Enhanced screens (the game's own kit, Enhanced on). */
 int  dms_enhanced_menu(const DMS* s);
 
@@ -131,6 +158,9 @@ int  dms_enhanced_menu(const DMS* s);
    (it is the one that can read a directory); see menu/dosops.h. */
 struct DO_Mission;
 int  dms_special(DMS* s, const struct DO_Mission* list, int count);
+/* Same mission picker with Import Map, including when the list is empty. */
+int  dms_usermaps(DMS* s, const struct DO_Mission* list, int count);
+int  dms_ant_speaker_rect(const DMS* s, int* x, int* y, int* w, int* h);
 
 /* ------------------------------------------------------------- THE MULTIPLAYER SCREEN *
  *  Host a game, browse for one on the LAN, and wait in the room until everybody is ready.
@@ -278,10 +308,15 @@ int  dms_lobby(DMS* s, const struct SK_Map* maps, int count, const struct SK_Pre
    room. */
 int  dms_lobby_seat_auto_closed(int seat);
 void dms_lobby_auto_closed_clear(void);
+/* Offline setup only; an empty path disables persistence for automated runs. */
+void dms_skirmish_remember(const char *path);
 int  dms_lobby_net(DMS* s, const struct SK_Map* maps, int count, const struct SK_Prev* prev,
                    struct SK_Lobby* out, DMS_LobbyProbe* probe, int net);
 /* Write the menu surface to a PNG, scaled up. Returns 1 on success. */
 int  dms_write_shot(DMS* s, const char* path);
+/* Hidden integration probe: render the actual User Maps list, capture its Import
+   button, then click that button through the ordinary mouse controller. */
+int dms_usermaps_import_probe(DMS*, const struct DO_Mission*, int, const char*);
 void dms_close(DMS* s);
 
 /* The rectangle an item occupies IN WINDOW PIXELS, for a harness that wants to

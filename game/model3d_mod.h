@@ -104,7 +104,7 @@
 
 enum { M3_ROLE_STATIC = 0, M3_ROLE_TURRET = 1 };
 enum { M3_MAT_TREAD = 1 << 0, M3_MAT_NO_PLAYER = 1 << 1, M3_MAT_CLOTH = 1 << 2,
-       M3_MAT_EMBLEM = 1 << 3 };
+       M3_MAT_EMBLEM = 1 << 3, M3_MAT_FLUID = 1 << 4, M3_MAT_ANT_GLOSS = 1 << 5 };
 
 /* THE SHOULDER EMBLEM'S PAINT. A material flagged M3_MAT_EMBLEM carries two stencils, the
    GDI eagle in its surface map's alpha and the Nod emblem in its normal map's alpha, over
@@ -116,15 +116,7 @@ enum { M3_MAT_TREAD = 1 << 0, M3_MAT_NO_PLAYER = 1 << 1, M3_MAT_CLOTH = 1 << 2,
 #define M3_LOGO_G 0.4822f
 #define M3_LOGO_B 0.4760f
 
-/* THE CLOTH COLOUR'S REFERENCE BRIGHTNESS. A side's cloth colour replaces the fabric's
-   paint with that colour scaled by the paint's own brightness over this number, so the
-   camouflage pattern, the seams and the shading all survive as light and dark of the new
-   colour, and fabric of average brightness comes out as exactly the colour chosen.
-   Measured: the mean linear luminance of the Tempest Rising rifleman's colour map under
-   his cloth mask (T_GDI_Rifleman_D under T_GDI_Rifleman_Cloth), which is the only sheet
-   that carries one. A second soldier with fabric of a different brightness needs its own
-   number, carried per material, before this constant is shared with it. */
-#define M3_CLOTH_REF 0.0820f
+/* (M3_CLOTH_REF, the cloth colour's reference brightness: model_cloth_reference.h) */
 
 struct M3Part { int role; float px, py, pz; char name[17]; };
 struct M3Sub  { int part, mat; unsigned idx0, nidx; };
@@ -215,9 +207,30 @@ struct M3Model {
     size_t skinUvN, skinIdxN;
     bool   skinTried;
     std::vector<unsigned> skinLodBase;
+    /* A SKINNED MODEL THE CARD SKINS ITSELF (m3_skin_gpu): its bind pose with each
+       vertex's bones and weights in one buffer, built from vert and skin as they stand
+       at revision gskinRev, and the bone palette of the pose the next draw shows, 12
+       floats a bone. drawGpuSkin is set by that pose and taken back to 0 by the draw. */
+    GLuint gskinVbo;
+    unsigned long long gskinRev;
+    size_t gskinN;
+    bool   gskinTried;
+    int    drawGpuSkin;
+    std::vector<float> palette;
+    /* WHERE THIS MODEL'S TEXTURES ARE IN ITS FILE: the file, the offset of the first
+       texture record, and how many records it holds (tex may grow past them later, as a
+       torn body's caps are appended). texParked: their pixels were let go after the load
+       without being uploaded (an experimental model, boot_art.h), and m3_upload reads them
+       again from here. buffersTried: m3_upload_buffers has run, so it never runs twice. */
+    std::string texFile;
+    long     texAt;
+    unsigned texFromFile;
+    bool     texParked;
+    bool     buffersTried;
     M3Model() : poseRevision(++g_m3PoseRevision), drawLod(-1), uploaded(false), enh(false), vbo(0), ibo(0), drawPosed(0),
                 drawPosedEnt(-1), skinUv(0), skinIbo(0), skinUvN(0), skinIdxN(0),
-                skinTried(false)
+                skinTried(false), gskinVbo(0), gskinRev(0), gskinN(0), gskinTried(false),
+                drawGpuSkin(0), texAt(-1), texFromFile(0), texParked(false), buffersTried(false)
     { memset(bb, 0, sizeof bb); }
 };
 
@@ -226,6 +239,7 @@ static void m3_pose_model_changed(M3Model& m)
     m.poseRevision = ++g_m3PoseRevision;
     m.drawPosed = 0;
     m.drawPosedEnt = -1;
+    m.drawGpuSkin = 0;
 }
 
 static std::vector<M3Model> g_m3;
@@ -284,6 +298,7 @@ static int g_m3Drawn = 0;     /* objects answered by an authored model this fram
 static int g_m3Tris  = 0;     /* triangles submitted for them                     */
 static int g_m3Turn  = 0;     /* of those objects, how many had a turned turret   */
 static int g_m3InfDrawn = 0;  /* of those, infantry, posed from a clip            */
+static int g_m3InfViewCulled = 0, g_m3InfSockOnly = 0;  /* colour pass: off the picture, and posed only for sockets */
 static int g_m3InfFall  = 0;  /* infantry with a model but no clip for what they
                                  are doing, handed back to their sprite           */
 
@@ -393,6 +408,9 @@ static bool m3_read_one(const char* path, M3Model& m)
         M3Mat mt; mt.base = t[0]; mt.norm = t[1]; mt.orm = t[2]; mt.flags = fl;
         m.mat.push_back(mt);
     }
+    m.texFile = path;
+    m.texAt = ftell(f);
+    m.texFromFile = ntex;
     for (unsigned i = 0; i < ntex; i++) {
         unsigned t[3];
         if (fread(t, 4, 3, f) != 3) { fclose(f); return false; }
@@ -533,6 +551,55 @@ static bool m3_read_one(const char* path, M3Model& m)
 }
 
 static void m3_upload(M3Model& m);   /* with the rest of the GL, further down */
+static void m3_upload_buffers(M3Model& m);
+
+/* THE EXPERIMENTAL SET'S TEXTURES STAY IN THEIR FILES (boot_art.h). That set is drawn only
+   under experimental art, which nothing switches on; what it is still needed for is its
+   bones, clips and meshes, which step every soldier while the remastered soldiers are off.
+   So after the load has read and reported a model (its M3| lines count these pixels),
+   the pixels are let go, and m3_upload reads them back from the file, byte for byte the
+   records m3_read_one read, before the first draw that would bind them. Every reader of
+   the pixels runs inside m3_read_one (the fabric reference) or in m3_upload_tex, which
+   drops them once they are on the card in any case. */
+static size_t m3_park_textures(M3Model& m)
+{
+    size_t bytes = 0;
+    for (unsigned i = 0; i < m.texFromFile && i < m.tex.size(); i++) {
+        bytes += m.tex[i].px.size();
+        std::vector<unsigned char>().swap(m.tex[i].px);
+    }
+    m.texParked = m.texAt >= 0 && !m.texFile.empty();
+    return bytes;
+}
+
+/* Read a parked model's texture pixels again. The records are checked against the sizes
+   the load saw; a file that no longer matches leaves the textures empty, which the draw
+   binds as none, and says so. */
+static bool m3_unpark_textures(M3Model& m)
+{
+    m.texParked = false;
+    FILE* f = fopen(m.texFile.c_str(), "rb");
+    bool ok = f && fseek(f, m.texAt, SEEK_SET) == 0;
+    size_t bytes = 0;
+    for (unsigned i = 0; ok && i < m.texFromFile && i < m.tex.size(); i++) {
+        M3Tex& tx = m.tex[i];
+        unsigned t[3];
+        ok = fread(t, 4, 3, f) == 3 && (int)t[0] == tx.w && (int)t[1] == tx.h;
+        if (!ok) break;
+        if (tx.gl || !tx.px.empty()) { ok = fseek(f, (long)t[2], SEEK_CUR) == 0; continue; }
+        tx.px.resize(t[2]);
+        ok = !t[2] || fread(&tx.px[0], 1, t[2], f) == t[2];
+        bytes += t[2];
+    }
+    if (f) fclose(f);
+    if (!ok)
+        for (unsigned i = 0; i < m.texFromFile && i < m.tex.size(); i++)
+            if (!m.tex[i].gl) std::vector<unsigned char>().swap(m.tex[i].px);
+    printf("BOOTART|m3|%s|textures read again|%s|%.1f MB\n", m.type.c_str(),
+           ok ? "ok" : "FAILED, its file no longer matches the load", (double)bytes / (1024.0 * 1024.0));
+    fflush(stdout);
+    return ok;
+}
 
 static void m3_load(const char* dir)
 {
@@ -553,7 +620,9 @@ static void m3_load(const char* dir)
            apart. The renderer reads it as E1 everywhere else (type_art_alias). */
         "E1TR"
     };
-    int found = 0;
+    int found = 0, parked = 0;
+    size_t parkedBytes = 0;
+    const bool park = !boot_art_retired_at_start();
     for (size_t i = 0; i < sizeof TYPES / sizeof TYPES[0]; i++) {
         char path[512];
         snprintf(path, sizeof path, "%smodels3d/%s.c3m",
@@ -581,8 +650,14 @@ static void m3_load(const char* dir)
             printf("M3|%s|lod %d|tris %d|verts %u|below screen size %.3f\n",
                    m.type.c_str(), (int)l + 1, (int)(m.lod[l].idx.size() / 3),
                    m.lod[l].nvert, (double)m.lod[l].screen);
+        if (park) { parkedBytes += m3_park_textures(m); parked++; }
         g_m3.push_back(m);
         found++;
+    }
+    if (parked) {
+        printf("BOOTART|m3|textures left in their files|models=%d|%.1f MB|read again at a first draw\n",
+               parked, (double)parkedBytes / (1024.0 * 1024.0));
+        fflush(stdout);
     }
     /* THE REMASTERED SOLDIERS, einf/<TYPE>.c3m (tools/art/remaster/infantry): Enhanced's
        own infantry. Reported as M3E| so a gate reading the experimental set's M3| lines
@@ -649,9 +724,13 @@ static void m3_load(const char* dir)
        live GL context. Deferring it puts a 1.3 second stall on the frame a Mammoth
        first comes into view -- measured, and it is 12.8 MB of atlas plus its mipmap
        chain -- and the middle of a battle is a worse place for that than the second
-       the loading screen is already taking. */
-    for (size_t i = 0; i < g_m3.size(); i++)
-        m3_upload(g_m3[i]);
+       the loading screen is already taking. A parked experimental model (above) puts
+       only its geometry buffers on the card here, as its upload always did; its
+       textures wait for m3_upload. */
+    for (size_t i = 0; i < g_m3.size(); i++) {
+        if (g_m3[i].texParked) m3_upload_buffers(g_m3[i]);
+        else m3_upload(g_m3[i]);
+    }
 }
 
 /* ---- the shader ------------------------------------------------------------------ */
@@ -696,10 +775,15 @@ static const char* M3_FS =
     "uniform sampler2D uBase;\n"
     "uniform sampler2D uNorm;\n"
     "uniform sampler2D uORM;\n"
-    "uniform vec3  uSunDir;\n"      /* the direction light TRAVELS, world space */
+    "uniform vec3  uSunDir, uSecondSunDir, uSecondSunCol; uniform float uSecondSunOn;\n"      /* the direction light TRAVELS, world space */
     "uniform vec3  uSunCol;\n"
     "uniform vec3  uSkyCol;\n"
     "uniform vec3  uGndCol;\n"
+    /* GROUND BOUNCE (bounce_mod.h): the change to the lower half of the ambient that the
+       ground under this model makes, set per draw; uBounceOn 0 leaves the ambient as it
+       was, character for character. */
+    "uniform vec3  uBounceDelta;\n"
+    "uniform float uBounceOn;\n"
     /* THE SKY, when one is installed. uEnvOn 0 keeps the two-colour hemisphere above,
        character for character, which is what a build with no sky pack draws and is why
        this change is additive rather than a replacement. */
@@ -715,8 +799,10 @@ static const char* M3_FS =
     "uniform vec3  uPlayer;\n"
     "uniform float uPlayerOn;\n"
     "uniform vec3  uCloth;\n"
+    "uniform float uFluidOn, uFluidGrowth, uAntGloss;\n"
     "uniform float uClothOn;\n"      /* the cloth amount, 0 on a material without the mask */
     "uniform float uClothRef;\n"
+    "uniform float uClothKey;\n"    /* 1 keeps the fabric's neutral paint (main below) */
     "uniform float uEmblemOn, uSide;\n"
     "uniform vec3  uLogo;\n"
     "uniform float uPlayerGain;\n"  /* the team plates' brightness; 1 on every vehicle */
@@ -807,7 +893,20 @@ static const char* M3_FS =
        multiply over tan cannot make black; the paint's brightness is kept, so the
        pattern stays (see M3_CLOTH_REF). The two masks do not overlap. */
     "    float clum = dot(alb, vec3(0.2126, 0.7152, 0.0722));\n"
-    "    alb = mix(alb, uCloth * (clum / uClothRef), ormA.a * uClothOn);\n"
+    /* THE NEUTRAL PAINT UNDER THE MASK KEPT, when uClothKey is 1: a texel whose painted
+       saturation is low (a white or grey vest, a seam) is not the uniform's colour and
+       keeps its paint, as a 1995 remap left every palette entry off its ramp alone. The
+       saturation is the texture's own, max - min over max, before any colour is applied.
+       Below 0.30 a texel keeps its paint, above 0.45 it takes the cloth, between them it
+       blends. Measured on the remastered soldiers' cloth masks: the Engineer's off-white
+       vest lies mostly at 0.10 to 0.35 and every soldier's uniform paint at 0.45 and above
+       (98 to 99.7% of the masked texels of the Minigunner, Grenadier, Rocket Soldier,
+       Flamethrower, Chem Warrior and Commando take the cloth as before). */
+    "    float cmx = max(max(base.r, base.g), base.b);\n"
+    "    float csat = (cmx - min(min(base.r, base.g), base.b)) / max(cmx, 0.0001);\n"
+    "    float camt = ormA.a * uClothOn\n"
+    "               * mix(1.0, smoothstep(0.30, 0.45, csat), uClothKey);\n"
+    "    alb = mix(alb, uCloth * (clum / uClothRef), camt);\n"
     "    float logo = mix(ormA.a, texture2D(uNorm, vUV).a, uSide) * uEmblemOn;\n"
     "    alb = mix(alb, uLogo, logo);\n"
     "    alb = mix(alb, vec3(1.0), uFlash);\n"
@@ -841,7 +940,22 @@ static const char* M3_FS =
        and a hull reads correctly in the light and glows in the shade. */
     "    const float INV_PI = 0.31830989;\n"
     "    vec3 lit = (diff * INV_PI + spec) * uSunCol * NoL;\n"
+    /* Keep only primary direct light in the shadow share; secondary light stays unshadowed. */
+    "    float shellShine = texture2D(uNorm, vUV).a * uAntGloss;\n"
+    "    float glossPower = exp2(mix(3.0, 9.0, clamp(1.04 - orm.g, 0.12, 0.86)));\n"
+    "    float glossLobe = pow(NoH, glossPower) * (glossPower + 8.0) / 25.13274;\n"
+    "    lit += shellShine * vec3(1.0, 0.96, 0.88) * glossLobe * 0.12 * uSunCol * NoL;\n"
     "    vec3 directLight = lit;\n"
+    "    if (uAntGloss > 0.5) {\n"
+    "        float rim = 0.04 + 0.96 * pow(1.0 - clamp(NoV, 0.0, 1.0), 5.0);\n"
+    "        lit += shellShine * vec3(0.55, 0.64, 0.76) * rim * 0.45;\n"
+    "    }\n"
+    "    if(uSecondSunOn>0.5) {\n"
+    "        vec3 Ls=-uSecondSunDir,Hs=normalize(Ls+V);\n"
+    "        float nl=max(dot(N,Ls),0.0),nh=max(dot(N,Hs),0.0),vh=max(dot(V,Hs),0.0);\n"
+    "        vec3 ss=m3_fresnel(f0,vh)*(m3_ggx(nh,a)*m3_vis(NoV,nl,a));\n"
+    "        lit+=(diff*INV_PI+ss)*uSecondSunCol*nl;\n"
+    "    }\n"
     "\n"
     /* THE HEMISPHERE. Sky above, ground bounce below, the blend on the normal's own y.
        It is not an environment probe and does not pretend to be one; it exists because
@@ -849,6 +963,7 @@ static const char* M3_FS =
        map is what stops it filling the creases it should not reach. */
     "    vec3 amb = mix(uGndCol, uSkyCol, N.y * 0.5 + 0.5);\n"
     "    if (uEnvOn == 1) amb = max(m3_sh(N) * uEnvAmb, vec3(0.0));\n"
+    "    if (uBounceOn > 0.5) amb = max(amb + uBounceDelta * (0.5 - 0.5 * N.y), vec3(0.0));\n"
     "    lit += diff * INV_PI * amb * ao;\n"
     /* AND THE AMBIENT'S SPECULAR, without which metal is black: metal has no diffuse
        term, so the only light it would otherwise carry is the sliver at the mirror
@@ -869,6 +984,10 @@ static const char* M3_FS =
     "    }\n"
     "\n"
     "    if (uLightSplit == 1) { gl_FragColor = vec4(clamp(directLight/max(lit,vec3(0.00001)),0.0,1.0),0.25); return; }\n"
+    /* Translate the Ant's approved Lab palette into the brighter game exposure.
+       Scale the complete response so highlights keep their contrast and hue. */
+    "    if (uAntGloss > 0.5) lit *= 0.16;\n"
+    "    if (uFluidOn > 0.5) lit *= 0.17;\n"
     "    lit *= uTint;\n"
     /* THE SHROUD IS TAKEN AFTER THE ENCODE, NOT BEFORE IT. Everything else under the
        shroud darkens in display values: the blanket blends black over the frame, the
@@ -878,7 +997,13 @@ static const char* M3_FS =
        light on ground and blanket at a fifth of theirs, so soldiers at the reveal edge
        read as standing on top of the shroud. */
     "    vec3 outc = objectGrade(pow(max(lit, vec3(0.0)), vec3(1.0 / uGamma))) * (1.0 - uShroud);\n"
-    "    gl_FragColor = vec4(outc, uAlpha);\n"
+    "    float alpha = uAlpha;\n"
+    "    if (uFluidOn > 0.5) {\n"
+    "        float distanceField = (texture2D(uNorm, vUV).a * 65280.0 + ormA.a * 255.0) / 65535.0;\n"
+    "        alpha *= 0.65 * smoothstep(-0.035, 0.11, 0.85 * uFluidGrowth - distanceField);\n"
+    "        if (alpha <= 0.0) discard;\n"
+    "    }\n"
+    "    gl_FragColor = vec4(outc, alpha);\n"
     "}\n";
 
 /* ---- the normals pass -------------------------------------------------------------
@@ -946,28 +1071,34 @@ static int    g_m3ProgTried = 0;
    numbers them its own way. A name a program does not use holds -1 and is skipped,
    exactly as a lookup by name would be. */
 struct M3Loc {
-    GLint uBase, uNorm, uORM, uSunDir, uSunCol, uSkyCol, uGndCol;
+    GLint uBase, uNorm, uORM, uSunDir, uSecondSunDir, uSecondSunOn, uSecondSunCol, uSunCol, uSkyCol, uGndCol;
     GLint uEnvOn, uEnv, uEnvMaxLod, uEnvAmb, uSH, uCamPos;
     GLint uPlayer, uCloth, uClothRef, uSide, uLogo, uPlayerGain;
     GLint uTint, uShroud, uFlash, uAlpha, uLightSplit;
     GLint uObjectGrade0, uObjectGrade1, uObjectGradeRGB;
     GLint uNormalStr, uAoStr, uRoughMin, uSpecAmb, uGamma, uClass;
-    GLint uModel, uUVOffset, uPlayerOn, uClothOn, uEmblemOn;
+    GLint uModel, uUVOffset, uPlayerOn, uClothOn, uClothKey, uEmblemOn;
+    GLint uFluidOn, uFluidGrowth, uAntGloss;
+    GLint uBounceDelta, uBounceOn;   /* GROUND BOUNCE */
+    GLint uBone;                     /* the bone palette: only the card-skinned programs */
 };
 static M3Loc g_m3Loc, g_m3NrmLoc;
 
 static void m3_loc_fill(GLuint p, M3Loc& L)
 {
 #define M3_LOC(n) L.n = fx_glGetUniformLocation(p, #n)
-    M3_LOC(uBase); M3_LOC(uNorm); M3_LOC(uORM); M3_LOC(uSunDir); M3_LOC(uSunCol);
+    M3_LOC(uBase); M3_LOC(uNorm); M3_LOC(uORM); M3_LOC(uSunDir); M3_LOC(uSecondSunDir); M3_LOC(uSecondSunOn); M3_LOC(uSecondSunCol); M3_LOC(uSunCol);
     M3_LOC(uSkyCol); M3_LOC(uGndCol); M3_LOC(uEnvOn); M3_LOC(uEnv); M3_LOC(uEnvMaxLod);
     M3_LOC(uEnvAmb); M3_LOC(uSH); M3_LOC(uCamPos); M3_LOC(uPlayer); M3_LOC(uCloth);
     M3_LOC(uClothRef); M3_LOC(uSide); M3_LOC(uLogo); M3_LOC(uPlayerGain); M3_LOC(uTint);
     M3_LOC(uLightSplit); M3_LOC(uShroud); M3_LOC(uFlash); M3_LOC(uAlpha); M3_LOC(uNormalStr); M3_LOC(uAoStr);
     M3_LOC(uRoughMin); M3_LOC(uSpecAmb); M3_LOC(uGamma); M3_LOC(uClass); M3_LOC(uModel);
-    M3_LOC(uUVOffset); M3_LOC(uPlayerOn); M3_LOC(uClothOn); M3_LOC(uEmblemOn);
+    M3_LOC(uUVOffset); M3_LOC(uPlayerOn); M3_LOC(uClothOn); M3_LOC(uClothKey); M3_LOC(uEmblemOn);
+    M3_LOC(uFluidOn); M3_LOC(uFluidGrowth); M3_LOC(uAntGloss);
     M3_LOC(uObjectGrade0); M3_LOC(uObjectGrade1); M3_LOC(uObjectGradeRGB);
+    M3_LOC(uBounceDelta); M3_LOC(uBounceOn);
 #undef M3_LOC
+    L.uBone = -1;        /* asked only of the programs that have one (m3_skin_programs) */
 }
 
 /* The setters, by location: a negative one is a parameter the program does not have. */
@@ -983,9 +1114,11 @@ static inline void m3_umat(GLint l, const float* m)
 static GLuint m3_prog(void)
 {
     if (!g_m3Prog && !g_m3ProgTried) {
-        g_m3ProgTried = 1;
+        /* A Classic-to-Enhanced switch can ask before FX initializes GL.
+           Not ready is not a failed shader compilation; permit the first real draw. */
         if (!fx_gl_ready)
             return 0;
+        g_m3ProgTried = 1;
         GLuint vs = fx_compile(GL_VERTEX_SHADER, M3_VS, "model3d");
         if (!vs) return 0;
         GLuint fs = fx_compile(GL_FRAGMENT_SHADER, M3_FS, "model3d");
@@ -1015,9 +1148,11 @@ static GLuint m3_prog(void)
 static GLuint m3_nrm_prog(void)
 {
     if (!g_m3NrmProg && !g_m3NrmTried) {
-        g_m3NrmTried = 1;
+        /* A Classic-to-Enhanced switch can ask before FX initializes GL.
+           Not ready is not a failed shader compilation; permit the first real draw. */
         if (!fx_gl_ready)
             return 0;
+        g_m3NrmTried = 1;
         GLuint vs = fx_compile(GL_VERTEX_SHADER, M3_VS, "model3d-normals");
         if (!vs) return 0;
         GLuint fs = fx_compile(GL_FRAGMENT_SHADER, M3_NRM_FS, "model3d-normals");
@@ -1042,6 +1177,173 @@ static GLuint m3_nrm_prog(void)
         g_m3NrmProg = p;
     }
     return g_m3NrmProg;
+}
+
+/* ---- the skin on the card -------------------------------------------------------------
+   A WHOLE SOLDIER'S POSE AS A BONE PALETTE, the vertices moved by the vertex stage. The
+   CPU skin (m3_skin, below) costs every vertex of the model, times its bones, once a
+   frame for every soldier, and then sends the result to the card again; the palette is
+   three rows a bone, about a kilobyte, and the bind pose with its bones and weights goes
+   to the card once per model. The rows are the CPU skin's own matrices (m3_bone_matrices)
+   and the stage blends them by the same weights, so the vertices are the CPU's to within
+   the order of a few float roundings: a few edge pixels and a level or two of shade
+   move, nothing else does.
+
+   THREE PROGRAMS, ONE VERTEX STAGE: the lit draw (M3_FS), the ground-normal pass
+   (M3_NRM_FS), and depth alone for the soldiers' sun map, which the CPU path draws with
+   the fixed pipeline and which cannot skin. The lit and normal passes depth-test each
+   other's soldiers, so gl_Position is invariant and computed by the same text in all
+   three. A vertex's bones and weights ride on texture coordinate sets 1 and 2 (the
+   indices as shorts, a weight as the float the CPU skin multiplies by), because this
+   renderer resolves no generic-attribute entry points and glTexCoordPointer takes no
+   bytes. A weight of zero has its bone index set to 0, so no unused slot reads past the
+   palette. M3_GPU_BONES is the widest palette the stage holds: 96 rows, 384 of the 512
+   vertex uniform components GLSL 1.20 guarantees; the shipped soldiers have 21 to 26
+   bones, and a model with more is skinned on the CPU as before.
+
+   OPENCNC3D_SKIN_GPU=0 skins every pose on the CPU exactly as before; 1 skins on the card
+   on any driver; verify skins on the card and also checks every palette and the packed
+   bones and weights against the CPU's own skin of the same pose (m3dump, M3GPUSKIN).
+   Unset, the card skins only on the drivers it has been run on (m3_skin_gpu_mode). A torn
+   body, the database's preview, and a driver that will not link these programs or make
+   the buffer all keep the CPU skin. */
+#define M3_GPU_BONES 32
+#define M3_GPU_ROWS  96
+typedef char m3_gpu_rows_check[(M3_GPU_ROWS == M3_GPU_BONES * 3) ? 1 : -1];
+#define M3_GSKIN_STRIDE (8 * sizeof(float) + 4 * sizeof(short) + 4 * sizeof(float))
+#define M3_STR_(x) #x
+#define M3_STR(x) M3_STR_(x)
+
+static const char* M3_SKIN_VS =
+    "#version 120\n"
+    "invariant gl_Position;\n"
+    "uniform mat4  uModel;\n"
+    "uniform vec2  uUVOffset;\n"
+    "uniform vec4  uBone[" M3_STR(M3_GPU_ROWS) "];\n"
+    "varying vec3  vWorld;\n"
+    "varying vec3  vNormal;\n"
+    "varying vec2  vUV;\n"
+    "void main() {\n"
+    "    vec4 bw = gl_MultiTexCoord2;\n"
+    "    int i0 = int(gl_MultiTexCoord1.x) * 3, i1 = int(gl_MultiTexCoord1.y) * 3;\n"
+    "    int i2 = int(gl_MultiTexCoord1.z) * 3, i3 = int(gl_MultiTexCoord1.w) * 3;\n"
+    /* The vertex's own matrix, its bones' rows mixed by its weights, which moves it as
+       the weighted sum of what each bone alone would do. */
+    "    vec4 r0 = uBone[i0] * bw.x + uBone[i1] * bw.y + uBone[i2] * bw.z + uBone[i3] * bw.w;\n"
+    "    vec4 r1 = uBone[i0 + 1] * bw.x + uBone[i1 + 1] * bw.y + uBone[i2 + 1] * bw.z + uBone[i3 + 1] * bw.w;\n"
+    "    vec4 r2 = uBone[i0 + 2] * bw.x + uBone[i1 + 2] * bw.y + uBone[i2 + 2] * bw.z + uBone[i3 + 2] * bw.w;\n"
+    "    vec4 h  = vec4(gl_Vertex.xyz, 1.0);\n"
+    "    vec4 sp = vec4(dot(r0, h), dot(r1, h), dot(r2, h), 1.0);\n"
+    "    vec3 n  = vec3(dot(r0.xyz, gl_Normal), dot(r1.xyz, gl_Normal), dot(r2.xyz, gl_Normal));\n"
+    "    float nl = dot(n, n);\n"
+    "    n = nl > 1e-20 ? n * inversesqrt(nl) : vec3(0.0);\n"
+    /* From here M3_VS, on the skinned vertex. */
+    "    vec4 wp = uModel * sp;\n"
+    "    vWorld  = wp.xyz;\n"
+    "    vNormal = mat3(uModel) * n;\n"
+    "    vUV     = gl_MultiTexCoord0.xy + uUVOffset;\n"
+    "    gl_Position = gl_ModelViewProjectionMatrix * sp;\n"
+    "}\n";
+
+static const char* M3_SKIN_DEPTH_FS =
+    "#version 120\n"
+    "void main() { gl_FragColor = vec4(1.0); }\n";
+
+enum { M3_SKIN_LIT = 0, M3_SKIN_NRM = 1, M3_SKIN_DEPTH = 2 };
+static GLuint g_m3SkinProg[3];
+static M3Loc  g_m3SkinLoc[3];
+static int    g_m3SkinState = 0;      /* 0 not yet asked, 1 linked, -1 refused */
+
+/* WHERE THE UNSET SWITCH SKINS ON THE CARD: only on the drivers this path has been run on,
+   Apple's own OpenGL on Apple silicon and NVIDIA's driver outside macOS. Any other driver
+   links the same programs, but nothing reads its skin back (verify redoes the vertex
+   stage's arithmetic on the CPU), so one that indexed the palette wrongly would draw
+   broken soldiers with no way back to the CPU; there the unset switch keeps the CPU skin,
+   and OPENCNC3D_SKIN_GPU=1 asks for the card anyway. macOS is decided by the build and
+   Apple silicon by the vendor string, because an Intel Mac's OpenGL reports the GPU's
+   maker ("Intel Inc.", "ATI Technologies Inc.", "NVIDIA Corporation") where Apple silicon
+   reports "Apple". OPENCNC3D_SKIN_GPU_VENDOR stands in for the driver's vendor string in
+   this one decision, so a gate can show the decision for another driver on one machine.
+   M3GPUSKIN reports auto (the switch was unset), apple (a macOS build), applegl and
+   nvidia (what the vendor string said); with the switch set nothing is asked and all four
+   read 0. */
+static int g_m3SkinAuto = 0, g_m3SkinApple = 0, g_m3SkinAppleGl = 0, g_m3SkinNvidia = 0;
+
+static int m3_skin_gpu_mode(void)
+{
+    static int mode = -1;
+    if (mode < 0) {
+        const char* e = getenv("OPENCNC3D_SKIN_GPU");
+        if (e && *e) {
+            mode = !strcmp(e, "0") ? 0 : !strcmp(e, "verify") ? 2 : 1;
+        } else {
+            /* Asked with the context current: every caller poses a soldier for a draw,
+               or reports the frame. Without one the CPU skins, and it is asked again. */
+            const char* fake = getenv("OPENCNC3D_SKIN_GPU_VENDOR");
+            const char* vendor = (fake && *fake) ? fake : (const char*)glGetString(GL_VENDOR);
+            if (!vendor)
+                return 0;
+            g_m3SkinAuto = 1;
+#if defined(__APPLE__)
+            g_m3SkinApple = 1;
+#endif
+            g_m3SkinAppleGl = strstr(vendor, "Apple") ? 1 : 0;
+            g_m3SkinNvidia = strstr(vendor, "NVIDIA") ? 1 : 0;
+            mode = g_m3SkinApple ? g_m3SkinAppleGl : g_m3SkinNvidia;
+        }
+    }
+    return mode;
+}
+
+/* All three or none: a pose is skinned on the card or on the CPU for every pass that draws
+   it, never for some of them. */
+static bool m3_skin_programs(void)
+{
+    if (g_m3SkinState)
+        return g_m3SkinState > 0;
+    g_m3SkinState = -1;
+    if (!fx_gl_ready)
+        return false;
+    static const char* const label[3] = { "model3d-skin", "model3d-skin-normals", "model3d-skin-depth" };
+    const char* const fs[3] = { M3_FS, M3_NRM_FS, M3_SKIN_DEPTH_FS };
+    for (int k = 0; k < 3; k++) {
+        GLuint p = 0;
+        const GLuint vs = fx_compile(GL_VERTEX_SHADER, M3_SKIN_VS, label[k]);
+        const GLuint f = vs ? fx_compile(GL_FRAGMENT_SHADER, fs[k], label[k]) : 0;
+        if (vs && f) {
+            p = fx_glCreateProgram();
+            fx_glAttachShader(p, vs);
+            fx_glAttachShader(p, f);
+            fx_glLinkProgram(p);
+            GLint ok = 0;
+            fx_glGetProgramiv(p, GL_LINK_STATUS, &ok);
+            if (!ok) {
+                char log[4096]; GLsizei n = 0;
+                if (fx_glGetProgramInfoLog) fx_glGetProgramInfoLog(p, (GLsizei)sizeof log, &n, log);
+                log[n < (GLsizei)sizeof log ? n : (GLsizei)sizeof log - 1] = 0;
+                fprintf(stderr, "M3|%s|FAILED TO LINK\n%s\n", label[k], log);
+                fx_glDeleteProgram(p);
+                p = 0;
+            }
+        }
+        if (vs) fx_glDeleteShader(vs);
+        if (f) fx_glDeleteShader(f);
+        if (p) {
+            m3_loc_fill(p, g_m3SkinLoc[k]);
+            g_m3SkinLoc[k].uBone = fx_glGetUniformLocation(p, "uBone");
+        }
+        if (!p || g_m3SkinLoc[k].uBone < 0) {
+            if (p) fx_glDeleteProgram(p);
+            for (int j = 0; j < k; j++) { fx_glDeleteProgram(g_m3SkinProg[j]); g_m3SkinProg[j] = 0; }
+            fprintf(stderr, "M3|skin on the card|unavailable: every pose is skinned on the CPU\n");
+            return false;
+        }
+        g_m3SkinProg[k] = p;
+    }
+    g_m3SkinState = 1;
+    printf("M3|skin on the card|%d bones at most\n", M3_GPU_BONES);
+    fflush(stdout);
+    return true;
 }
 
 /* ---- upload ------------------------------------------------------------------------
@@ -1098,14 +1400,17 @@ static void m3_upload_tex(M3Tex& t)
    buffers. The same floats and the same indices reach the same pipeline from here, so
    the picture cannot change; only where the driver reads them from does.
 
-   The entry points come through grass_buf_load, never by name: the 32-bit Windows build
-   links against a GL 1.1 library that has none of them. The size of each store is read
+   The entry points come through grass_buf_load, never by name: the Windows build links
+   against a GL 1.1 library (opengl32) that has none of them. The size of each store is read
    back, because a driver short of memory may make a store of size zero without raising
    an error, and a model drawn from that would silently vanish; on any failure the
    buffers are dropped and the model keeps its system-memory draw. The buffers live as
    long as the process, like the atlases: the models load once and never change. */
 static void m3_upload_buffers(M3Model& m)
 {
+    if (m.buffersTried)
+        return;
+    m.buffersTried = true;
     if (!m.bone.empty() || m.vert.empty() || m.idx.empty() || !grass_buf_load())
         return;
     std::vector<unsigned int> all(m.idx);
@@ -1147,9 +1452,39 @@ static void m3_upload(M3Model& m)
     if (m.uploaded)
         return;
     m.uploaded = true;
+    if (m.texParked)
+        m3_unpark_textures(m);      /* its pixels were left in its file (m3_park_textures) */
     for (size_t i = 0; i < m.tex.size(); i++)
         m3_upload_tex(m.tex[i]);
     m3_upload_buffers(m);
+}
+
+/* SCRIPT: m3upload TYPE puts the experimental model TYPE's textures on the card now, the
+   way its first draw would, and with OPENCNC3D_MEMDEBUG_TEXHASH=1 hashes every one of them
+   as it stands on the card. A test that a parked model's textures come back exactly as the
+   start would have uploaded them (boot_art.h). */
+static void m3_upload_verb(const char* type)
+{
+    for (size_t i = 0; i < g_m3.size(); i++) {
+        M3Model& m = g_m3[i];
+        if (m.enh || m.type != (type ? type : "")) continue;
+        const int was = m.uploaded ? 1 : 0, parked = m.texParked ? 1 : 0;
+        m3_upload(m);
+        int gl = 0;
+        for (size_t t = 0; t < m.tex.size(); t++) {
+            if (!m.tex[t].gl) continue;
+            gl++;
+            char nm[64];
+            snprintf(nm, sizeof nm, "m3_%s_%u", m.type.c_str(), (unsigned)t);
+            texhash_gl(nm, m.tex[t].gl);
+        }
+        printf("M3UPLOAD|%s|index=%u|was_uploaded=%d|was_parked=%d|textures=%u|on_card=%d\n",
+               m.type.c_str(), (unsigned)i, was, parked, (unsigned)m.tex.size(), gl);
+        fflush(stdout);
+        return;
+    }
+    printf("M3UPLOAD|%s|no experimental model of that type\n", type ? type : "");
+    fflush(stdout);
 }
 
 /* ---- pose ---------------------------------------------------------------------------
@@ -1164,14 +1499,15 @@ static void m3_upload(M3Model& m)
    bind to give the matrix that moves a bind-pose vertex. Every vertex then takes the
    weighted sum of up to four of those.
 
-   ON THE CPU, NOT IN A VERTEX SHADER, and the reason is the Win98 contract as much as
-   speed. A soldier is 5 to 13 thousand vertices by the level drawn (E1: 13,356 at full
-   detail, 8,349 and 5,705 at the two coarser levels), and each soldier is skinned once a
-   frame however many passes draw him (the frame's pose cache, m3_pose_find); a shader
-   palette would have been a second vertex path for every pass that draws the model
-   (lit, normals, the sun's depth, the reflection), and a CPU pose is a vertex array that
-   anything, including a fixed-function pipeline, can draw. The model is still Tier 2
-   only for its lighting, but the skinning is not what keeps it there.
+   ON THE CPU, AND ON THE CARD FOR A WHOLE BODY. A soldier is 1 to 13 thousand vertices by
+   the model and the level drawn (E1 of the experimental set: 13,356 at full detail, 8,349
+   and 5,705 at the two coarser levels), and a CPU pose is skinned once a frame however
+   many passes draw him (the frame's pose cache, m3_pose_find); it is a vertex array that
+   anything, a fixed-function pipeline included, can draw. A whole body drawn in the world
+   is instead handed to the vertex stage as a bone palette (m3_skin_gpu, below), with
+   programs of its own for the passes the CPU pose draws through the fixed pipeline; a torn
+   body, the database's preview, and a model or driver the card skin cannot take keep
+   this CPU skin.
 
    DETERMINISM: the caller supplies the frame, from engine state; nothing here reads a
    clock, and the arithmetic is the same on every run. */
@@ -1237,9 +1573,9 @@ static void m3_sample(const M3Model& m, int ci, float frame, float* out)
 
    The frame memory is M3_POSE_BLOCKS fixed blocks, allocated as a frame first needs them,
    refilled from the start every frame and never moved, so an entry's address holds for
-   the frame. The cap is for the 32-bit Windows build's address space: past it a pose is
-   skinned into m.posed per pass exactly as before, and only the saving is lost. The
-   blocks go back at the end of each mission.
+   the frame. The cap bounds the memory the cache may take: past it a pose is skinned into
+   m.posed per pass exactly as before, and only the saving is lost. The blocks go back at
+   the end of each mission.
 
    OPENCNC3D_POSECHECK=1 re-skins every hit into a scratch array and compares it with the
    cached bytes; m3dump reports the count that differed, which must be 0. */
@@ -1286,6 +1622,15 @@ static int g_m3PoseSkins = 0, g_m3PoseHits = 0, g_m3PoseFull = 0, g_m3PoseBad = 
 /* ...and of the GPU copies (m3_pose_gpu): poses sent to the card, and draws that read one
    from there rather than from system memory. */
 static int g_m3PoseUploads = 0, g_m3PoseGpuDraws = 0;
+/* The card skin's tally for the frame, zeroed with the pose cache's: palettes set up, and
+   draws skinned on the card; under OPENCNC3D_SKIN_GPU=verify, vertices checked, those
+   off, and the worst distance in model units. g_m3AuxArray* hold the uniform cache's
+   array counts (gl_state_cache.h) at the frame's start. */
+static int g_m3SkinPalettes = 0, g_m3SkinGpuDraws = 0;
+static long g_m3SkinChecked = 0, g_m3SkinCheckBad = 0;
+static float g_m3SkinCheckWorst = 0.0f;
+static unsigned g_m3AuxArrayFull0 = 0, g_m3AuxArrayRange0 = 0;
+
 /* One vertex buffer per entry, entry i's pose in g_m3PoseVbo[i], kept from frame to frame
    and given each frame's pose afresh. */
 static std::vector<GLuint> g_m3PoseVbo;
@@ -1316,6 +1661,13 @@ static void m3_pose_frame(void)
     std::fill(g_m3PoseTab.begin(), g_m3PoseTab.end(), -1);
     g_m3PoseSkins = g_m3PoseHits = g_m3PoseFull = g_m3PoseBad = 0;
     g_m3PoseUploads = g_m3PoseGpuDraws = 0;
+    for (size_t i = 0; i < g_m3.size(); i++)
+        g_m3[i].drawGpuSkin = 0;
+    g_m3SkinPalettes = g_m3SkinGpuDraws = 0;
+    g_m3SkinChecked = g_m3SkinCheckBad = 0;
+    g_m3SkinCheckWorst = 0.0f;
+    g_m3AuxArrayFull0 = g_glsUniformArrayFull;
+    g_m3AuxArrayRange0 = g_glsUniformArrayRange;
 }
 
 /* At the end of a mission: the blocks go back, and the next frame starts empty. */
@@ -1516,6 +1868,72 @@ static bool m3_skin_buffers(M3Model& m)
     return true;
 }
 
+/* One vertex of the card skin's buffer (M3_GSKIN_STRIDE bytes): the bind pose's 8 floats
+   as vert holds them, the four bone indices as shorts (0 where the weight is 0), and the
+   four weights as the floats the CPU skin multiplies by. */
+static void m3_gskin_pack(const M3Model& m, size_t v, unsigned char* out)
+{
+    memcpy(out, &m.vert[v * 8], 8 * sizeof(float));
+    short bi[4];
+    float bw[4];
+    const unsigned char* sk = &m.skin[v * 8];
+    for (int k = 0; k < 4; k++) {
+        bi[k] = sk[4 + k] ? (short)sk[k] : (short)0;
+        bw[k] = sk[4 + k] ? (float)sk[4 + k] * (1.0f / 255.0f) : 0.0f;
+    }
+    memcpy(out + 8 * sizeof(float), bi, sizeof bi);
+    memcpy(out + 8 * sizeof(float) + sizeof bi, bw, sizeof bw);
+}
+
+/* The card skin's buffer, built once per model and again when its bind or weights change
+   (a torn body's appended ends bump the revision). Its size is read back as the load-time
+   buffers' are, and a store the driver would not make leaves the model on the CPU skin. */
+static bool m3_skin_gpu_buffers(M3Model& m)
+{
+    if (m.gskinVbo && m.gskinN == m.vert.size() && m.gskinRev == m.poseRevision)
+        return true;
+    if (m.gskinTried && !m.gskinVbo)
+        return false;
+    m.gskinTried = true;
+    const size_t nv = m.vert.size() / 8;
+    if (!nv || m.skin.size() != nv * 8 || !grass_buf_load())
+        return false;
+    std::vector<unsigned char> buf(nv * M3_GSKIN_STRIDE);
+    for (size_t v = 0; v < nv; v++)
+        m3_gskin_pack(m, v, &buf[v * M3_GSKIN_STRIDE]);
+    const unsigned long bytes = (unsigned long)buf.size();
+    GLuint b = m.gskinVbo;
+    if (!b)
+        gr_glGenBuffers(1, &b);
+    GLint got = 0;
+    gr_glBindBuffer(GL_ARRAY_BUFFER, b);
+    gr_glBufferData(GL_ARRAY_BUFFER, (FxGLsizeiptr)bytes, &buf[0], GL_STATIC_DRAW);
+    gr_glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &got);
+    gr_glBindBuffer(GL_ARRAY_BUFFER, 0);
+    if (!b || got < 0 || (unsigned long)got != bytes) {
+        fprintf(stderr, "M3|%s|the driver made %ld of %lu skin bytes; posed on the CPU\n",
+                m.type.c_str(), (long)got, bytes);
+        if (b) gr_glDeleteBuffers(1, &b);
+        m.gskinVbo = 0;
+        return false;
+    }
+    m.gskinVbo = b;
+    m.gskinN = m.vert.size();
+    m.gskinRev = m.poseRevision;
+    return true;
+}
+
+/* May this model's next pose be skinned on the card? */
+static bool m3_skin_gpu_ok(M3Model& m)
+{
+    if (!m3_skin_gpu_mode())
+        return false;
+    const size_t nb = m.bone.size(), nv = m.vert.size() / 8;
+    if (!nb || nb > M3_GPU_BONES || m.skin.size() != nv * 8 || m.idx.empty())
+        return false;
+    return m3_skin_programs() && m3_skin_gpu_buffers(m) && m3_skin_buffers(m);
+}
+
 /* The buffer holding the pose the next draw of m reads, sent to the card if this is the
    frame's first draw of it; 0 to draw it from system memory. */
 static GLuint m3_pose_gpu(M3Model& m)
@@ -1555,23 +1973,12 @@ static GLuint m3_pose_gpu(M3Model& m)
     return g_m3PoseVbo[ei];
 }
 
-/* Skin the bind pose by per-bone poses (8 floats a bone): into the frame's pose cache, or
-   read back from it when this pose was skinned earlier in the frame, or into m.posed when
-   the cache is full. m.drawPosed says which the draw reads. */
-static void m3_skin(M3Model& m, const float* pose)
+/* Each bone's pose (8 floats a bone) times its inverse bind: M[b], the row-major 3x4 that
+   moves a bind-pose vertex, for every bone of m. The CPU skin and the card's palette are
+   both these matrices. */
+static void m3_bone_matrices(const M3Model& m, const float* pose, float (*M)[12])
 {
     const size_t nb = m.bone.size();
-    /* A coarser level uses a prefix of the vertices, and only that prefix is posed. */
-    const size_t nv = (m.drawLod >= 0 && m.drawLod < (int)m.lod.size())
-                    ? (size_t)m.lod[m.drawLod].nvert : m.vert.size() / 8;
-    if (m.posed.size() != m.vert.size())
-        m.posed = m.vert;                        /* the UVs come across once, here */
-    m.pose.assign(pose, pose + nb * 8);
-    float M[M3_MAX_BONES][12];
-    float* cached = 0;
-    const int got = m3_pose_find(m, nv, pose, nb * 8, &cached);
-    if (got > 0 && !m3_pose_check())
-        return;
     for (size_t b = 0; b < nb; b++) {
         const float* p = pose + b * 8;
         float q[4] = { p[0], p[1], p[2], p[3] };
@@ -1595,14 +2002,12 @@ static void m3_skin(M3Model& m, const float* pose)
                          + H[r * 4 + 3];
         }
     }
+}
 
-    /* Where this skin goes: a fresh cache entry, m.posed when the cache is full, or for
-       a hit being checked a scratch array compared with the entry below. */
-    static std::vector<float> check;
-    if (got > 0)
-        check.resize(nv * 6);
-    float* dst = got > 0 ? &check[0] : (cached ? cached : &m.posed[0]);
-    const size_t ds = cached ? 6 : 8;
+/* The first nv bind-pose vertices moved by the bone matrices M: position and normal into
+   dst, a vertex every ds floats. */
+static void m3_skin_verts(const M3Model& m, const float (*M)[12], size_t nv, float* dst, size_t ds)
+{
     const float* src = &m.vert[0];
     const unsigned char* sk = &m.skin[0];
     for (size_t v = 0; v < nv; v++, src += 8, dst += ds, sk += 8) {
@@ -1623,8 +2028,104 @@ static void m3_skin(M3Model& m, const float* pose)
         dst[0] = px; dst[1] = py; dst[2] = pz;
         dst[3] = nx * nl; dst[4] = ny * nl; dst[5] = nz * nl;
     }
+}
+
+/* Skin the bind pose by per-bone poses (8 floats a bone): into the frame's pose cache, or
+   read back from it when this pose was skinned earlier in the frame, or into m.posed when
+   the cache is full. m.drawPosed says which the draw reads. */
+static void m3_skin(M3Model& m, const float* pose)
+{
+    const size_t nb = m.bone.size();
+    m.drawGpuSkin = 0;
+    /* A coarser level uses a prefix of the vertices, and only that prefix is posed. */
+    const size_t nv = (m.drawLod >= 0 && m.drawLod < (int)m.lod.size())
+                    ? (size_t)m.lod[m.drawLod].nvert : m.vert.size() / 8;
+    if (m.posed.size() != m.vert.size())
+        m.posed = m.vert;                        /* the UVs come across once, here */
+    m.pose.assign(pose, pose + nb * 8);
+    float M[M3_MAX_BONES][12];
+    float* cached = 0;
+    const int got = m3_pose_find(m, nv, pose, nb * 8, &cached);
+    if (got > 0 && !m3_pose_check())
+        return;
+    m3_bone_matrices(m, pose, M);
+
+    /* Where this skin goes: a fresh cache entry, m.posed when the cache is full, or for
+       a hit being checked a scratch array compared with the entry below. */
+    static std::vector<float> check;
+    if (got > 0)
+        check.resize(nv * 6);
+    float* dst = got > 0 ? &check[0] : (cached ? cached : &m.posed[0]);
+    const size_t ds = cached ? 6 : 8;
+    m3_skin_verts(m, M, nv, dst, ds);
     if (got > 0 && memcmp(&check[0], cached, nv * 6 * sizeof(float)) != 0)
         g_m3PoseBad++;
+}
+
+/* OPENCNC3D_SKIN_GPU=verify: the vertex stage's arithmetic done here, in double, from the
+   very bytes the buffer holds (m3_gskin_pack) and the palette, against the CPU skin of
+   the same pose. A packing, palette or weight mistake moves vertices by whole model units;
+   the different order of float roundings moves them by far less than the thousandth
+   allowed (measured on SCG08EA's base: at worst 0.000065). */
+static void m3_skin_gpu_check(const M3Model& m, const float (*M)[12])
+{
+    const size_t nv = (m.drawLod >= 0 && m.drawLod < (int)m.lod.size())
+                    ? (size_t)m.lod[m.drawLod].nvert : m.vert.size() / 8;
+    static std::vector<float> cpu;
+    cpu.resize(nv * 6);
+    m3_skin_verts(m, M, nv, &cpu[0], 6);
+    unsigned char pk[M3_GSKIN_STRIDE];
+    for (size_t v = 0; v < nv; v++) {
+        m3_gskin_pack(m, v, pk);
+        float x[8]; short bi[4]; float bw[4];
+        memcpy(x, pk, sizeof x);
+        memcpy(bi, pk + sizeof x, sizeof bi);
+        memcpy(bw, pk + sizeof x + sizeof bi, sizeof bw);
+        double r[12] = { 0 };
+        for (int k = 0; k < 4; k++) {
+            const int b = bi[k];
+            if (b < 0 || b >= (int)m.bone.size() || (int)m.palette.size() < (b + 1) * 12) { r[0] = 1e30; break; }
+            for (int j = 0; j < 12; j++) r[j] += (double)bw[k] * (double)m.palette[(size_t)b * 12 + j];
+        }
+        double p[3], n[3], nl = 0.0, err = 0.0;
+        for (int i = 0; i < 3; i++) {
+            p[i] = r[i * 4] * x[0] + r[i * 4 + 1] * x[1] + r[i * 4 + 2] * x[2] + r[i * 4 + 3];
+            n[i] = r[i * 4] * x[3] + r[i * 4 + 1] * x[4] + r[i * 4 + 2] * x[5];
+            nl += n[i] * n[i];
+        }
+        nl = nl > 1e-20 ? 1.0 / sqrt(nl) : 0.0;
+        for (int i = 0; i < 3; i++) {
+            const double dp = fabs(p[i] - (double)cpu[v * 6 + i]);
+            const double dn = fabs(n[i] * nl - (double)cpu[v * 6 + 3 + i]);
+            if (dp > err) err = dp;
+            if (dn > err) err = dn;
+        }
+        if (!(err <= 1e-3)) g_m3SkinCheckBad++;
+        if (!(err <= (double)g_m3SkinCheckWorst)) g_m3SkinCheckWorst = (float)err;
+    }
+    g_m3SkinChecked += (long)nv;
+}
+
+/* A WHOLE BODY'S POSE FOR THE CARD: the palette, and m.pose for the sockets that read it
+   (unityvfx_mod.h), but no vertex is moved here. False when this model's pose must be
+   skinned on the CPU (m3_skin_gpu_ok); the caller then calls m3_skin. */
+static bool m3_skin_gpu(M3Model& m, const float* pose)
+{
+    m.drawGpuSkin = 0;
+    if (!m3_skin_gpu_ok(m))
+        return false;
+    const size_t nb = m.bone.size();
+    m.pose.assign(pose, pose + nb * 8);
+    float M[M3_MAX_BONES][12];
+    m3_bone_matrices(m, pose, M);
+    m.palette.assign(&M[0][0], &M[0][0] + nb * 12);
+    m.drawPosed = 0;
+    m.drawPosedEnt = -1;
+    m.drawGpuSkin = 1;
+    g_m3SkinPalettes++;
+    if (m3_skin_gpu_mode() == 2)
+        m3_skin_gpu_check(m, M);
+    return true;
 }
 
 /* THE BLEND: up to M3_MAX_LAYERS clips, each at its own frame and weight, mixed per bone
@@ -1633,14 +2134,20 @@ static void m3_skin(M3Model& m, const float* pose)
    outgoing clip's weight falls while the incoming one's rises, and every frame in between
    is a real mixture of the two rather than a cut. Weights need not sum to one. */
 #define M3_MAX_LAYERS 4
+/* gpuOk: the caller draws this pose straight after and reads nothing of it but m.pose, so
+   it may be skinned on the card (m3_skin_gpu); otherwise, and when the model cannot be, it
+   is skinned on the CPU. poseOnly: nothing is drawn from this pose, only m.pose is read
+   (a soldier off the picture whose muzzle sockets are still wanted), so it is stored
+   exactly as either skin would store it and neither skin runs. */
 static void m3_pose_blend(M3Model& m, int n, const int* ci, const float* frame,
-                          const float* weight)
+                          const float* weight, bool gpuOk = false, bool poseOnly = false)
 {
     const size_t nb = m.bone.size();
     const size_t nv = m.vert.size() / 8;
     /* Until a skin says otherwise the draw reads m.posed, so a call that returns below
        without skinning never leaves the draw pointed at another object's cached pose. */
     m.drawPosed = 0;
+    m.drawGpuSkin = 0;
     if (!nb || m.skin.size() != nv * 8 || n <= 0)
         return;
     static float acc[M3_MAX_BONES * 8], one[M3_MAX_BONES * 8];
@@ -1671,7 +2178,12 @@ static void m3_pose_blend(M3Model& m, int n, const int* ci, const float* frame,
     const float inv = 1.0f / wsum;
     for (size_t b = 0; b < nb; b++)
         for (int k = 4; k < 8; k++) acc[b * 8 + k] *= inv;   /* rotations renormalise in skin */
-    m3_skin(m, acc);
+    if (poseOnly) {
+        m.pose.assign(acc, acc + nb * 8);
+        return;
+    }
+    if (!(gpuOk && m3_skin_gpu(m, acc)))
+        m3_skin(m, acc);
 }
 
 static void m3_pose(M3Model& m, int ci, float frame)
@@ -1702,6 +2214,7 @@ struct M3Draw {
     float ylift;           /* altitude, cells                                  */
     float yaw;             /* degrees about +Y, from the engine's facing       */
     float wobX, wobZ;      /* the cartridge's washboard lean, radians          */
+    float rollFall;        /* forward somersault about the infantry's waist */
     float turyaw;          /* fractional render turret delta, 0..255                             */
     float treadV;          /* belt scroll                                      */
     float shroud;          /* 0..1                                             */
@@ -1714,10 +2227,19 @@ struct M3Draw {
        keeps the paint). Only a material flagged M3_MAT_CLOTH reads them, and every
        caller zeroes the struct first, so a draw that is not a soldier replaces nothing. */
     float cr, cg, cb, camt;
+    /* 1 keeps the fabric's neutral paint under the cloth (the shader's uClothKey); 0, the
+       zeroed struct's, recolours every masked texel */
+    float ckey;
+    float fluidGrowth;     /* Ant-only linear growth field; explicit material flag */
     int normalizeCloth;    /* source-led RA Allied material reference, 0 preserves legacy */
     float side;            /* the emblem an M3_MAT_EMBLEM material shows: 0 GDI, 1 Nod */
     int   soldier;         /* a 3D soldier: lit by the m3inf_ shares on top     */
     int   vehicle;         /* distinct from an authored building, for F5      */
+    int   structure;       /* authored building second-sun category only      */
+    /* GROUND BOUNCE (bounce_mod.h): drawn outside the battlefield, as the database's
+       viewport draws a model at the origin. There is no ground under it, so it takes no
+       bounce; 0, which every caller's zeroed struct gives, is a draw in the world. */
+    int   offworld;
 };
 
 /* Build the object -> world matrix in GL's column-major order.
@@ -1758,6 +2280,16 @@ static void m3_matrix(const M3Draw& d, float* m)
     m[13] = d.ground + d.ylift;
     m[14] = d.cz;
     m[15] = 1.0f;
+    if (d.rollFall != 0.0f) {
+        const float c = cosf(d.rollFall), s = sinf(d.rollFall);
+        const float waist = 0.23f / MODEL_SCALE;
+        for (int axis = 0; axis < 3; ++axis) {
+            const float up = m[4 + axis], back = m[8 + axis];
+            m[4 + axis] = c * up + s * back;
+            m[8 + axis] = c * back - s * up;
+            m[12 + axis] += waist * (up - m[4 + axis]);
+        }
+    }
 }
 
 /* Multiply a column-major 4x4 by a rotation of `deg` about +Y through the pivot p,
@@ -1858,6 +2390,9 @@ static bool m3_depth_only(void)
     return g_meshShadowPass != 0 || g_m3CasterDepth != 0;
 }
 
+/* GROUND BOUNCE (bounce_mod.h, included later by the host) */
+static bool bounce_model_delta(float wx, float wz, const float skyUp[3], float out[3]);
+
 static void m3_draw(int mi, const M3Draw& d)
 {
     if (mi < 0 || mi >= (int)g_m3.size())
@@ -1870,11 +2405,17 @@ static void m3_draw(int mi, const M3Draw& d)
 
     const bool depthOnly = m3_depth_only();
     const bool nrmPass   = (g_m3NormalPass != 0) && !g_m3LightSplit && !depthOnly;
-    const GLuint prog = depthOnly ? 0 : (nrmPass ? m3_nrm_prog() : m3_prog());
+    /* A pose skinned on the card (m3_skin_gpu) draws through the skin programs in every
+       pass, the sun's depth included, where the CPU pose takes the fixed pipeline. */
+    const bool gskin = m.vbo == 0 && m.drawGpuSkin && g_m3SkinState > 0 && m.gskinVbo && m.skinIbo
+                       && m.palette.size() == m.bone.size() * 12;
+    const int skinK = depthOnly ? M3_SKIN_DEPTH : (nrmPass ? M3_SKIN_NRM : M3_SKIN_LIT);
+    const GLuint prog = depthOnly ? 0 : gskin ? g_m3SkinProg[skinK] : (nrmPass ? m3_nrm_prog() : m3_prog());
+    const GLuint dprog = (gskin && depthOnly) ? g_m3SkinProg[M3_SKIN_DEPTH] : 0;
     if (!depthOnly && !prog)
         return;                 /* no shader stage: the caller drew the pack model */
     /* The locations of whichever program draws; read only when there is one. */
-    const M3Loc& L = nrmPass ? g_m3NrmLoc : g_m3Loc;
+    const M3Loc& L = gskin ? g_m3SkinLoc[skinK] : (nrmPass ? g_m3NrmLoc : g_m3Loc);
     /* COUNTED ONLY ON THE PASS THE PLAYER SEES. The caster is called twice a frame from
        two places -- the sun's depth box and the water's mirrored reflection -- and the
        reflection is a lit draw, so counting every lit draw reported eight Mammoths on a
@@ -1891,8 +2432,8 @@ static void m3_draw(int mi, const M3Draw& d)
     const bool gpu = m.vbo != 0;
     /* A posed model whose pose is on the card (m3_pose_gpu), its indices in the model's
        own index buffer the same way. */
-    const GLuint poseBuf = gpu ? 0 : m3_pose_gpu(m);
-    const bool bufIdx = gpu || poseBuf != 0;
+    const GLuint poseBuf = (gpu || gskin) ? 0 : m3_pose_gpu(m);
+    const bool bufIdx = gpu || poseBuf != 0 || gskin;
     const size_t ibase = (bufIdx && lv) ? (size_t)(gpu ? m.lodBase : m.skinLodBase)[m.drawLod] : 0;
     if (!depthOnly && !g_m3Mirrored && !nrmPass) {
         g_m3Drawn++;
@@ -1940,6 +2481,23 @@ static void m3_draw(int mi, const M3Draw& d)
         glVertexPointer(3, GL_FLOAT, stride, (const void*)0);
         glNormalPointer(GL_FLOAT, stride, (const void*)(3 * sizeof(float)));
         glTexCoordPointer(2, GL_FLOAT, stride, (const void*)(6 * sizeof(float)));
+    } else if (gskin) {
+        /* The bind pose, and the bones and weights on texture coordinate sets 1 and 2,
+           all from the model's skin buffer; the indices from its index buffer. */
+        const GLsizei gs = (GLsizei)M3_GSKIN_STRIDE;
+        gr_glBindBuffer(GL_ARRAY_BUFFER, m.gskinVbo);
+        glVertexPointer(3, GL_FLOAT, gs, (const void*)0);
+        glNormalPointer(GL_FLOAT, gs, (const void*)(3 * sizeof(float)));
+        glTexCoordPointer(2, GL_FLOAT, gs, (const void*)(6 * sizeof(float)));
+        glClientActiveTexture(GL_TEXTURE1);
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        glTexCoordPointer(4, GL_SHORT, gs, (const void*)(8 * sizeof(float)));
+        glClientActiveTexture(GL_TEXTURE2);
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        glTexCoordPointer(4, GL_FLOAT, gs, (const void*)(8 * sizeof(float) + 4 * sizeof(short)));
+        glClientActiveTexture(GL_TEXTURE0);
+        gr_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.skinIbo);
+        g_m3SkinGpuDraws++;
     } else if (poseBuf) {
         /* Each pointer takes the buffer bound when it is set: position and normal from
            the pose's, the texture coordinates from the model's own. */
@@ -1990,6 +2548,11 @@ static void m3_draw(int mi, const M3Draw& d)
         m3_u1i(L.uNorm, 1);
         m3_u1i(L.uORM,  2);
         m3_u3f(L.uSunDir, g_fxSunDir[0], g_fxSunDir[1], g_fxSunDir[2]);
+        m3_u3f(L.uSecondSunDir,g_fxSecondSunDir[0],g_fxSecondSunDir[1],g_fxSecondSunDir[2]);
+        m3_u1f(L.uSecondSunOn,fx_second_sun_on()?1.0f:0.0f);
+        float secondCol[3]={0,0,0};
+        if(fx_second_sun_on()) {float unusedSky[3],unusedGround[3];m3_ambient(unusedSky,unusedGround,secondCol,0.0f,sunK*fx_second_sun_energy()*(d.soldier?fx_second_sun_power(&g_fx,2):d.vehicle?fx_second_sun_power(&g_fx,1):d.structure?fx_second_sun_power(&g_fx,0):1.0f));}
+        m3_u3f(L.uSecondSunCol,secondCol[0],secondCol[1],secondCol[2]);
         m3_u3f(L.uSunCol, sun[0], sun[1], sun[2]);
         m3_u3f(L.uSkyCol, sky[0], sky[1], sky[2]);
         m3_u3f(L.uGndCol, gnd[0], gnd[1], gnd[2]);
@@ -2044,6 +2607,29 @@ static void m3_draw(int mi, const M3Draw& d)
         if (L.uObjectGrade0>=0) fx_glUniform4fv(L.uObjectGrade0,1,grade0);
         if (L.uObjectGrade1>=0) fx_glUniform4fv(L.uObjectGrade1,1,grade1);
         m3_u3f(L.uObjectGradeRGB,grade.red,grade.green,grade.blue);
+        /* GROUND BOUNCE. What this ambient gives a face turned straight up, read the way
+           the shader reads it: the hemisphere's sky colour, or the sky's nine
+           coefficients at +y (every term but four vanishes there). */
+        {
+            float skyUp[3] = { sky[0], sky[1], sky[2] };
+            if (envOn) {
+                const float amb = g_fx.m3_ambient * fillK * fx_sky_energy() * m3_env_scale();
+                for (int c = 0; c < 3; c++) {
+                    skyUp[c] = (g_sky3dSH[0][c] * 0.282095f + g_sky3dSH[1][c] * 0.488603f
+                              - g_sky3dSH[6][c] * 0.315392f - g_sky3dSH[8][c] * 0.546274f) * amb;
+                    if (skyUp[c] < 0.0f) skyUp[c] = 0.0f;
+                }
+            }
+            float delta[3];
+            const bool bounce = !d.offworld && bounce_model_delta(d.cx, d.cz, skyUp, delta);
+            m3_u1f(L.uBounceOn, bounce ? 1.0f : 0.0f);
+            if (bounce) m3_u3f(L.uBounceDelta, delta[0], delta[1], delta[2]);
+        }
+    }
+    if (gskin) {
+        /* The sun's depth binds its program here; the other two bound theirs above. */
+        if (dprog) fx_glUseProgram(dprog);
+        m3_u4fv(L.uBone, (int)m.bone.size() * 3, &m.palette[0]);
     }
 
     for (size_t s = 0; s < subs.size(); s++) {
@@ -2078,13 +2664,25 @@ static void m3_draw(int mi, const M3Draw& d)
             m3_u2f(L.uUVOffset, 0.0f, tread ? -d.treadV : 0.0f);
             m3_u1f(L.uPlayerOn, (mt.flags & M3_MAT_NO_PLAYER) ? 0.0f : 1.0f);
             m3_u1f(L.uClothOn,  (mt.flags & M3_MAT_CLOTH) ? d.camt : 0.0f);
+            m3_u1f(L.uClothKey, (mt.flags & M3_MAT_CLOTH) ? d.ckey : 0.0f);
             m3_u1f(L.uClothRef,d.normalizeCloth && (mt.flags&M3_MAT_CLOTH) && mt.clothRef>1e-6f
                 ? mt.clothRef : M3_CLOTH_REF);
             m3_u1f(L.uEmblemOn, (mt.flags & M3_MAT_EMBLEM) ? 1.0f : 0.0f);
+            m3_u1f(L.uFluidOn, (mt.flags & M3_MAT_FLUID) ? 1.0f : 0.0f);
+            m3_u1f(L.uFluidGrowth, d.fluidGrowth);
+            m3_u1f(L.uAntGloss, (mt.flags & M3_MAT_ANT_GLOSS) ? 1.0f : 0.0f);
             glActiveTexture(GL_TEXTURE2);
             glBindTexture(GL_TEXTURE_2D, mt.orm  >= 0 ? m.tex[mt.orm ].gl : 0);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, mt.norm >= 0 ? m.tex[mt.norm].gl : 0);
+            if (mt.flags & M3_MAT_FLUID) {
+                /* Independent high/low distance bytes must not enter mip generation. */
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glActiveTexture(GL_TEXTURE2);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            }
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, mt.base >= 0 ? m.tex[mt.base].gl : 0);
             glEnable(GL_TEXTURE_2D);
@@ -2105,6 +2703,14 @@ static void m3_draw(int mi, const M3Draw& d)
         gr_glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     }
     m.drawPosed = 0;          /* one pose, one draw: the next object poses its own */
+    m.drawGpuSkin = 0;
+    if (gskin) {
+        glClientActiveTexture(GL_TEXTURE2);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        glClientActiveTexture(GL_TEXTURE1);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        glClientActiveTexture(GL_TEXTURE0);
+    }
 
     if (prog) {
         fx_glUseProgram(0);
@@ -2112,6 +2718,8 @@ static void m3_draw(int mi, const M3Draw& d)
         glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D);
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0); glDisable(GL_TEXTURE_2D);
         glActiveTexture(GL_TEXTURE0);
+    } else if (dprog) {
+        fx_glUseProgram(0);
     }
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisableClientState(GL_NORMAL_ARRAY);

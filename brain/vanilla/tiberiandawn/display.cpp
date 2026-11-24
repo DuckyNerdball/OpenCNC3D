@@ -1,3 +1,5 @@
+// MODIFIED for OpenCNC3D. A random cell of the tactical view is drawn column then row in two statements, so every compiler deals it alike.
+// MODIFIED for OpenCNC3D. Select_These's end is Band_Selection_Tidy, shared with the renderer's band.
 //
 // Copyright 2020 Electronic Arts Inc.
 //
@@ -99,6 +101,7 @@
  *   DisplayClass::Prev_Object -- Searches for the previous object on the map.                 *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 #include "function.h"
+#include "../common/fire_visibility.h"
 #include "common/fading.h"
 #include "ccini.h"
 
@@ -1961,6 +1964,9 @@ bool DisplayClass::Map_Cell(CELL cell, HouseClass* house, bool and_for_allies)
         }
     }
 #endif
+    g_cncFireVisibility.touch(cell,(int)house->Class->House,
+        (*this)[cell].Is_Mapped(house),(*this)[cell].Is_Visible(house),Frame);
+
     /*
     **	Don't bother remapping this cell if it is already mapped.
     */
@@ -3043,8 +3049,19 @@ CELL DisplayClass::Calculated_Cell(SourceType dir, HousesType house)
                                    "Reinforcement waypoint with an air transport (SOURCE_AIR).");
                 return (0);
             }
-            cell = XY_Cell(Coord_XCell(TacticalCoord) + Random_Pick(0, Lepton_To_Cell(TacLeptonWidth) - 1),
-                           Coord_YCell(TacticalCoord) + Random_Pick(0, Lepton_To_Cell(TacLeptonHeight) - 1));
+            /*
+            **	OpenCNC3D: the two draws are taken one statement at a time. As two arguments of
+            **	one call their order is unspecified in C++, and the macOS and Windows compilers
+            **	take them in opposite orders, so the two builds picked different cells from the same
+            **	random state. A network match never reaches this line (refused above); the order is
+            **	fixed so the macOS and Windows builds agree everywhere. Column first, the order the
+            **	macOS build always used.
+            */
+            {
+                int opencnc3d_col = Random_Pick(0, Lepton_To_Cell(TacLeptonWidth) - 1);
+                int opencnc3d_row = Random_Pick(0, Lepton_To_Cell(TacLeptonHeight) - 1);
+                cell = XY_Cell(Coord_XCell(TacticalCoord) + opencnc3d_col, Coord_YCell(TacticalCoord) + opencnc3d_row);
+            }
             if (house == PlayerPtr->Class->House && !In_Radar(cell)) {
                 cell = 0;
             }
@@ -3177,6 +3194,67 @@ static bool should_exclude_from_selection(ObjectClass* obj)
     return (obj->What_Am_I() == RTTI_UNIT) && (((UnitClass*)obj)->Class->IsToHarvest || *((UnitClass*)obj) == UNIT_MCV);
 }
 
+/* The end of a band selection, shared with the renderer's own band (OpenCNC3D_Band_Done in
+   dllinterface.cpp), which selects object by object and then asks for this: of a mix of
+   the player's units and others, only the player's stay; and a box that is not added to
+   the selection drops the harvesters and MCVs unless they are all it caught. */
+void Band_Selection_Tidy(bool additive)
+{
+    /*
+    ** If a mix of player and non-player controlled units were selected, make sure non-player controlled units are
+    *de-selected
+    */
+    bool player_controlled_units = false, non_player_controlled_units = false;
+    for (int i = 0; (i < CurrentObject.Count()) && (!player_controlled_units || !non_player_controlled_units); ++i) {
+        HouseClass* hptr = HouseClass::As_Pointer(CurrentObject[i]->Owner());
+        if (CurrentObject[i]->Owner() == PlayerPtr->Class->House) {
+            player_controlled_units = true;
+        } else {
+            non_player_controlled_units = true;
+        }
+    }
+    if (player_controlled_units && non_player_controlled_units) {
+        for (int i = 0; i < CurrentObject.Count(); ++i) {
+            HouseClass* hptr = HouseClass::As_Pointer(CurrentObject[i]->Owner());
+            if (CurrentObject[i]->Owner() != PlayerPtr->Class->House) {
+                int count_before = CurrentObject.Count();
+                CurrentObject[i]->Unselect();
+                if (count_before <= CurrentObject.Count()) {
+                    GlyphX_Debug_Print("Select_These failed to remove an object");
+                    CurrentObject.Delete(CurrentObject[i]);
+                }
+                --i;
+            }
+        }
+    }
+
+    /*
+    ** If player-controlled units are non-additively selected, remove harvesters and MCVs if they aren't the only types
+    *of units selected
+    */
+    if (!additive && player_controlled_units) {
+        bool any_to_exclude = false, all_to_exclude = true;
+        for (int i = 0; i < CurrentObject.Count(); ++i) {
+            bool exclude = should_exclude_from_selection(CurrentObject[i]);
+            any_to_exclude |= exclude;
+            all_to_exclude &= exclude;
+        }
+        if (any_to_exclude && !all_to_exclude) {
+            for (int i = 0; i < CurrentObject.Count(); ++i) {
+                if (should_exclude_from_selection(CurrentObject[i])) {
+                    int count_before = CurrentObject.Count();
+                    CurrentObject[i]->Unselect();
+                    if (count_before <= CurrentObject.Count()) {
+                        GlyphX_Debug_Print("Select_These failed to remove an object");
+                        CurrentObject.Delete(CurrentObject[i]);
+                    }
+                    --i;
+                }
+            }
+        }
+    }
+}
+
 void DisplayClass::Select_These(COORDINATE coord1, COORDINATE coord2, bool additive)
 {
     COORDINATE tcoord = TacticalCoord; // Coord_Whole(Cell_Coord(TacticalCell));
@@ -3263,59 +3341,7 @@ void DisplayClass::Select_These(COORDINATE coord1, COORDINATE coord2, bool addit
         }
     }
 
-    /*
-    ** If a mix of player and non-player controlled units were selected, make sure non-player controlled units are
-    *de-selected
-    */
-    bool player_controlled_units = false, non_player_controlled_units = false;
-    for (int i = 0; (i < CurrentObject.Count()) && (!player_controlled_units || !non_player_controlled_units); ++i) {
-        HouseClass* hptr = HouseClass::As_Pointer(CurrentObject[i]->Owner());
-        if (CurrentObject[i]->Owner() == PlayerPtr->Class->House) {
-            player_controlled_units = true;
-        } else {
-            non_player_controlled_units = true;
-        }
-    }
-    if (player_controlled_units && non_player_controlled_units) {
-        for (int i = 0; i < CurrentObject.Count(); ++i) {
-            HouseClass* hptr = HouseClass::As_Pointer(CurrentObject[i]->Owner());
-            if (CurrentObject[i]->Owner() != PlayerPtr->Class->House) {
-                int count_before = CurrentObject.Count();
-                CurrentObject[i]->Unselect();
-                if (count_before <= CurrentObject.Count()) {
-                    GlyphX_Debug_Print("Select_These failed to remove an object");
-                    CurrentObject.Delete(CurrentObject[i]);
-                }
-                --i;
-            }
-        }
-    }
-
-    /*
-    ** If player-controlled units are non-additively selected, remove harvesters and MCVs if they aren't the only types
-    *of units selected
-    */
-    if (!additive && player_controlled_units) {
-        bool any_to_exclude = false, all_to_exclude = true;
-        for (int i = 0; i < CurrentObject.Count(); ++i) {
-            bool exclude = should_exclude_from_selection(CurrentObject[i]);
-            any_to_exclude |= exclude;
-            all_to_exclude &= exclude;
-        }
-        if (any_to_exclude && !all_to_exclude) {
-            for (int i = 0; i < CurrentObject.Count(); ++i) {
-                if (should_exclude_from_selection(CurrentObject[i])) {
-                    int count_before = CurrentObject.Count();
-                    CurrentObject[i]->Unselect();
-                    if (count_before <= CurrentObject.Count()) {
-                        GlyphX_Debug_Print("Select_These failed to remove an object");
-                        CurrentObject.Delete(CurrentObject[i]);
-                    }
-                    --i;
-                }
-            }
-        }
-    }
+    Band_Selection_Tidy(additive);
 
     AllowVoice = true;
 }

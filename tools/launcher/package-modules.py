@@ -27,6 +27,8 @@ SHARED_DIRS = frozenset((
 ))
 PUBLIC_AUTHORING_DIRS=frozenset(('stone-materials','desert-details','rock-materials'))
 RA_LOCAL_MODEL_DIRS=frozenset(('ebld','eplc','evhc'))
+# (Gun Game's Red Alert roster and models live in evhc/gunra/, TD's own and not shared:
+# every name a module carries must pass the launcher's list, lmod_runtime_name.)
 TD_DIRS = SHARED_DIRS | {'content', 'missions', 'dosdata'}
 RA_DIRS = frozenset(('data', 'audio', 'missions', 'einf', '3d', 'previews', 'ebld',
                      'eplc', 'evhc', 'efx', 'ecur', 'ore'))
@@ -50,13 +52,22 @@ RA_UNUSED_TD_PACKS = frozenset((
     'terrainmaterial_WINTER.pack', 'terrainsurface_WINTER.pack',
     'coastmask_WINTER.pack', 'waterbase_WINTER.pack',
     'foliage3d_DESERT.pack', 'mottle_desert.pack',
+    # Red Alert has no desert theater either: its rocks pick WINTER or TEMPERAT and the
+    # desert details return early under the RA module. (The desert ambience beds stay:
+    # Red Alert's snow plays them.)
+    'rock3d_DESERT.pack', 'desert_details.pack', 'desert_details_masks.pack',
 ))
 TD_SHARED_WATER = 'waterbase_RA_TEMPERAT.pack'
+# The Windows programs link SDL statically, so no Windows module carries SDL2.dll. A
+# launcher from v0.9.0 to v0.9.2 is a 32-bit program that loads the SDL2.dll in its own
+# folder, and a module can never replace that launcher: a module that wrote another
+# SDL2.dll over its own would stop it from starting. allowed() therefore refuses the name,
+# and main() refuses an input that holds one rather than leaving it out in silence.
 TD_PROGRAMS = {
     'macos': {'opencnc3d', 'cnc_eyes', 'TiberianDawn.dylib', 'netcheck',
               'libSDL2-2.0.0.dylib', 'libSDL3.dylib'},
     'windows': {'opencnc3d-game.exe', 'cnc_eyes.exe', 'TiberianDawn.dll',
-                'netcheck.exe', 'SDL2.dll', 'OpenCNC3D-Diagnostics.exe'},
+                'netcheck.exe', 'OpenCNC3D-Diagnostics.exe'},
 }
 TD_OPTIONAL_PROGRAMS = {'TiberianDawnXL.dylib', 'TiberianDawnXL.dll'}
 PROTECTED_PARTS = frozenset(('movies', 'music', 'saves', 'savegames', 'settings',
@@ -98,6 +109,17 @@ def shared(rel: str) -> bool:
             and '_RA_' not in p.name and p.name!='ra-enhanced-hud.pack')
 
 
+def remove_duplicate_ra_infantry(files: dict[str, Path]) -> None:
+    # Red Alert tries the module copy first. Keep any distinct or fallback-only
+    # root file, and leave Tiberian Dawn's independently owned files alone.
+    for rel in tuple(files):
+        if not rel.startswith('einf/') or Path(rel).suffix != '.c3m':
+            continue
+        local = 'ra3d/' + rel
+        if local in files and digest(files[local]) == digest(files[rel]):
+            del files[rel]
+
+
 def allowed(rel: str, module: str, platform: str) -> bool:
     if not safe_path(rel) or protected(rel):
         return False
@@ -112,13 +134,14 @@ def allowed(rel: str, module: str, platform: str) -> bool:
             return p.parts[1] in RA_DIRS
         return (len(p.parts) == 2 and (p.suffix == '.pack' or p.parts[1] in {
             'opencnc3d', 'opencnc3d-game.exe', 'RedAlert.dylib', 'RedAlert.dll',
-            'libSDL2-2.0.0.dylib', 'libSDL3.dylib', 'SDL2.dll',
-            'LICENSE', 'NOTICE.md', 'skirmish-maps.txt'}))
+            'libSDL2-2.0.0.dylib', 'libSDL3.dylib',
+            'LICENSE', 'NOTICE.md', 'skirmish-maps.txt',
+            'expansions.txt', 'ants.txt', 'expansions-manifest.json'}))
     if p.parts[0] in TD_DIRS:
         return True
     return (len(p.parts) == 1 and
-            (rel in TD_PROGRAMS[platform] | TD_OPTIONAL_PROGRAMS | {'CONQUER.MIX', 'temperate_grass_rgb.bin',
-                                            'LICENSE', 'NOTICE.md'}
+            (rel in TD_PROGRAMS[platform] | TD_OPTIONAL_PROGRAMS | {'CONQUER.MIX',
+                                            'temperate_grass_rgb.bin', 'LICENSE', 'NOTICE.md'}
              or (p.suffix == '.pack' and ('_RA_' not in p.name or rel == TD_SHARED_WATER))))
 
 
@@ -141,12 +164,55 @@ def collect(source: Path, module: str, platform: str, *, prefix: str = '') -> di
     return result
 
 
+def sdl_dlls(source: Path) -> list[str]:
+    """Every SDL2.dll under a Windows module input, in any folder and any letter case."""
+    return sorted(p.relative_to(source).as_posix() for p in source.rglob('*')
+                  if p.name.lower() == 'sdl2.dll')
+
+
 def add_release_notes(files: dict[str, Path]) -> dict[str, Path]:
     """Use the current source release notes for either module's shared root copy."""
     notes = ROOT / 'docs/CHANGELOG.md'
     if notes.is_symlink() or not notes.is_file() or not notes.stat().st_size:
         raise ValueError('missing immutable source release notes: ' + str(notes))
     return dict(files, **{'CHANGELOG.txt': notes})
+
+
+def validate_ra_catalogs(files: dict[str, Path]) -> None:
+    rows = {}
+    for name, families in [('expansions.txt', {'counterstrike': 16, 'aftermath': 18}),
+                           ('ants.txt', {'ants': 4})]:
+        counts = dict.fromkeys(families, 0)
+        path = files.get('ra3d/' + name)
+        if path is None:
+            raise ValueError('missing RA mission catalog: ' + name)
+        for line in path.read_text(encoding='utf-8').splitlines():
+            parts = line.split(maxsplit=2)
+            if len(parts) != 3 or parts[0] not in families or not re.fullmatch(
+                    r'SCA0[1-4]EA' if name == 'ants.txt' else r'SC[GU][0-9]{2}EA', parts[1]):
+                raise ValueError('invalid RA mission catalog row: ' + line)
+            family, code, _ = parts
+            if code in rows:
+                raise ValueError('duplicate RA mission catalog row: ' + code)
+            rows[code] = family
+            counts[family] += 1
+            for rel in ['ra3d/missions/' + code + '.INI', 'ra3d/3d/' + code + '.pack']:
+                if rel not in files:
+                    raise ValueError('catalog mission dependency missing: ' + rel)
+        if counts != families:
+            raise ValueError('incomplete RA mission catalog: ' + name)
+    path = files.get('ra3d/expansions-manifest.json')
+    if path is None:
+        raise ValueError('missing RA expansion provenance manifest')
+    missions = json.loads(path.read_text())['missions']
+    if len(missions) != 38 or {m['code']: m['family'] for m in missions} != rows:
+        raise ValueError('RA catalog differs from its source manifest')
+    for mission in missions:
+        code = mission['code']
+        for rel, key in [('ra3d/missions/' + code + '.INI', 'sha256'),
+                         ('ra3d/3d/' + code + '.pack', 'scene_sha256')]:
+            if digest(files[rel]) != mission[key]:
+                raise ValueError('RA mission differs from its source manifest: ' + rel)
 
 
 def write_archive(files: dict[str, Path], output: Path, module: str, platform: str,
@@ -259,8 +325,25 @@ def stage_ra(source: Path, stage: Path, app: Path, brain: Path) -> None:
     (stage / 'enhanced-menu.json').unlink(missing_ok=True)
     subprocess.run(['python3', str(ROOT / 'tools/ra3d/bake-enhanced-hud.py'),
                     str(stage / 'enhanced-hud.pack')], check=True)
+    # The six sidebar packs are current-source art too (their build-clock fade table,
+    # their tabs and pips), so they are baked from the disc data here rather than taken
+    # from the preserved install, as game/make-build.sh does for a play folder.
+    for theater in ('SNOW', 'TEMPERAT', 'INTERIOR'):
+        for extra, suffix in (([], ''), (['--hires'], '-win95')):
+            subprocess.run(['python3', str(ROOT / 'tools/ra3d/bake-sidebar.py'),
+                            '--data', str(ROOT / 'data/radata'), '--theater', theater,
+                            '--out', str(stage / f'sidebar-{theater.lower()}{suffix}.pack')]
+                           + extra, check=True, stdout=subprocess.DEVNULL)
     shutil.copy2(ROOT / 'LICENSE', stage / 'LICENSE')
     shutil.copy2(ROOT / 'NOTICE.md', stage / 'NOTICE.md')
+    if b'MAPARCHIVE|builtin|3.8.10' in app.read_bytes():
+        notice = app.parent/'map-archive-LICENSE.txt'
+        with (stage/'NOTICE.md').open('ab') as target:
+            target.write(b'\n'+notice.read_bytes())
+        # Legacy launchers accept the existing module paths. The reader is built
+        # into the frontend, so no new runtime library/receipt paths are needed.
+        for name in ('archive.dll', 'libmaparchive.dylib', 'map-archive.json', 'map-archive-LICENSE.txt'):
+            (stage/name).unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -295,6 +378,9 @@ def main() -> None:
             ('windows', a.windows_package, a.windows_app, a.windows_brain)):
             if (package / 'ra3d').exists():
                 ap.error('main full package contains RA: ' + str(package))
+            if platform == 'windows' and sdl_dlls(package):
+                ap.error('the Windows package carries SDL2.dll, and SDL is linked into the '
+                         'programs: ' + ', '.join(sdl_dlls(package)))
             stamp = (package / 'opencnc3d-install.txt').read_text().splitlines()
             if f'version {version}' not in stamp:
                 ap.error('main package version differs from module version')
@@ -302,14 +388,21 @@ def main() -> None:
             if mark not in app.read_bytes():
                 ap.error('RA frontend is not the current cooked release: ' + str(app))
             td = add_release_notes(collect(package, 'td', platform))
+            if b'MAPARCHIVE|builtin|3.8.10' in app.read_bytes():
+                if 'NOTICE.md' not in td or b'OpenCNC3D map archive reader' not in td['NOTICE.md'].read_bytes():
+                    ap.error('the built-in archive reader notice is missing from TD')
             required = TD_PROGRAMS[platform] | {'CONQUER.MIX', 'dosmenu.pack',
-                                               'SCG01EA.pack', 'missions/SCG01EA.INI', 'CHANGELOG.txt'}
+                                               'SCG01EA.pack', 'missions/SCG01EA.INI', 'CHANGELOG.txt',
+                                               'evhc/MLRS.evhc', 'evhc/MLRS.spec'}
             if not required <= td.keys():
                 ap.error('incomplete TD package: ' + ', '.join(sorted(required - td.keys())))
             target = a.out / f'OpenCNC3D-module-td-{platform}-v{version}.zip'
             records.append(write_archive(td, target, 'td', platform, version))
             stage = scratch / platform / 'ra3d'
             stage_ra(a.ra_source, stage, app, brain)
+            if platform == 'windows' and sdl_dlls(stage):
+                ap.error('the staged Windows RA module carries SDL2.dll, and SDL is linked '
+                         'into the programs: ' + ', '.join(sdl_dlls(stage)))
             if platform == 'windows':
                 # Only this new public copy is stripped; compiler outputs remain
                 # the byte-exact references retained by the packaging receipt.
@@ -325,6 +418,10 @@ def main() -> None:
                 token.unlink()
             ra = add_release_notes({rel: path for rel, path in td.items() if shared(rel)})
             ra.update(collect(stage, 'ra', platform, prefix='ra3d/'))
+            remove_duplicate_ra_infantry(ra)
+            if b'MAPARCHIVE|builtin|3.8.10' in app.read_bytes():
+                if 'ra3d/NOTICE.md' not in ra or b'OpenCNC3D map archive reader' not in ra['ra3d/NOTICE.md'].read_bytes():
+                    ap.error('the built-in archive reader notice is missing from RA')
             # Current-main physical/coverage packs are read at the install root.
             # Painted ground/seams remain exclusively in their required RA-local
             # paths below, where every runtime painted-bank consumer finds them.
@@ -335,6 +432,7 @@ def main() -> None:
                 ra[name] = path
             required_ra = {'ra3d/' + app.name, 'ra3d/' + brain.name,
                            'ra3d/SCG01EA.pack', 'ra3d/dosmenu.pack',
+                           'ra3d/expansions.txt', 'ra3d/ants.txt', 'ra3d/expansions-manifest.json',
                            'ra3d/enhanced-menu.pack', 'ra3d/einf/E1.c3m',
                            'ra3d/einf/E7.c3m', 'ra3d/ebld/BARL.ebld',
                            'ra3d/3d/SCU01EA.pack', 'ra3d/efx/efx_ra.pack',
@@ -342,8 +440,12 @@ def main() -> None:
                            'ra3d/terrainenh_RA_SNOW.pack', 'ra3d/terrainenh_RA_TEMPERAT.pack',
                            'ra3d/terrainseam_RA_SNOW.pack', 'ra3d/terrainseam_RA_TEMPERAT.pack',
                            'efx.pack', 'efx_enh.pack', 'sky.pack', 'vfx3d/claims.txt', 'CHANGELOG.txt'}
+            required_ra.update('ra3d/3d/ant/' + path.name
+                               for path in (ROOT / 'game/ant_ra').iterdir()
+                               if path.is_file() and path.suffix in ('.c3m', '.rig', '.png'))
             if not required_ra <= ra.keys():
                 ap.error('incomplete Enhanced RA package: ' + ', '.join(sorted(required_ra - ra.keys())))
+            validate_ra_catalogs(ra)
             target = a.out / f'OpenCNC3D-module-ra-{platform}-v{version}.zip'
             records.append(write_archive(ra, target, 'ra', platform, version))
     write_catalog(records, a.out / f'OpenCNC3D-v{version}-modules.txt', version)

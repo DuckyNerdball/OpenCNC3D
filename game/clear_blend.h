@@ -53,8 +53,12 @@ struct ClearBlendState {
        Only first use or an actually changed pad/corner height rewrites a cell. */
     std::vector<float> geometry, colours, heights, maskUV, groundEdges;
     std::vector<unsigned char> known, control;
+    GLuint gpu[4]={};
+    size_t gpuSize[4]={},gpuLo[4]={},gpuHi[4]={};
+    bool gpuFailed=false;
 };
 static ClearBlendState g_clearBlend;
+#include "clear_blend_gpu.h"
 static void terrain_surface_clear_draw(const std::vector<ClearBlendCell>& cells);
 
 /* Search once for the normal installed asset. No launch-only environment is needed.
@@ -92,9 +96,13 @@ static const char* clear_blend_path(void)
     return installed.empty()?NULL:installed.c_str();
 }
 static bool clear_blend_requested(void) { return clear_blend_path()!=NULL; }
+/* Set while the frame hook builds the clear ground's field ahead of a switch to Enhanced
+   (gmw_prewarm): the draws below then stop once the field is made, outside any frame. */
+static bool g_clearBlendPrepareOnly = false;
 
 static void clear_blend_free(void)
 {
+    clear_blend_gpu_release(g_clearBlend);
     for (int k = 0; k < 3; ++k)
         if (g_clearBlend.material[k]) glDeleteTextures(1, &g_clearBlend.material[k]);
     if (g_clearBlend.weights) glDeleteTextures(1, &g_clearBlend.weights);
@@ -474,6 +482,7 @@ static bool clear_blend_prepare(int width, int height,
         return false;
     }
     B.gridW = width; B.gridH = height; B.fieldSignature = sig;B.control=field.rgba;
+    clear_blend_gpu_release(B);
     B.geometry.assign((size_t)width * height * 6 * 3, 0);
     B.colours.assign((size_t)width * height * 6 * 4, 0);
     B.maskUV.assign((size_t)width * height * 6 * 2, 0);
@@ -572,17 +581,23 @@ static void clear_blend_draw(const std::vector<ClearBlendCell>& cells, bool tint
             || memcmp(&B.heights[ci * 4], c.height, sizeof c.height) != 0;
         for (int j = 0; j < 6; ++j) {
             const int k = corner[j]; const size_t vi = ci * 6 + j;
-            terrain_grass_mask_uv(c.grassMask,dx[k],dz[k],&B.maskUV[vi*2]);
-            memcpy(&B.groundEdges[vi*4],c.groundEdges,sizeof c.groundEdges);
+            float uv[2];terrain_grass_mask_uv(c.grassMask,dx[k],dz[k],uv);
+            if(memcmp(&B.maskUV[vi*2],uv,sizeof uv)) {
+                memcpy(&B.maskUV[vi*2],uv,sizeof uv);clear_blend_gpu_dirty(B,2,vi*2,vi*2+2);
+            }
+            if(memcmp(&B.groundEdges[vi*4],c.groundEdges,sizeof c.groundEdges)) {
+                memcpy(&B.groundEdges[vi*4],c.groundEdges,sizeof c.groundEdges);clear_blend_gpu_dirty(B,3,vi*4,vi*4+4);
+            }
             indices.push_back((unsigned)vi);
             if (changed) {
                 B.geometry[vi * 3] = c.x + dx[k];
                 B.geometry[vi * 3 + 1] = c.height[k]; B.geometry[vi * 3 + 2] = c.z + dz[k];
+                clear_blend_gpu_dirty(B,0,vi*3,vi*3+3);
             }
-            B.colours[vi * 4] = c.tint[k][0] / 255.0f;
-            B.colours[vi * 4 + 1] = c.tint[k][1] / 255.0f;
-            B.colours[vi * 4 + 2] = c.tint[k][2] / 255.0f;
-            B.colours[vi * 4 + 3] = c.light[k];
+            const float colour[4]={c.tint[k][0]/255.0f,c.tint[k][1]/255.0f,c.tint[k][2]/255.0f,c.light[k]};
+            if(memcmp(&B.colours[vi*4],colour,sizeof colour)) {
+                memcpy(&B.colours[vi*4],colour,sizeof colour);clear_blend_gpu_dirty(B,1,vi*4,vi*4+4);
+            }
         }
         if (changed) { memcpy(&B.heights[ci * 4], c.height, sizeof c.height); B.known[ci] = 1; }
     }
@@ -592,6 +607,7 @@ static void clear_blend_draw(const std::vector<ClearBlendCell>& cells, bool tint
     if (!bindBuffer) return;      /* original ground already drew */
     GLint oldProgram = 0; glGetIntegerv(GL_CURRENT_PROGRAM, &oldProgram);
     const GLuint oldBuffer = gls_array_binding();
+    const bool gpu=clear_blend_gpu_upload(B);
     GLint oldElement = 0; glGetIntegerv(0x8895 /* GL_ELEMENT_ARRAY_BUFFER_BINDING */, &oldElement);
     glPushAttrib(GL_ALL_ATTRIB_BITS);
     glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
@@ -632,7 +648,7 @@ static void clear_blend_draw(const std::vector<ClearBlendCell>& cells, bool tint
     fx_set1f(B.program, "uSiteScale", (B.theater=="DESERT" || B.theater=="SAND")?4.0f:1.0f);
     fx_set1f(B.program, "uSeed", (float)(B.seed & 65535u) * (1.0f / 97.0f));
     bindBuffer(GL_ARRAY_BUFFER, 0); g_glsArrayKnown = false;
-    bindBuffer(0x8893 /* GL_ELEMENT_ARRAY_BUFFER */, 0);
+    bindBuffer(0x8893 /* GL_ELEMENT_ARRAY_BUFFER */, 0); g_glsElement.i[0] = 0; g_glsElement.known = true;
     glDisableClientState(GL_NORMAL_ARRAY); glDisableClientState(GL_INDEX_ARRAY);
     glDisableClientState(GL_EDGE_FLAG_ARRAY);
     /* Enabled legacy arrays are still part of DrawElements' input state, even when
@@ -643,19 +659,25 @@ static void clear_blend_draw(const std::vector<ClearBlendCell>& cells, bool tint
     }
     glClientActiveTexture(GL_TEXTURE0);
     glEnableClientState(GL_VERTEX_ARRAY); glEnableClientState(GL_COLOR_ARRAY);
-    glVertexPointer(3, GL_FLOAT, 0, &B.geometry[0]);
-    glColorPointer(4, GL_FLOAT, 0, &B.colours[0]);
+    if(gpu)cbg_bind(B.gpu[0]);
+    glVertexPointer(3, GL_FLOAT, 0, gpu?NULL:&B.geometry[0]);
+    if(gpu)cbg_bind(B.gpu[1]);
+    glColorPointer(4, GL_FLOAT, 0, gpu?NULL:&B.colours[0]);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glTexCoordPointer(2,GL_FLOAT,0,&B.maskUV[0]);
+    if(gpu)cbg_bind(B.gpu[2]);
+    glTexCoordPointer(2,GL_FLOAT,0,gpu?NULL:&B.maskUV[0]);
     glClientActiveTexture(GL_TEXTURE1);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glTexCoordPointer(4,GL_FLOAT,0,&B.groundEdges[0]);
+    if(gpu)cbg_bind(B.gpu[3]);
+    glTexCoordPointer(4,GL_FLOAT,0,gpu?NULL:&B.groundEdges[0]);
     glClientActiveTexture(GL_TEXTURE0);
     if(!indices.empty())glDrawElements(GL_TRIANGLES, (GLsizei)indices.size(), GL_UNSIGNED_INT, &indices[0]);
+    if(gpu){g_cbGpuDraws++;cbg_bind(0);}
     terrain_surface_clear_draw(cells);
     glPopClientAttrib();
     bindBuffer(GL_ARRAY_BUFFER, oldBuffer); g_glsArray = oldBuffer; g_glsArrayKnown = true;
     bindBuffer(0x8893 /* GL_ELEMENT_ARRAY_BUFFER */, (GLuint)oldElement);
+    g_glsElement.i[0] = oldElement; g_glsElement.known = true;
     fx_glUseProgram((GLuint)oldProgram);
     glPopAttrib();
 }

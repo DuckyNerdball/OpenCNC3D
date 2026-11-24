@@ -21,6 +21,10 @@
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
+// MODIFIED for OpenCNC3D in November 2026. Appends the four Rally race orders
+// (RALLY_PICK, RALLY_INPUT, RALLY_AUTOPILOT, RALLY_CHOICE) before LAST_EVENT and the
+// Rally payload arm of the data union. The structure stays 22 bytes.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\event.h_v   2.19   16 Oct 1995 16:46:14   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -43,6 +47,8 @@
 
 #ifndef EVENT_H
 #define EVENT_H
+
+#include <stdint.h>
 
 /*
 **	This event class is used to contain all external game events (things that the player can
@@ -95,6 +101,16 @@ public:
         TIMING,        // new timing values for all systems to use
         PROCESS_TIME,  // a system's average processing time, in ticks per frame
         POWER_SWITCH, // Enhanced building power toggle, appended for wire compatibility.
+        GUN_GAME_CHOICE, // Token and option for the originating player.
+        GUN_GAME_DODGE,  // Life token for the originating player's combatant.
+        GUN_GAME_CHRONO, // Life token and destination cell.
+        GUN_GAME_ABILITY,      // Held ability activation: Data.GunAbility.
+        GUN_GAME_ABILITY_CELL, // More cells for the activation with the same serial: Data.GunCells.
+        GUN_GAME_GRANT,        // Test hook: give the originating player an ability.
+        RALLY_PICK,      // Rally: the originating player's vehicle (Data.General.Value, a roster index).
+        RALLY_INPUT,     // Rally: the originating player's controls (Data.Rally).
+        RALLY_AUTOPILOT, // Rally: the AI driver drives the originating player's racer (Data.General.Value).
+        RALLY_CHOICE,    // Rally: race again or end the match, on the results (Data.General.Value).
         LAST_EVENT,    // one past the last event
     } EventType;
 
@@ -155,6 +171,26 @@ public:
         {
             int Value; // general-purpose data
         } General;
+        /*
+        **	Gun Game ability activation. The first cells travel here; an activation with
+        **	more cells than Cell holds sends the rest in GUN_GAME_ABILITY_CELL events with
+        **	the same Serial, and the engine applies it once every cell has arrived.
+        */
+        struct
+        {
+            int Life;              // Life token of the activating combatant.
+            unsigned char Ability; // GunAbility.
+            signed char Target;    // HousesType of the targeted enemy, -1 for none.
+            unsigned char Count;   // Total cell count of the activation.
+            unsigned char Serial;  // Pairs the activation with its cell events.
+            CELL Cell[4];          // Cells 0 to 3.
+        } GunAbility;
+        struct
+        {
+            unsigned char Serial; // Serial of the activation these cells belong to.
+            unsigned char Index;  // Slot of Cell[0] in the activation.
+            CELL Cell[7];         // Seven more cells, -1 where unused.
+        } GunCells;
         struct
         {
             TARGET Whom;         // Whom to apply mission to.
@@ -227,6 +263,17 @@ public:
         {
             unsigned short AverageTicks;
         } ProcessTime;
+
+        //
+        // A Rally racer's controls: RALLY_IN_* bits and the world point under the
+        // crosshair in fine units (1/256 lepton). Fixed-width: it crosses the wire.
+        //
+        struct
+        {
+            uint32_t Bits;
+            int32_t AimX;
+            int32_t AimY;
+        } Rally;
 
     } Data;
 

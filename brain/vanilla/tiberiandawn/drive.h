@@ -13,6 +13,14 @@
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
 
+//
+// MODIFIED for OpenCNC3D. This is not EA's original file.
+// Declares DriveClass::FilmFactoryTrack, the straight weapons factory exit track
+// drive.cpp uses instead of Track13 when OPENCNC3D_FILM_STRAIGHT_FACTORY is set to 1.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
+
 /* $Header:   F:\projects\c&c\vcs\code\drive.h_v   2.19   16 Oct 1995 16:47:44   JOE_BOSTIC  $ */
 /***********************************************************************************************
  ***              C O N F I D E N T I A L  ---  W E S T W O O D  S T U D I O S               ***
@@ -123,6 +131,7 @@ public:
     virtual void Debug_Dump(MonoClass* mono) const;
 #endif
     void Force_Track(int track, COORDINATE coord);
+    int Forward_Speed() const;
     virtual int Tiberium_Load(void) const;
 
     void Exit_Map(void);
@@ -145,6 +154,7 @@ public:
     };
 
 private:
+    int Track_Speed() const;
     /****************************************************************************
     **	Smooth turning tracks are controlled by this structure and these
     **	processing bits.

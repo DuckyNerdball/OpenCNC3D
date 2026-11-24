@@ -189,6 +189,102 @@ FS_MAYBE_UNUSED static int fs_clamp_windowed(int display, int *w, int *h)
     return 1;
 }
 
+/* A WINDOWED WINDOW STANDS WHOLLY INSIDE THE USABLE ROOM, FRAME AND ALL.
+ *
+ * The window used to be sized to the usable room (or clamped to it) and then placed with
+ * SDL_WINDOWPOS_CENTERED. That centres the CLIENT area on the WHOLE display, not on the
+ * usable room, and the frame grows around it: so a window as tall as the usable room had
+ * its last rows behind the task bar or the Dock, about half the bar's height of them. A
+ * 48 pixel task bar hid the bottom 24 rows, which is more than the 12 point strip the map
+ * scrolls south from, so the bottom edge could not be reached by any hand and the map
+ * would not scroll down, while the other three edges worked.
+ *
+ * fs_fit_windowed is the arithmetic, pure so a gate can hand it any display: the client
+ * is shrunk to the room left inside the usable area once the frame's four sides are taken
+ * off, and centred in that room. fs_place_windowed applies it to a live window, measuring
+ * the frame where the platform reports it, and reads the result back. */
+FS_MAYBE_UNUSED static void fs_fit_windowed(const SDL_Rect *usable, int top, int left,
+                                            int bottom, int right, int w, int h,
+                                            SDL_Rect *out)
+{
+    const int roomw = usable->w - left - right, roomh = usable->h - top - bottom;
+    if (w > roomw) w = roomw;
+    if (h > roomh) h = roomh;
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    out->w = w;
+    out->h = h;
+    out->x = usable->x + left + (roomw - w) / 2;
+    out->y = usable->y + top + (roomh - h) / 2;
+}
+
+/* How many rows of a rectangle (grown by a frame edge of `edge` rows) stand outside the
+   usable room at its top or its bottom; 0 or less when none do. */
+FS_MAYBE_UNUSED static int fs_overhang_top(const SDL_Rect *r, const SDL_Rect *usable, int edge)
+{
+    return usable->y - (r->y - edge);
+}
+FS_MAYBE_UNUSED static int fs_overhang_bottom(const SDL_Rect *r, const SDL_Rect *usable, int edge)
+{
+    return (r->y + r->h + edge) - (usable->y + usable->h);
+}
+
+/* Size and place a bordered window inside its display's usable room. w x h is the client
+ * size asked for (0 x 0 means as large as fits). The frame comes from
+ * SDL_GetWindowBordersSize where the platform answers; where it does not, a title bar of
+ * 40 and sides of 8 are assumed, which is no smaller than a Windows title bar up to 125
+ * percent scaling and a macOS one, and the read-back below corrects the bottom whatever
+ * the guess. The bottom is the edge that matters most: it is where the map scrolls south.
+ * One DISPLAY line says where the window ended up, so a player's log answers a report
+ * about an edge that will not scroll. Returns 1 when it placed the window. */
+FS_MAYBE_UNUSED static int fs_place_windowed(SDL_Window *win, int w, int h)
+{
+    SDL_Rect usable, got;
+    int top = 0, left = 0, bottom = 0, right = 0, cx, cy, cw, ch, measured;
+    const int display = fs_window_display(win);
+    if (!win || fs_background_only() || (SDL_GetWindowFlags(win) & SDL_WINDOW_HIDDEN))
+        return 0;
+    if (SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN)
+        return 0;
+    if (SDL_GetDisplayUsableBounds(display, &usable) != 0 || usable.w <= 0 || usable.h <= 0)
+        return 0;
+    measured = SDL_GetWindowBordersSize(win, &top, &left, &bottom, &right) == 0;
+    if (!measured || top < 0 || left < 0 || bottom < 0 || right < 0) {
+        top = 40; left = right = bottom = 8;
+        measured = 0;
+    }
+    if (w <= 0 || h <= 0) { w = usable.w; h = usable.h; }
+    fs_fit_windowed(&usable, top, left, bottom, right, w, h, &got);
+    SDL_SetWindowSize(win, got.w, got.h);
+    SDL_SetWindowPosition(win, got.x, got.y);
+    /* Read it back: the window manager has the last word, and a client that still runs
+       past the bottom of the room is shortened by exactly that much and placed again. */
+    SDL_GetWindowPosition(win, &cx, &cy);
+    SDL_GetWindowSize(win, &cw, &ch);
+    {
+        const SDL_Rect now = { cx, cy, cw, ch };
+        const int over = fs_overhang_bottom(&now, &usable, 0);
+        if (over > 0 && ch - over > 0) {
+            got.h = ch - over;
+            got.y = cy;
+            SDL_SetWindowSize(win, cw, got.h);
+            SDL_SetWindowPosition(win, cx, cy);
+            SDL_GetWindowPosition(win, &cx, &cy);
+            SDL_GetWindowSize(win, &cw, &ch);
+        }
+    }
+    {
+        const SDL_Rect now = { cx, cy, cw, ch };
+        fprintf(stderr, "DISPLAY|client=%d,%d,%d,%d|usable=%d,%d,%d,%d|frame=%d,%d,%d,%d%s"
+                        "|hidden_top=%d|hidden_bottom=%d\n",
+                cx, cy, cw, ch, usable.x, usable.y, usable.w, usable.h, top, left, bottom,
+                right, measured ? "" : "|frame_guessed",
+                fs_overhang_top(&now, &usable, 0) > 0 ? fs_overhang_top(&now, &usable, 0) : 0,
+                fs_overhang_bottom(&now, &usable, 0) > 0 ? fs_overhang_bottom(&now, &usable, 0) : 0);
+    }
+    return 1;
+}
+
 /* Best-effort rollback after a driver rejects part of an exclusive transition. */
 FS_MAYBE_UNUSED static int fs_restore_display(SDL_Window* w, const SDL_DisplayMode* previous,
                                              Uint32 fullscreenFlags)
@@ -255,11 +351,10 @@ FS_MAYBE_UNUSED static int fs_apply_mode(SDL_Window *w, int mode, int rw, int rh
         }
         SDL_SetWindowBordered(w, SDL_TRUE);
         SDL_SetWindowResizable(w, SDL_TRUE);
-        if (rw > 0 && rh > 0) {
+        if (rw > 0 && rh > 0)
             fs_clamp_windowed(display, &rw, &rh);
-            SDL_SetWindowSize(w, rw, rh);
-        }
-        SDL_SetWindowPosition(w, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        /* Inside the usable room, frame and all: see fs_place_windowed. */
+        fs_place_windowed(w, rw, rh);
     }
     fprintf(stderr, "DISPLAY|mode=%d|asked=%dx%d\n", mode, rw, rh);
     return 1;

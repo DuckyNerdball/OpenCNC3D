@@ -21,7 +21,11 @@ static void diag_counter_values(Uint64* v) {
 }
 static void diag_begin_frame() {g_diagFrame=game_diag::Frame();diag_counter_values(g_diagPrevious);}
 static void diag_section(const char* name,size_t k) {
- if(k>=game_diag::PASS_COUNT)return;
+ if(k>=game_diag::PASS_COUNT){
+  static bool said=false;
+  if(!said){game_diag::Packet p;p.kind=game_diag::SCHEMA;p.a=2;p.b=(int)k;snprintf(p.text,sizeof p.text,"%s",name);said=game_diag::enqueue(p);}
+  return;
+ }
  Uint64 current[game_diag::WORK_COUNT];diag_counter_values(current);
  for(size_t i=0;i<game_diag::WORK_COUNT;i++){g_diagFrame.work[k][i]+=current[i]>=g_diagPrevious[i]?current[i]-g_diagPrevious[i]:current[i];g_diagPrevious[i]=current[i];}
  if(!g_diagSchemaPasses[k]){game_diag::Packet p;p.kind=game_diag::SCHEMA;p.a=0;p.b=(int)k;snprintf(p.text,sizeof p.text,"%s",name);if(game_diag::enqueue(p))g_diagSchemaPasses[k]=true;}

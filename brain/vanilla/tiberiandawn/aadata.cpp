@@ -267,12 +267,32 @@ static AircraftTypeClass const CargoPlane(AIRCRAFT_CARGO, // What kind of aircra
                                           MISSION_HUNT    // Default mission for aircraft.
 );
 
+// Gun Game uses a positive sight radius for piloted aircraft without airfields.
+static AircraftTypeClass RankAircraft(AircraftType type, const char* name, int hp,
+                                      int speed, int rot, int ammo, ArmorType armor,
+                                      WeaponType weapon, bool plane)
+{
+    return AircraftTypeClass(type, TXT_HELI, name, 99, STRUCTF_NONE, false, plane,
+                             false, plane, !plane, false, true, false, false, true,
+                             true, false, false, false, false, false, false,
+                             ammo, hp, 5, 0, 99, 1, 1, 0, weapon, WEAPON_NONE, armor,
+                             (MPHType)((speed * 256 + 50) / 100), rot, MISSION_GUARD);
+}
+
+static const AircraftTypeClass RAHind = RankAircraft(
+    AIRCRAFT_RA_HIND, "HIND", 225, 12, 4, 12, ARMOR_STEEL, WEAPON_RA_CHAINGUN, false);
+static const AircraftTypeClass RAYak = RankAircraft(
+    AIRCRAFT_RA_YAK, "YAK", 60, 16, 5, 15, ARMOR_ALUMINUM, WEAPON_RA_CHAINGUN, true);
+static const AircraftTypeClass RAMig = RankAircraft(
+    AIRCRAFT_RA_MIG, "MIG", 50, 20, 5, 3, ARMOR_ALUMINUM, WEAPON_RA_MAVERICK, true);
+
 AircraftTypeClass const* const AircraftTypeClass::Pointers[AIRCRAFT_COUNT] = {
     &TransportHeli,
     &AttackPlane,
     &AttackHeli,
     &CargoPlane,
     &OrcaHeli,
+    &RAHind, &RAYak, &RAMig,
 };
 
 /***********************************************************************************************

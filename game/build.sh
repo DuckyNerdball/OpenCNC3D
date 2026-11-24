@@ -198,7 +198,7 @@ AUDOBJ="$AUDOBJ aud_sdl.o"
 
 # -headerpad_max_install_names: reserve room in the Mach-O header so the dylib paths can
 # be rewritten after the link without relinking. Same flag and same reason as app/build.sh.
-clang++ $OPENCNC3D_ARCH -std=c++14 -O2 -g \
+clang++ $OPENCNC3D_ARCH -std=c++14 -O3 -g \
     -fms-extensions -fdeclspec -D__int64="long long" $CDEFS \
     -o cnc_eyes cnc_eyes.cpp dosbar.o hud640.o dosopt.o dossave.o dosmenu.o dosops.o doslobby.o dosmp.o enhanced_menu.o pngwrite.o logo3d.o lockstep.o net_udp.o netmatch.o netbeacon.o roomcode.o $AUDOBJ \
     -I"$HDR" -I. -I../audio -I../menu \
@@ -232,8 +232,9 @@ sh ../tools/bundle-sdl.sh . cnc_eyes gate_mpbrowse gate_enhanced_menu
 # own copy of this list -- so the day enhanced_mod.h was added here and not there, the two
 # could never agree again and the launcher warned "rebuild" after every successful build.
 # A warning that is always on is a warning nobody reads. One list, published here.
-BUILD_SOURCES="new_sprites_mod.h new_sprites_data.h new_sprites_colour.h td_road_join.h cnc_eyes.cpp clear_blend.h clear_blend_field.h terrain_grass_mask.h diagnostic_session.h diagnostic_renderer.h diagnostic_wininfo.h building_service.h building_service_types.h building_service_bindings.h faction_livery.h n64inf_mod.h dosinf_mod.h dosopt.h dosopt_gl.h fullscreen.h cnc_game.h cursor3d_mod.h ebld_place.h evhc_mod.h n64fix_mod.h n64inf_mod.h dosinf_mod.h n64fix_mod.h evhc_mod.h ebld_place.h cursor3d_mod.h perf_trace.h destruction_trace.h building_physics_capture.h mesh_batch.h gl_state_cache.h ebld_mod.h ebld_prepare.h ../menu/enhanced_menu.cpp ../menu/enhanced_menu.h ../menu/enhanced_menu_font.h cnc_sidebar.h edit_mod.h edit_tables.h enhanced_mod.h \
+BUILD_SOURCES="wave_static_cache.h stable_vector_step.h infdeath_mod.h dos_shape_index.h dosclassic_mod.h mesh_prepared_draw.h mesh_prepared_bulk.h mesh_depth_direct.h mesh_transform_four.h mesh_direct_glow.h clear_blend_gpu.h world_snapshot_buffer.h evhc_pick_frame.h pick_projection.h vehicle_destruction_budget.h building_destruction_budget.h ant3d_mod.h vehicle_mg_fx.h new_sprites_mod.h new_sprites_data.h new_sprites_colour.h td_road_join.h cnc_eyes.cpp clear_blend.h clear_blend_field.h terrain_grass_mask.h diagnostic_session.h diagnostic_renderer.h diagnostic_wininfo.h building_service.h building_service_types.h building_service_bindings.h faction_livery.h n64inf_mod.h dosinf_mod.h dosopt.h dosopt_gl.h fullscreen.h cnc_game.h cursor3d_mod.h ebld_place.h evhc_mod.h n64fix_mod.h n64inf_mod.h dosinf_mod.h n64fix_mod.h evhc_mod.h ebld_place.h cursor3d_mod.h perf_trace.h destruction_trace.h building_physics_capture.h mesh_batch.h gl_state_cache.h ebld_mod.h ebld_prepare.h ../menu/enhanced_menu.cpp ../menu/enhanced_menu.h ../menu/enhanced_menu_font.h cnc_sidebar.h edit_mod.h edit_tables.h enhanced_mod.h \
 edit_emblem.h codex_mod.h codex_table.h unitcard_mod.h gmwipe_mod.h dosclassic_mod.h bake_dosclassic.py bake_dosclassic_mix.py dosbar.c hud640.c hud640.h hud_enhanced.h hud_enhanced_impl.h hud_enhanced_catalog.h sidebar_build_potential.h cnc_sidebar_enhanced.h dosopt.c ../app/logo3d.c \
+rally_mod.h rally_icons.h rally_abi.h \
 ../net/lockstep.c ../net/net_udp.c ../net/lockstep.h ../net/net_udp.h \
 ../net/netmatch.c ../net/netmatch.h ../net/netbeacon.c ../net/netbeacon.h"
 {
@@ -248,7 +249,9 @@ edit_emblem.h codex_mod.h codex_table.h unitcard_mod.h gmwipe_mod.h dosclassic_m
 # be able to disagree, so they no longer can.
 if [ -d ../playable ]; then
     cp cnc_eyes ../playable/cnc_eyes
-    if [ -d sprites ]; then mkdir -p ../playable/sprites; cp sprites/e1-v15.pack sprites/e1-v15-player-mask.png sprites/manifest.json ../playable/sprites/; fi
+    # The sprite pack and its mask are made outside this script, so a fresh checkout has
+    # the committed manifest and no pack: stage the three only when the pack is there.
+    if [ -f sprites/e1-v15.pack ]; then mkdir -p ../playable/sprites; cp sprites/e1-v15.pack sprites/e1-v15-player-mask.png sprites/manifest.json ../playable/sprites/; fi
     for surface in terrainsurface_*.pack *_SAND.pack; do
         [ -f "$surface" ] && cp "$surface" ../playable/
     done

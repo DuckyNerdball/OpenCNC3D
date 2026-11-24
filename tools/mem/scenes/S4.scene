@@ -1,0 +1,32 @@
+# S4 Red Alert SCG01EA booted in Enhanced and switched to Classic before tick 1 (the
+# first-tick building preparation has already run): S1's framing in the Classic look.
+game: ra
+scen: SCG01EA
+modes: enh
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+gfxmode 0
+tick 1
+frames 2
+memledger t1
+cam 62.5 61.5
+frames 2
+shot {OUT}/t0001_west.png
+cam 70.5 63.5
+frames 2
+shot {OUT}/t0001_east.png
+cam 57 56
+frames 2
+shot {OUT}/t0001_water.png
+tick 299
+frames 2
+memledger t300
+cam 62.5 61.5
+frames 2
+shot {OUT}/t0300_west.png
+cam 70.5 63.5
+frames 2
+shot {OUT}/t0300_east.png
+quit

@@ -208,7 +208,8 @@ def flatten_water(corners, payload):
 def build_generator():
     """The generator, compiled once per source: missions run in parallel share it."""
     src = os.path.join(ROOT, "tools", "autoheight", "port_check.cpp")
-    deps = [src, os.path.join(ROOT, "game", "autoheight_mod.h")]
+    deps = [src, os.path.join(ROOT, "game", "autoheight_mod.h"),
+            os.path.join(ROOT, "game", "autoheight_tables.h")]
     stamp = zlib.crc32(b"".join(open(f, "rb").read() for f in deps if os.path.exists(f)))
     exe = os.path.join(tempfile.gettempdir(), "ra_autoheight_%08x" % stamp)
     if not os.path.exists(exe):

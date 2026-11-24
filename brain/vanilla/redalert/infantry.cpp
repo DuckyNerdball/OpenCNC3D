@@ -23,6 +23,9 @@
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
+// MODIFIED for OpenCNC3D. Scatter leaves a soldier on a player's
+// attack-move in that mission and gives him only the step aside, so he carries on to the
+// clicked cell afterwards. It DOES change the game simulation.
 
 /* $Header: /CounterStrike/INFANTRY.CPP 2     3/03/97 10:35p Joe_bostic $ */
 /***********************************************************************************************
@@ -2124,7 +2127,17 @@ void InfantryClass::Scatter(COORDINATE threat, bool forced, bool nokidding)
         }
 
         if (newcell != 0) {
-            Assign_Mission(MISSION_MOVE);
+            /*
+            **	OpenCNC3D: a soldier stepping aside on a player's attack-move keeps the attack-move.
+            **	Only the step is assigned; Mission_Guard_Area walks him on to the clicked cell
+            **	once he has taken it. The attack-move test is the one that routine keeps (its
+            **	mission state value, set when an attack-move starts and cleared once it arrives),
+            **	so a soldier on the G key, or on any other mission, still scatters into a plain move.
+            */
+            const bool attackmove = House->IsHuman && Mission == MISSION_GUARD_AREA && Status == 1;
+            if (!attackmove) {
+                Assign_Mission(MISSION_MOVE);
+            }
             Assign_Destination(::As_Target(newcell));
         }
     }

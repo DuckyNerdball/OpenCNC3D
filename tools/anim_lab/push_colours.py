@@ -22,6 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 EYES = os.path.join(REPO, "game", "cnc_eyes.cpp")
 MODEL = os.path.join(REPO, "game", "model3d_mod.h")
+CLOTH_REF = os.path.join(REPO, "game", "model_cloth_reference.h")   # M3_CLOTH_REF
 SAVED = os.path.join(HERE, "colours.json")
 BEGIN, END = "/* BEGIN SOLDIER PALETTE */\n", "/* END SOLDIER PALETTE */\n"
 SIDES = ("gdi", "nod")
@@ -52,8 +53,15 @@ def read_game(src=None):
 
 
 def cloth_ref():
-    src = open(MODEL, encoding="latin-1").read()
-    return float(re.search(r"#define M3_CLOTH_REF " + FLOAT, src).group(1))
+    """M3_CLOTH_REF, read where it is defined (model_cloth_reference.h, which the model
+    header and cnc_eyes.cpp both include; model3d_mod.h is read too, so an older tree that
+    still defines it there answers as well)."""
+    for path in (CLOTH_REF, MODEL):
+        if os.path.exists(path):
+            m = re.search(r"#define M3_CLOTH_REF " + FLOAT, open(path, encoding="latin-1").read())
+            if m:
+                return float(m.group(1))
+    raise ValueError("M3_CLOTH_REF is not defined in %s or %s" % (CLOTH_REF, MODEL))
 
 
 def logo_colour():

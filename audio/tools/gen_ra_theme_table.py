@@ -14,11 +14,17 @@ for name, title in re.findall(r"#define\s+(TXT_THEME_\w+)\s+\d+\s*//\s*(.+)", co
 
 block = theme_text.split("ThemeClass::_themes[THEME_COUNT] = {", 1)[1].split("\n};", 1)[0]
 rows = []
+# Red Alert's ThemeControl (theme.h) is Name, Fullname, Scenario, Duration, Normal, Repeat,
+# Available, Owner. It has no Variation, which Tiberian Dawn's has between Normal and
+# Repeat, so the three flags are NOT Tiberian Dawn's three: reading them in that order put
+# Available, true for every theme, into `repeat`, and every Red Alert track looped for the
+# whole mission. Available is not a table flag here either: the file being in the bank is.
 pattern = re.compile(
     r'\{"([A-Z0-9_]+)",\s*(TXT_THEME_\w+),\s*(\d+),\s*(\d+),'
     r'\s*(true|false),\s*(true|false),\s*(true|false),\s*([^}]+)\}')
 for match in pattern.finditer(block):
-    name, title_key, scenario, duration, normal, variation, repeat, owner = match.groups()
+    name, title_key, scenario, duration, normal, repeat, _available, owner = match.groups()
+    variation = "false"
     if title_key not in titles:
         raise ValueError(f"missing original title for {name}: {title_key}")
     sides = (1 if "HOUSEF_ALLIES" in owner else 0) | (2 if "HOUSEF_SOVIET" in owner else 0)

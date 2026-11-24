@@ -705,11 +705,33 @@ static void uvfx_load(const char* base)
     fflush(stdout);
 }
 
+/* LOADED AT ITS FIRST USE, not at the start (boot_art.h). It is drawn only under
+   experimental art, which nothing switches on, so at the start its 33 textures and its seed
+   records only took memory. game_boot names the folder (uvfx_defer: the first start's, as
+   uvfx_load kept the first start's) and uvfx_ensure loads from it, through uvfx_load
+   unchanged, the first time uvfx_available's switches all pass or a picker verb asks for
+   it. Needs the live GL context, as uvfx_load always has. */
+static std::string g_uvBase;
+static bool g_uvBaseSet = false;
+static void uvfx_defer(const char* base)
+{
+    if (g_uvBaseSet) return;
+    g_uvBase = base ? base : "";
+    g_uvBaseSet = true;
+}
+static void uvfx_ensure(void)
+{
+    if (g_uv.loaded || g_uv.failed || !g_uvBaseSet) return;
+    uvfx_load(g_uvBase.c_str());
+}
+
 /* ------------------------------------------------------------------ switch */
 static bool uvfx_available(void)
 {
-    return g_uv.loaded && g_fx.enabled && g_fx.experimental_textures && g_fx.uvfx_on
-           && fx_gl_ready;
+    if (!(g_fx.enabled && g_fx.experimental_textures && g_fx.uvfx_on && fx_gl_ready))
+        return false;
+    uvfx_ensure();
+    return g_uv.loaded != 0;
 }
 
 /* THE CLAIM, called by efx_step for every live anim on every step. An anim this takes
@@ -1392,6 +1414,11 @@ static int    g_uvProgTried = 0;
    the feature stays off rather than drawing wrong. */
 typedef void (APIENTRY *UVPFNBLENDFUNCSEPARATE)(GLenum, GLenum, GLenum, GLenum);
 static UVPFNBLENDFUNCSEPARATE uv_glBlendFuncSeparate = NULL;
+/* A separate pair is not shadowed by the state cache (gl_state_cache.h); setting one makes
+   the factors unknown until the next glBlendFunc. */
+static inline void gls_uv_blend_func_separate(GLenum a, GLenum b, GLenum c, GLenum d)
+{ (uv_glBlendFuncSeparate)(a, b, c, d); gls_blend_written(); }
+#define uv_glBlendFuncSeparate(a, b, c, d) gls_uv_blend_func_separate(a, b, c, d)
 
 static GLuint uvfx_link(const char* fs1, const char* fs2, const char* label, const char* fs3 = NULL)
 {
@@ -2146,7 +2173,8 @@ static void uvfx_load_guns(const std::string& root)
 /* Does anything want this model's sockets? Cheap enough to ask on every draw. */
 static bool uvfx_sock_wanted(const M3Model& m)
 {
-    if (g_uvMuzzles.empty() || !uvfx_available()) return false;
+    /* (uvfx_available first: it is what loads the muzzle rules at the first use) */
+    if (!uvfx_available() || g_uvMuzzles.empty()) return false;
     for (size_t i = 0; i < g_uvSockDefs.size(); i++) if (g_uvSockDefs[i].model == m.type) return true;
     return false;
 }
@@ -2163,6 +2191,25 @@ static void uvfx_sock_put(UvfxSockRec& rec, int di, const float* mat, const floa
     x.k = k;
     rec.def.push_back(di);
     rec.xf.push_back(x);
+}
+
+/* DOES ANYTHING READ THIS FIRER'S SOCKETS THIS FRAME? A shot of his still waiting for a
+   barrel, the rest of a burst, or a flash riding his gun. Those are the only readers of a
+   socket record (uvfx_muzzle_fires), and all three are queued before the picture is
+   drawn, so a soldier off the picture with none of them can skip his pose: his record
+   goes stale exactly as a soldier's not drawn at all does, and the first shot queued for
+   him brings him back to being posed on the frame it is read. Asked only for soldiers
+   off the picture, so a plain scan of the three short queues is cheap. */
+static bool uvfx_sock_demand(const SimObject& o)
+{
+    const int key = uvfx_rtti_of(o.kind) * 100000 + o.id;
+    for (size_t i = 0; i < g_uvFires.size(); i++)
+        if (g_uvFires[i].f.kind * 100000 + g_uvFires[i].f.id == key) return true;
+    for (size_t i = 0; i < g_uvBursts.size(); i++)
+        if (g_uvBursts[i].key == key) return true;
+    for (size_t i = 0; i < g_uvInst.size(); i++)
+        if (g_uvInst[i].follow == key) return true;
+    return false;
 }
 
 /* A 3D SOLDIER'S SOCKETS, on the pose m3_skin just used: bone space -> the bone's posed
@@ -2245,7 +2292,7 @@ static void uvfx_sock_vehicle(const SimObject& o, const M3Model& m, const M3Draw
    where their hits are set off.
    Keyed by the bullet's heap id and type; a new shot with the same id replaces it. */
 static float efx_bullet_centre_lift(float ylift, bool lay_flat);   /* cnc_eyes.cpp, after draw_mesh */
-struct UvfxLaunch { int bullet, btype, hold; float s[3], e[3]; };
+struct UvfxLaunch { int bullet, btype, hold, rigid; float s[3], e[3]; };
 static std::vector<UvfxLaunch> g_uvLaunch;
 static const float UVFX_LAUNCH_EASE = 1.0f;
 /* rounds the engine has just fired, by id: a trail still following an older round with
@@ -2262,11 +2309,12 @@ static void uvfx_launch_forget(int bullet, int btype)
         }
 }
 
-static void uvfx_launch_note(const EfxFire& f, const float* from)
+static void uvfx_launch_note(const EfxFire& f, const float* from, bool rigid = false)
 {
     uvfx_launch_forget(f.bullet, f.btype);
     if (f.bullet < 0 || !from) return;
     UvfxLaunch L;
+    L.rigid = rigid ? 1 : 0;
     L.bullet = f.bullet; L.btype = f.btype; L.hold = efx_bullet_lays_flat(f.bname) ? 1 : 0;
     memcpy(L.s, from, sizeof L.s);
     L.e[0] = f.wx; L.e[2] = f.wz;
@@ -2277,10 +2325,11 @@ static void uvfx_launch_note(const EfxFire& f, const float* from)
 /* the offset to draw bullet (id, type) at, now that it is at (wx, wz) */
 static bool uvfx_launch_offset(int id, int type, float wx, float wz, float out[3])
 {
-    if (!uvfx_available()) return false;
+    if (!g_fx.enabled) return false;
+    const bool unity = uvfx_available();
     for (size_t i = 0; i < g_uvLaunch.size(); i++) {
         const UvfxLaunch& L = g_uvLaunch[i];
-        if (L.bullet != id || L.btype != type) continue;
+        if (L.bullet != id || L.btype != type || (!L.rigid && !unity)) continue;
         const float dx = wx - L.e[0], dz = wz - L.e[2];
         float w = 1.0f - sqrtf(dx * dx + dz * dz) / UVFX_LAUNCH_EASE;
         if (w < 0.0f) w = 0.0f;
@@ -2307,12 +2356,16 @@ static void uvfx_launch_prune(void)
 
 /* The engine's shot, straight from the dump: queued for the next drawn frame, where the
    firer's sockets are known. */
+static bool (*g_uvRigidLaunch)(const EfxFire&, float[3]) = NULL;
 static void uvfx_on_fire(const EfxFire& f)
 {
+    vehicle_mg_fx_queue(f);
     /* every shot the engine reports, drawn or not, for a harness to time things by */
     printf("UVFX|fire|type=%s|id=%d|which=%d|second=%d|btype=%d|bullet=%d|frame=%d\n", f.type, f.id, f.which,
            f.second, f.btype, f.bullet, g_engineFrame);
-    if ((g_uvMuzzles.empty() && !uvfx_any_trail()) || !uvfx_available()) return;
+    /* (uvfx_available first: it is what loads the muzzle and trail rules at the first use) */
+    const bool rigid = g_uvRigidLaunch && g_fx.enabled && !strcmp(f.type,"MSAM");
+    if ((!uvfx_available() || (g_uvMuzzles.empty() && !uvfx_any_trail())) && !rigid) return;
     /* this id is a new round now: the old one's launch and trail are finished with */
     uvfx_launch_forget(f.bullet, f.btype);
     UvfxNewRound nr = { f.bullet, f.btype, g_engineFrame };
@@ -2391,6 +2444,7 @@ static void uvfx_spawn_flash(const EfxFire& f, int key, const UvfxSockRec& rec, 
 /* THE SHOTS OF THIS FRAME, into flashes and trails. A shot whose firer has no socket on
    this frame waits one more frame (the draw may not have reached it yet); after that it
    gets no flash, and its trail starts from the engine's own launch point. */
+/* Authored rigid models can supply their posed launch mouth without a C3M socket. */
 static void uvfx_muzzle_fires(void)
 {
     std::vector<UvfxFireQ> keep;
@@ -2400,7 +2454,11 @@ static void uvfx_muzzle_fires(void)
         const int key = f.kind * 100000 + f.id;
         std::map<int, UvfxSockRec>::iterator si = g_uvSock.find(key);
         if (si == g_uvSock.end() || si->second.serial != g_uvSerial) {
-            if (g_engineFrame - q.frame <= 1) keep.push_back(q);
+            float from[3];
+            if (g_uvRigidLaunch && g_uvRigidLaunch(f, from)) {
+                uvfx_launch_note(f, from, true);
+                if (uvfx_available()) uvfx_trail_start(f, q.frame, from);
+            } else if (g_engineFrame - q.frame <= 1) keep.push_back(q);
             else { g_uvFiresNoSocket++; uvfx_launch_forget(f.bullet, f.btype); uvfx_trail_start(f, q.frame, NULL); }
             continue;
         }
@@ -2438,8 +2496,9 @@ static void uvfx_muzzle_fires(void)
            its trail start there and ease into the engine's flight (uvfx_launch_offset).
            This used to put a soldier's trail on the ground under his launcher, which was
            neither where his rocket was drawn nor where the flash played. */
-        uvfx_launch_note(f, haveFrom ? from : NULL);
-        uvfx_trail_start(f, q.frame, haveFrom ? from : NULL);
+        const bool rigid = !haveFrom && g_uvRigidLaunch && g_uvRigidLaunch(f,from);
+        uvfx_launch_note(f, haveFrom || rigid ? from : NULL, rigid);
+        if (uvfx_available()) uvfx_trail_start(f, q.frame, haveFrom || rigid ? from : NULL);
     }
     g_uvFires.swap(keep);
     /* THE REST OF EACH BURST, on its tick, on the barrel as it is then. A firer not drawn

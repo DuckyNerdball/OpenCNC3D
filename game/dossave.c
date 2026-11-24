@@ -263,3 +263,49 @@ int ds_first_free(const DS_Slot t[DS_SLOTS])
         if (!t[i].used) return i;
     return -1;
 }
+
+/* ---- the payload's first word ------------------------------------------------- */
+
+int ds_word_loadable(unsigned int first_word, int win64)
+{
+    const int tagged = (first_word & DS_SAVE_WIDTH_MASK) == DS_SAVE_WIDTH_WIN64;
+    return win64 ? tagged : !tagged;
+}
+
+int ds_payload_word(int slot, unsigned int *word)
+{
+    unsigned char b[4];
+    FILE *f;
+    const char *p;
+    if (!word || !g_dsDir[0]) return 0;
+    p = ds_payload_path(slot);
+    f = fopen(p, "rb");
+    if (!f) return 0;
+    if (fread(b, 1, 4, f) != 4) {
+        fclose(f);
+        return 0;
+    }
+    fclose(f);
+    *word = rd32(b);
+    return 1;
+}
+
+int ds_slot_loadable(int slot, int win64)
+{
+    unsigned int word = 0;
+    if (!ds_payload_word(slot, &word)) return 1;
+    return ds_word_loadable(word, win64);
+}
+
+const char *ds_width_label(int win64)
+{
+    return win64 ? "32-bit or Mac save" : "Windows save";
+}
+
+const char *ds_width_refusal(int win64)
+{
+    return win64 ? "This save was made by a 32-bit Windows build or on a Mac, so this "
+                   "64-bit build cannot load it; the save has been kept."
+                 : "This save was made by a 64-bit Windows build, so this build cannot "
+                   "load it; the save has been kept.";
+}

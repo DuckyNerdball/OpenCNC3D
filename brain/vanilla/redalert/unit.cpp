@@ -1,4 +1,6 @@
 // MODIFIED for OpenCNC3D. Runs mobile Gap Generator shroud as simulation logic, including AI visibility.
+// MODIFIED for OpenCNC3D. A harvester never heads for, or waits at, a refinery its owner has switched off: Find_Best_Refinery skips a remembered one that is off, and Mission_Enter sends a harvester approaching or queued at one, and not yet backing in, back to its harvest mission to pick a powered refinery.
+// MODIFIED for OpenCNC3D. Enter_Idle_Mode keeps an attack order that is waiting in the mission queue, as Tiberian Dawn's does, so an attack given just after a move order is not replaced by Guard.
 //
 // Copyright 2020 Electronic Arts Inc.
 //
@@ -1393,6 +1395,18 @@ void UnitClass::Enter_Idle_Mode(bool initial)
             }
 #endif
         } else {
+
+            /*
+            **	OpenCNC3D: an attack order given while the unit is still moving queues
+            **	MISSION_ATTACK and clears the destination. The drive routine then finds no
+            **	destination and calls this routine, which used to queue Guard over the
+            **	waiting attack, and the guard scan dropped a target out of range: about one
+            **	tank in four of a group ignored the order. Tiberian Dawn keeps the attack
+            **	when a target is set; here the queued attack is kept the same way.
+            */
+            if (MissionQueue == MISSION_ATTACK && Target_Legal(TarCom)) {
+                return;
+            }
 
             if (Mission == MISSION_GUARD || Mission == MISSION_GUARD_AREA) {
                 return;
@@ -3871,6 +3885,27 @@ int UnitClass::Mission_Enter(void)
         if (contact == NULL) {
             contact = As_Techno(ArchiveTarget);
         }
+
+        /*
+        **	OpenCNC3D: a harvester heading for, or queued at, a refinery its owner has
+        **	switched off gives up on it and goes back to its harvest mission, which picks a
+        **	powered refinery (the same hack FootClass::Mission_Enter uses to skip straight to
+        **	finding a refinery). One already backing in finishes docking and unloads.
+        */
+        if (contact != NULL && contact->What_Am_I() == RTTI_BUILDING && *((BuildingClass*)contact) == STRUCT_REFINERY
+            && ((BuildingClass*)contact)->IsPowerOff && !IsTethered && !IsInLimbo) {
+            if (Contact_With_Whom() == contact) {
+                Transmit_Message(RADIO_OVER_OUT);
+            }
+            if (ArchiveTarget == contact->As_Target()) {
+                ArchiveTarget = TARGET_NONE;
+            }
+            Assign_Destination(TARGET_NONE);
+            Assign_Mission(MISSION_HARVEST);
+            Assign_Target(As_Target());
+            return (TICKS_PER_SECOND / 2);
+        }
+
         if (contact != NULL && contact->What_Am_I() == RTTI_BUILDING && *((BuildingClass*)contact) == STRUCT_REFINERY) {
             TiberiumUnloadRefinery = contact->As_Target();
         }
@@ -4474,7 +4509,13 @@ BuildingClass* UnitClass::Find_Best_Refinery(void) const
             && refinery->Mission != MISSION_DECONSTRUCTION && *refinery == STRUCT_REFINERY
             && Map[refinery->Center_Coord()].Zones[Techno_Type_Class()->MZone]
                    == Map[Center_Coord()].Zones[Techno_Type_Class()->MZone]) {
-            return refinery;
+            /*
+            **	OpenCNC3D: a refinery switched off by its owner is passed over (but still
+            **	remembered); Find_Docking_Bay below skips it too.
+            */
+            if (!refinery->IsPowerOff) {
+                return refinery;
+            }
         } else {
             TiberiumUnloadRefinery = TARGET_NONE;
         }

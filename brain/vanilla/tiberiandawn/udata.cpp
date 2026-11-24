@@ -1222,6 +1222,34 @@ static UnitTypeClass const UnitSteg(UNIT_STEG,
                                     MISSION_GUARD // ORDERS:		Default order to give new unit.
 );
 
+// Red Alert combatants are rank-only. Zero ownability and no build flag keep
+// them out of the Dawn tech tree and standard production.
+static UnitTypeClass RankVehicle(UnitType type, const char* name, int hp, int sight,
+                                 WeaponType weapon, ArmorType armor, int speed,
+                                 bool turret, bool twin, bool cloak = false, bool wheels = false)
+{
+    return UnitTypeClass(type, TXT_MTANK, name, ANIM_FRAG1, 99, STRUCTF_NONE,
+                         false, false, false, false, false, false, true, false,
+                         false, true, true, false, false, turret, twin, false,
+                         false, false, false, false, false, !wheels, true, false,
+                         cloak, false, -1, hp, sight, 0, 99, 1, 1, 0,
+                         weapon, WEAPON_NONE, armor, wheels ? SPEED_WHEEL : SPEED_TRACK,
+                         (MPHType)((speed * 256 + 50) / 100), 5, 0, MISSION_GUARD);
+}
+
+static const UnitTypeClass RAHeavy = RankVehicle(
+    UNIT_RA_HEAVY, "3TNK", 400, 5, WEAPON_RA_CANNON, ARMOR_STEEL, 7, true, true);
+static const UnitTypeClass RAV2 = RankVehicle(
+    UNIT_RA_V2, "V2RL", 150, 5, WEAPON_RA_SCUD, ARMOR_ALUMINUM, 7, false, false, false, true);
+static const UnitTypeClass RATesla = [] {
+    UnitTypeClass tank = RankVehicle(UNIT_RA_TESLA, "TTNK", 110, 7, WEAPON_RA_TANKZAP,
+                                     ARMOR_ALUMINUM, 8, false, false, false, true);
+    tank.IsRadarEquipped = true; // original second bank of rotating mast frames
+    return tank;
+}();
+static const UnitTypeClass RAChrono = RankVehicle(
+    UNIT_RA_CHRONO, "CTNK", 350, 5, WEAPON_RA_TUSK, ARMOR_ALUMINUM, 5, false, true);
+
 /*
 **	This is the array of pointers to the static data associated with each
 **	vehicle type.
@@ -1249,6 +1277,7 @@ UnitTypeClass const* const UnitTypeClass::Pointers[UNIT_COUNT] = {
     &UnitTrex,      // UNIT_TREX
     &UnitRapt,      // UNIT_RAPT
     &UnitSteg,      // UNIT_STEG
+    &RAHeavy, &RAV2, &RATesla, &RAChrono,
 };
 
 /***********************************************************************************************

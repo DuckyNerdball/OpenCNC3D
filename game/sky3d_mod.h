@@ -166,4 +166,11 @@ static void sky3d_free(void)
     g_sky3dHave = false;
 }
 
+// User-selected FREEGLUE reflection cube. Keep the established diffuse irradiance.
+static void sky3d_load_freeglue_reflection(const char* path) {
+ float irradiance[9][3];memcpy(irradiance,g_sky3dSH,sizeof(irradiance));
+ GLuint previous=g_sky3dTex;bool had=g_sky3dHave;
+ sky3d_load(path);
+ if(g_sky3dTex!=previous){if(previous)glDeleteTextures(1,&previous);if(had)memcpy(g_sky3dSH,irradiance,sizeof(irradiance));fprintf(stderr,"FREEGLUE|reflection-ready|%s|diffuse-preserved=%d\n",path,had?1:0);}
+}
 #endif /* OPENCNC3D_SKY3D_MOD_H */

@@ -53,7 +53,7 @@ import re
 import sys
 
 STILL = ['gfx cloud_on 0', 'gfx tree3d_wind 0', 'gfx tree3d_flutter 0', 'gfx water_fx 0',
-         'gfx grass_wind 0', 'gfx fol_wind 0', 'gfx fol_flutter 0']
+         'gfx grass_wind 0', 'gfx fol_wind 0', 'gfx fol_flutter 0', 'gfx snow_fx 0']
 # tag: (scenario, theater, shroud on, the early/late limit in changed pixels, or None where
 # the mission's own action fills the view: Soviet 1 opens with an air raid on the village)
 RUNS = {

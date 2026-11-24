@@ -5,15 +5,15 @@
  * scenario, ticks it, and dumps the resulting game state in plain text.
  *
  * Dependencies: libdl + the C library. Nothing else. The only platform-specific code is
- * the three-line dynamic-loader shim below, which already has its Win32 (LoadLibrary)
- * branch written so the same file builds for the Win98 tier.
+ * the three-line dynamic-loader shim below, whose Windows (LoadLibrary) branch builds the
+ * same file as cncbrain.exe for 64-bit Windows.
  *
  * ---------------------------------------------------------------------------------
  * ABI NOTE. Every struct below is a byte-exact C mirror of the C++ structs in
  * tiberiandawn/dllinterface.h, as built with -DMEGAMAPS and _MAX_FNAME=255/_MAX_EXT=8.
- * The sizes and offsets were measured from the real header (see layout_probe.cpp) and
- * are re-checked here with _Static_assert, so a header change breaks the build loudly
- * instead of silently mis-decoding the buffer.
+ * The sizes and offsets were measured from the real header, by a probe program compiled
+ * with the DLL's own defines, and are re-checked here with _Static_assert, so a header
+ * change breaks the build loudly instead of silently mis-decoding the buffer.
  * ---------------------------------------------------------------------------------
  */
 
@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* ================================ loader shim ==================================== */
 
@@ -63,7 +64,7 @@ typedef long long cnc_i64;
  * These are Microsoft CRT limits. On Windows they come from <stdlib.h> as 256 and 256,
  * so the field is 512 bytes; off Windows the project supplies 255 and 8, so it is 263.
  * CNCMapDataStruct carries ScenarioName inline, so this single constant moves the size
- * of the biggest struct in the ABI (590400 on Windows, 590123 elsewhere) and every
+ * of the biggest struct in the ABI (590372 on Windows, 590123 elsewhere) and every
  * offset after it. Hardcoding the non-Windows number is what stopped this file
  * compiling for Windows at all, which was a useful accident: had it compiled, it would
  * have mis-decoded every field past the scenario name and reported an empty map.
@@ -186,6 +187,7 @@ typedef struct
     cnc_bool IsDumping;
     cnc_bool IsTheaterSpecific;
     unsigned int FlashingFlags;
+    cnc_bool IsBlushing;
     unsigned char Cloak;
     cnc_bool CanRepair;
     cnc_bool CanDemolish;
@@ -483,23 +485,38 @@ typedef struct
 
 #pragma pack(pop)
 
-/* ---- The ABI tripwires. Numbers measured from the real C++ header. ----
+/* ---- The ABI tripwires. Numbers taken from the real C++ header. ----
 
-   The win32 column was MEASURED on Windows, by compiling the DLL's
-   own dllinterface.h with the DLL's own defines (REMASTER_BUILD _USRDLL MEGAMAPS) and
-   printing sizeof and offsetof from a program that then RUNS, which is available here and
-   was not available on the Mac. That is why the guessed CNCMapDataStruct value this file
-   carried, 590400, is corrected to 590372.
+   Two kinds of evidence stand behind the Windows numbers, and they are not the same.
+   CNCMapDataStruct's 590372, with StaticCells at 548, was MEASURED on Windows: the DLL's
+   own dllinterface.h, compiled with the DLL's own defines (REMASTER_BUILD _USRDLL
+   MEGAMAPS), printed sizeof and offsetof from a program that then RAN there. That is why
+   it is 590372 and not the 590400 a guess would give. The object, list and event numbers,
+   for both pointer widths, were PROVED at compile time instead: the same header and
+   defines, built by the 32-bit and 64-bit Windows cross compilers against compile-time
+   assertions of each value. No Windows program has printed those, and the 32-bit object
+   sizes are one byte larger than the measured run's because IsBlushing, below, joined the
+   header after it.
 
-   These structs are #pragma pack(1), so not one of these differences is alignment. Two
-   causes, and both are mechanical:
+   These structs are #pragma pack(1), so not one of these differences is alignment. There
+   are two causes, both mechanical, and each block below is chosen by its own cause rather
+   than by the platform name:
 
-     * ScenarioName is char[_MAX_FNAME + _MAX_EXT], and that is 512 on Windows against 263
-       elsewhere. It accounts for CNCMapDataStruct exactly: StaticCells moves 299 -> 548,
-       which is the same 249 bytes, and the 16384 * 36 cell array behind it does not move.
-     * every OTHER difference here is a field that is 4 bytes on win32 and 8 on LP64.
-       CNCObjectStruct loses 8 over two of them, and EventCallbackStruct loses 20 over
-       five. Nothing is packed or aligned differently.
+     * ScenarioName is char[_MAX_FNAME + _MAX_EXT], and that is 512 with the Windows CRT's
+       values against 263 elsewhere. It accounts for CNCMapDataStruct exactly: StaticCells
+       moves 299 -> 548, which is the same 249 bytes, and the 16384 * 36 cell array behind
+       it does not move. That follows the platform (_WIN32, which 64-bit Windows defines
+       too), not the pointer width.
+     * every OTHER difference is a pointer: 4 bytes in a 32-bit build and 8 in a 64-bit
+       one, on any platform. 64-bit Windows lays these structs out exactly as the Mac does.
+       CNCObjectStruct grows by 8 over two pointers (CNCInternalObjectPointer and
+       OverrideDisplayName) and EventCallbackStruct by 20 over five. Nothing is packed or
+       aligned differently.
+
+   IsBlushing, the bool after FlashingFlags, is the field this mirror is easiest to lose.
+   Without it CNCObjectStruct is one byte short on every platform, every field after it is
+   read one byte early, and every object after the first in a list is decoded from the
+   wrong place. The sizes below include it.
 */
 _Static_assert(sizeof(CNCStaticCellStruct) == 36, "CNCStaticCellStruct size drift");
 _Static_assert(sizeof(CNCObjectLineStruct) == 21, "CNCObjectLineStruct size drift");
@@ -517,24 +534,32 @@ _Static_assert(offsetof(EventCallbackStruct, SoundEffect) == 12, "EventCallbackS
 _Static_assert(offsetof(CNCSidebarStruct, Entries) == 59, "CNCSidebarStruct layout drift");
 _Static_assert(offsetof(CNCDynamicMapStruct, Entries) == 21, "CNCDynamicMapStruct layout drift");
 
+/* The scenario name: the Windows CRT's _MAX_FNAME, on 32-bit and 64-bit Windows alike. */
 #if defined(_WIN32)
-_Static_assert(sizeof(CNCMapDataStruct) == 590372, "CNCMapDataStruct size drift (win32)");
-_Static_assert(sizeof(CNCObjectStruct) == 490, "CNCObjectStruct size drift (win32)");
-_Static_assert(sizeof(CNCObjectListStruct) == 494, "CNCObjectListStruct size drift (win32)");
-_Static_assert(sizeof(EventCallbackStruct) == 339, "EventCallbackStruct size drift (win32)");
-_Static_assert(offsetof(CNCMapDataStruct, StaticCells) == 548, "CNCMapDataStruct layout drift (win32)");
-_Static_assert(offsetof(CNCObjectStruct, CellX) == 90, "CNCObjectStruct layout drift (win32)");
-_Static_assert(offsetof(CNCObjectStruct, Owner) == 106, "CNCObjectStruct layout drift (win32)");
-_Static_assert(offsetof(CNCObjectStruct, ActionWithSelected) == 458, "CNCObjectStruct layout drift (win32)");
+_Static_assert(sizeof(CNCMapDataStruct) == 590372, "CNCMapDataStruct size drift (Windows)");
+_Static_assert(offsetof(CNCMapDataStruct, StaticCells) == 548, "CNCMapDataStruct layout drift (Windows)");
 #else
 _Static_assert(sizeof(CNCMapDataStruct) == 590123, "CNCMapDataStruct size drift");
-_Static_assert(sizeof(CNCObjectStruct) == 498, "CNCObjectStruct size drift");
-_Static_assert(sizeof(CNCObjectListStruct) == 502, "CNCObjectListStruct size drift");
-_Static_assert(sizeof(EventCallbackStruct) == 359, "EventCallbackStruct size drift");
 _Static_assert(offsetof(CNCMapDataStruct, StaticCells) == 299, "CNCMapDataStruct layout drift");
-_Static_assert(offsetof(CNCObjectStruct, CellX) == 94, "CNCObjectStruct layout drift");
-_Static_assert(offsetof(CNCObjectStruct, Owner) == 110, "CNCObjectStruct layout drift");
-_Static_assert(offsetof(CNCObjectStruct, ActionWithSelected) == 466, "CNCObjectStruct layout drift");
+#endif
+
+/* The pointer width: the Mac and 64-bit Windows take the first block. */
+#if !defined(UINTPTR_MAX)
+#error "UINTPTR_MAX is missing: <stdint.h> decides which layout this host mirrors"
+#elif UINTPTR_MAX > 0xFFFFFFFFu
+_Static_assert(sizeof(CNCObjectStruct) == 499, "CNCObjectStruct size drift (64-bit)");
+_Static_assert(sizeof(CNCObjectListStruct) == 503, "CNCObjectListStruct size drift (64-bit)");
+_Static_assert(sizeof(EventCallbackStruct) == 359, "EventCallbackStruct size drift (64-bit)");
+_Static_assert(offsetof(CNCObjectStruct, CellX) == 94, "CNCObjectStruct layout drift (64-bit)");
+_Static_assert(offsetof(CNCObjectStruct, Owner) == 110, "CNCObjectStruct layout drift (64-bit)");
+_Static_assert(offsetof(CNCObjectStruct, ActionWithSelected) == 467, "CNCObjectStruct layout drift (64-bit)");
+#else
+_Static_assert(sizeof(CNCObjectStruct) == 491, "CNCObjectStruct size drift (32-bit)");
+_Static_assert(sizeof(CNCObjectListStruct) == 495, "CNCObjectListStruct size drift (32-bit)");
+_Static_assert(sizeof(EventCallbackStruct) == 339, "EventCallbackStruct size drift (32-bit)");
+_Static_assert(offsetof(CNCObjectStruct, CellX) == 90, "CNCObjectStruct layout drift (32-bit)");
+_Static_assert(offsetof(CNCObjectStruct, Owner) == 106, "CNCObjectStruct layout drift (32-bit)");
+_Static_assert(offsetof(CNCObjectStruct, ActionWithSelected) == 459, "CNCObjectStruct layout drift (32-bit)");
 #endif
 
 /* ============================== function pointers ================================ */

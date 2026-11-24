@@ -48,8 +48,8 @@ Five findings drive the whole design:
    ID:4 / IsExecuted:1`, and `brain/xl/DIVERGENCE.md:167` says of houses, "nothing yet --
    Phase 3 territory".
 5. **The precondition has never been tested.** Lockstep requires bit identical simulation,
-   and rule 4 means every real match pairs a macOS arm64 build against a 32 bit Windows
-   build of the same commit. Every determinism gate in the repo runs one binary twice on one
+   and rule 4 means every real match pairs a macOS arm64 build against a 64 bit (x86_64)
+   Windows build of the same commit. Every determinism gate in the repo runs one binary twice on one
    machine. Nobody has ever compared two architectures. That test needs no netcode and is
    Phase 0.
 
@@ -103,7 +103,7 @@ offsetof(Data)       = 6
 ```
 
 `EventClass` contains no pointers, no `long` and no `size_t`, so it is byte identical
-between the 64 bit Mac build and the 32 bit Windows build. That is the property the whole
+between the Mac build (LP64) and the Windows build (LLP64, where `long` stays 32 bits). That is the property the whole
 design rests on, and it is the reason the wire can be the struct.
 
 **Never send raw `sizeof` anyway.** Send the compressed per type form, `EventLength[type]`
@@ -158,7 +158,7 @@ rendering its own game, and would ship every object to every client anyway, givi
 exactly the same information lockstep does.
 
 **The honest case for B**, which must survive into the design: lockstep's precondition is
-bit identical simulation across an arm64 clang build and a 32 bit MinGW build, forever, and
+bit identical simulation across an arm64 clang build and an x86_64 MinGW build, forever, and
 that has never been tested. B cannot desync. That argument loses only because the test is
 one session's work and the bandwidth gap is three orders of magnitude. If Phase 0 fails, we
 reconsider having spent one session rather than one quarter.
@@ -529,7 +529,11 @@ the same scripted skirmish for 20,000 ticks with `OPENCNC3D_TICKDUMP=1`, and com
 **PASSES ON THE ENGINE STATE, 3 Sep 2026, pending one rehash on the Mac.** 20,000 ticks
 of SCB01EA hash identically on macOS arm64 and 32 bit Windows once line endings and the
 host's own chatter are kept out of the hash; `tools/phase0/README.md` records all three
-the whole story and the one command that closes it. The paragraph below is the state
+the whole story and the one command that closes it. **That proof is of the 32 bit (i686)
+Windows build.** Windows is now 64 bit only, and the brain's floating point moved from x87
+to SSE2 with it. The simulation uses none, so the result is expected to carry over, but
+Phase 0 has to be run again on x86_64 MinGW before cross play with the 64 bit build is
+claimed. The paragraph below is the state
 before that and is kept for its preconditions, which still hold.
 **HALF DONE.** The Mac reference is captured and self identical over two runs. What remains
 is the Windows half, and one piece of missing wiring: there is no build rule for the headless

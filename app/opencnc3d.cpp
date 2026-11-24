@@ -23,6 +23,7 @@
  *  than in a test build, so it cannot rot.
  * ==================================================================================== */
 
+#include <cmath>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +37,8 @@
 #include <io.h>
 /* _mkdir, for Red Alert's own save folder inside the per-user one */
 #include <direct.h>
+/* _getpid, for the temporary name a carried-over file is copied under */
+#include <process.h>
 #if defined(OPENCNC3D_DIAGNOSTIC_APP)
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -44,9 +47,12 @@
 #endif
 #endif
 /* stat and a directory walk, for userdir_carry_over and settings_carry_over. mingw
-   ships both headers, so neither is platform-specific. */
+   ships both headers, so neither is platform-specific. errno and time for the same
+   copies: a name already taken, and a temporary file left behind. */
 #include <sys/stat.h>
 #include <dirent.h>
+#include <errno.h>
+#include <time.h>
 
 #include <SDL.h>
 #define GL_SILENCE_DEPRECATION 1
@@ -73,7 +79,10 @@
    kind of thing one toolchain forgives and the next one does not. */
 #include "../game/brain_path.h"
 #include "../menu/enhanced_menu.h"
+#include "../menu/map_import_ui.h"
+#include "map_import.h"
 #include "userdir.h"   /* the per-user folder's name, said once */
+#include "log_keep.h"  /* the last session's log kept, and a crash noticed */
 extern "C" {
 #include "dosmenu_shell.h"
 #include "dosops.h"
@@ -91,14 +100,17 @@ extern "C" {
 #include "../game/dossave.h"
 #include "audioboot.h"
 #include "campaign.h"
+#include "campaign_progress.h"
 #include "../video/movieplay.h"
 #include "../video/moviesnd.h"
 }
 
 /* What the process is actually costing, for the harness only. A boot/shutdown pair that
    leaks shows up here as a staircase, and a staircase is the difference between "you can
-   quit to the menu" and "you can quit to the menu twice". Not compiled on Windows: the
-   shell there would use GetProcessMemoryInfo, and the shipping build needs neither. */
+   quit to the menu" and "you can quit to the menu twice". On Windows the two numbers that
+   matter are what the process has committed (every allocation is charged against the
+   machine's commit limit, touched or not) and what it has in memory. Windows has no cheap
+   count of the live heap to match the macOS one, so the heap reads 0 there. */
 #ifdef __APPLE__
 #include <mach/mach.h>
 #include <mach/task_info.h>
@@ -163,6 +175,35 @@ static long res_kib(void)
         return 0;
     return (long)(info.resident_size / 1024);
 }
+#elif defined(_WIN32)
+#include <psapi.h>
+/* footprint= is the commit charge (PrivateUsage) and resident= the working set, read
+   through kernel32's own K32GetProcessMemoryInfo so no psapi.dll is loaded. */
+static bool win_mem(PROCESS_MEMORY_COUNTERS_EX* pm)
+{
+    typedef BOOL (WINAPI *ProcMem)(HANDLE, PROCESS_MEMORY_COUNTERS*, DWORD);
+    static ProcMem fn = NULL;
+    static int looked = 0;
+    if (!looked) {
+        const HMODULE k32 = GetModuleHandleA("kernel32.dll");
+        fn = k32 ? (ProcMem)(void*)GetProcAddress(k32, "K32GetProcessMemoryInfo") : NULL;
+        looked = 1;
+    }
+    memset(pm, 0, sizeof *pm);
+    pm->cb = sizeof *pm;
+    return fn && fn(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)pm, sizeof *pm);
+}
+static long heap_kib(void) { return 0; }
+static long phys_kib(void)
+{
+    PROCESS_MEMORY_COUNTERS_EX pm;
+    return win_mem(&pm) ? (long)(pm.PrivateUsage / 1024) : 0;
+}
+static long res_kib(void)
+{
+    PROCESS_MEMORY_COUNTERS_EX pm;
+    return win_mem(&pm) ? (long)(pm.WorkingSetSize / 1024) : 0;
+}
 #else
 static long heap_kib(void) { return 0; }
 static long phys_kib(void) { return 0; }
@@ -217,11 +258,22 @@ static int  g_movieBound = 0;
  * ---------------------------------------------------------------------------------- */
 static struct {
     int  active;
+    int  ants;          /* the secret chain: Red Alert's four ant missions, or in
+                           Tiberian Dawn the five Funpark (dinosaur) missions */
     int  side;          /* 0 GDI, 1 Nod                        */
     int  scenario;      /* 1..15                               */
     char dir;           /* 'E' / 'W'                           */
     char var;           /* 'A'..'C'                            */
 } g_camp;
+
+/* THE FUNPARK CHAIN. 1995's "funpark" switch put its side plate in front of SCJ01EA and
+   then played the five dinosaur missions in order, with no score screen and no map
+   between them (scenario.cpp Do_Win), and the program ended after the fifth. A Funpark
+   row of the Special Ops list starts the same chain from its own mission, through the
+   same side plate, and the fifth win returns to the menu. g_funparkStart is the mission
+   a picked row asked for, held across the side plate; 0 when none is waiting. */
+#define SPECOP_FUNPARK_LAST 5
+static int g_funparkStart = 0;
 
 /* ------------------------------------------------------------------------------ *
  *  SPECIAL OPS.
@@ -255,7 +307,20 @@ struct SpecOp {
        heading a section starts with and carries no scenario at all. */
     int group;
     int header;
-    SpecOp() : w(0), h(0), starts(0), group(0), header(0) {}
+    /* A RALLY COURSE (SK_COURSE_*): its INI has a [Rally] section, and Loop=1 there makes
+       it a circuit. Read by skirmish_map_facts; it decides which game mode lists the map. */
+    int course;
+    /* WHERE THE STARTS ARE, for the lobby's preview of a map with no baked picture (a user
+       map): the playable rectangle's corner and each start waypoint's cell, read by
+       skirmish_map_facts. startCell[k] < 0 is a slot the map leaves empty. */
+    int mx, my, version;
+    int startCell[8];
+    /* THE PACK IS BORROWED: the row plays on another mission's pack of its own theater,
+       re-skinned from its own .BIN and .HGT at boot, as a user map does. */
+    int borrowed;
+    SpecOp() : w(0), h(0), starts(0), group(0), header(0), course(0), mx(0), my(0), version(0),
+               borrowed(0)
+    { for (int k = 0; k < 8; k++) startCell[k] = -1; }
 };
 static std::vector<SpecOp> g_specops;
 static std::vector<DO_Mission> g_specopsRows;
@@ -264,13 +329,16 @@ static std::vector<SK_Map> g_skirmishMaps;
 
 /* THE TITLES THE MISSION FILES DO NOT CARRY.
  *
- * Fifteen of the twenty-seven Special Ops scenarios ship a [Basic] Name= and are read
- * straight out of the file. The other twelve do not, and the first pass showed their
+ * Fifteen of the twenty-eight Special Ops scenarios ship a [Basic] Name= and are read
+ * straight out of the file. The other thirteen do not, and the first pass showed their
  * scenario code instead. Real names are wanted here, and these are what the evidence
  * supports -- each row says WHY, so a wrong one can be argued with rather than trusted.
  *
  * PROVEN FROM THE CARTRIDGE'S OWN TEXT BANK at ROM 0x960A4D..0x960EB2, which holds four
- * console-exclusive briefings in plain ASCII:
+ * console-exclusive briefings in plain ASCII, and from its Special Ops roster, the pointer
+ * array at ROM 0x21B260: {SCG30EA, SCG90EA, SCB21EA, SCB22EB}, two missions for each side.
+ * The cartridge numbers them per side; its menu strings are "SPECIAL OPS 1" and "SPECIAL
+ * OPS 2" (ROM 0x22384C), so GDI has a 1 and a 2 and so does Nod:
  *   SCG30EA  the mission INI's [Briefing] is the SAME TEXT as the bank's GDI briefing at
  *            0x960C89 ("Nod is experimenting on civilians using Tiberium ... take out the
  *            SAM sites ... the Obelisk ... the BioResearch"). Exact match, so this is the
@@ -280,7 +348,16 @@ static std::vector<SK_Map> g_skirmishMaps;
  *            The bank's Nod briefing at 0x960A4D is a commando sent to lift nuclear
  *            components from a crate while the other troops raid a village as a diversion;
  *            SCB22EB's own layout is ten village buildings, eight civilians and a commando
- *            summoned by trigger rather than placed. Matched on content.
+ *            summoned by trigger rather than placed. Matched on content. It is Nod's second.
+ *   SCG99EA  the cartridge's SCG90EA, GDI's second, installed under the ROM's own key for
+ *            its text because the code SCG90EA is the renderer's Test Map here. Its INI
+ *            opens "Scenario 99 control for house GoodGuy" and names Brief=GDI90, whose
+ *            briefing script loads TXT_SCG99EA_1..9: the bank's fourth briefing ("Our top
+ *            Commando has been intercepted ... get an engineer into it at all costs"). The
+ *            layout agrees: a Nod base of four Obelisks and twelve SAM sites round a
+ *            Technology Center whose trigger wins the mission when it is captured and loses
+ *            it when it is destroyed. The engine names scg90ea beside scg30ea as an N64
+ *            mission (scenarioini.cpp, the build-level rule).
  *
  * BY SCENARIO-CODE CONVENTION, which the C&C community uses consistently for the five
  * PlayStation-era extra missions and which the cartridge reuses:
@@ -297,13 +374,23 @@ static std::vector<SK_Map> g_skirmishMaps;
  *   SCG71EB  Brief=GDI3, Win=BOMBAWAY: GDI 3's briefing and flow on a different layout
  *   SCG72EA  Brief=GDI1, Action=LANDING, Win=CONSYARD, Percent=0: the same for GDI 1
  *
- * ONE THING THIS TURNED UP, recorded as a known gap: the ROM also carries
- * TXT_SCG99EA_1..9 and the bank's fourth briefing ("Our top Commando has been intercepted
- * ... get an engineer into it at all costs"), but there is no SCG99EA.MAP or .INI anywhere
- * in the cartridge's asset directory. The second console GDI mission's TEXT shipped and its
- * MAP did not, so it cannot be offered here. */
+ * NOD'S FIRST, SCB21EA, is the roster's third entry. Its INI's own Name= is "Eviction
+ * Notice", the title the 1996 Covert Operations disc gave its scenario 21, but the copy
+ * installed here is the cartridge's DESERT map and the engine treats a desert scenario 21
+ * as the N64 one (dllinterface.cpp). So it is filed with the cartridge's extras as Nod's
+ * "N64 Special Ops 1", beside GDI's two, and that title overrides its Name= (see
+ * SPECOP_TITLE_OVERRIDES). */
 static const struct { const char* scen; const char* name; } SPECOP_TITLES[] = {
+    /* The Funpark missions carry no Name= either; 1995 never showed them in a list,
+       only played them in order behind the funpark switch, so they are numbered. */
+    { "SCJ01EA", "Funpark 1" },
+    { "SCJ02EA", "Funpark 2" },
+    { "SCJ03EA", "Funpark 3" },
+    { "SCJ04EA", "Funpark 4" },
+    { "SCJ05EA", "Funpark 5" },
     { "SCG30EA", "N64 Special Ops 1" },
+    { "SCB21EA", "N64 Special Ops 1" },
+    { "SCG99EA", "N64 Special Ops 2" },
     { "SCB22EB", "N64 Special Ops 2" },
     { "SCG60EA", "Special Ops 1" },
     { "SCG61EA", "Special Ops 2" },
@@ -316,6 +403,17 @@ static const struct { const char* scen; const char* name; } SPECOP_TITLES[] = {
     { "SCG71EB", "GDI 3 Variant" },
     { "SCG72EA", "GDI 1 Variant" },
 };
+
+/* The rows whose table title wins over the file's own Name=: the cartridge mission whose
+   INI still carries the Covert Operations disc's title for the same scenario number. */
+static const char* const SPECOP_TITLE_OVERRIDES[] = { "SCB21EA" };
+
+static bool specop_title_overrides(const char* scen)
+{
+    for (size_t i = 0; i < sizeof SPECOP_TITLE_OVERRIDES / sizeof SPECOP_TITLE_OVERRIDES[0]; i++)
+        if (!strcmp(SPECOP_TITLE_OVERRIDES[i], scen)) return true;
+    return false;
+}
 
 static const char* specop_title(const char* scen)
 {
@@ -331,11 +429,12 @@ static const char* specop_title(const char* scen)
  * sections, then Nod's two, then the test scenarios of both sides together at the
  * bottom.
  *
- *   COVERT   the 1996 Covert Operations disc. These are the fifteen the disc carried
- *            (fourteen have terrain on the cartridge; SCB30EA does not and cannot be
- *            offered), and they are the rows whose INIs ship a [Basic] Name=.
- *   N64      the cartridge's own extras: the two console-exclusive missions with a
- *            briefing in the ROM's text bank, and the five PlayStation-era Special Ops
+ *   COVERT   the 1996 Covert Operations disc: fourteen of the fifteen it carried
+ *            (thirteen have terrain on the cartridge; SCB30EA does not and cannot be
+ *            offered), the rows whose INIs ship a [Basic] Name=. Its scenario 21,
+ *            SCB21EA, is filed with the cartridge's extras instead (see SPECOP_TITLES).
+ *   N64      the cartridge's own extras: the four Special Ops of its roster (three
+ *            with a briefing in the ROM's text bank), and the five PlayStation-era Special Ops
  *            the cartridge reuses. Anything found on disk that this table does not
  *            know is filed here too, because the cartridge's asset directory is where
  *            an unknown non-campaign scenario would have come from.
@@ -347,12 +446,19 @@ static const char* specop_title(const char* scen)
  * SCG74EA is filed as a test scenario although its INI names it "Blindsided": it is the
  * Blindsided map with GDI 1's flow bolted on (Action=LANDING, Win=CONSYARD, Brief=GDI1,
  * Percent=0) and the ROM lists it under DYNAMIC beside SCG73EA. The Name= still wins
- * for the row's title; the heading and the code say what it is. */
-enum { SPECOP_G_COVERT = 0, SPECOP_G_N64 = 1, SPECOP_G_TEST = 2 };
+ * for the row's title; the heading and the code say what it is.
+ *
+ *   FUNPARK  the five dinosaur missions, SCJ01EA..SCJ05EA, which only the 1995 MS-DOS
+ *            disc carries (GENERAL.MIX; tools/heightmap-viewer/export_dos.py installs
+ *            them). 1995 reached them only through the "funpark" command-line switch,
+ *            then its side plate, then the five in order; here they are a section of
+ *            their own after Nod's, and a row starts that chain from its own mission
+ *            (see g_funparkStart). */
+enum { SPECOP_G_COVERT = 0, SPECOP_G_N64 = 1, SPECOP_G_TEST = 2, SPECOP_G_FUNPARK = 3 };
 
 static const char* const SPECOP_COVERT[] = {
     "SCG22EA", "SCG23EA", "SCG36EA", "SCG38EA", "SCG40EA", "SCG41EA", "SCG50EA",
-    "SCB20EA", "SCB21EA", "SCB30EA", "SCB31EA", "SCB32EA", "SCB33EA", "SCB35EA",
+    "SCB20EA", "SCB30EA", "SCB31EA", "SCB32EA", "SCB33EA", "SCB35EA",
     "SCB37EA"
 };
 static const char* const SPECOP_TEST[] = {
@@ -362,6 +468,7 @@ static const char* const SPECOP_TEST[] = {
 static int specop_group(const char* scen)
 {
     size_t i;
+    if (scen[2] == 'J') return SPECOP_G_FUNPARK;
     for (i = 0; i < sizeof SPECOP_COVERT / sizeof SPECOP_COVERT[0]; i++)
         if (!strcmp(SPECOP_COVERT[i], scen)) return SPECOP_G_COVERT;
     for (i = 0; i < sizeof SPECOP_TEST / sizeof SPECOP_TEST[0]; i++)
@@ -372,33 +479,39 @@ static int specop_group(const char* scen)
 /* THE TEST MAP. GDI 1's terrain with a different object layout and a full build list,
    so it has no pack of its own and borrows SCG01EA's. It used to be a main menu button
    of its own; it is the last row of this list now. Offered only when its INI and the
-   pack it borrows are both installed, the rule every other row follows. */
+   pack it borrows are both installed, the rule every other row follows. Its code is the
+   cartridge's code for GDI's second N64 Special Ops mission, which is therefore
+   installed as SCG99EA. */
 #define SPECOP_TESTMAP_SCEN "SCG90EA"
 #define SPECOP_TESTMAP_PACK "SCG01EA.pack"
 #define SPECOP_TESTMAP_NAME "Test Map"
 
+/* GDI'S SECOND N64 SPECIAL OPS, under the code it is installed as (see SPECOP_TITLES).
+   The probe below stops short of the 90s, so it is added by name, and placed straight
+   after GDI's first so the section reads in the cartridge's order. */
+#define SPECOP_GDI_N64_2      "SCG99EA"
+#define SPECOP_GDI_N64_2_PACK "SCG99EA.pack"
+#define SPECOP_GDI_N64_1      "SCG30EA"
+
 static std::string specop_ini_name(const char* dir, const char* scen)
 {
-    char path[512];
+    char path[1024];
     snprintf(path, sizeof path, "%s%s.INI", dir ? dir : "missions/", scen);
-    FILE* f = fopen(path, "rb");
-    if (!f) return std::string();
-    char line[256];
-    std::string out;
+    FILE* f = fopen(path, "rb"); if (!f) return std::string();
+    char line[1024]; bool basic = false; std::string out;
     while (fgets(line, sizeof line, f)) {
-        char* nl = strpbrk(line, "\r\n");
-        if (nl) *nl = 0;
-        if (!strncmp(line, "Name=", 5)) {
-            out = line + 5;
-            /* Some Covert Operations INIs carry a trailing space on this row. */
-            while (!out.empty() && (out[out.size() - 1] == ' ' ||
-                                    out[out.size() - 1] == '\t'))
-                out.erase(out.size() - 1);
-            break;
-        }
+        char* p = line; while (*p == ' ' || *p == '\t') ++p;
+        if (*p == '[') { basic = !strncasecmp(p, "[Basic]", 7); continue; }
+        if (!basic || strncasecmp(p, "Name", 4)) continue;
+        p += 4; while (*p == ' ' || *p == '\t') ++p;
+        if (*p++ != '=') continue;
+        while (*p == ' ' || *p == '\t') ++p;
+        char* end = strpbrk(p, "\r\n;"); if (end) *end = 0;
+        out = p;
+        while (!out.empty() && (out.back() == ' ' || out.back() == '\t')) out.pop_back();
+        break;
     }
-    fclose(f);
-    return out;
+    fclose(f); return out;
 }
 
 /* GENERATED, not read off the directory. The scenario code space is small and fully
@@ -433,8 +546,9 @@ static void specops_add_row(std::vector<SpecOp>& out, const char* dir, const cha
     so.scen = code;
     so.pack = pack;
     so.name = fixed_name ? std::string(fixed_name) : specop_ini_name(dir, code);
-    /* The file's own Name= wins; the table only fills the gaps. */
-    if (so.name.empty()) {
+    /* The file's own Name= wins; the table only fills the gaps, except for the rows
+       SPECOP_TITLE_OVERRIDES names. */
+    if (so.name.empty() || (!fixed_name && specop_title_overrides(code))) {
         const char* t = specop_title(code);
         if (t) so.name = t;
     }
@@ -442,6 +556,7 @@ static void specops_add_row(std::vector<SpecOp>& out, const char* dir, const cha
     out.push_back(so);
 }
 
+static const char* theater_donor_pack(const char* path);
 static void specops_scan(const char* dir)
 {
     static const char SIDE[2] = { 'G', 'B' };
@@ -461,16 +576,39 @@ static void specops_scan(const char* dir)
                     snprintf(pack, sizeof pack, "%s.pack", code);
                     specops_add_row(found, dir, code, pack, NULL);
                 }
+    {
+        std::vector<SpecOp> second;
+        specops_add_row(second, dir, SPECOP_GDI_N64_2, SPECOP_GDI_N64_2_PACK, NULL);
+        if (!second.empty()) {
+            size_t at = found.size();
+            for (size_t i = 0; i < found.size(); i++)
+                if (found[i].scen == SPECOP_GDI_N64_1) { at = i + 1; break; }
+            found.insert(found.begin() + (std::vector<SpecOp>::difference_type)at, second[0]);
+        }
+    }
+    /* THE FUNPARK MISSIONS. No pack of their own: each borrows its theater's (GDI 1's for
+       the four temperate ones, Nod 1's for the desert SCJ02EA) and is re-skinned from its
+       own .BIN and .HGT, the way a user map is. */
+    for (n = 1; n <= 5; n++) {
+        char code[16], ini[1024];
+        snprintf(code, sizeof code, "SCJ%02dEA", n);
+        snprintf(ini, sizeof ini, "%s%s.INI", dir && *dir ? dir : "missions/", code);
+        const size_t before = found.size();
+        specops_add_row(found, dir, code, theater_donor_pack(ini), NULL);
+        if (found.size() > before) found.back().borrowed = 1;
+    }
     specops_add_row(found, dir, SPECOP_TESTMAP_SCEN, SPECOP_TESTMAP_PACK,
                     SPECOP_TESTMAP_NAME);
 
-    /* File them. The probe order above is GDI then Nod, ascending, so within a
-       section the rows are already in code order and only the membership is tested. */
+    /* File them. The probe order above is GDI then Nod, ascending, with GDI's second N64
+       mission placed after its first, so within a section the rows are already in order
+       and only the membership is tested. */
     static const struct { const char* heading; int nod; int group; } SECTION[] = {
         { "GDI COVERT OPERATIONS", 0, SPECOP_G_COVERT },
         { "GDI SPECIAL OPS",       0, SPECOP_G_N64 },
         { "NOD COVERT OPERATIONS", 1, SPECOP_G_COVERT },
         { "NOD SPECIAL OPS",       1, SPECOP_G_N64 },
+        { "FUNPARK",              -1, SPECOP_G_FUNPARK },
         { "TEST MAPS",            -1, SPECOP_G_TEST },
     };
     for (size_t k = 0; k < sizeof SECTION / sizeof SECTION[0]; k++) {
@@ -563,10 +701,95 @@ static const char* base_dir(const char* fallback)
 /* The Red Alert module is running (--module ra3d): set once, by the argument pass. */
 static int g_ra3dPreview = 0;
 
+/* The importer always files into the matching game's private map folder. */
+static const char* g_importMap = NULL;
+static const char* g_importUi = NULL;
+static const char* g_importShots = NULL;
+static int g_importCatalog = 0;
+static const char* g_importTdDir = NULL;
+static const char* g_importRaDir = NULL;
+
+static void import_ui_info(const mapimport::Info& in, DMS_MapImportInfo* out)
+{
+    memset(out, 0, sizeof *out);
+    snprintf(out->name, sizeof out->name, "%s", in.name.c_str());
+    snprintf(out->game, sizeof out->game, "%s", in.game.c_str());
+    snprintf(out->kind, sizeof out->kind, "%s", in.recovered && in.bundle_count < 2 ? "MP: TERRAIN ONLY" : in.kind.c_str());
+    snprintf(out->theater, sizeof out->theater, "%s", in.theater.c_str());
+    snprintf(out->message, sizeof out->message, "%s", in.message.c_str());
+    snprintf(out->scenario, sizeof out->scenario, "%s", in.scenario.c_str());
+    out->width = in.width; out->height = in.height; out->starts = in.starts;
+    out->preview_w = in.preview_width; out->preview_h = in.preview_height;
+    if (in.preview_rgba.size() <= sizeof out->preview && !in.preview_rgba.empty())
+        memcpy(out->preview, in.preview_rgba.data(), in.preview_rgba.size());
+}
+
+static int import_inspect(const char* path, DMS_MapImportInfo* out)
+{
+    mapimport::Info info;
+    const bool ok = mapimport::inspect(path ? path : "", info);
+    import_ui_info(info, out);
+    return ok ? 1 : 0;
+}
+
+static int import_run(const char* path, DMS_MapImportInfo* out,
+                      void (*progress)(void*, int, const char*), void* context)
+{
+    mapimport::Info info;
+    const std::string td = g_importTdDir ? g_importTdDir
+        : "missions/user_maps/";
+    const std::string ra = g_importRaDir ? g_importRaDir : "ra3d/missions/user_maps/";
+    const bool ok = mapimport::run(path ? path : "", td, ra, info, progress, context);
+    import_ui_info(info, out);
+    printf("MAPIMPORT|%s|%s|%s|%s|%s\n", ok ? "ok" : "failed", info.game.c_str(),
+           info.kind.c_str(), info.scenario.c_str(), info.message.c_str());
+    for (const mapimport::ImportedMap& map : info.imported_maps)
+        printf("MAPIMPORT|item|%s|%s|%s|%s\n", map.red_alert ? "Red Alert" : "Tiberian Dawn",
+               map.multiplayer ? "Multiplayer" : "Singleplayer", map.scenario.c_str(), map.name.c_str());
+    fflush(stdout);
+    return ok ? 1 : 0;
+}
+
+static const DMS_MapImportHooks IMPORT_HOOKS = { import_inspect, import_run };
+
+/* Scenario IDs cross save and network records. Only native-safe file stems enter
+   these catalogs; imports receive their own collision-free eight-character ID. */
+static std::vector<std::string> usermap_codes(const char* dir)
+{
+    std::vector<std::string> codes;
+    if (DIR* d = opendir(dir)) {
+        while (struct dirent* e = readdir(d)) {
+            const char* dot = strrchr(e->d_name, '.');
+            if (!dot || strcasecmp(dot, ".INI")) continue;
+            const std::string code(e->d_name, dot - e->d_name);
+            if (code.empty() || code.size() > 8) continue;
+            if (code.compare(0, 4, "USER") && code.compare(0, 3, "IMP")) continue;
+            bool safe = true;
+            for (unsigned char c : code)
+                if (!isalnum(c) && c != '_') safe = false;
+            if (!safe) continue;
+            const std::string path = std::string(dir) + e->d_name;
+            struct stat st;
+            if (stat(path.c_str(), &st) || !S_ISREG(st.st_mode)) continue;
+            codes.push_back(code);
+        }
+        closedir(d);
+    }
+    std::sort(codes.begin(), codes.end());
+    codes.erase(std::unique(codes.begin(), codes.end()), codes.end());
+    return codes;
+}
+static bool ra_ant_scenario(const char* scen);
+
+/* Set by load_slot_prepare when it refused a slot because another kind of build wrote it
+   (dossave.h ds_slot_loadable), so its caller shows the player the sentence. */
+static bool g_loadWidthRefused = false;
+
 static int load_slot_prepare(GameOpts* opt, int slot)
 {
     DS_Slot tab[DS_SLOTS];
     static char lscen[16], lpack[24], ldir[512];
+    g_loadWidthRefused = false;
     if (slot < 0 || slot >= DS_SLOTS) return 0;
     ds_read_index(tab);
     if (!tab[slot].used) {
@@ -577,6 +800,17 @@ static int load_slot_prepare(GameOpts* opt, int slot)
     if (!ds_slot_mine(&tab[slot])) {
         fprintf(stderr, "load: slot %d was saved by %s\n", slot,
                 tab[slot].game == DS_GAME_RA ? "Red Alert" : "Tiberian Dawn");
+        return 0;
+    }
+    /* Nor a save another kind of build wrote: no mission is booted for a payload this
+       engine cannot read. The slot stays as it is. */
+    if (!ds_slot_loadable(slot, DS_HOST_WIN64)) {
+        unsigned int word = 0;
+        ds_payload_word(slot, &word);
+        printf("LOAD|slot=%d|REFUSED %s|word=0x%08x|%s\n", slot,
+               ds_width_label(DS_HOST_WIN64), word, ds_width_refusal(DS_HOST_WIN64));
+        fflush(stdout);
+        g_loadWidthRefused = true;
         return 0;
     }
     snprintf(lscen, sizeof lscen, "%s", tab[slot].scen);
@@ -596,11 +830,12 @@ static int load_slot_prepare(GameOpts* opt, int slot)
         opt->dylib = "ra3d/RedAlert.dylib";
 #endif
         opt->content = "ra3d/data";
-        opt->dir = "ra3d/missions/";
+        opt->dir = !strncmp(lscen, "IMP", 3) ? "ra3d/missions/user_maps/" : "ra3d/missions/";
         opt->dosdata = "ra3d/audio";
         opt->build = tab[slot].build;
         opt->load_slot1 = slot + 1;
         g_camp.active = tab[slot].camp_active;
+        g_camp.ants = ra_ant_scenario(lscen);
         g_camp.side = tab[slot].camp_side;
         g_camp.scenario = tab[slot].camp_scenario;
         g_camp.dir = tab[slot].camp_dir ? (char)tab[slot].camp_dir : 'E';
@@ -611,14 +846,19 @@ static int load_slot_prepare(GameOpts* opt, int slot)
         return 1;
     }
     opt->dir = base_dir(opt->dir);
-    if (!strncmp(lscen, "USER", 4)) {
+    if (!strncmp(lscen, "USER", 4) || !strncmp(lscen, "IMP", 3)) {
         snprintf(ldir, sizeof ldir, "%suser_maps/", base_dir(opt->dir));
         opt->dir = ldir;
         opt->reskin = 1;
     }
+    /* A Funpark mission plays on a borrowed pack, which the slot names, re-skinned from
+       its own .BIN and .HGT; and its chain carries on after a load. */
+    const bool funpark = lscen[2] == 'J';
+    if (funpark) opt->reskin = 1;
     opt->build = tab[slot].build;
     opt->load_slot1 = slot + 1;
     g_camp.active = tab[slot].camp_active;
+    g_camp.ants = funpark ? 1 : 0;
     g_camp.side = tab[slot].camp_side;
     g_camp.scenario = tab[slot].camp_scenario;
     g_camp.dir = tab[slot].camp_dir ? (char)tab[slot].camp_dir : 'E';
@@ -671,10 +911,10 @@ static bool usermap_is_multi(const char* path)
         if (*p == '[') { inBasic = !strncasecmp(p, "[BASIC]", 7); continue; }
         if (!inBasic) continue;
         if ((v = ini_value(p, kKeyKind))) {
-            multi = (strstr(v, "Multi") != NULL);
+            multi = !strncasecmp(v, "Multi", 5);
             break;
         }
-        if ((v = ini_value(p, kKeyKindEarlier))) earlier = (strstr(v, "Multi") != NULL);
+        if ((v = ini_value(p, kKeyKindEarlier))) earlier = !strncasecmp(v, "Multi", 5);
     }
     fclose(f);
     return multi >= 0 ? multi != 0 : earlier == 1;
@@ -731,10 +971,18 @@ static const char* usermap_pack(const char* dir, const char* scen)
     return usermap_donor_pack(dir, scen);
 }
 
+static const char* theater_donor_pack(const char* path);
 static const char* usermap_donor_pack(const char* dir, const char* scen)
 {
     char path[512];
     snprintf(path, sizeof path, "%suser_maps/%s.INI", dir && *dir ? dir : "missions/", scen);
+    return theater_donor_pack(path);
+}
+
+/* THE PACK A SCENARIO OF THIS THEATER CAN BORROW, from its INI's [MAP] Theater=. A user
+   map asks it, and so does a mission that ships no pack of its own (the Funpark ones). */
+static const char* theater_donor_pack(const char* path)
+{
     /* [MAP] Theater=, which is a different section to [BASIC] and reading it from the
        wrong one is a known trap in this engine. */
     FILE* f = fopen(path, "rb");
@@ -778,11 +1026,11 @@ static void usermaps_scan(const char* dir)
 {
     g_usermaps.clear();
     g_usermapRows.clear();
-    for (int i = 0; i < 100; i++) {
-        char code[16], path[512];
-        snprintf(code, sizeof code, "USER%02d", i);
-        snprintf(path, sizeof path, "%suser_maps/%s.INI",
-                 dir && *dir ? dir : "missions/", code);
+    const std::string userdir = std::string(dir && *dir ? dir : "missions/") + "user_maps/";
+    for (const std::string& stem : usermap_codes(userdir.c_str())) {
+        const char* code = stem.c_str();
+        char path[1024];
+        snprintf(path, sizeof path, "%s%s.INI", userdir.c_str(), code);
         FILE* f = fopen(path, "rb");
         if (!f) continue;
         fclose(f);
@@ -825,24 +1073,25 @@ static std::vector<std::string> g_raUsermapNames;
 static std::vector<DO_Mission>  g_raUsermaps;
 static void ra_usermaps_scan(void)
 {
-    g_raUsermapNames.clear();
-    g_raUsermaps.clear();
-    if (DIR* d = opendir("ra3d/missions/user_maps")) {
-        while (struct dirent* e = readdir(d)) {
-            const char* dot = strrchr(e->d_name, '.');
-            if (!dot || (strcasecmp(dot, ".INI") && strcasecmp(dot, ".MPR"))) continue;
-            g_raUsermapNames.push_back(std::string(e->d_name, dot - e->d_name));
-        }
-        closedir(d);
+    g_usermaps.clear(); g_usermapRows.clear();
+    g_raUsermapNames.clear(); g_raUsermaps.clear();
+    const char* dir = "ra3d/missions/user_maps/";
+    for (const std::string& code : usermap_codes(dir)) {
+        const std::string path = std::string(dir) + code + ".INI";
+        if (usermap_is_multi(path.c_str())) continue;
+        SpecOp m; m.scen = code;
+        m.name = specop_ini_name(dir, code.c_str());
+        g_usermaps.push_back(m);
     }
-    std::sort(g_raUsermapNames.begin(), g_raUsermapNames.end());
-    for (size_t i = 0; i < g_raUsermapNames.size(); i++) {
-        DO_Mission r;
-        memset(&r, 0, sizeof r);
-        r.scen = g_raUsermapNames[i].c_str();
-        g_raUsermaps.push_back(r);
+    for (size_t i = 0; i < g_usermaps.size(); ++i) {
+        DO_Mission row = {};
+        row.scen = g_usermaps[i].scen.c_str();
+        row.name = g_usermaps[i].name.empty() ? NULL : g_usermaps[i].name.c_str();
+        g_usermapRows.push_back(row);
+        g_raUsermaps.push_back(row);
+        printf("APP|ra-usermap|%s|%s\n", row.scen, row.name ? row.name : row.scen);
     }
-    printf("APP|ra-usermaps|%d\n", (int)g_raUsermaps.size());
+    printf("APP|ra-usermaps|%d singleplayer maps\n", (int)g_usermaps.size());
     fflush(stdout);
 }
 
@@ -864,7 +1113,7 @@ static void skirmish_map_facts(const char* dir, const char* scen, SpecOp* out)
     FILE* f = fopen(path, "rb");
     if (!f) return;
 
-    enum { S_NONE, S_BASIC, S_MAP, S_WAY } sec = S_NONE;
+    enum { S_NONE, S_BASIC, S_MAP, S_WAY, S_RALLY } sec = S_NONE;
     bool way[26];
     for (int i = 0; i < 26; i++) way[i] = false;
     int theaterRank = 0;   /* 0 none yet, 1 Theater=, 2 earlier, 3 ours */
@@ -873,15 +1122,30 @@ static void skirmish_map_facts(const char* dir, const char* scen, SpecOp* out)
     while (fgets(line, sizeof line, f)) {
         char* nl = strpbrk(line, "\r\n");
         if (nl) *nl = 0;
+        char* trimmed = line;
+        while (*trimmed == ' ' || *trimmed == '\t') ++trimmed;
+        if (trimmed != line) memmove(line, trimmed, strlen(trimmed) + 1);
+        if (line[0] == ';' || line[0] == '#') continue;
         if (line[0] == '[') {
-            if (!strncmp(line, "[Basic]", 7))          sec = S_BASIC;
-            else if (!strncmp(line, "[MAP]", 5))       sec = S_MAP;
-            else if (!strncmp(line, "[Waypoints]", 11)) sec = S_WAY;
+            if (!strncasecmp(line, "[Basic]", 7))          sec = S_BASIC;
+            else if (!strncasecmp(line, "[MAP]", 5))       sec = S_MAP;
+            else if (!strncasecmp(line, "[Waypoints]", 11)) sec = S_WAY;
+            else if (!strncasecmp(line, "[Rally]", 7)) {
+                /* A COURSE, and the same test the game makes before it races one
+                   (game/rally_mod.h, rly_scen_is_course) */
+                sec = S_RALLY;
+                if (out->course == SK_COURSE_NONE) out->course = SK_COURSE_RUN;
+            }
             else                                        sec = S_NONE;
             continue;
         }
-        if (sec == S_BASIC && !strncmp(line, "Name=", 5)) {
-            out->name = line + 5;
+        if (sec == S_RALLY) {
+            const char* v = ini_value(line, "Loop");
+            if (v && atoi(v) != 0) out->course = SK_COURSE_CIRCUIT;
+            continue;
+        }
+        if (sec == S_BASIC && ini_value(line, "Name")) {
+            out->name = ini_value(line, "Name");
             /* Some INIs carry a trailing space on this row. */
             while (!out->name.empty() && (out->name[out->name.size() - 1] == ' ' ||
                                           out->name[out->name.size() - 1] == '\t'))
@@ -898,8 +1162,11 @@ static void skirmish_map_facts(const char* dir, const char* scen, SpecOp* out)
             } else if ((v = ini_value(line, "Theater"))) {
                 if (theaterRank < 1) { out->theater = v; theaterRank = 1; }
             }
-            else if (!strncmp(line, "Width=", 6))   out->w = atoi(line + 6);
-            else if (!strncmp(line, "Height=", 7))  out->h = atoi(line + 7);
+            else if (ini_value(line, "Width"))   out->w = atoi(ini_value(line, "Width"));
+            else if (ini_value(line, "Height"))  out->h = atoi(ini_value(line, "Height"));
+            else if (ini_value(line, "X"))       out->mx = atoi(ini_value(line, "X"));
+            else if (ini_value(line, "Y"))       out->my = atoi(ini_value(line, "Y"));
+            else if (ini_value(line, "Version")) out->version = atoi(ini_value(line, "Version"));
         } else if (sec == S_WAY) {
             char* eq = strchr(line, '=');
             if (!eq) continue;
@@ -907,14 +1174,58 @@ static void skirmish_map_facts(const char* dir, const char* scen, SpecOp* out)
             const int idx = atoi(line);
             const int cell = atoi(eq + 1);
             if (idx >= 0 && idx < 26 && cell >= 0) way[idx] = true;
+            if (idx >= 0 && idx < 8 && cell >= 0) out->startCell[idx] = cell;
         }
     }
     fclose(f);
 
     int run = 0;
-    while (run < 26 && way[run]) run++;
+    if (scen && !strncmp(scen, "IMP", 3)) {
+        /* Native custom maps compact unset slots. Import validation has already
+           rejected duplicate/out-of-bounds multiplayer starts. */
+        for (int i = 0; i < 8; ++i) if (way[i]) ++run;
+    } else {
+        while (run < 26 && way[run]) run++;
+    }
     if (run > 8) run = 8;          /* MAX_PLAYERS with the 8-player patch */
     out->starts = run;
+}
+
+/* AN IMPORTED MAP'S PICTURE: the importer's <code>.preview.ppm (binary P6, the playable
+   rectangle), read once and kept for the life of the program, so the lobby's SK_Map can
+   point into it. NULL when the file is missing or is not a plain P6 the importer wrote. */
+static const unsigned char* usermap_picture(const std::string& path, short* w, short* h)
+{
+    static std::map<std::string, std::vector<unsigned char> > cache;
+    static std::map<std::string, std::pair<int, int> > dims;
+    *w = *h = 0;
+    std::map<std::string, std::vector<unsigned char> >::iterator it = cache.find(path);
+    if (it == cache.end()) {
+        std::vector<unsigned char> rgba;
+        int pw = 0, ph = 0, maxv = 0;
+        FILE* f = fopen(path.c_str(), "rb");
+        if (f) {
+            char magic[3] = {0};
+            if (fscanf(f, "%2s %d %d %d", magic, &pw, &ph, &maxv) == 4 && !strcmp(magic, "P6")
+                && pw > 0 && ph > 0 && pw <= 512 && ph <= 512 && maxv == 255 && fgetc(f) != EOF) {
+                std::vector<unsigned char> rgb((size_t)pw * ph * 3);
+                if (fread(rgb.data(), 1, rgb.size(), f) == rgb.size()) {
+                    rgba.resize((size_t)pw * ph * 4);
+                    for (size_t k = 0; k < (size_t)pw * ph; k++) {
+                        rgba[k * 4] = rgb[k * 3]; rgba[k * 4 + 1] = rgb[k * 3 + 1];
+                        rgba[k * 4 + 2] = rgb[k * 3 + 2]; rgba[k * 4 + 3] = 255;
+                    }
+                }
+            }
+            fclose(f);
+        }
+        if (rgba.empty()) pw = ph = 0;
+        it = cache.insert(std::make_pair(path, rgba)).first;
+        dims[path] = std::make_pair(pw, ph);
+    }
+    if (it->second.empty()) return NULL;
+    *w = (short)dims[path].first; *h = (short)dims[path].second;
+    return it->second.data();
 }
 
 /* The skirmish maps, found the same way the mission list is found: by looking for the
@@ -954,11 +1265,11 @@ static void skirmish_scan(const char* dir)
        never buries them. */
     {
         const size_t official = g_skirmish.size();
-        for (int i = 0; i < 100; i++) {
-            char code[16], path[512], udir[512];
-            snprintf(code, sizeof code, "USER%02d", i);
-            snprintf(udir, sizeof udir, "%suser_maps/",
-                     dir && *dir ? dir : "missions/");
+        const std::string userdir = std::string(dir && *dir ? dir : "missions/") + "user_maps/";
+        for (const std::string& stem : usermap_codes(userdir.c_str())) {
+            const char* code = stem.c_str();
+            char path[1024], udir[1024];
+            snprintf(udir, sizeof udir, "%s", userdir.c_str());
             snprintf(path, sizeof path, "%s%s.INI", udir, code);
             FILE* f = fopen(path, "rb");
             if (!f) continue;
@@ -975,6 +1286,9 @@ static void skirmish_scan(const char* dir)
                with eight starts, left the kind at the dialog's default, and watched
                it never appear here. */
             if (so.starts < 2) continue;
+            /* Imported singleplayer missions retain their mission waypoints; those
+               markers must never turn a scripted mission into a skirmish. */
+            if (!strncmp(code, "IMP", 3) && !usermap_is_multi(path)) continue;
             /* A map's OWN bake is better -- it carries real per-cell terrain colours,
                which the radar uses -- but it is NOT required, and demanding it was a
                mistake that hid the project owner's own maps from this list. A borrowed donor pack
@@ -1000,9 +1314,34 @@ static void skirmish_scan(const char* dir)
         r.w = (short)g_skirmish[i].w;
         r.h = (short)g_skirmish[i].h;
         r.starts = (short)g_skirmish[i].starts;
+        r.course = (unsigned char)g_skirmish[i].course;
+        /* The starts' cells, for a preview drawn without a baked picture: y*128+x when the
+           map says Version=1, y*64+x otherwise, the engine's own rule for the two formats.
+           Taken in the engine's order (compacted for a native custom map, a contiguous run
+           otherwise), so marker n is the start a seat picking n gets. */
+        {
+            const SpecOp& so = g_skirmish[i];
+            const int stride = so.version == 1 ? 128 : 64;
+            r.x = (short)so.mx; r.y = (short)so.my;
+            int n = 0;
+            for (int k = 0; k < 8 && n < r.starts; k++) {
+                if (so.startCell[k] < 0) { if (strncmp(so.scen.c_str(), "IMP", 3)) break; continue; }
+                r.start_x[n] = (short)(so.startCell[k] % stride);
+                r.start_y[n] = (short)(so.startCell[k] / stride);
+                n++;
+            }
+            r.start_cells = (unsigned char)n;
+        }
+        if (r.user) {
+            const std::string pic = std::string(dir && *dir ? dir : "missions/") + "user_maps/"
+                                  + g_skirmish[i].scen + ".preview.ppm";
+            r.pic = usermap_picture(pic, &r.pic_w, &r.pic_h);
+        }
         g_skirmishMaps.push_back(r);
-        printf("APP|skirmish|%s|%s|%s|%dx%d|%d starts\n", r.scen,
-               r.name ? r.name : "-", r.theater ? r.theater : "-", r.w, r.h, r.starts);
+        printf("APP|skirmish|%s|%s|%s|%dx%d|%d starts%s\n", r.scen,
+               r.name ? r.name : "-", r.theater ? r.theater : "-", r.w, r.h, r.starts,
+               r.course == SK_COURSE_CIRCUIT ? "|rally circuit"
+               : r.course == SK_COURSE_RUN ? "|rally course" : "");
     }
     printf("APP|skirmish|%d maps\n", (int)g_skirmish.size());
     fflush(stdout);
@@ -1086,7 +1425,13 @@ static unsigned mp_brain_abi(const char* dylib)
 {
     static unsigned cached = 0;
     static bool tried = false;
-    if (tried) return cached;
+    /* AND THIS BUILD'S NAME, folded into the word every room is compared by. The game
+       list greys a room whose word differs, so a room of another build is greyed before
+       anybody presses JOIN, and the host refuses it by name if somebody does (see
+       nm_set_build). Named here, before the word is built, so no caller can reach the
+       word before the name is set. */
+    nm_set_build(OPENCNC3D_BUILD);
+    if (tried) return nm_abi_with_build(cached);
     tried = true;
     /* NO PATH GIVEN (the launcher and the .app pass none): ask the ONE search the game
        itself uses. This function used to carry its own list of three hardcoded ".dylib"
@@ -1117,7 +1462,7 @@ static unsigned mp_brain_abi(const char* dylib)
                         "games will not be checked for engine compatibility\n",
                 dylib ? dylib : "(none)");
     }
-    return cached;
+    return nm_abi_with_build(cached);
 }
 
 /* The index of a skirmish map by its scenario name, or -1. */
@@ -1133,6 +1478,15 @@ static int mp_map_index(const char* scen)
 static unsigned mp_scen_hash(const char* dir, const char* scen)
 {
     static const char* const EXT[2] = { ".INI", ".BIN" };
+    /* Red Alert's loose rules files sit in the missions folder itself, not beside an
+       imported map, so they are read from the folder as given. */
+    const std::string rulesDir(dir ? dir : "");
+    std::string importedDir;
+    if (scen && (!strncmp(scen, "IMP", 3) || !strncmp(scen, "USER", 4))) {
+        importedDir = std::string(dir ? dir : "");
+        if (importedDir.find("user_maps/") == std::string::npos) importedDir += "user_maps/";
+        dir = importedDir.c_str();
+    }
     unsigned h = 2166136261u;
     int got = 0, i;
     if (!scen || !*scen) return 0u;
@@ -1151,6 +1505,28 @@ static unsigned mp_scen_hash(const char* dir, const char* scen)
         }
         fclose(f);
         got++;
+    }
+    /* AND RED ALERT'S RULES FILES, which set every unit's cost, strength and speed: two
+       copies that differ build different armies from the same map, so they are part of
+       what a match starts from, exactly as the renderer's own fingerprint counts them
+       (net_rules_fold in cnc_eyes.cpp, the same bytes in the same order). */
+    if (got && g_ra3dPreview) {
+        static const char* const RULES[2] = { "RULES.INI", "AFTRMATH.INI" };
+        for (i = 0; i < 2; i++) {
+            char path[1024];
+            unsigned char buf[8192];
+            size_t n;
+            FILE* f;
+            snprintf(path, sizeof path, "%s%s", rulesDir.c_str(), RULES[i]);
+            f = fopen(path, "rb");
+            if (!f) continue;
+            for (n = 0; RULES[i][n]; n++) { h ^= (unsigned char)RULES[i][n]; h *= 16777619u; }
+            while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
+                size_t k;
+                for (k = 0; k < n; k++) { h ^= buf[k]; h *= 16777619u; }
+            }
+            fclose(f);
+        }
     }
     return got ? (h ? h : 1u) : 0u;
 }
@@ -1211,6 +1587,8 @@ static NmSetup* mp_build_setup(NmSetup* out, const SK_Lobby* lob, const MP_State
     snprintf(out->name[0], sizeof out->name[0], "%s", nm_player_name());
     out->aitake = lob->aitake;
     out->shortgame = lob->shortgame;
+    out->gun_game = !g_ra3dPreview && lob->gun_game;
+    out->rally_laps = g_ra3dPreview ? 0 : lob->rally_laps;
     out->superweapons = lob->superweapons;
     out->bases = lob->bases;
     out->unit_count = lob->unit_count;
@@ -1223,13 +1601,7 @@ static NmSetup* mp_build_setup(NmSetup* out, const SK_Lobby* lob, const MP_State
         out->ai_difficulty = lob->ai_difficulty < 0 ? 0 : lob->ai_difficulty > 3 ? 3 : lob->ai_difficulty;
         out->seed = lob->seed ? lob->seed : ra_room_seed();
     }
-    /* THE ROOM'S TICK RATE. There is no speed row on the skirmish screen, so the room
-       opens on the wire's own default, which is the same slider index the Game Controls
-       page ships: a player meets one pace in a campaign mission, a skirmish and a
-       network game. Written as the constant rather than as a number because three
-       builders of an NmSetup have to say the same thing, and a literal here is a copy
-       that can be left behind. */
-    out->speed = NM_DEFAULT_SPEED;
+    out->speed = lob->speed;
     /* THE ROOM IS AS WIDE AS THE MAP HAS STARTS (no player count on the host
        tab), and every seat in it carries the mode the lobby screen last gave it. A fresh
        lobby says 0 (HUMAN) for every seat, which netmatch reads as "open until somebody
@@ -1282,6 +1654,10 @@ static void skirmish_apply(GameOpts* opt, const SK_Lobby* lob)
     opt->crates = lob->crates;
     opt->ai_takeover = lob->aitake;
     opt->short_game = lob->shortgame;
+    opt->gun_game = lob->gun_game;
+    /* A RALLY'S LAPS; a lobby in any other mode leaves the next match no Rally to ask for */
+    opt->rally_laps = lob->rally_laps;
+    opt->rally = lob->rally_laps > 0 ? 1 : 0;
     opt->superweapons = lob->superweapons;
     opt->bases = lob->bases;
     opt->unit_count = lob->unit_count;
@@ -1303,10 +1679,10 @@ static void skirmish_apply(GameOpts* opt, const SK_Lobby* lob)
         snprintf(opt->player_name[i], sizeof opt->player_name[i], "%s", lob->name[i]);
     }
     printf("APP|lobby|side=%s|ai=%d|build=%d|credits=%d|bases=%d|tiberium=%d|crates=%d|"
-           "super=%d|units=%d|start0=%d\n",
+           "super=%d|units=%d|start0=%d|laps=%d\n",
            lob->side ? "Nod" : "GDI", lob->ai_count, lob->build, lob->credits,
            lob->bases, lob->tiberium, lob->crates, lob->superweapons, lob->unit_count,
-           lob->start_wp[0]);
+           lob->start_wp[0], lob->rally_laps);
     lobby_report_seats(lob);
     fflush(stdout);
 }
@@ -1332,11 +1708,13 @@ static const char* const RA_SK_COUNTRY[RA_SK_COUNTRIES] = {
     "Spain", "Greece", "USSR", "England", "Ukraine", "Germany", "France", "Turkey" };
 /* 1 when the country plays the Soviet side. */
 static int ra_sk_country_soviet(int country) { return country == 2 || country == 4; }
-/* Red Alert's eight player colours by the number the engine is handed (a seat's ColorIndex,
-   which picks that row of the disc's PALETTE.CPS remaps), named for what the row shows and
-   given as the RGB the radar paints that house in (game/cnc_eyes.cpp RA_RADAR_BAR). Each
-   country's own 1996 colour is the colour with its number: Spain gold, Greece light blue,
-   the USSR red, England green, Ukraine orange, Germany grey, France blue, Turkey brown. */
+/* Red Alert's eight player colours by their row of the disc's PALETTE.CPS remaps, the number
+   every Red Alert lobby gives a colour, named for what the row shows and given as the RGB the
+   radar paints that house in (game/cnc_eyes.cpp RA_RADAR_BAR). The engine library numbers
+   grey and blue the other way round, and the renderer turns the row into the library's number
+   as it seats the match (ra_library_colour in game/ra_infantry_colour.h). Each country's own
+   1996 colour is the row with its number: Spain gold, Greece light blue, the USSR red,
+   England green, Ukraine orange, Germany grey, France blue, Turkey brown. */
 #define RA_SK_COLOURS 8
 static const char* const RA_SK_COLOUR[RA_SK_COLOURS] = {
     "Gold", "Light blue", "Red", "Green", "Orange", "Grey", "Blue", "Brown" };
@@ -1351,6 +1729,8 @@ typedef struct RaSkMap {
     std::string preview;   /* ra3d/previews/SCM01EA.png, or empty                     */
     int x, y, w, h;        /* the playable rectangle, in cells                        */
     int starts;            /* start positions: the most players the map seats         */
+    bool user = false;      /* imported map in the module's user_maps folder */
+    std::string pic;        /* its importer's picture, <code>.preview.ppm, or empty    */
     /* Start k's cell (y * 128 + x), in the order the engine numbers starts, which is the
        number a seat's start (RaSkSeat::start, GameOpts::start_wp) names. */
     std::vector<int> start_cell;
@@ -1400,19 +1780,23 @@ static void ra_sk_ini_facts(const char* dir, RaSkMap* m)
     while (fgets(line, sizeof line, f)) {
         char* nl = strpbrk(line, "\r\n");
         if (nl) *nl = 0;
+        char* trimmed = line;
+        while (*trimmed == ' ' || *trimmed == '\t') ++trimmed;
+        if (trimmed != line) memmove(line, trimmed, strlen(trimmed) + 1);
+        if (line[0] == ';' || line[0] == '#') continue;
         if (line[0] == '[') {
-            sec = !strncmp(line, "[Basic]", 7) ? S_BASIC : !strncmp(line, "[Map]", 5) ? S_MAP
-                : !strncmp(line, "[Waypoints]", 11) ? S_WAY : S_NONE;
+            sec = !strncasecmp(line, "[Basic]", 7) ? S_BASIC : !strncasecmp(line, "[Map]", 5) ? S_MAP
+                : !strncasecmp(line, "[Waypoints]", 11) ? S_WAY : S_NONE;
             continue;
         }
         const char* eq = strchr(line, '=');
         if (!eq) continue;
-        if (sec == S_BASIC && !strncmp(line, "Name=", 5)) m->name = eq + 1;
-        else if (sec == S_MAP && !strncmp(line, "Theater=", 8)) m->theater = eq + 1;
-        else if (sec == S_MAP && !strncmp(line, "X=", 2)) m->x = atoi(eq + 1);
-        else if (sec == S_MAP && !strncmp(line, "Y=", 2)) m->y = atoi(eq + 1);
-        else if (sec == S_MAP && !strncmp(line, "Width=", 6)) m->w = atoi(eq + 1);
-        else if (sec == S_MAP && !strncmp(line, "Height=", 7)) m->h = atoi(eq + 1);
+        if (sec == S_BASIC && ini_value(line, "Name")) m->name = ini_value(line, "Name");
+        else if (sec == S_MAP && ini_value(line, "Theater")) m->theater = ini_value(line, "Theater");
+        else if (sec == S_MAP && ini_value(line, "X")) m->x = atoi(ini_value(line, "X"));
+        else if (sec == S_MAP && ini_value(line, "Y")) m->y = atoi(ini_value(line, "Y"));
+        else if (sec == S_MAP && ini_value(line, "Width")) m->w = atoi(ini_value(line, "Width"));
+        else if (sec == S_MAP && ini_value(line, "Height")) m->h = atoi(ini_value(line, "Height"));
         else if (sec == S_WAY && line[0] >= '0' && line[0] <= '9') {
             const int k = atoi(line);
             if (k >= 0 && k < 8) way[k] = atoi(eq + 1);
@@ -1482,6 +1866,16 @@ static int ra_skirmish_maps(const char* module)
             if (m.starts >= 2) g_raSkMaps.push_back(m);
         }
     }
+    const std::string userdir = std::string(module) + "missions/user_maps/";
+    for (const std::string& code : usermap_codes(userdir.c_str())) {
+        const std::string ini = userdir + code + ".INI";
+        if (!usermap_is_multi(ini.c_str())) continue;
+        RaSkMap m;
+        m.scen = code; m.x = m.y = m.w = m.h = m.starts = 0; m.user = true;
+        m.pic = userdir + code + ".preview.ppm";
+        ra_sk_ini_facts(userdir.c_str(), &m);
+        if (m.starts >= 2) g_raSkMaps.push_back(m);
+    }
     for (size_t i = 0; i < g_raSkMaps.size(); i++) {
         const RaSkMap& m = g_raSkMaps[i];
         printf("APP|raskirmish|map|%s|%s|%s|%dx%d|%d starts|preview=%s\n", m.scen.c_str(),
@@ -1492,6 +1886,23 @@ static int ra_skirmish_maps(const char* module)
            listed ? "listed" : "read from the INIs");
     fflush(stdout);
     return (int)g_raSkMaps.size();
+}
+
+/* The lobby's copy of where a map's starts are: the playable rectangle's corner and each
+   start's cell, in engine order, so its preview can number them and colour each by the
+   seat holding it. Both of Red Alert's lobbies (skirmish and network) fill their map list
+   through this. */
+static void ra_sk_map_starts(SK_Map* r, const RaSkMap& m)
+{
+    r->x = (short)m.x;
+    r->y = (short)m.y;
+    const size_t n = m.start_cell.size() < 8 ? m.start_cell.size() : 8;
+    for (size_t k = 0; k < n; k++) {
+        r->start_x[k] = (short)(m.start_cell[k] % 128);
+        r->start_y[k] = (short)(m.start_cell[k] / 128);
+    }
+    r->start_cells = (unsigned char)n;
+    if (m.user && !m.pic.empty()) r->pic = usermap_picture(m.pic, &r->pic_w, &r->pic_h);
 }
 
 /* A one-against-one on the first map: the person plays Greece, the computer the USSR, each
@@ -1540,7 +1951,7 @@ static void ra_engine_opts(GameOpts* opt, const char* scen)
     opt->dylib = "ra3d/RedAlert.dylib";
 #endif
     opt->content = "ra3d/data";
-    opt->dir = "ra3d/missions/";
+    opt->dir = !strncmp(sbuf, "IMP", 3) ? "ra3d/missions/user_maps/" : "ra3d/missions/";
     opt->dosdata = "ra3d/audio";
     opt->reskin = 0;
     opt->scen = sbuf;
@@ -1573,7 +1984,7 @@ static int ra_skirmish_apply(GameOpts* opt, const RaSkirmish* s)
     for (int i = 0; i < s->players; i++) if (s->seat[i].mode == NM_SEAT_BOT) opt->ai_count++;
     opt->build = s->tech < 1 ? 1 : s->tech > 10 ? 10 : s->tech;
     opt->credits = s->credits;
-    opt->tiberium = s->ore ? 1 : 0;
+    opt->tiberium = s->ore;
     opt->crates = s->crates ? 1 : 0;
     opt->bases = s->bases ? 1 : 0;
     opt->shroud_regrow = s->shroud_regrow ? 1 : 0;
@@ -1662,15 +2073,19 @@ static void ra_lobby_scan(void)
         g_skirmish.push_back(so);
     }
     g_skirmishUserFrom = g_skirmish.size();
+    for (size_t i = 0; i < g_raSkMaps.size(); ++i)
+        if (g_raSkMaps[i].user) { g_skirmishUserFrom = i; break; }
     for (size_t i = 0; i < g_skirmish.size(); i++) {
         SK_Map r;
         memset(&r, 0, sizeof r);
+        r.user = g_raSkMaps[i].user ? 1 : 0;
         r.scen = g_skirmish[i].scen.c_str();
         r.name = g_skirmish[i].name.c_str();
         r.theater = g_skirmish[i].theater.c_str();
         r.w = (short)g_skirmish[i].w;
         r.h = (short)g_skirmish[i].h;
         r.starts = (short)g_skirmish[i].starts;
+        ra_sk_map_starts(&r, g_raSkMaps[i]);
         g_skirmishMaps.push_back(r);
     }
 }
@@ -1717,7 +2132,7 @@ static void ra_lobby_defaults(SK_Lobby* lob, const GameOpts* o)
     lob->side = ra_sk_country_soviet(c[0]);
     lob->build = (o && o->build > 1) ? (o->build > 10 ? 10 : o->build) : 10;
     lob->credits = o ? o->credits : 10000;
-    lob->tiberium = o ? (o->tiberium ? 1 : 0) : 1;
+    lob->tiberium = o ? o->tiberium : 1;
     lob->crates = o ? (o->crates ? 1 : 0) : 0;
     lob->bases = o ? (o->bases ? 1 : 0) : 1;
     lob->superweapons = o ? (o->superweapons ? 1 : 0) : 1;
@@ -1760,15 +2175,19 @@ static void ra_lobby_apply(GameOpts* opt, const SK_Lobby* lob)
 /* THE MATCH DEBRIEF, or nothing at all. Answers 1 to carry on and 0 only when the window
    was closed, so both call sites read the same way; a campaign abort leaves the table
    empty and falls straight through. */
-static int ra_match_debrief(Camp* camp, const MatchStats* ms);   /* below shell_automated */
+static int match_debrief(Camp* camp, const MatchStats* ms);   /* below shell_automated */
+static int debrief_enhanced(void);
 
 static int app_match_score(Camp* camp, const MatchStats* ms)
 {
     CampMatch cm;
     int i;
     if (!ms || !ms->valid || ms->nrows <= 0) return 1;
-    /* A RED ALERT MATCH ENDS ON RED ALERT'S DEBRIEF, not this one. */
-    if (g_ra3dPreview) return ra_match_debrief(camp, ms);
+    /* EVERY MATCH ENDS ON THE DEBRIEF, the multiplayer score screen both games had, drawn in
+       the game's own Enhanced kit, Red Alert's always (its notice when the old menus are
+       asked for). Tiberian Dawn's older match plate below is drawn only when the old menus
+       are, for the gates that photograph it. */
+    if (g_ra3dPreview || debrief_enhanced()) return match_debrief(camp, ms);
     memset(&cm, 0, sizeof cm);
     cm.nrows = ms->nrows > 8 ? 8 : ms->nrows;
     cm.win = ms->win;
@@ -1805,36 +2224,38 @@ static int app_match_score(Camp* camp, const MatchStats* ms)
 #define RA_ENHANCED_LEGAL \
     "OpenCNC3D is an unofficial fan project, not affiliated with or endorsed by Electronic Arts.\n" \
     "Command & Conquer: Red Alert is a trademark of Electronic Arts Inc. Created by freschism"
-/* Red Alert's expansions (Counterstrike, Aftermath) are not on the freeware discs; Special
-   Ops lists them when their missions are found, and is greyed on the Enhanced main menu
-   until then. Their missions number 20 and up, past the campaign's 14. */
+#include "ra_expansions.h"
 static bool ra_expansions_installed(void)
 {
-    for (int n = 20; n < 50; n++)
-        for (const char* side : {"G", "U"}) {
-            char path[64];
-            snprintf(path, sizeof path, "ra3d/missions/SC%s%02dEA.INI", side, n);
-            if (FILE* f = fopen(path, "rb")) { fclose(f); return true; }
-        }
-    return false;
+    ra_expansions_scan();
+    return !g_specopsRows.empty();
 }
 /* Red Alert's Enhanced main menu greys Special Ops while no expansion is installed, and the
    highlight then starts on Start New Game rather than on a button that cannot be pressed. */
 static void ra_menu_flags(DMS* menu)
 {
     if (!g_ra3dPreview) return;
+    menu->cfg.ants_available = ra_ants_installed();
     menu->st.special_missing = dms_enhanced_menu(menu) && !ra_expansions_installed();
     if (menu->st.special_missing && menu->st.selected == DM_SPECIAL) menu->st.selected = DM_START;
 }
 static int g_raHarnessSide = 0;
 static int g_raFlowStart = 1;
 static int g_raFlowRealWin = 0;
+/* --flowstart N: the Tiberian Dawn flow begins at campaign mission N (1..15 GDI, 1..13
+   Nod) rather than at 1, so a gate can reach the last mission and its ending without
+   walking every mission before it. A variant letter may follow (--flowstart 4B), for
+   the missions only a map choice reaches. --flowrealwin asks the engine for its own verdict
+   (OpenCNC3D_Force_Verdict) instead of the synthetic one, in either game, so the movie
+   names the run plays are the engine's, endings included. */
+static int g_tdFlowStart = 1;
+static char g_tdFlowVar = 'A';  /* --flowstart 4B: the variant letter, A by default */
 static char g_raScen[12];           /* --rascen: boot this scenario once, by name */
 
 static void camp_scen_name(char* out, size_t n)
 {
-    snprintf(out, n, "SC%c%02d%c%c", g_ra3dPreview ? (g_camp.side ? 'U' : 'G') :
-             (g_camp.side ? 'B' : 'G'), g_camp.scenario,
+    snprintf(out, n, "SC%c%02d%c%c", g_ra3dPreview ? (g_camp.ants ? 'A' : g_camp.side ? 'U' : 'G') :
+             (g_camp.ants ? 'J' : g_camp.side ? 'B' : 'G'), g_camp.scenario,
              g_camp.dir, g_camp.var);
 }
 
@@ -1965,9 +2386,16 @@ static int camp_movie(SDL_Window* win, CncAudio* au, const char* name)
  *  itself says the Start button occupies, and then reads what came out.
  * ---------------------------------------------------------------------------------- */
 
+static const char* g_skirmishCfg = NULL; /* explicit private preference path for a harness */
+static const char* g_controlsCfg = NULL; /* explicit isolated/session preference path */
 static int  g_harnessTicks = 0;      /* --harness N: engine ticks per visit  */
+/* --harnesswin N: under the harness, every mission is won at tick N, the verdict the
+   campaign-flow driver fabricates (--flowtest), so a chain of missions started from the
+   list can be walked; 0, the default, leaves each round to end on the tick bound. */
+static int  g_harnessWin = 0;
 static int  g_harnessRounds = 2;     /* how many times to enter the game     */
 static const char* g_shotDir = ".";
+
 static int  g_harnessFails = 0;
 
 /* --hidden: run with the window never shown, for a measuring run WITH a real audio
@@ -1976,8 +2404,17 @@ static int  g_harnessFails = 0;
    steals focus, and whoever was typing skips the logo and clicks through the menu
    without meaning to; that is a measured fact, not a guess. */
 static int  g_hiddenWin = 0;
+#include "module_switches.h"
 static const char* g_visualsShot = NULL;   /* --visualsshot FILE; see the parse below */
 static const char* g_menuShot = NULL;      /* --menushot FILE; actual menu and theme */
+/* --menubench SECONDS [--menubenchdir DIR]: hold the real main menu idle for that long, then
+   with a stand-in pointer on the Skirmish button for half as long (at least a second), and
+   print one MENUBENCH line per leg: passes, frames a second, how often the panel was drawn
+   in software and sent to the card, time asleep and the swap interval. It measures the
+   menu's pacing and its redraw-on-change, which a single --menushot frame cannot. Implies
+   --hidden and no movies. */
+static double g_menuBench = 0;
+static const char* g_menuBenchDir = NULL;
 static const char* g_introShot = NULL;     /* --introshot DIR; first RA movie frames */
 /* --loadmenushot FILE: the main menu's Load Mission dialog, one frame, then out. The
    same instrument --visualsshot is, for the same reason: the screen needs a context
@@ -2177,7 +2614,8 @@ static int g_lobbyHostMs = 0, g_lobbyJoinMs = 0;
 #define LOBBYSEAT_COLOUR 5
 #define LOBBYSEAT_START  3   /* zero based: the fourth start position */
 /* THE SCRIPT'S LENGTH, which is also its clock: dms_lobby runs exactly one step per frame
-   and a frame is at least the loop's own SDL_Delay(16), so the steps between the last pick
+   and a scripted lobby's frame is at least 16 ms however fast the display refreshes (the
+   menu's pace keeps that floor while a probe script runs), so the steps between the last pick
    and the ESCAPE that leaves are how long the screen is left running for the room to
    answer. Four picks, then a settle, then the way out. The room polls ten times a second
    and the wire is loopback, so ~700 ms is roughly seven chances to be told; anything that
@@ -2202,11 +2640,14 @@ static int mp_lobby_from_match(SK_Lobby* out)
     out->superweapons = ns->superweapons ? 1 : 0;
     out->crates = ns->crates ? 1 : 0;
     out->bases = ns->bases ? 1 : 0;
-    out->tiberium = ns->tiberium ? 1 : 0;
+    out->tiberium = ns->tiberium;
     out->unit_count = ns->unit_count;
     out->build = ns->build;
     out->ai_difficulty = ns->ai_difficulty;
     out->side = ns->house[0] ? 1 : 0;
+    out->gun_game = ns->gun_game;
+    out->rally_laps = ns->rally_laps;
+    out->speed = ns->speed;
     /* A Red Alert room's own rules and seed; its houses are countries. */
     if (ns->game) {
         out->aitake = ns->aitake ? 1 : 0;
@@ -2282,70 +2723,81 @@ static int shell_automated(void)
         || g_lobbyShot != NULL || g_visualsShot != NULL || g_menuShot != NULL
         || g_introShot != NULL
         || g_hiddenWin != 0
+        || g_importUi != NULL
         || g_specopsShot != NULL || g_loadMenuShot != NULL || g_bootFailShot != NULL
         || g_mpShot != NULL || g_mpAddrTest || g_mpClickTest
         || g_mpSortTest || g_mpSortClick || g_mpPrefsRead != NULL;
 }
 
-/* ==== RED ALERT'S MATCH DEBRIEF: the data and the route ======================================
+/* ==== THE MATCH DEBRIEF: the data and the route ==============================================
  *
- * A Red Alert skirmish or network match ends on Red Alert's own score screen, not Tiberian
- * Dawn's match table. The 1996 screen (score.cpp, Multi_Score_Presentation) plays
- * MLTIPLYR.WSA (CONQUER.MIX) over the score palette and lists, per commander in the house's
- * colour, the battles won in this session and the kills in each of the session's last four
- * games: a kill is a unit or a structure destroyed (house.cpp's tally adds both), a battle
- * is won by every house still standing at the end. ra_match_score_build makes exactly that
- * table, keeping the session across matches in this process as Session.Score does, and
- * adds this match's own numbers beside it. The screen that draws it is the menu's to build:
- * until it does, ra_match_debrief shows the table in a notice and says which way the match
- * went, so the route is live and the numbers are on the glass.
+ * A skirmish or network match ends on the multiplayer score screen, in both games. The 1995
+ * and 1996 screens are the same one (score.cpp, Multi_Score_Presentation): MLTIPLYR.WSA over
+ * the score palette, and per commander in their colour the battles won in this session and
+ * the kills in each of the session's last four games. A kill is a unit or a structure
+ * destroyed (house.cpp's tally adds both); a battle is won by every house still standing at
+ * the end. match_score_build makes exactly that table, keeping the session across matches in
+ * this process as MPlayerScore and Session.Score do, and adds this match's own numbers beside
+ * it. The Enhanced menu draws it (em_match_debrief) in the game's own kit. Without the
+ * Enhanced menus, which only gates that drive the old screens ask for, Red Alert shows the
+ * table in a notice and Tiberian Dawn draws its older match plate (camp_match_score).
  * -------------------------------------------------------------------------------------------- */
-#define RA_SCORE_GAMES 4
-typedef struct RaScoreRow {
+/* The debrief's graph reads the match timeline row for row and series for series. */
+static_assert(EM_SERIES == MATCH_SERIES && EM_SAMPLES == MATCH_SAMPLES,
+              "the debrief's graph and the match timeline must hold the same table");
+#define MATCH_SCORE_GAMES 4
+typedef struct MatchScoreRow {
     char name[16];
-    int country;                 /* 0..7, RA_SK_COUNTRY                                     */
-    int colour;                  /* 0..7, RA_SK_COLOUR                                      */
-    int soviet;                  /* 1 the Soviet side                                       */
+    int country;                 /* Red Alert 0..7, RA_SK_COUNTRY; Tiberian Dawn the side, 0 GDI 1 Nod */
+    int colour;                  /* 0..7, the player colours                                */
+    int soviet;                  /* 1 the Soviet side (Red Alert) or Nod (Tiberian Dawn)    */
     int wins;                    /* battles won this session                                */
-    int kills[RA_SCORE_GAMES];   /* kills in each of the session's last games, oldest first; -1 not played */
+    int kills[MATCH_SCORE_GAMES];   /* kills in each of the session's last games, oldest first; -1 not played */
     int killed, razed, lost, harvested;   /* this match: units, structures, own losses, credits */
     int defeated;                /* beaten in this match                                    */
     int is_local;                /* the commander at this machine                           */
-} RaScoreRow;
-typedef struct RaMatchScore {
-    RaScoreRow row[8];
+} MatchScoreRow;
+typedef struct MatchScore {
+    MatchScoreRow row[8];
     int nrows;
     int games;                   /* how many kills[] columns hold a game, 1..4              */
     int win;                     /* the commander at this machine won                       */
     int decided;                 /* somebody was beaten (or this machine won); 0 when it was left */
     int seconds;                 /* the match's length, game time                           */
     int net;                     /* a network match                                         */
-    char scen[16];               /* SCM10EA                                                 */
+    char scen[24];               /* SCM10EA, or the label the match was started under       */
     char mapname[48];            /* First Come First Serve (4)                              */
     char ended[96];              /* why it ended, when it broke rather than finished        */
     const char* background;      /* "MLTIPLYR.WSA", in CONQUER.MIX                          */
-} RaMatchScore;
+} MatchScore;
 
-/* THE SESSION, as Session.Score keeps it: a commander is known by name and country (the
-   computers are all called COMPUTER), and every match moves the columns along. */
-/* Set for a scripted run, which has no hand to press OK: the screen is drawn once. */
-static int g_raDebriefNoWait = 0;
+/* THE SESSION, as the score keeps it: a commander is known by name and by what they played
+   (the computers are all called COMPUTER), and every match moves the columns along. */
+/* Set for a scripted run, which has no hand to press Continue: the screen is drawn once. */
+static int g_debriefNoWait = 0;
 /* The menu, for the Enhanced debrief screen, which draws in its kit on its window. */
 static DMS* g_debriefMenu = NULL;
-static RaScoreRow g_raSession[16];
-static int g_raSessionN = 0;
-static int g_raSessionGames = 0;
+static MatchScoreRow g_matchSession[16];
+static int g_matchSessionN = 0;
+static int g_matchSessionGames = 0;
 
-static int ra_match_score_build(RaMatchScore* out, const MatchStats* ms)
+/* The debrief's log lines are tagged by game, so a gate reading one game's run cannot be
+   satisfied by the other's. */
+static const char* debrief_tag(void) { return g_ra3dPreview ? "radebrief" : "debrief"; }
+/* Whether the debrief is drawn in the Enhanced kit, which every player sees (the old
+   menus are only for gates that drive them). */
+static int debrief_enhanced(void) { return g_debriefMenu && dms_enhanced_menu(g_debriefMenu); }
+
+static int match_score_build(MatchScore* out, const MatchStats* ms)
 {
     memset(out, 0, sizeof *out);
     if (!ms || !ms->valid || ms->nrows <= 0) return 0;
-    const int col = g_raSessionGames < RA_SCORE_GAMES ? g_raSessionGames : RA_SCORE_GAMES - 1;
-    if (g_raSessionGames >= RA_SCORE_GAMES)
-        for (int i = 0; i < g_raSessionN; i++)
-            for (int k = 0; k < RA_SCORE_GAMES - 1; k++)
-                g_raSession[i].kills[k] = g_raSession[i].kills[k + 1];
-    for (int i = 0; i < g_raSessionN; i++) g_raSession[i].kills[col] = -1;
+    const int col = g_matchSessionGames < MATCH_SCORE_GAMES ? g_matchSessionGames : MATCH_SCORE_GAMES - 1;
+    if (g_matchSessionGames >= MATCH_SCORE_GAMES)
+        for (int i = 0; i < g_matchSessionN; i++)
+            for (int k = 0; k < MATCH_SCORE_GAMES - 1; k++)
+                g_matchSession[i].kills[k] = g_matchSession[i].kills[k + 1];
+    for (int i = 0; i < g_matchSessionN; i++) g_matchSession[i].kills[col] = -1;
     /* A BATTLE IS WON BY EVERY HOUSE STILL STANDING when the match was decided, which is
        when somebody was beaten or this machine won; a match left before that wins nobody
        anything. */
@@ -2353,20 +2805,29 @@ static int ra_match_score_build(RaMatchScore* out, const MatchStats* ms)
     for (int r = 0; r < ms->nrows && r < 8; r++) if (ms->row[r].defeated) decided = 1;
     for (int r = 0; r < ms->nrows && r < 8; r++) {
         const MatchStatRow* m = &ms->row[r];
+        /* What the seat played: Red Alert's country, or Tiberian Dawn's side. */
+        const int played = g_ra3dPreview ? m->country : (m->faction ? 1 : 0);
         int at = -1;
-        for (int i = 0; i < g_raSessionN; i++)
-            if (!strcmp(g_raSession[i].name, m->name) && g_raSession[i].country == m->country) { at = i; break; }
-        if (at < 0 && g_raSessionN < 16) {
-            at = g_raSessionN++;
-            memset(&g_raSession[at], 0, sizeof g_raSession[at]);
-            snprintf(g_raSession[at].name, sizeof g_raSession[at].name, "%s", m->name);
-            g_raSession[at].country = m->country;
-            for (int k = 0; k < RA_SCORE_GAMES; k++) g_raSession[at].kills[k] = -1;
+        /* Tiberian Dawn's commanders are told apart by name and colour. 1995 matched
+           its MPlayerScore rows by name alone (house.cpp), which held because its rooms
+           seated only people; here every computer is called COMPUTER and there are only
+           two sides, so name and side made all of one side's computers a single row.
+           Red Alert's are told apart by name and country. */
+        for (int i = 0; i < g_matchSessionN; i++)
+            if (!strcmp(g_matchSession[i].name, m->name) && g_matchSession[i].country == played
+                && (g_ra3dPreview || g_matchSession[i].colour == m->colour)) { at = i; break; }
+        if (at < 0 && g_matchSessionN < 16) {
+            at = g_matchSessionN++;
+            memset(&g_matchSession[at], 0, sizeof g_matchSession[at]);
+            snprintf(g_matchSession[at].name, sizeof g_matchSession[at].name, "%s", m->name);
+            g_matchSession[at].country = played;
+            g_matchSession[at].colour = m->colour;
+            for (int k = 0; k < MATCH_SCORE_GAMES; k++) g_matchSession[at].kills[k] = -1;
         }
         if (at < 0) continue;
-        RaScoreRow* s = &g_raSession[at];
+        MatchScoreRow* s = &g_matchSession[at];
         s->colour = m->colour;
-        s->soviet = ra_sk_country_soviet(m->country);
+        s->soviet = g_ra3dPreview ? ra_sk_country_soviet(m->country) : played;
         s->kills[col] = m->killed + m->razed;
         if (decided && !m->defeated) s->wins++;
         s->killed = m->killed;
@@ -2377,27 +2838,40 @@ static int ra_match_score_build(RaMatchScore* out, const MatchStats* ms)
         s->is_local = m->is_local;
         out->row[out->nrows++] = *s;
     }
-    g_raSessionGames++;
+    g_matchSessionGames++;
     out->games = col + 1;
     out->win = ms->win;
     out->decided = decided;
     out->seconds = ms->seconds;
     out->net = ms->net;
     snprintf(out->scen, sizeof out->scen, "%s", ms->map);
-    for (size_t i = 0; i < g_raSkMaps.size(); i++)
-        if (g_raSkMaps[i].scen == ms->map) snprintf(out->mapname, sizeof out->mapname, "%s", g_raSkMaps[i].name.c_str());
+    /* The map's own name, as the lobby listed it. */
+    if (g_ra3dPreview) {
+        for (size_t i = 0; i < g_raSkMaps.size(); i++)
+            if (g_raSkMaps[i].scen == ms->map) snprintf(out->mapname, sizeof out->mapname, "%s", g_raSkMaps[i].name.c_str());
+    } else {
+        for (size_t i = 0; i < g_skirmish.size(); i++)
+            if (!g_skirmish[i].header && g_skirmish[i].scen == ms->map) snprintf(out->mapname, sizeof out->mapname, "%s", g_skirmish[i].name.c_str());
+    }
     snprintf(out->ended, sizeof out->ended, "%s", ms->ended);
     out->background = "MLTIPLYR.WSA";
-    printf("APP|radebrief|%s|%s|win=%d|decided=%d|seconds=%d|net=%d|games=%d|rows=%d\n",
+    printf("APP|%s|%s|%s|win=%d|decided=%d|seconds=%d|net=%d|games=%d|rows=%d\n", debrief_tag(),
            out->scen, out->mapname[0] ? out->mapname : "-", out->win, out->decided,
            out->seconds, out->net, out->games, out->nrows);
     for (int r = 0; r < out->nrows; r++) {
-        const RaScoreRow* s = &out->row[r];
-        printf("APP|radebrief|row=%d|%s|country=%s|colour=%s|wins=%d|kills=%d,%d,%d,%d|"
-               "killed=%d|razed=%d|lost=%d|harvested=%d|defeated=%d|me=%d\n", r, s->name,
-               RA_SK_COUNTRY[s->country & 7], RA_SK_COLOUR[s->colour & 7], s->wins,
-               s->kills[0], s->kills[1], s->kills[2], s->kills[3], s->killed, s->razed,
-               s->lost, s->harvested, s->defeated, s->is_local);
+        const MatchScoreRow* s = &out->row[r];
+        if (g_ra3dPreview)
+            printf("APP|radebrief|row=%d|%s|country=%s|colour=%s|wins=%d|kills=%d,%d,%d,%d|"
+                   "killed=%d|razed=%d|lost=%d|harvested=%d|defeated=%d|me=%d\n", r, s->name,
+                   RA_SK_COUNTRY[s->country & 7], RA_SK_COLOUR[s->colour & 7], s->wins,
+                   s->kills[0], s->kills[1], s->kills[2], s->kills[3], s->killed, s->razed,
+                   s->lost, s->harvested, s->defeated, s->is_local);
+        else
+            printf("APP|debrief|row=%d|%s|side=%s|colour=%d|wins=%d|kills=%d,%d,%d,%d|"
+                   "killed=%d|razed=%d|lost=%d|harvested=%d|defeated=%d|me=%d\n", r, s->name,
+                   s->country ? "Nod" : "GDI", s->colour & 7, s->wins,
+                   s->kills[0], s->kills[1], s->kills[2], s->kills[3], s->killed, s->razed,
+                   s->lost, s->harvested, s->defeated, s->is_local);
     }
     fflush(stdout);
     return out->nrows;
@@ -2405,32 +2879,58 @@ static int ra_match_score_build(RaMatchScore* out, const MatchStats* ms)
 
 /* THE ROUTE: the table, then the screen. Answers 1 to carry on, 0 when the window closed.
    Automated runs draw the screen once (into the shot folder) and go on. */
-static int ra_match_debrief(Camp* camp, const MatchStats* ms)
+static int match_debrief(Camp* camp, const MatchStats* ms)
 {
-    RaMatchScore sc;
-    if (!ra_match_score_build(&sc, ms)) return 1;
+    MatchScore sc;
+    if (!match_score_build(&sc, ms)) return 1;
     char text[1200];
     int n = snprintf(text, sizeof text, "%s, %d:%02d. ", sc.mapname[0] ? sc.mapname : sc.scen,
                      sc.seconds / 60, sc.seconds % 60);
     if (sc.ended[0]) n += snprintf(text + n, sizeof text - n, "%s. ", sc.ended);
+    /* THIS MACHINE'S SCORE AND PLACE, by the match table's own rule (camp_match_standing):
+       the commanders still standing first, then by score, where a score is units destroyed
+       x2 + structures x5 + the credits harvested / 10. Neither old screen printed a score
+       under its TOP SCORES title; this is the figure that title promises. */
+    CampMatchRow standing[8];
+    int place = 0, me = -1;
+    {
+        const int nr = ms->nrows < 8 ? ms->nrows : 8;
+        memset(standing, 0, sizeof standing);
+        for (int r = 0; r < nr; r++) {
+            standing[r].score = ms->row[r].score;
+            standing[r].defeated = ms->row[r].defeated;
+            standing[r].is_local = ms->row[r].is_local;
+        }
+        me = camp_match_standing(standing, nr, &place);
+        if (me >= 0) {
+            char ord[8];
+            camp_match_ordinal(place, 0, ord, sizeof ord);
+            n += snprintf(text + n, sizeof text - n, "Your score %d, %s of %d. ",
+                          standing[me].score, ord, nr);
+        }
+        printf("APP|%s|score=%d|place=%d|of=%d\n", debrief_tag(), me >= 0 ? standing[me].score : 0,
+               place, nr);
+        fflush(stdout);
+    }
     for (int r = 0; r < sc.nrows && n < (int)sizeof text - 80; r++) {
-        const RaScoreRow* s = &sc.row[r];
+        const MatchScoreRow* s = &sc.row[r];
         n += snprintf(text + n, sizeof text - n, "%s (%s): %d won, %d kills%s. ", s->name,
-                      RA_SK_COUNTRY[s->country & 7], s->wins, s->kills[sc.games - 1],
-                      s->defeated ? ", beaten" : "");
+                      g_ra3dPreview ? RA_SK_COUNTRY[s->country & 7] : (s->country ? "Nod" : "GDI"),
+                      s->wins, s->kills[sc.games - 1], s->defeated ? ", beaten" : "");
     }
     char shot[1024];
     const char* shotp = NULL;
-    if (shell_automated() || g_raDebriefNoWait) {
-        snprintf(shot, sizeof shot, "%s/ra_debrief.png", g_shotDir ? g_shotDir : ".");
+    if (shell_automated() || g_debriefNoWait) {
+        snprintf(shot, sizeof shot, "%s/%s", g_shotDir ? g_shotDir : ".",
+                 g_ra3dPreview ? "ra_debrief.png" : "debrief.png");
         shotp = shot;
     }
     if (ms->net) g_backToBrowser = 1;
-    /* UNDER ENHANCED, RED ALERT'S OWN DEBRIEF SCREEN in its title kit (em_ra_debrief):
-       the session's table, the result and this machine's numbers. Classic Red Alert keeps
-       the notice below. */
+    /* UNDER ENHANCED, THE DEBRIEF SCREEN in the game's own kit (em_match_debrief): the
+       session's table, the result and this machine's numbers. */
     if (g_debriefMenu && dms_enhanced_menu(g_debriefMenu)) {
-        EM_Debrief d;
+        /* Static: with the match's timeline the table is too large for a thread's stack. */
+        static EM_Debrief d;
         memset(&d, 0, sizeof d);
         d.nrows = sc.nrows < 8 ? sc.nrows : 8;
         d.games = sc.games;
@@ -2440,8 +2940,13 @@ static int ra_match_debrief(Camp* camp, const MatchStats* ms)
         d.net = sc.net;
         snprintf(d.mapname, sizeof d.mapname, "%s", sc.mapname[0] ? sc.mapname : sc.scen);
         snprintf(d.ended, sizeof d.ended, "%s", sc.ended);
+        if (me >= 0) {
+            d.score = standing[me].score;
+            d.place = place;
+            d.places = ms->nrows < 8 ? ms->nrows : 8;
+        }
         for (int r = 0; r < d.nrows; r++) {
-            const RaScoreRow* s = &sc.row[r];
+            const MatchScoreRow* s = &sc.row[r];
             EM_DebriefRow* o = &d.row[r];
             snprintf(o->name, sizeof o->name, "%s", s->name);
             o->country = s->country & 7;
@@ -2450,12 +2955,53 @@ static int ra_match_debrief(Camp* camp, const MatchStats* ms)
             for (int k = 0; k < 4; k++) o->kills[k] = s->kills[k];
             o->defeated = s->defeated;
             o->is_local = s->is_local;
+            /* THIS MATCH'S FIGURES, from the match row the session row was built from
+               (match_score_build keeps their order), for the Score, Units, Structures and
+               Economy pages, and the row's line on the graph. */
+            {
+                const MatchStatRow* m = &ms->row[r];
+                o->killed = m->killed; o->razed = m->razed;
+                o->units_lost = m->units_lost; o->structures_lost = m->structures_lost;
+                o->harvested = m->harvested; o->score = m->score;
+                o->units_built = m->units_built; o->structures_built = m->structures_built;
+                o->army_peak = m->army_peak; o->army_end = m->army_end;
+                o->structures_end = m->structures_end;
+                o->credits_start = m->credits_start; o->credits_end = m->credits_end;
+                o->spent = m->spent; o->leadership = m->leadership; o->efficiency = m->efficiency;
+                memcpy(d.timeline[r], ms->timeline.v[r], sizeof d.timeline[r]);
+            }
             if (s->is_local) {
                 d.killed = s->killed; d.razed = s->razed; d.lost = s->lost;
                 d.harvested = s->harvested;
             }
         }
-        return dms_ra_debrief(g_debriefMenu, &d, shotp, shotp != NULL) == DMS_QUIT ? 0 : 1;
+        d.samples = ms->timeline.count < EM_SAMPLES ? ms->timeline.count : EM_SAMPLES;
+        d.sample_ticks = ms->timeline.interval;
+        printf("APP|%s|pages=%d|samples=%d|interval=%d\n", debrief_tag(), (int)EM_PAGES,
+               d.samples, d.sample_ticks);
+        /* THE LINES AS DRAWN, for a log to read: the result line under the table (this
+           machine's score and place, why a broken match ended, or the plain title), and
+           whether the line saying how the score is added up stands under it, which it does
+           exactly when there is a score of this machine's to explain. */
+        {
+            char line[160];
+            em_match_debrief_result(&d, line, (int)sizeof line);
+            printf("APP|%s|result=%s|formula=%d\n", debrief_tag(), line,
+                   (!d.ended[0] && d.place > 0) ? 1 : 0);
+            fflush(stdout);
+        }
+        /* TIBERIAN DAWN'S SCORE THEME plays under its debrief, as it did under the 1995
+           screen (Theme.Queue_Song(THEME_WIN1)) and under the match plate before this one;
+           the player's own faction picks it, so Nod gets the track 1995 pressed and never
+           played. Red Alert's debrief has always been drawn without a change of music. */
+        const int score_theme = !g_ra3dPreview && camp && camp->au;
+        if (score_theme) {
+            cnc_music_stop(camp->au);
+            cnc_music_play_theme(camp->au, ms->side ? "NOD_WIN1" : "WIN1", 1);
+        }
+        const int r = dms_match_debrief(g_debriefMenu, &d, shotp, shotp != NULL);
+        if (score_theme) cnc_music_stop(camp->au);
+        return r == DMS_QUIT ? 0 : 1;
     }
     if (!camp || !camp->win) return 1;
     const int r = game_notice_open(camp->win, "ra3d/sidebar-snow.pack",
@@ -2496,23 +3042,27 @@ static const DMS_LobbyStep LOBBY_SCRIPT[] = {
     { SK_I_BASES,    100, 500, 0 },   /* locked: it must say why           */
     /* The keyboard half, from wherever the mouse left the focus, which is Superweapons.
        TRACED against sk_next_item rather than assumed, because the account that stood here
-       described a walk this script does not take: Space toggles Superweapons back on, UP
-       steps over the two locked boxes onto UNIT COUNT (which is enabled, so the walk stops
-       there), LEFT nudges Unit Count down an eighth of its travel from 10 to 9, and three
-       more UPs reach Credits, Tech Level and the CHANGE MAP button (the AI Players gauge
-       is gone, 5 Sep 2026), with DOWN coming back to Tech Level. No Space lands on the
-       button, so the picker never opens from this half; the arrows cannot change the
-       map any more, because the list lives in the picker. Page Up and Page Down are not
-       driven by this half, and Escape is driven by the drop down steps below. */
+       described a walk this script does not take: Space toggles Superweapons back on, the
+       first UP stops on REGROWTH RATE (a live button that cycles the rate, so the walk
+       stops there; it was a locked box before), the second UP steps over the locked Bases
+       box and the Game Speed gauge (a network room's only, disabled in a skirmish) onto
+       UNIT COUNT, LEFT nudges Unit Count down an eighth of its travel from 10 to 9, and
+       three more UPs reach Credits, Tech Level and the CHANGE MAP button (the AI Players
+       gauge is gone), with DOWN coming back to Tech Level. A control that becomes live
+       between Superweapons and Unit Count adds one UP here, or LEFT lands on it and the
+       gate reads 10. No Space lands on the button, so the picker never opens from this
+       half; the arrows cannot change the map any more, because the list lives in the
+       picker. Page Up and Page Down are not driven by this half, and Escape is driven by
+       the drop down steps below. */
     { 0, 0, 0, SDLK_SPACE },
-    { 0, 0, 0, SDLK_UP },             /* over the two locked boxes         */
-    { 0, 0, 0, SDLK_LEFT },           /* an eighth of the credit gauge     */
+    { 0, 0, 0, SDLK_UP },             /* Regrowth Rate, live               */
+    { 0, 0, 0, SDLK_UP },             /* over Bases and Game Speed         */
+    { 0, 0, 0, SDLK_LEFT },           /* an eighth of the unit gauge       */
     { 0, 0, 0, SDLK_UP },
     { 0, 0, 0, SDLK_UP },
     { 0, 0, 0, SDLK_UP },             /* CHANGE MAP has the focus          */
     { 0, 0, 0, SDLK_DOWN },           /* back to Tech Level                */
-    /* THE ROSTER AND ITS DROP DOWN, last because choosing a map RESEATS the opponents
-       and would undo any of it. Every step here is deliberately a NON-DEFAULT answer, so
+    /* THE ROSTER AND ITS DROP DOWN, last because the script selects its explicit opponents after the map. Every step here is deliberately a NON-DEFAULT answer, so
        a value that arrives at the engine cannot be the one it would have had anyway:
          - COMPUTER 4 is BLOCKED through its SEAT row, a hole in the MIDDLE of the roster
            (seats 0..3 and 5 play), which proves fewer opponents than the map seats still
@@ -2521,12 +3071,15 @@ static const DMS_LobbyStep LOBBY_SCRIPT[] = {
            lobby could not express at all;
          - and on team 1, which is the human's team, which is an alliance where the
            default is a free-for-all.
-       Escape then shuts the drop down. If it ever stopped being modal that Escape would
+       Enter accepts the player edit and shuts the drop down. If it ever stopped being modal that Escape would
        leave the lobby instead, and the run would end with rc=DMS_CANCEL and no settings
        block at all -- so this step is its own assertion. */
+    { SK_ROW_ITEM(2),500,500,0 }, { SK_I_POP_BOT,500,500,0 }, {0,0,0,SDLK_RETURN},
+    { SK_ROW_ITEM(3),500,500,0 }, { SK_I_POP_BOT,500,500,0 }, {0,0,0,SDLK_RETURN},
+    { SK_ROW_ITEM(5),500,500,0 }, { SK_I_POP_BOT,500,500,0 }, {0,0,0,SDLK_RETURN},
     { SK_ROW_ITEM(4), 500, 500, 0 },  /* open COMPUTER 4's drop down       */
     { SK_I_POP_BLOCK, 500, 500, 0 },  /* BLOCK it                          */
-    { 0, 0, 0, SDLK_ESCAPE },
+    { 0, 0, 0, SDLK_RETURN },
     { SK_ROW_ITEM(1), 500, 500, 0 },  /* open COMPUTER 1's drop down       */
     { SK_I_POP_NOD,  500, 500, 0 },   /* faction: the human's own side     */
     { SK_TEAM_ITEM(0), 500, 500, 0 }, /* team 1: allied with the human     */
@@ -2543,7 +3096,7 @@ static const DMS_LobbyStep LOBBY_SCRIPT[] = {
        lowest free colour and all eight assignments have to stay distinct. */
     { SK_COLOUR_ITEM(0), 500, 500, 0 },  /* locked: PLAYER's own          */
     { SK_COLOUR_ITEM(2), 500, 500, 0 },  /* takes it off COMPUTER 2       */
-    { 0, 0, 0, SDLK_ESCAPE },         /* shuts the box, NOT the lobby      */
+    { 0, 0, 0, SDLK_RETURN },         /* shuts the box, NOT the lobby      */
     /* AND THE HUMAN TAKES A COLOUR AN AI IS ALREADY WEARING, which is the case the project owner
        named in his own words: "If the player picks a color already used by an ai
        opponent, that opponents color should automatically change to another." COMPUTER 3
@@ -2557,7 +3110,7 @@ static const DMS_LobbyStep LOBBY_SCRIPT[] = {
        it a start, which is the fourth item on the request. */
     { SK_START_ITEM(3), 500, 500, 0 },   /* refused: COMPUTER 1 holds it   */
     { SK_START_ITEM(0), 500, 500, 0 },   /* PLAYER takes start 1           */
-    { 0, 0, 0, SDLK_ESCAPE },
+    { 0, 0, 0, SDLK_RETURN },
     /* The side pair again, on the side that is already lit, so it changes nothing and
        redraws the one line that has to change: with a computer now set by hand, "every
        computer plays Nod" is no longer true and the screen has to say the real split. */
@@ -2574,13 +3127,34 @@ static const DMS_LobbyStep LOBBY_SCRIPT[] = {
    games drive this same popup-aware mixed-level trace through their actual controls. */
 static const DMS_LobbyStep ENHANCED_LOBBY_SCRIPT[] = {
     { SK_I_CHANGEMAP, 500, 500, 0 }, { SK_I_PICK_CANCEL, 500, 500, 0 },
+    /* Explicit fixture bots: ordinary fresh games now start with one AI. */
+    {SK_ROW_ITEM(2),500,500,0}, {-10,500,500,0}, {SK_I_POP_BOT,500,500,0}, {EM_SK_DONE,500,500,0},
+    {SK_ROW_ITEM(3),500,500,0}, {-10,500,500,0}, {SK_I_POP_BOT,500,500,0}, {EM_SK_DONE,500,500,0},
+    {SK_ROW_ITEM(5),500,500,0}, {-10,500,500,0}, {SK_I_POP_BOT,500,500,0}, {EM_SK_DONE,500,500,0},
+    {SK_ROW_ITEM(6),500,500,0}, {-10,500,500,0}, {SK_I_POP_BOT,500,500,0}, {EM_SK_DONE,500,500,0},
+    {SK_ROW_ITEM(7),500,500,0}, {-10,500,500,0}, {SK_I_POP_BOT,500,500,0}, {EM_SK_DONE,500,500,0},
     { SK_ROW_ITEM(4), 500, 500, 0 }, { -10, 500, 500, 0 },
-    { SK_I_POP_BLOCK, 500, 500, 0 }, { 0, 0, 0, SDLK_ESCAPE },
+    { SK_I_POP_BLOCK, 500, 500, 0 }, { EM_SK_DONE, 500, 500, 0 },
     { SK_I_LEVEL0+1, 500, 500, 0 }, { SK_I_LEVEL0+1, 500, 500, 0 },
     { SK_I_LEVEL0+2, 500, 500, 0 },
     { SK_I_LEVEL0+3, 500, 500, 0 }, { SK_I_LEVEL0+3, 500, 500, 0 }, { SK_I_LEVEL0+3, 500, 500, 0 },
     { SK_I_LEVEL0+5, 500, 500, 0 }, { SK_I_LEVEL0+5, 500, 500, 0 }, { SK_I_LEVEL0+5, 500, 500, 0 }, { SK_I_LEVEL0+5, 500, 500, 0 },
     { SK_I_PLAY, 500, 500, 0 } };
+/* THE SAME SCRIPT IN ANOTHER MODE, chosen the way a hand chooses it: the Game Mode dropdown
+   opened (EM_SK_MODE_DROP) and the mode's row pressed, then the script above. --lobbyplay
+   with --gungame or --rally runs this, so the mode reaches the match through the lobby's
+   own control and not through a seed. */
+static std::vector<DMS_LobbyStep> enhanced_lobby_script_in_mode(int mode)
+{
+    std::vector<DMS_LobbyStep> steps;
+    if (mode != SK_MODE_FFA) {
+        steps.push_back({ EM_SK_MODE_DROP, 500, 500, 0 });
+        steps.push_back({ EM_SK_MODE_BASE + mode, 500, 500, 0 });
+    }
+    steps.insert(steps.end(), ENHANCED_LOBBY_SCRIPT,
+                 ENHANCED_LOBBY_SCRIPT + sizeof ENHANCED_LOBBY_SCRIPT / sizeof ENHANCED_LOBBY_SCRIPT[0]);
+    return steps;
+}
 static DMS_LobbyProbe g_lobbyProbe;
 /* --mpscreenstart's script, filled in once: START GAME, then MP_SCREEN_IDLE frames of a
    key the lobby does not translate, then ESCAPE. A room that starts leaves the screen long
@@ -2765,16 +3339,165 @@ static void opencnc3d_terminate_handler(void)
     abort();
 }
 
-/* ONE FILE COPIED, and never over a file that is already there. A failed or short
-   write removes what it made, so half a save can never pass for a whole one. */
+/* ==== THE LAST SESSION'S LOG ==============================================================
+ * main rotates the log before opening it (game/log_keep.h): the old one becomes
+ * opencnc3d-log-previous.txt, and a session that crashed is also kept as a dated
+ * opencnc3d-crash-... copy. What was found is said in the new log's first lines, and a
+ * crash is shown to the player once, in a notice on the way into the main menu, naming
+ * the file to send. */
+static LogKeep g_logKeep;
+static int g_logKept = 0;                     /* the rotation ran before this log opened  */
+static int g_crashNoticeDone = 0;
+static const char* g_crashNoticeShot = NULL;  /* --crashnoticeshot FILE: draw it once there */
+
+/* A gate's scratch folder in place of the real log folder, so a test never rotates, or
+   leaves crash copies in, the log of the person at the machine. Honoured only in a
+   background run (OPENCNC3D_BACKGROUND=1), never in a game a player starts. */
+static const char* app_log_dir_override(void)
+{
+    const char* d = getenv("OPENCNC3D_LOG_DIR");
+    return (d && *d && fs_background_only()) ? d : NULL;
+}
+
+/* Registered once the log is open. abort() and a re-raised signal, which is how every
+   fatal end leaves, run no atexit hook, so this line is what a clean ending looks like. */
+static void app_log_exit_note(void)
+{
+    fprintf(stderr, "%s\n", LOG_KEEP_EXIT_LINE);
+    /* on disk, so a stop after this line (a driver's own unload, past the end of main)
+       is told apart from one before it */
+    game_log_commit();
+}
+
+static int g_logOpen = 0;
+
+static void app_log_opened(void)
+{
+    g_logOpen = 1;
+    fprintf(stderr, "%s\n", LOG_KEEP_MARK_LINE);
+    const LogKeep& k = g_logKeep;
+    if (!g_logKept || !k.had_previous)
+        fprintf(stderr, "APP|previous-session|none\n");
+    else if (k.crashed && (k.copied || k.moved))
+        fprintf(stderr, "APP|previous-session|crashed|%s|%s\n", k.copied ? k.crash_copy : k.previous,
+                k.fatal ? k.fatal_line : "no clean exit line");
+    else if (k.crashed)
+        fprintf(stderr, "APP|previous-session|crashed|not kept: the log folder could not be written|%s\n",
+                k.fatal ? k.fatal_line : "no clean exit line");
+    else
+        fprintf(stderr, "APP|previous-session|%s|%s\n", k.marked ? "clean" : "unmarked", k.previous);
+    atexit(app_log_exit_note);
+}
+
+/* Once per process, on the way into the main menu (and in --menushot, where the run ends
+   before the menu loop). A test run draws it only into --crashnoticeshot's picture; it
+   never waits for a click. Returns -2 when the window was closed from the box. */
+static int app_crash_notice(SDL_Window* win, const char* dospack)
+{
+    const LogKeep& k = g_logKeep;
+    if (g_crashNoticeDone || !g_logKept || !k.crashed || !(k.copied || k.moved)) return 0;
+    g_crashNoticeDone = 1;
+    char where[1100];
+    log_keep_absolute(k.copied ? k.crash_copy : k.previous, where, sizeof where);
+#ifndef _WIN32
+    /* the home folder as ~, which is how the Finder's Go to Folder takes it, and it keeps
+       the path inside the box */
+    const char* home = getenv("HOME");
+    const size_t hl = home ? strlen(home) : 0;
+    if (hl > 1 && !strncmp(where, home, hl) && where[hl] == '/') {
+        char shorter[1100];
+        snprintf(shorter, sizeof shorter, "~%s", where + hl);
+        snprintf(where, sizeof where, "%s", shorter);
+    }
+#endif
+    if ((shell_automated() || fs_background_only()) && !g_crashNoticeShot) {
+        printf("APP|crash-notice|not drawn in an automated run|%s\n", where);
+        fflush(stdout);
+        return 0;
+    }
+    char text[1400];
+    snprintf(text, sizeof text, "%s the last time it ran. Its log was kept for a bug report: %s",
+             k.fatal ? "OpenCNC3D crashed" : "OpenCNC3D did not close normally", where);
+    printf("APP|crash-notice|shown|%s\n", where);
+    fflush(stdout);
+    return game_notice_open(win, dospack, "LAST SESSION", text, g_crashNoticeShot);
+}
+
+/* THE TEMPORARY NAME A COPY IS WRITTEN UNDER before it is given its own: the target's
+   name, then this, then the process id. Nothing the game reads is ever named so. */
+static const char kCarryTemp[] = ".carry-";
+
+static unsigned long carry_pid(void)
+{
+#ifdef _WIN32
+    return (unsigned long)_getpid();
+#else
+    return (unsigned long)getpid();
+#endif
+}
+
+static int carry_exists(const char* path)
+{
+    struct stat sb;
+    return stat(path, &sb) == 0;
+}
+
+/* Written without a trailing separator: msvcrt's stat refuses a folder written "dir\". */
+static int carry_is_dir(const char* path)
+{
+    struct stat sb;
+    return stat(path, &sb) == 0 && S_ISDIR(sb.st_mode);
+}
+
+static void carry_mkdir(const char* path)
+{
+#ifdef _WIN32
+    _mkdir(path);
+#else
+    mkdir(path, 0700);   /* the mode SDL gives the per-user folder itself */
+#endif
+}
+
+/* GIVE A FINISHED COPY ITS NAME, NEVER OVER A FILE ALREADY THERE. A plain rename()
+   replaces on POSIX, so there the copy is hard-linked to its name, which fails when the
+   name is taken, and the temporary name is then removed. On a file system without hard
+   links the rename follows a fresh check instead, which narrows the race to those two
+   calls. The Windows C library's rename() never replaces an existing file, so it is
+   the no-replace rename there. Returns 1 when the name was given, and removes the
+   temporary file either way. */
+static int carry_publish(const char* tmp, const char* to)
+{
+#ifdef _WIN32
+    if (rename(tmp, to) == 0) return 1;
+#else
+    if (link(tmp, to) == 0) {
+        remove(tmp);
+        return 1;
+    }
+    if (errno != EEXIST && !carry_exists(to) && rename(tmp, to) == 0) return 1;
+#endif
+    remove(tmp);
+    return 0;
+}
+
+/* ONE FILE COPIED, and never over a file that is already there.
+
+   The bytes go to a temporary name beside the target first ("<to>.carry-<pid>"), and
+   only a whole copy is then given the target's name, by carry_publish, which refuses
+   to replace. So half a file can never pass for a whole one, and two copies of the game
+   started together cannot truncate each other's work: each writes its own temporary
+   file, and whichever publishes second finds the name taken and drops its copy.
+   Returns 1 for a file copied, 0 otherwise. */
 static int carry_copy(const char* from, const char* to)
 {
     static char buf[1 << 16];
-    struct stat sb;
-    if (stat(to, &sb) == 0) return 0;
+    char tmp[1200];
+    if (carry_exists(to)) return 0;
+    if (snprintf(tmp, sizeof tmp, "%s%s%lu", to, kCarryTemp, carry_pid()) >= (int)sizeof tmp)
+        return 0;
     FILE* in = fopen(from, "rb");
     if (!in) return 0;
-    FILE* out = fopen(to, "wb");
+    FILE* out = fopen(tmp, "wb");
     if (!out) { fclose(in); return 0; }
     int ok = 1;
     size_t n;
@@ -2783,63 +3506,197 @@ static int carry_copy(const char* from, const char* to)
     if (ferror(in)) ok = 0;
     fclose(in);
     if (fclose(out) != 0) ok = 0;
-    if (!ok) remove(to);
-    return ok;
+    if (!ok) {
+        remove(tmp);
+        return 0;
+    }
+    return carry_publish(tmp, to);
 }
 
-/* COPY SAVES FROM THE EARLIER FOLDER NAME WHEN THIS ONE HAS NONE.
-
-   `pref` is SDL_GetPrefPath's answer, ending in a separator. The earlier folder is its
-   sibling, found by stat() alone: asking SDL for it would create it. Files are copied,
-   never moved, and only while this folder holds neither a save index nor a hall of
-   fame, so nothing a player has saved here is ever written over. The index and the
-   hall of fame are copied LAST, so a copy cut short leaves both still missing and the
-   next start finishes the job. Returns how many files were copied. */
-static int userdir_carry_over(const char* pref)
+/* TEMPORARY FILES LEFT BY A COPY THAT WAS CUT SHORT (the game killed mid-copy) are
+   removed from `dir`, which ends in a separator, once they are ten minutes old. A
+   younger one may belong to a copy of the game running right now, so it is left alone.
+   Nothing reads them either way: a slot or an index is only looked up by its own name. */
+static void carry_sweep(const char* dir)
 {
-    static const char kEarlier[] = "CNC3D";
-    static const char kSaves[] = "savegame.";   /* game/dossave.c's savegame.%03d */
-    static const char* const kLast[][2] = {
-        { "RAHALLFAME.DAT", "RAHALLFAME.DAT" },
-        { "CNC3DSAV.IDX",   "OPENCNC.IDX" },    /* game/dossave.c's index, 8.3 */
-        { "HALLFAME.DAT",   "HALLFAME.DAT" },
-    };
-    const size_t n = strlen(pref), app = strlen(OPENCNC3D_PREF_APP);
-    if (n < app + 2) return 0;
-    const char sep = pref[n - 1];
-    const size_t base = n - 1 - app;            /* where the folder's own name starts */
-    if (sep != '/' && sep != '\\') return 0;
-    if (pref[base - 1] != '/' && pref[base - 1] != '\\') return 0;
-    if (strncmp(pref + base, OPENCNC3D_PREF_APP, app) != 0) return 0;
+    char path[1200];
+    const size_t n = strlen(dir);
+    if (n < 2 || n >= sizeof path) return;
+    snprintf(path, sizeof path, "%.*s", (int)(n - 1), dir);
+    DIR* d = opendir(path);
+    if (!d) return;
+    const time_t now = time(NULL);
+    while (struct dirent* e = readdir(d)) {
+        if (!strstr(e->d_name, kCarryTemp)) continue;
+        if (snprintf(path, sizeof path, "%s%s", dir, e->d_name) >= (int)sizeof path) continue;
+        struct stat sb;
+        if (stat(path, &sb) == 0 && S_ISREG(sb.st_mode) && difftime(now, sb.st_mtime) > 600.0)
+            remove(path);
+    }
+    closedir(d);
+}
 
-    char from[1024], to[1024], earlier[1024];
-    struct stat sb;
-    snprintf(to, sizeof to, "%sOPENCNC.IDX", pref);
-    if (stat(to, &sb) == 0) return 0;
-    snprintf(to, sizeof to, "%sHALLFAME.DAT", pref);
-    if (stat(to, &sb) == 0) return 0;
-    /* No trailing separator here: msvcrt's stat refuses a folder written "dir\". */
-    if (snprintf(earlier, sizeof earlier, "%.*s%s", (int)base, pref, kEarlier)
-        >= (int)sizeof earlier)
-        return 0;
-    if (stat(earlier, &sb) != 0 || !S_ISDIR(sb.st_mode)) return 0;
+/* A FILE THAT IS PART OF A SAVED SLOT, by game/dossave.c's names: the payload
+   savegame.NNN and its sidecar savegame.NNN.enh. Nothing else in a save folder is
+   carried: not a log, not a crash copy, not a scratch or temporary file. */
+static int carry_slot_name(const char* name)
+{
+    if (strncasecmp(name, "savegame.", 9) != 0) return 0;
+    for (int i = 9; i < 12; i++)
+        if (name[i] < '0' || name[i] > '9') return 0;
+    return name[12] == 0 || !strcasecmp(name + 12, ".enh");
+}
+
+/* Every slot file in the folder `from` (no trailing separator) copied into `to`
+   (ending in one). Returns how many were copied. */
+static int carry_slots(const char* from, char sep, const char* to)
+{
+    char a[1200], b[1200];
+    int copied = 0;
+    DIR* d = opendir(from);
+    if (!d) return 0;
+    while (struct dirent* e = readdir(d)) {
+        if (!carry_slot_name(e->d_name)) continue;
+        if (snprintf(a, sizeof a, "%s%c%s", from, sep, e->d_name) >= (int)sizeof a) continue;
+        if (snprintf(b, sizeof b, "%s%s", to, e->d_name) >= (int)sizeof b) continue;
+        copied += carry_copy(a, b);
+    }
+    closedir(d);
+    return copied;
+}
+
+/* COPY A PLAYER'S SAVES AND HALLS OF FAME OUT OF THE FOLDERS EARLIER BUILDS USED.
+
+   `pref` is the per-user folder, SDL_GetPrefPath's answer for app/userdir.h's names,
+   ending in a separator. Earlier builds kept the same files in
+   <base>/<OPENCNC3D_PREF_ORG_EARLIER>/OpenCNC3D and, before that, in
+   <base>/<OPENCNC3D_PREF_ORG_EARLIER>/CNC3D, where <base> is the folder `pref` sits in
+   once its own names are taken off. The first of the two that exists is the source.
+   Both are found by cutting `pref` down and looking with stat() alone: asking SDL for
+   them would create them for every player who never had one.
+
+   The source is only read. Nothing in it is written, renamed or deleted: it stays as
+   the player's backup, and an older build still reads it. Nothing in this folder is
+   written over either. Each kind of file is its own set, decided by what this folder
+   already holds, so a player who has started one game here still gets the other's:
+     - Tiberian Dawn's slots, then its index, only while this folder has no index;
+     - HALLFAME.DAT and RAHALLFAME.DAT, each only while absent;
+     - Red Alert's slots in ra3d/, then that folder's index, only while this folder's
+       ra3d/ has no index.
+   An index is copied LAST in its set, so a copy cut short leaves it missing and the
+   next start finishes the job. The earliest folder's index was named CNC3DSAV.IDX and
+   is copied under today's name.
+
+   Returns how many files were copied, and names the source in `source`, "none" when
+   there was no earlier folder. */
+static int userdir_carry_over(const char* pref, char* source, size_t source_size)
+{
+    static const struct { const char* app; const char* index; } kEarlier[] = {
+        { "OpenCNC3D", "OPENCNC.IDX" },
+        { "CNC3D",     "CNC3DSAV.IDX" },
+    };
+    static const char* const kFame[] = { "HALLFAME.DAT", "RAHALLFAME.DAT" };
+    snprintf(source, source_size, "none");
+
+    /* <base>: `pref` with "<app><sep>" and then, when the organisation is not empty,
+       "<org><sep>" cut off its end, each cut checked against the name it removes. */
+    const size_t n = strlen(pref);
+    if (n < 2) return 0;
+    const char sep = pref[n - 1];
+    if (sep != '/' && sep != '\\') return 0;
+    static const char* const kOwn[] = { OPENCNC3D_PREF_APP, OPENCNC3D_PREF_ORG };
+    size_t end = n - 1;                        /* the separator after the name to cut */
+    for (size_t i = 0; i < sizeof kOwn / sizeof kOwn[0]; i++) {
+        const size_t len = strlen(kOwn[i]);
+        if (!len) continue;
+        if (end < len + 1) return 0;
+        const size_t start = end - len;
+        if (strncmp(pref + start, kOwn[i], len) != 0) return 0;
+        if (pref[start - 1] != '/' && pref[start - 1] != '\\') return 0;
+        end = start - 1;
+    }
+    const int base = (int)end + 1;             /* <base>, its separator included */
+
+    char from[1200], to[1200], earlier[1100];
+    size_t which = 0;
+    const size_t kinds = sizeof kEarlier / sizeof kEarlier[0];
+    for (; which < kinds; which++) {
+        if (snprintf(earlier, sizeof earlier, "%.*s%s%c%s", base, pref,
+                     OPENCNC3D_PREF_ORG_EARLIER, sep, kEarlier[which].app)
+            >= (int)sizeof earlier)
+            return 0;
+        if (strlen(earlier) == n - 1 && !strncmp(earlier, pref, n - 1)) continue;  /* never this folder */
+        if (carry_is_dir(earlier)) break;
+    }
+    if (which == kinds) return 0;
+    snprintf(source, source_size, "%s", earlier);
 
     int copied = 0;
-    if (DIR* d = opendir(earlier)) {
-        while (struct dirent* e = readdir(d)) {
-            if (strncasecmp(e->d_name, kSaves, sizeof kSaves - 1) != 0) continue;
-            snprintf(from, sizeof from, "%s%c%s", earlier, sep, e->d_name);
-            snprintf(to, sizeof to, "%s%s", pref, e->d_name);
-            copied += carry_copy(from, to);
-        }
-        closedir(d);
-    }
-    for (size_t i = 0; i < sizeof kLast / sizeof kLast[0]; i++) {
-        snprintf(from, sizeof from, "%s%c%s", earlier, sep, kLast[i][0]);
-        snprintf(to, sizeof to, "%s%s", pref, kLast[i][1]);
+    carry_sweep(pref);
+    snprintf(to, sizeof to, "%sOPENCNC.IDX", pref);
+    if (!carry_exists(to)) {
+        copied += carry_slots(earlier, sep, pref);
+        snprintf(from, sizeof from, "%s%c%s", earlier, sep, kEarlier[which].index);
         copied += carry_copy(from, to);
     }
+    for (size_t i = 0; i < sizeof kFame / sizeof kFame[0]; i++) {
+        snprintf(from, sizeof from, "%s%c%s", earlier, sep, kFame[i]);
+        snprintf(to, sizeof to, "%s%s", pref, kFame[i]);
+        copied += carry_copy(from, to);
+    }
+
+    char earlier_ra[1200], ra[1200];
+    snprintf(earlier_ra, sizeof earlier_ra, "%s%cra3d", earlier, sep);
+    if (carry_is_dir(earlier_ra)) {
+        snprintf(ra, sizeof ra, "%sra3d", pref);
+        carry_mkdir(ra);
+        snprintf(ra, sizeof ra, "%sra3d%c", pref, sep);
+        carry_sweep(ra);
+        snprintf(to, sizeof to, "%sOPENCNC.IDX", ra);
+        if (!carry_exists(to)) {
+            copied += carry_slots(earlier_ra, sep, ra);
+            snprintf(from, sizeof from, "%s%cOPENCNC.IDX", earlier_ra, sep);
+            copied += carry_copy(from, to);
+        }
+    }
     return copied;
+}
+
+/* --userdircarrytest BASE: userdir_carry_over with BASE standing in for the folder the
+   per-user one sits in; prints its APP|userdir line and exits. The per-user folder is
+   made inside BASE the way SDL makes it (BASE/<org>/<app>/, the organisation left out
+   while it is empty), and nothing outside BASE is read or written: the real per-user
+   folder is never asked for. Gate G469 drives it. */
+static int userdir_carry_test(const char* base_arg)
+{
+#ifdef _WIN32
+    const char sep = '\\';
+#else
+    const char sep = '/';
+#endif
+    char pref[1000];
+    if (snprintf(pref, sizeof pref, "%s", base_arg) >= (int)sizeof pref - 64) {
+        fprintf(stderr, "--userdircarrytest: the folder name is too long\n");
+        return 2;
+    }
+    size_t n = strlen(pref);
+    while (n > 1 && (pref[n - 1] == '/' || pref[n - 1] == '\\')) pref[--n] = 0;
+    if (!n || !carry_is_dir(pref)) {
+        fprintf(stderr, "--userdircarrytest: %s is not a folder\n", pref);
+        return 2;
+    }
+    static const char* const kOwn[] = { OPENCNC3D_PREF_ORG, OPENCNC3D_PREF_APP };
+    for (size_t i = 0; i < sizeof kOwn / sizeof kOwn[0]; i++) {
+        if (!kOwn[i][0]) continue;
+        snprintf(pref + n, sizeof pref - n, "%c%s", sep, kOwn[i]);
+        n = strlen(pref);
+        carry_mkdir(pref);
+    }
+    snprintf(pref + n, sizeof pref - n, "%c", sep);
+    char source[1200];
+    const int copied = userdir_carry_over(pref, source, sizeof source);
+    printf("APP|userdir|copied=%d|from=%s\n", copied, source);
+    return 0;
 }
 
 /* RED ALERT SLOTS SAVED BEFORE THE MODULE HAD A FOLDER OF ITS OWN. They sit in the
@@ -2890,6 +3747,60 @@ static int settings_carry_over(void)
     return copied;
 }
 
+/* The RA module lives one level below its installation. When its game is
+   opened directly, find that root and use the same module as the launcher. */
+static bool shell_direct_ra_install(int argc, char** argv)
+{
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--module")) return false;
+    }
+    char* base = SDL_GetBasePath();
+    if (!base) return false;
+    std::string folder(base);
+    SDL_free(base);
+    const size_t end = folder.find_last_not_of("/\\");
+    if (end == std::string::npos) return false;
+    const size_t separator = folder.find_last_of("/\\", end);
+    if (separator == std::string::npos ||
+        strcasecmp(folder.substr(separator + 1, end - separator).c_str(), "ra3d"))
+        return false;
+    const std::string root = folder.substr(0, separator + 1);
+#ifdef _WIN32
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, root.c_str(), -1, NULL, 0);
+    if (length <= 0) return false;
+    std::vector<wchar_t> wide(static_cast<size_t>(length));
+    return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, root.c_str(), -1, wide.data(), length) > 0
+        && _wchdir(wide.data()) == 0;
+#else
+    return chdir(root.c_str()) == 0;
+#endif
+}
+
+static void shell_select_ra(DMS_Config& mcfg, const char*& intro_file)
+{
+    g_ra3dPreview = 1;
+    g_wantClassic = 1;
+    mcfg.pack = "ra3d/dosmenu.pack";
+    mcfg.version = "RA3D";
+    mcfg.copyright = ""; /* the original RA title plate carries its own */
+    mcfg.red_alert = 1;
+    mcfg.music = "INTRO"; /* menus.cpp plays THEME_INTRO in the RA menu */
+    mcfg.logo = "ra3d/movies/REDINTRO.VQA";
+    intro_file = mcfg.intro = "ra3d/movies/PROLOG.VQA";
+    /* RED ALERT'S ENHANCED KIT (ra3d/enhanced-menu.pack) for every Enhanced
+       screen this process draws, title and mission alike. The 1996 menu state
+       above keeps its "RA3D" line and its empty notice for Classic. */
+    em_set_red_alert("OpenCNC3D " OPENCNC3D_BUILD, RA_ENHANCED_LEGAL);
+    /* Its saves are its own (ds_set_game below): Load opens the slot dialog;
+       its skirmish starts through ra_skirmish_apply. */
+    em_set_route_ready(EM_ROUTE_SAVES, 1);
+    em_set_route_ready(EM_ROUTE_SKIRMISH, 1);
+    em_set_route_ready(EM_ROUTE_USERMAPS, 1);
+    /* and its network room: the shared host, join, browser and lobby screens
+       on Red Alert's maps and countries (the multiplayer arm below) */
+    em_set_route_ready(EM_ROUTE_NETWORK, 1);
+}
+
 int main(int argc, char** argv)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -2898,6 +3809,11 @@ int main(int argc, char** argv)
        printing its progress; no window. The way to test a pack without the Settings box. */
     for (int i = 1; i + 1 < argc; i++)
         if (!strcmp(argv[i], "--langget")) return game_lang_fetch_cli(argv[i + 1]);
+    /* --userdircarrytest BASE: the per-user folder's carry-over, run inside BASE and
+       nowhere else, then exit (userdir_carry_test). Before anything below can ask SDL
+       for the real per-user folder. */
+    for (int i = 1; i + 1 < argc; i++)
+        if (!strcmp(argv[i], "--userdircarrytest")) return userdir_carry_test(argv[i + 1]);
 #if defined(_WIN32) && defined(OPENCNC3D_DIAGNOSTIC_APP)
     /* Double-click behaves like the normal frontend in its installed data folder.
        Only this entry enables structured diagnostics; the renderer is shared. */
@@ -2919,6 +3835,8 @@ int main(int argc, char** argv)
     }
     game_diagnostics_phase(1,0);
 #endif
+
+    const bool direct_ra = shell_direct_ra_install(argc, argv);
 
 #if defined(_WIN32) && defined(OPENCNC3D_DIAGNOSTIC_APP)
     /* The dedicated entry owns structured logging above. */
@@ -2962,13 +3880,21 @@ int main(int argc, char** argv)
            per-user directory the saves already use is always writable, so there is now
            always a log. The path is printed either way, so a player can be told where to
            look instead of being asked to guess. */
+        /* AND THE LAST SESSION'S LOG IS KEPT before this one is opened over it: see
+           game/log_keep.h. The rotation runs in whichever folder the log then opens in. */
         char logpath[1024];
-        snprintf(logpath, sizeof logpath, "opencnc3d-log.txt");
+        const char* logdir = app_log_dir_override();
+        g_logKept = 1;
+        log_keep_rotate(logdir ? logdir : "", LOG_KEEP_GAME_LOG, LOG_KEEP_GAME_PREVIOUS,
+                        LOG_KEEP_CRASH_PREFIX, LOG_KEEP_CRASH_KEEP, &g_logKeep);
+        lk_join(logpath, sizeof logpath, logdir ? logdir : "", LOG_KEEP_GAME_LOG);
         FILE* lf = freopen(logpath, "w", stderr);
-        if (!lf) {
+        if (!lf && !logdir) {
             /* SDL_GetPrefPath does not require SDL_Init, which has not run at this point. */
             char* pref = SDL_GetPrefPath(OPENCNC3D_PREF_ORG, OPENCNC3D_PREF_APP);
             if (pref) {
+                log_keep_rotate(pref, LOG_KEEP_GAME_LOG, LOG_KEEP_GAME_PREVIOUS,
+                                LOG_KEEP_CRASH_PREFIX, LOG_KEEP_CRASH_KEEP, &g_logKeep);
                 snprintf(logpath, sizeof logpath, "%sopencnc3d-log.txt", pref);
                 SDL_free(pref);
                 lf = freopen(logpath, "w", stderr);
@@ -2980,6 +3906,7 @@ int main(int argc, char** argv)
             if (_dup2(_fileno(stderr), _fileno(stdout)) == 0)
                 setvbuf(stdout, NULL, _IONBF, 0);
             fprintf(stderr, "OpenCNC3D %s -- log opened at %s\n", OPENCNC3D_BUILD, logpath);
+            app_log_opened();
         } else {
             /* Still not fatal, because logging is a convenience and never a precondition.
                But say so, rather than leaving the absence to be discovered later. */
@@ -2999,11 +3926,16 @@ int main(int argc, char** argv)
         struct stat sb;
         const int r = fstat(fileno(stdout), &sb);
         if (r != 0 || (S_ISCHR(sb.st_mode) && !isatty(fileno(stdout)))) {
-            char* pref = SDL_GetPrefPath(OPENCNC3D_PREF_ORG, OPENCNC3D_PREF_APP);
-            if (pref) {
+            const char* logdir = app_log_dir_override();
+            char* pref = logdir ? NULL : SDL_GetPrefPath(OPENCNC3D_PREF_ORG, OPENCNC3D_PREF_APP);
+            if (pref || logdir) {
                 char logpath[1024];
-                snprintf(logpath, sizeof logpath, "%sopencnc3d-log.txt", pref);
-                SDL_free(pref);
+                /* the last session's log is kept first (game/log_keep.h) */
+                g_logKept = 1;
+                log_keep_rotate(logdir ? logdir : pref, LOG_KEEP_GAME_LOG, LOG_KEEP_GAME_PREVIOUS,
+                                LOG_KEEP_CRASH_PREFIX, LOG_KEEP_CRASH_KEEP, &g_logKeep);
+                lk_join(logpath, sizeof logpath, logdir ? logdir : pref, LOG_KEEP_GAME_LOG);
+                if (pref) SDL_free(pref);
                 FILE* lf = freopen(logpath, "w", stderr);
                 if (lf) {
                     setvbuf(stderr, NULL, _IONBF, 0);
@@ -3011,6 +3943,7 @@ int main(int argc, char** argv)
                     if (dup2(fileno(stderr), fileno(stdout)) >= 0)
                         setvbuf(stdout, NULL, _IONBF, 0);
                     fprintf(stderr, "OpenCNC3D %s -- log opened at %s\n", OPENCNC3D_BUILD, logpath);
+                    app_log_opened();
                 }
             }
         }
@@ -3053,6 +3986,7 @@ int main(int argc, char** argv)
     mcfg.logo = "dosdata/movies/LOGO.VQA";
     mcfg.intro = "dosdata/movies/INTRO2.VQA";
     const char* intro_file = mcfg.intro;
+    if (direct_ra) shell_select_ra(mcfg, intro_file);
 
     /* The shell's own flags are stripped out; everything else is handed to the game
        verbatim, so every existing command line still means what it meant. */
@@ -3066,7 +4000,10 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--intro") && i + 1 < argc)    intro_file = mcfg.intro = argv[++i];
         else if (!strcmp(argv[i], "--no-logo"))                  mcfg.logo = NULL;
         else if (!strcmp(argv[i], "--no-movies"))                intro_file = mcfg.logo = mcfg.intro = NULL;
+        else if (!strcmp(argv[i], "--skirmishcfg") && i + 1 < argc) g_skirmishCfg = argv[++i];
+        else if (!strcmp(argv[i], "--controlscfg") && i + 1 < argc) g_controlsCfg = argv[++i];
         else if (!strcmp(argv[i], "--harness") && i + 1 < argc)  g_harnessTicks = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--harnesswin") && i + 1 < argc) g_harnessWin = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--raside") && i + 1 < argc) {
             const char* side = argv[++i];
             g_raHarnessSide = (!strcmp(side, "soviet") || !strcmp(side, "1")) ? 1 : 0;
@@ -3094,26 +4031,7 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--module") && i + 1 < argc) {
             const char* module = argv[++i];
             if (!strcmp(module, "ra3d")) {
-                g_ra3dPreview = 1;
-                g_wantClassic = 1;
-                mcfg.pack = "ra3d/dosmenu.pack";
-                mcfg.version = "RA3D";
-                mcfg.copyright = ""; /* the original RA title plate carries its own */
-                mcfg.red_alert = 1;
-                mcfg.music = "INTRO"; /* menus.cpp plays THEME_INTRO in the RA menu */
-                mcfg.logo = "ra3d/movies/REDINTRO.VQA";
-                intro_file = mcfg.intro = "ra3d/movies/PROLOG.VQA";
-                /* RED ALERT'S ENHANCED KIT (ra3d/enhanced-menu.pack) for every Enhanced
-                   screen this process draws, title and mission alike. The 1996 menu state
-                   above keeps its "RA3D" line and its empty notice for Classic. */
-                em_set_red_alert("OpenCNC3D " OPENCNC3D_BUILD, RA_ENHANCED_LEGAL);
-                /* Its saves are its own (ds_set_game below): Load opens the slot dialog;
-                   its skirmish starts through ra_skirmish_apply. */
-                em_set_route_ready(EM_ROUTE_SAVES, 1);
-                em_set_route_ready(EM_ROUTE_SKIRMISH, 1);
-                /* and its network room: the shared host, join, browser and lobby screens
-                   on Red Alert's maps and countries (the multiplayer arm below) */
-                em_set_route_ready(EM_ROUTE_NETWORK, 1);
+                shell_select_ra(mcfg, intro_file);
             } else {
                 fprintf(stderr, "unknown module: %s\n", module);
                 return 2;
@@ -3130,8 +4048,27 @@ int main(int argc, char** argv)
                 return 2;
             }
         }
-        else if (!strcmp(argv[i], "--raflowrealwin")) {
+        else if (!strcmp(argv[i], "--raflowrealwin") || !strcmp(argv[i], "--flowrealwin")) {
             g_raFlowRealWin = 1;
+        }
+        else if (!strcmp(argv[i], "--flowstart") && i + 1 < argc) {
+            const char* fs = argv[++i];
+            g_tdFlowStart = atoi(fs);
+            while (*fs >= '0' && *fs <= '9') fs++;
+            g_tdFlowVar = *fs ? (char)toupper((unsigned char)*fs) : 'A';
+            if (g_tdFlowStart < 1 || g_tdFlowStart > 15 || g_tdFlowVar < 'A' || g_tdFlowVar > 'C'
+                || fs[*fs ? 1 : 0]) {
+                fprintf(stderr, "--flowstart needs a Tiberian Dawn mission number 1..15, "
+                                "optionally with its variant A..C (4B)\n");
+                return 2;
+            }
+        }
+        else if (!strcmp(argv[i], "--flowtarget") && i + 1 < argc) {
+            camp_autopilot_target = atoi(argv[++i]);
+            if (camp_autopilot_target < 1 || camp_autopilot_target > 4) {
+                fprintf(stderr, "--flowtarget needs a Nod ending target 1..4\n");
+                return 2;
+            }
         }
         else if (!strcmp(argv[i], "--flowside") && i + 1 < argc) {
             const char* w = argv[++i];
@@ -3292,6 +4229,17 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--harnessscen") && i + 1 < argc) {
             g_harnessScen = argv[++i];
         }
+        else if (!strcmp(argv[i], "--importmap-catalog")) g_importCatalog = 1;
+        else if (!strcmp(argv[i], "--importmap") && i + 1 < argc) {
+            g_importMap = argv[++i];
+        }
+        else if (!strcmp(argv[i], "--importmap-ui") && i + 1 < argc) {
+            g_importUi = argv[++i]; g_hiddenWin = 1;
+            mcfg.logo = NULL; mcfg.intro = NULL;
+        }
+        else if (!strcmp(argv[i], "--importmap-shotdir") && i + 1 < argc) g_importShots = argv[++i];
+        else if (!strcmp(argv[i], "--importmap-td-dir") && i + 1 < argc) g_importTdDir = argv[++i];
+        else if (!strcmp(argv[i], "--importmap-ra-dir") && i + 1 < argc) g_importRaDir = argv[++i];
         else if (!strcmp(argv[i], "--harnessusermap") && i + 1 < argc) {
             g_harnessUserMap = argv[++i];
         }
@@ -3365,12 +4313,21 @@ int main(int argc, char** argv)
             mcfg.logo = NULL;
             mcfg.intro = NULL;
         }
+        else if (!strcmp(argv[i], "--crashnoticeshot") && i + 1 < argc)
+            g_crashNoticeShot = argv[++i];
         else if (!strcmp(argv[i], "--menushot") && i + 1 < argc) {
             g_menuShot = argv[++i];
             g_hiddenWin = 1;
             mcfg.logo = NULL;
             mcfg.intro = NULL;
         }
+        else if (!strcmp(argv[i], "--menubench") && i + 1 < argc) {
+            g_menuBench = atof(argv[++i]);
+            g_hiddenWin = 1;
+            mcfg.logo = NULL;
+            mcfg.intro = NULL;
+        }
+        else if (!strcmp(argv[i], "--menubenchdir") && i + 1 < argc) g_menuBenchDir = argv[++i];
         else if (!strcmp(argv[i], "--introshot") && i + 1 < argc) {
             g_introShot = argv[++i];
             g_hiddenWin = 1;
@@ -3389,6 +4346,11 @@ int main(int argc, char** argv)
         FILE* probe = intro_file ? fopen(intro_file, "rb") : NULL;
         mcfg.intro_missing = probe ? 0 : 1;
         if (probe) fclose(probe);
+    }
+
+    if (g_importMap) {
+        DMS_MapImportInfo info;
+        return import_run(g_importMap, &info, NULL, NULL) ? 0 : 1;
     }
 
     /* --harness N means "N engine ticks per visit", so it IS --playticks N. Said
@@ -3431,6 +4393,21 @@ int main(int argc, char** argv)
         game_set_n64_unavailable(1);
     }
 
+    if (g_importCatalog) {
+        if (g_ra3dPreview) { ra_usermaps_scan(); ra_lobby_scan(); }
+        else { usermaps_scan(base_dir(opt.dir)); skirmish_scan(base_dir(opt.dir)); }
+        int bad = 0;
+        for (size_t i = g_skirmishUserFrom; i < g_skirmish.size(); ++i) {
+            const unsigned fingerprint = mp_scen_hash(lobby_mission_dir(base_dir(opt.dir)), g_skirmish[i].scen.c_str());
+            printf("MAPIMPORT|catalog|%s|multiplayer|hash=%08x\n", g_skirmish[i].scen.c_str(), fingerprint);
+            if (!fingerprint) ++bad;
+        }
+        printf("MAPIMPORT|catalog|%s|single=%zu|multi=%zu|errors=%d\n",
+               g_ra3dPreview ? "ra3d" : "dawn3d", g_usermaps.size(),
+               g_skirmish.size() - g_skirmishUserFrom, bad);
+        return bad ? 1 : 0;
+    }
+
     /* Before anything can host or join. See mp_install_map_hasher. */
     mp_install_map_hasher(lobby_mission_dir(base_dir(opt.dir)));
 
@@ -3462,17 +4439,16 @@ int main(int argc, char** argv)
         if (pref) {
             /* Before anything reads the index or the hall of fame: see
                userdir_carry_over. Only here, where the saves are the per-user ones; a
-               --savedir run is pointed somewhere else on purpose. */
-            const int carried = userdir_carry_over(pref);
-            if (carried) printf("APP|userdir|copied=%d\n", carried);
+               --savedir run is pointed somewhere else on purpose. It runs before the
+               choice of game below and carries BOTH games' files, so whichever game a
+               player starts first finds the other's saves already there too. */
+            char carriedFrom[1200];
+            const int carried = userdir_carry_over(pref, carriedFrom, sizeof carriedFrom);
+            printf("APP|userdir|copied=%d|from=%s\n", carried, carriedFrom);
             if (g_ra3dPreview) {
                 char radir[1024];
                 snprintf(radir, sizeof radir, "%sra3d", pref);
-#ifdef _WIN32
-                _mkdir(radir);
-#else
-                mkdir(radir, 0755);
-#endif
+                carry_mkdir(radir);
                 snprintf(radir, sizeof radir, "%sra3d/", pref);
                 const int moved = ra_saves_carry_over(pref, radir);
                 if (moved) printf("APP|userdir|ra-saves-copied=%d\n", moved);
@@ -3505,9 +4481,10 @@ int main(int argc, char** argv)
     int dispMode = FS_MODE_BORDERLESS, dispW = 0, dispH = 0;
     /* Both modules use the current OpenCNC3D presentation, including display size. */
     const char* display_cfg = fx_cfg;
+    int displayShared = 0;   /* Red Alert's window from Tiberian Dawn's file */
     if (g_ra3dPreview) {
         FILE* shared = fopen("opencnc3d-fx.cfg", "r");
-        if (shared) { fclose(shared); display_cfg = "opencnc3d-fx.cfg"; }
+        if (shared) { fclose(shared); display_cfg = "opencnc3d-fx.cfg"; displayShared = 1; }
     }
     const int havePreset = game_display_wanted(display_cfg, &dispMode, &dispW, &dispH);
     if (!havePreset && !fs_start_fullscreen) dispMode = FS_MODE_WINDOWED;
@@ -3530,6 +4507,22 @@ int main(int argc, char** argv)
         flags |= fs_initial_flags(dispMode);
         if (dispMode == FS_MODE_WINDOWED && dispW > 0 && dispH > 0) { opt.w = dispW; opt.h = dispH; }
     }
+    /* THE DISPLAY'S REAL RESOLUTION, from the hidpi dial (off unless the player turned it
+       on): two pixels a point on a Retina panel instead of a half-resolution picture the
+       system magnifies. The game and the menus already convert the pointer from points to
+       pixels, and the HUD keeps its physical size. Read from the same file as the display
+       mode, so for Red Alert it is Tiberian Dawn's whenever that exists: one setting for
+       both games. A player's run only, like the display mode above: an automated run keeps
+       the 1:1 window its pictures were measured on. What the dial asked for is worked out
+       and printed in every run all the same, so a hidden run can show the decision. */
+    {
+        const char* hidpiFrom = "";
+        const int hidpiWanted = game_hidpi_wanted(display_cfg, displayShared, &hidpiFrom);
+        const int hidpiApplied = hidpiWanted && !shell_automated() && !fs_background_only();
+        if (hidpiApplied) flags |= SDL_WINDOW_ALLOW_HIGHDPI;
+        fprintf(stderr, "DISPLAY|hidpi|wanted=%d|applied=%d|from=%s\n",
+                hidpiWanted, hidpiApplied, hidpiFrom);
+    }
 #if defined(OPENCNC3D_DIAGNOSTIC_APP)
     const char* appWindowTitle="OpenCNC3D Diagnostics";
 #else
@@ -3543,6 +4536,11 @@ int main(int argc, char** argv)
        The constructor size must not become the mode used for Desktop. */
     if (!shell_automated() && !fs_background_only() && dispMode == FS_MODE_FULLSCREEN)
         fs_apply_mode(win, dispMode, dispW, dispH);
+    /* A WINDOWED WINDOW IS BORN INSIDE THE USABLE ROOM, frame and all. Centred by SDL it
+       is centred on the whole display, and a window as tall as the room then hides its
+       last rows behind the task bar or the Dock, which is where the map scrolls south. */
+    if (!shell_automated() && !fs_background_only() && dispMode == FS_MODE_WINDOWED)
+        fs_place_windowed(win, opt.w, opt.h);
     SDL_GLContext ctx = SDL_GL_CreateContext(win);
     if (!ctx) {game_diagnostics_phase(9,1); fprintf(stderr, "SDL_GL_CreateContext: %s\n", SDL_GetError()); return 1; }
     game_diagnostics_graphics();
@@ -3620,6 +4618,9 @@ int main(int argc, char** argv)
        (cnc_eyes.cpp: --script, --shot and --picktest are silent) is the same idea;
        the operator should never have to ask for this a third time. */
     const int automated = shell_automated();
+    dms_skirmish_remember(g_skirmishCfg ? g_skirmishCfg
+        : (!automated && !fs_background_only())
+            ? (g_ra3dPreview ? "ra3d-skirmish.cfg" : "opencnc3d-skirmish.cfg") : NULL);
     ab.silent = opt.nosound || (automated && !opt.audiowav);
     CncAudio* au = audio_boot(&ab);
     mcfg.au = au;
@@ -3670,7 +4671,8 @@ int main(int argc, char** argv)
        game_set_audio because restoring the volumes pushes them at the mixer.
        A bare background player probe still reads these settings; the restore
        routine keeps its save path empty so no implicit write can follow. */
-    if (!automated) {
+    if (g_controlsCfg) game_controls_remember(g_controlsCfg);
+    else if (!automated) {
         const char* controls = g_ra3dPreview ? "ra3d-controls.cfg" : "opencnc3d-controls.cfg";
         if (fs_background_only()) game_controls_load_readonly(controls);
         else game_controls_remember(controls);
@@ -3751,6 +4753,7 @@ int main(int argc, char** argv)
     }
     g_debriefMenu = &menu;
     if (g_menuShot) {
+        (void)app_crash_notice(win, opt.dospack);   /* the picture only; nothing waits */
         dms_redraw(&menu);
         /* Red Alert's Enhanced menu as the player first sees it: Special Ops greyed when
            nothing is installed, and the footer and pointer layer a drawn frame sets up. */
@@ -3767,6 +4770,23 @@ int main(int argc, char** argv)
         SDL_DestroyWindow(win);
         SDL_Quit();
         return wrote ? 0 : 1;
+    }
+    if (g_menuBench > 0) {
+        const unsigned idle_ms = (unsigned)(g_menuBench * 1000.0);
+        const unsigned hover_ms = idle_ms / 2 > 1000 ? idle_ms / 2 : 1000;
+        if (g_ra3dPreview) ra_menu_flags(&menu);
+        dms_menubench(idle_ms, hover_ms, DM_SKIRMISH, g_menuBenchDir);
+        const int rc = dms_run(&menu);
+        printf("MENUBENCH|done|module=%s|enhanced=%d|rc=%d\n", g_ra3dPreview ? "ra3d" : "opencnc3d",
+               dms_enhanced_menu(&menu), rc);
+        fflush(stdout);
+        dms_close(&menu);
+        game_set_audio(NULL);
+        audio_boot_shutdown(au);
+        SDL_GL_DeleteContext(ctx);
+        SDL_DestroyWindow(win);
+        SDL_Quit();
+        return rc == DMS_CANCEL ? 0 : 1;
     }
     if (g_introShot) {
         const int played = dms_intro(&menu);
@@ -6231,6 +7251,27 @@ int main(int argc, char** argv)
         dms_close(&menu);
         return bad ? 1 : 0;
     }
+    if (g_importUi) {
+        /* Traverse the real main menu and User Maps button, instead of opening
+           the importer directly and missing delivery/navigation regressions. */
+        int x, y, w, h;
+        dms_redraw(&menu); dms_draw(&menu); SDL_GL_SwapWindow(win);
+        dms_item_window_rect(&menu, DM_USERMAPS, &x, &y, &w, &h);
+        harness_click(x + w / 2, y + h / 2);
+        if (dms_run(&menu) != DM_USERMAPS) { dms_close(&menu); return 1; }
+        if (g_ra3dPreview) ra_usermaps_scan(); else usermaps_scan(base_dir(opt.dir));
+        const std::string list_shot = g_importShots ? std::string(g_importShots) + "/usermaps-button.png" : "";
+        const int pick = dms_usermaps_import_probe(&menu,
+            g_usermapRows.empty() ? NULL : g_usermapRows.data(), (int)g_usermapRows.size(),
+            list_shot.empty() ? NULL : list_shot.c_str());
+        if (pick != DMS_IMPORT) { dms_close(&menu); return 1; }
+        printf("MAPIMPORTUI|menu-route|PASS\n"); fflush(stdout);
+        dms_import_probe(g_importUi, g_importShots, 1);
+        const int result = dms_import_map(&menu, &IMPORT_HOOKS);
+        dms_import_probe(NULL, NULL, 0);
+        dms_close(&menu);
+        return result == 1 ? 0 : 1;
+    }
     if (g_specopsShot) {
         /* THE SPECIAL OPS LIST, TWICE: its first page and, after END, its last. The
            second picture is where the TEST MAPS section and the Test Map row live, and
@@ -6239,7 +7280,9 @@ int main(int argc, char** argv)
            hand; the list state is built and drawn through the same redraw the loop
            uses, so the pixels are the loop's pixels. */
         int src = 0;
-        specops_scan(base_dir(opt.dir));
+        if (g_ra3dPreview && ra_ant_scenario(g_harnessScen)) ra_ants_scan();
+        else if (g_ra3dPreview) ra_expansions_scan();
+        else specops_scan(base_dir(opt.dir));
         if (g_specops.empty()) {
             fprintf(stderr, "specops: no missions in '%s'\n", opt.dir ? opt.dir : "missions/");
             src = 1;
@@ -6248,22 +7291,29 @@ int main(int argc, char** argv)
             char path[512];
             int dw = 0, dh = 0, k;
             do_state_init(&ops, &g_specopsRows[0], (int)g_specopsRows.size());
+            ops.red_alert=g_ra3dPreview;
+            ops.ants=g_ra3dPreview && ra_ant_scenario(g_harnessScen);
             menu.ops = &ops;
             menu.mx = DM_SCREEN_W / 2;
             menu.my = DM_SCREEN_H / 2;
             SDL_GL_GetDrawableSize(win, &dw, &dh);
-            for (k = 0; k < 2; k++) {
+            bool funtab = false;
+            for (const SpecOp& row : g_specops)
+                if (row.header && row.group == SPECOP_G_FUNPARK) funtab = true;
+            funtab = funtab && !g_ra3dPreview && game_enhanced_menu_enabled();
+            for (k = 0; k < (funtab ? 3 : 2); k++) {
                 if (k == 1) { if (game_enhanced_menu_enabled()) em_ops_filter(&ops,1); else do_move_end(&ops); }
+                if (k == 2) em_ops_filter(&ops, 2);
                 dms_redraw(&menu);
                 dms_draw(&menu);          /* lays the letterbox out itself */
                 snprintf(path, sizeof path, "%s/specops_%s.png", g_specopsShot,
-                         k == 0 ? "top" : "end");
+                         k == 0 ? "top" : k == 1 ? "end" : "funpark");
                 if (!game_grab_png(path, dw, dh)) src = 1;
-                printf("SPECOPSSHOT|%s|%s|top=%d|selected=%d\n", k == 0 ? "top" : "end",
-                       path, ops.top, ops.selected);
+                printf("SPECOPSSHOT|%s|%s|top=%d|selected=%d\n",
+                       k == 0 ? "top" : k == 1 ? "end" : "funpark", path, ops.top, ops.selected);
                 SDL_GL_SwapWindow(win);
             }
-            if (game_enhanced_menu_enabled()) printf("SPECOPS|enhanced|Covert Ops,Special Ops|GDI-first|no-tests\n");
+            if (game_enhanced_menu_enabled()) printf("SPECOPS|enhanced|%s|%s-first|no-tests\n", g_ra3dPreview ? "Counterstrike,Aftermath" : funtab ? "Covert Ops,Special Ops,Funpark" : "Covert Ops,Special Ops", g_ra3dPreview ? "Allied" : "GDI");
             menu.ops = NULL;
             /* The filing, as text, so a gate can read it without a picture. */
             {
@@ -6317,13 +7367,14 @@ int main(int argc, char** argv)
                                     &lob, &probe);
             printf("LOBBYSHOT|rc=%d|shots=%d|overflow=%d|map=%d(%s)|side=%s|ai=%d|"
                    "build=%d|credits=%d|bases=%d|tiberium=%d|crates=%d|super=%d|"
-                   "units=%d\n",
+                   "units=%d|mode=%s\n",
                    r, probe.shots, probe.overflow, lob.map,
                    (lob.map >= 0 && lob.map < (int)g_skirmish.size())
                        ? g_skirmish[lob.map].scen.c_str() : "-",
                    lob.side ? "Nod" : "GDI", lob.ai_count, lob.build, lob.credits,
                    lob.bases, lob.tiberium, lob.crates, lob.superweapons,
-                   lob.unit_count);
+                   lob.unit_count,
+                   lob.rally_laps > 0 ? "rally" : lob.gun_game ? "gungame" : "ffa");
             /* The per-seat half of the answer, through the same writer --lobbyplay uses
                so one grep covers both routes and the two cannot drift. --lobbyshot never
                boots a match, so this is the SCREEN's word and nothing more; --lobbyplay
@@ -6536,11 +7587,10 @@ int main(int argc, char** argv)
         fprintf(stderr, "campaign: %s\n", err);
 
     if (g_matchShot) {
-        /* Four commanders with unmistakably different numbers, so the sort, the bar
-           lengths and the six ramps are all being exercised rather than merely drawn. */
-        /* EIGHT, the worst case, on purpose: a shot of a two player game proves nothing
-           about whether a full room still fits between the header and the panel's floor,
-           and eight is what the lobby seats. */
+        /* Eight commanders with unmistakably different numbers, so the sort, the standings
+           and the colours are all being exercised rather than merely drawn. EIGHT, the worst
+           case, on purpose: a shot of a two player game proves nothing about whether a full
+           room still fits, and eight is what the lobby seats. */
         static const CampMatchRow SAMPLE[8] = {
             { "COMMANDER", 0, 41, 12,  7, 9200, 0, 0, 1 },
             { "VEGA",      2, 28,  6, 19, 6100, 0, 0, 0 },
@@ -6551,22 +7601,97 @@ int main(int argc, char** argv)
             { "GIDEON",    6,  2,  0, 51,  300, 0, 1, 0 },
             { "COMPUTER",  7,  0,  0, 58,    0, 0, 1, 0 },
         };
-        CampMatch cm;
-        int i, r;
-        memset(&cm, 0, sizeof cm);
-        cm.nrows = 8; cm.win = 1; cm.seconds = 1182; cm.net = 1;
-        /* --flowside nod shoots the Nod board, which is the only way to see that the
-           emblem and the theme follow the player rather than the campaign. */
-        cm.side = camp_autopilot_side ? 1 : 0;
-        snprintf(cm.map, sizeof cm.map, "%s", "GREEN ACRES");
+        static MatchStats ms;
+        int i, r, local = -1;
+        memset(&ms, 0, sizeof ms);
+        ms.valid = 1; ms.nrows = 8; ms.seconds = 1182; ms.net = 1;
+        /* --flowside nod draws the board of a commander who played Nod: the side column, the
+           score theme and, on the older plate, the medallion follow the player rather than
+           the campaign. */
+        ms.side = camp_autopilot_side ? 1 : 0;
+        snprintf(ms.map, sizeof ms.map, "%s", "GREEN ACRES");
         for (i = 0; i < 8; i++) {
-            cm.row[i] = SAMPLE[i];
-            cm.row[i].score = cm.row[i].killed * 2 + cm.row[i].razed * 5
-                            + cm.row[i].harvested / 10;
+            MatchStatRow* o = &ms.row[i];
+            snprintf(o->name, sizeof o->name, "%s", SAMPLE[i].name);
+            o->colour = SAMPLE[i].colour;
+            o->killed = SAMPLE[i].killed;
+            o->razed = SAMPLE[i].razed;
+            o->lost = SAMPLE[i].lost;
+            o->harvested = SAMPLE[i].harvested;
+            o->defeated = SAMPLE[i].defeated;
+            o->is_local = SAMPLE[i].is_local;
+            o->score = o->killed * 2 + o->razed * 5 + o->harvested / 10;
+            /* The rest of each commander's page figures, made to agree with the four
+               above: lost split into units and structures, a little more built than lost,
+               the beaten with nothing standing at the end. */
+            o->units_lost = o->lost * 3 / 4;
+            o->structures_lost = o->lost - o->units_lost;
+            o->units_built = o->units_lost + 14 - i;
+            o->structures_built = o->structures_lost + 9 - i / 2;
+            o->army_peak = 26 - 2 * i;
+            o->army_end = o->defeated ? 0 : o->army_peak - 6;
+            o->structures_end = o->defeated ? 0 : o->structures_built - o->structures_lost + 1;
+            o->credits_start = 5000;
+            o->credits_end = o->defeated ? 0 : 1800 + 300 * i;
+            o->spent = o->credits_start + o->harvested - o->credits_end;
+            o->leadership = o->defeated ? 0 : 100 * (o->army_end + o->structures_end)
+                            / (o->army_end + o->structures_end + o->lost);
+            o->efficiency = 100 * (o->credits_end + 1) / (o->harvested + o->credits_start + 1);
+            /* the sides alternate down the sample, starting from the player's own */
+            o->faction = (i & 1) ? !ms.side : ms.side;
+            o->country = g_ra3dPreview ? (i + 1) & 7 : o->faction;
         }
+        /* WHOSE BOARD IT IS. The sample's own commander also leads it, so a result line that
+           always said "1st" would pass on it. OPENCNC3D_MATCHSHOT_LOCAL=<row> hands the local
+           mark to another row of the sample (1 is VEGA, second on the board; 4 is NIKOOMBA,
+           beaten, which makes it a lost match), and "none" takes it away altogether, which
+           is the board a machine draws when its own seat's numbers could not be read. */
+        {
+            const char* who = getenv("OPENCNC3D_MATCHSHOT_LOCAL");
+            if (who && *who) {
+                const int pick = !strcmp(who, "none") ? -1 : atoi(who);
+                for (i = 0; i < 8; i++) ms.row[i].is_local = (i == pick);
+            }
+        }
+        /* HOW MANY COMMANDERS. OPENCNC3D_MATCHSHOT_ROWS=<n> keeps the first n of the
+           sample (2 to 8), for the boards a smaller room draws. */
+        {
+            const char* rows = getenv("OPENCNC3D_MATCHSHOT_ROWS");
+            if (rows && *rows) {
+                const int n = atoi(rows);
+                if (n >= 2 && n <= 8) ms.nrows = n;
+            }
+        }
+        /* AND THE MATCH OVER TIME: forty-eight samples five seconds apart (four minutes),
+           each line shaped differently and ending on the row's own figures, the beaten
+           losing their army and base before the end, so the graph has something to say. */
+        ms.timeline.count = 48;
+        ms.timeline.interval = 75;
+        for (i = 0; i < 8; i++) {
+            const MatchStatRow* o = &ms.row[i];
+            for (int k = 0; k < 48; k++) {
+                const double t = k / 47.0;
+                const double grow = pow(t, 1.0 + 0.25 * i);
+                const double end = o->defeated ? (t < 0.75 ? 1.0 : (1.0 - t) * 4.0) : 1.0;
+                ms.timeline.v[i][MATCH_S_SCORE][k] = (int32_t)(o->score * grow);
+                ms.timeline.v[i][MATCH_S_ARMY][k] = (int32_t)((4 + o->army_peak * sin(3.1416 * (0.15 + 0.7 * t))) * end);
+                ms.timeline.v[i][MATCH_S_STRUCTURES][k] = (int32_t)((1 + (o->structures_built + 1) * sqrt(t)) * end);
+                ms.timeline.v[i][MATCH_S_HARVESTED][k] = (int32_t)(o->harvested * t);
+                ms.timeline.v[i][MATCH_S_CREDITS][k] = (int32_t)((o->credits_start + 1500 * sin(6.0 * t + i)) * (0.5 + 0.5 * end));
+                ms.timeline.v[i][MATCH_S_KILLS][k] = (int32_t)((o->killed + o->razed) * grow);
+            }
+        }
+        /* The match was won when the local commander is still standing. */
+        for (i = 0; i < ms.nrows; i++) if (ms.row[i].is_local) local = i;
+        ms.win = local >= 0 && !ms.row[local].defeated;
+        if (local >= 0) ms.side = ms.row[local].faction;
         camp_autopilot = 1;
-        r = camp_match_score(&camp, &cm, cm.side);
-        printf("MATCHSHOT|rc=%d|rows=%d\n", r, cm.nrows);
+        g_debriefNoWait = 1;
+        /* The route a finished match takes (app_match_score), so the picture is the screen a
+           player sees: the Enhanced debrief, or with the old menus asked for, Tiberian Dawn's
+           older match plate. */
+        r = app_match_score(&camp, &ms);
+        printf("MATCHSHOT|rc=%d|rows=%d\n", r ? 0 : -1, ms.nrows);
         fflush(stdout);
         camp_close(&camp);
         SDL_DestroyWindow(win);
@@ -6634,6 +7759,8 @@ int main(int argc, char** argv)
 
         if (state == APP_MENU) {
             game_diagnostics_phase(2,0);
+            /* the last session's crash, once, before the first menu (see app_crash_notice) */
+            if (app_crash_notice(win, opt.dospack) == -2) { state = APP_DONE; continue; }
             /* --raskirmish: the Red Alert skirmish, started once through the call a
                skirmish screen makes; when the match ends the shell carries on as usual. */
             if (g_ra3dPreview && g_raSkirmishScen[0]) {
@@ -6734,7 +7861,7 @@ int main(int argc, char** argv)
                    Mission and the answer is RETURN on its dialog, pushed now so the
                    dialog's own loop finds it waiting. */
                 int bx, by, bw, bh;
-                if (g_ra3dPreview && !g_harnessLoad) {
+                if (g_ra3dPreview && !g_harnessLoad && !g_harnessScen && !g_harnessUserMap) {
                     dms_item_window_rect(&menu, DM_START, &bx, &by, &bw, &bh);
                     printf("HARNESS|click|RA START at window rect %d,%d %dx%d\n",
                            bx, by, bw, bh);
@@ -6749,6 +7876,11 @@ int main(int argc, char** argv)
                     printf("HARNESS|click|LOAD MISSION at window rect %d,%d %dx%d\n",
                            bx, by, bw, bh);
                     harness_click(bx + bw / 2, by + bh / 2);
+                } else if(g_ra3dPreview && ra_ant_scenario(g_harnessScen)) {
+                    if(!dms_ant_speaker_rect(&menu,&bx,&by,&bw,&bh)){fprintf(stderr,"Ant speaker unavailable\n");return 2;}
+                    SDL_SetModState(KMOD_LSHIFT);
+                    printf("HARNESS|click|SHIFT SPEAKER at window rect %d,%d %dx%d\n",bx,by,bw,bh);
+                    harness_click(bx+bw/2,by+bh/2);
                 } else {
                     dms_item_window_rect(&menu, DM_SPECIAL, &bx, &by, &bw, &bh);
                     printf("HARNESS|click|SPECIAL OPS at window rect %d,%d %dx%d\n", bx, by, bw, bh);
@@ -6836,20 +7968,33 @@ int main(int argc, char** argv)
                 printf("APP|menu|after-match|to-multiplayer\n");
             } else {
                 ra_menu_flags(&menu);
+                /* WHICH MENU IS ON SCREEN, said once per visit. A picture cannot settle it on
+                   its own: a build that drew the 1995 menu in every mode would draw the same
+                   picture in every mode too. G378 refuses anything but the Enhanced one. */
+                printf("APP|menu|style=%s\n", dms_enhanced_menu(&menu) ? "enhanced" : "1995");
                 choice = dms_run(&menu);
+                if(g_harnessTicks>0)SDL_SetModState(KMOD_NONE);
             }
             printf("APP|menu|choice=%d\n", choice);
-            fflush(stdout);
+            game_log_commit();
             if (choice == DMS_QUIT || choice == DM_EXIT) {
                 state = APP_DONE;
-            } else if (g_ra3dPreview && dms_enhanced_menu(&menu) && choice != DM_VISUALS
+            } else if (g_ra3dPreview && choice != DM_USERMAPS && choice != DM_SPECIAL && choice != DMS_ANTS && choice != DM_VISUALS
                        && choice != DM_INTRO && choice != DM_START
                        && !(choice == DM_LOAD && em_route_ready(EM_ROUTE_SAVES))
                        && !(choice == DM_MULTIPLAYER && em_route_ready(EM_ROUTE_NETWORK))) {
-                /* RED ALERT'S ENHANCED ROUTES. Each opens its screen once its engine side is
-                   connected (em_set_route_ready); until then the button answers with a
-                   notice saying what it waits for. User Maps lists Red Alert's own folder,
-                   and an empty one says where scenario files go. */
+                /* RED ALERT'S ROUTES, under the Enhanced menu and the 1996 one alike. Each
+                   opens its screen once its engine side is connected (em_set_route_ready);
+                   until then the button answers with a notice saying what it waits for.
+                   User Maps lists Red Alert's own folder, and an empty one says where
+                   scenario files go. The 1996 menu used to have an arm of its own here that
+                   answered Load, Skirmish, Multiplayer and User Maps with an
+                   operating-system message box ("still being connected") after all three
+                   routes were in, and players met it under Classic. The menus are Enhanced
+                   in every graphics mode now (game_enhanced_menu_enabled), and the 1996
+                   menu is drawn only for scripted runs (OPENCNC3D_MENU_1995); the screens
+                   these buttons open draw in whichever style the menu is in, so one arm
+                   serves both. */
                 const int route = choice == DM_LOAD ? EM_ROUTE_SAVES
                                 : choice == DM_SKIRMISH ? EM_ROUTE_SKIRMISH
                                 : choice == DM_MULTIPLAYER ? EM_ROUTE_NETWORK
@@ -6863,12 +8008,14 @@ int main(int argc, char** argv)
                     std::vector<SK_Map> skmaps(g_raSkMaps.size());
                     for (size_t i = 0; i < g_raSkMaps.size(); i++) {
                         memset(&skmaps[i], 0, sizeof skmaps[i]);
+                        skmaps[i].user = g_raSkMaps[i].user ? 1 : 0;
                         skmaps[i].scen = g_raSkMaps[i].scen.c_str();
                         skmaps[i].name = g_raSkMaps[i].name.c_str();
                         skmaps[i].theater = g_raSkMaps[i].theater.c_str();
                         skmaps[i].w = (short)g_raSkMaps[i].w;
                         skmaps[i].h = (short)g_raSkMaps[i].h;
                         skmaps[i].starts = (short)g_raSkMaps[i].starts;
+                        ra_sk_map_starts(&skmaps[i], g_raSkMaps[i]);
                     }
                     SK_Lobby lob;
                     memset(&lob, 0, sizeof lob);
@@ -6881,9 +8028,13 @@ int main(int argc, char** argv)
                     raProbe.script = ENHANCED_LOBBY_SCRIPT;
                     raProbe.steps = (int)(sizeof ENHANCED_LOBBY_SCRIPT / sizeof ENHANCED_LOBBY_SCRIPT[0]);
                     raProbe.shotdir = g_shotDir;
-                    const int r = dms_lobby(&menu, skmaps.empty() ? NULL : &skmaps[0],
-                                            (int)skmaps.size(), NULL, &lob,
-                                            g_lobbyPlay ? &raProbe : NULL);
+                    /* Red Alert's lobby opens in Free for All, its only mode so far; the Game
+                       Mode dropdown shows the others greyed */
+                    dms_lobby_set_gun_game(0);
+                    dms_lobby_set_rally(0);
+                    int r = dms_lobby(&menu, skmaps.empty() ? NULL : &skmaps[0],
+                                      (int)skmaps.size(), NULL, &lob,
+                                      g_lobbyPlay ? &raProbe : NULL);
                     if (r == DMS_QUIT) { state = APP_DONE; continue; }
                     if (r != DMS_CANCEL && lob.map >= 0 && lob.map < (int)g_raSkMaps.size()) {
                         RaSkirmish rs;
@@ -6938,15 +8089,7 @@ int main(int argc, char** argv)
                                          noticeshot[0] ? noticeshot : NULL) == -2)
                         state = APP_DONE;
                 }
-            } else if (g_ra3dPreview && !dms_enhanced_menu(&menu) && choice != DM_VISUALS
-                       && choice != DM_INTRO && choice != DM_START
-                       && !(choice == DM_MULTIPLAYER && (g_mpHost || g_mpJoin))) {
-                /* Classic Red Alert: these menu routes still need their Red Alert equivalents.
-                   (The headless room, --mphost / --mpjoin, goes through: the multiplayer arm
-                   below plays a Red Alert room in this module.) */
-                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Red Alert 3D",
-                                         "This Red Alert menu route is still being connected.", win);
-            } else if (choice == DM_SPECIAL) {
+            } else if (choice == DM_SPECIAL || (g_ra3dPreview && choice == DMS_ANTS)) {
                 /* Every entry below leaves skirmish OFF. The option persists across the
                    menu the way opt.pack does, and a mission started after a skirmish
                    would otherwise still be a skirmish.
@@ -6956,13 +8099,16 @@ int main(int argc, char** argv)
                    was looked for as missions/user_maps/SCG22EA.INI and refused as
                    missing, on every row of the list. */
                 opt.skirmish = 0;
-                opt.dir = base_dir(opt.dir);
+                opt.dir = g_ra3dPreview ? "ra3d/missions/" : base_dir(opt.dir);
                 opt.reskin = 0;
                 /* SPECIAL OPS. The list is built here rather than in the menu module
                    because this is the layer that may read a directory; dosops.c only
                    renders and hit-tests what it is handed. The Test Map is its last
                    row (see SPECOP_TESTMAP_SCEN), which is how the harness reaches it. */
-                specops_scan(base_dir(opt.dir));
+                const bool ant_menu=g_ra3dPreview && choice==DMS_ANTS;
+                if (ant_menu) ra_ants_scan();
+                else if (g_ra3dPreview) ra_expansions_scan();
+                else specops_scan(base_dir(opt.dir));
                 if (g_specops.empty()) {
                     fprintf(stderr, "menu: no Special Ops missions found in '%s' -- the "
                                     "mission INIs and their packs have to be installed "
@@ -6982,9 +8128,36 @@ int main(int argc, char** argv)
                         k.type = SDL_KEYDOWN;
                         k.key.state = SDL_PRESSED;
                         if (g_harnessScen) {
-                            int n = 0;
+                            int n = 0, family = 0;
+                            /* THE ENHANCED LIST IS TWO TABS, in both games: Covert Ops and
+                               Special Ops here (group 0 and 1), Counterstrike and Aftermath
+                               in Red Alert, and DOWN walks one tab only. So the harness
+                               picks the row's tab first and counts only that tab's rows.
+                               Tiberian Dawn's TEST MAPS (group 2) are drawn in neither
+                               tab, so a row there is walked to over the whole list, as
+                               before. */
+                            bool tabs = !ant_menu && dms_enhanced_menu(&menu);
+                            int tab = 0;
+                            if (tabs) {
+                                for (const SpecOp& row : g_specops)
+                                    if (row.scen == g_harnessScen) family = row.group;
+                                if (!g_ra3dPreview && family == SPECOP_G_TEST) tabs = false;
+                                /* Funpark is the third tab (enhanced_menu.cpp ops_tabs) */
+                                tab = !g_ra3dPreview && family == SPECOP_G_FUNPARK ? 2
+                                    : family ? 1 : 0;
+                            }
+                            if (tabs) {
+                                /* LEFT steps one tab back, RIGHT one on; two LEFTs reach
+                                   the first tab from wherever the list opened */
+                                k.key.keysym.sym = SDLK_LEFT;
+                                SDL_PushEvent(&k);
+                                SDL_PushEvent(&k);
+                                k.key.keysym.sym = SDLK_RIGHT;
+                                for (int t = 0; t < tab; t++) SDL_PushEvent(&k);
+                            }
                             for (size_t i = 0; i < g_specops.size(); i++) {
                                 if (g_specops[i].header) continue;
+                                if (tabs && g_specops[i].group != family) continue;
                                 if (g_specops[i].scen == g_harnessScen) { downs = n; break; }
                                 n++;
                             }
@@ -7032,70 +8205,70 @@ int main(int argc, char** argv)
                                  g_specops[pick].pack.c_str());
                         opt.scen = pickscen;
                         opt.pack = pickpack;
+                        /* a borrowed pack is re-skinned from the mission's own ground */
+                        opt.reskin = g_specops[pick].borrowed ? 1 : 0;
+                        if (g_ra3dPreview) ra_engine_opts(&opt, pickscen);
                         /* Not the campaign, and it has to be said: a campaign left
                            flagged active took the next mission's verdict as a campaign
                            verdict, played a win movie, scored it and advanced. */
                         g_camp.active = 0;
-                        printf("APP|specops|play|%s|%s\n", pickscen, pickpack);
+                        g_camp.ants=ant_menu?1:0;
+                        if(ant_menu){g_camp.active=1;g_camp.side=0;g_camp.scenario=atoi(pickscen+3);g_camp.dir='E';g_camp.var='A';}
+                        printf("APP|%s|play|%s|%s\n", ant_menu?"ants":"specops", pickscen, pickpack);
                         fflush(stdout);
-                        state = APP_GAME;
+                        state = ant_menu ? APP_BRIEF : APP_GAME;
+                        /* A Funpark row goes through the side plate first, as 1995's
+                           switch did, and then into the chain from this mission. */
+                        if (!g_ra3dPreview && g_specops[pick].group == SPECOP_G_FUNPARK) {
+                            g_funparkStart = atoi(pickscen + 3);
+                            state = APP_SIDESELECT;
+                        }
                     }
                 }
             } else if (choice == DM_USERMAPS) {
-                /* USER MAPS. The same list screen Special Ops uses -- the two answer the
-                   same question, so they get the same screen rather than a second one
-                   that could drift from it. */
-                usermaps_scan(base_dir(opt.dir));
-                if (g_usermaps.empty()) {
-                    fprintf(stderr, "menu: no singleplayer user maps yet. Make one in "
-                                    "the editor (MAP > New Map) and save it; they are "
-                                    "filed in %suser_maps/\n",
-                            opt.dir ? opt.dir : "missions/");
-                } else {
+                for (;;) {
+                    if (g_ra3dPreview) ra_usermaps_scan();
+                    else usermaps_scan(base_dir(opt.dir));
                     if (g_harnessTicks > 0 && g_harnessUserMap) {
-                        /* HOME, then DOWN once per map row above the one asked for */
-                        SDL_Event k;
-                        memset(&k, 0, sizeof k);
-                        k.type = SDL_KEYDOWN;
-                        k.key.state = SDL_PRESSED;
-                        int downs = 0, n = 0;
-                        for (size_t i = 0; i < g_usermaps.size(); i++) {
-                            if (g_usermaps[i].header) continue;
-                            if (g_usermaps[i].scen == g_harnessUserMap) { downs = n; break; }
-                            n++;
+                        SDL_Event k = {};
+                        k.type = SDL_KEYDOWN; k.key.state = SDL_PRESSED;
+                        int downs = 0;
+                        for (size_t i = 0; i < g_usermaps.size(); ++i) {
+                            if (g_usermaps[i].scen == g_harnessUserMap) { downs = (int)i; break; }
                         }
-                        k.key.keysym.sym = SDLK_HOME;
-                        SDL_PushEvent(&k);
+                        k.key.keysym.sym = SDLK_HOME; SDL_PushEvent(&k);
                         k.key.keysym.sym = SDLK_DOWN;
-                        for (int d = 0; d < downs; d++) SDL_PushEvent(&k);
-                        k.key.keysym.sym = SDLK_RETURN;
-                        SDL_PushEvent(&k);
+                        for (int d = 0; d < downs; ++d) SDL_PushEvent(&k);
+                        k.key.keysym.sym = SDLK_RETURN; SDL_PushEvent(&k);
                         printf("HARNESS|keys|HOME, DOWN x%d, RETURN on the User Maps list (%s)\n",
                                downs, g_harnessUserMap);
-                        fflush(stdout);
                     }
-                    const int pick = dms_special(&menu, &g_usermapRows[0],
-                                                 (int)g_usermapRows.size());
-                    if (pick == DMS_QUIT) {
-                        state = APP_DONE;
-                    } else if (pick == DMS_CANCEL) {
-                        /* back to the menu */
-                    } else if (pick >= 0) {
-                        /* COPIED, for the same reason Special Ops copies: opt.scen
-                           outlives this screen and the next visit clears the vector it
-                           would otherwise point into. */
-                        static char uscen[16], upack[24], udir[512];
-                        snprintf(uscen, sizeof uscen, "%s", g_usermaps[pick].scen.c_str());
+                    const int pick = dms_usermaps(&menu,
+                        g_usermapRows.empty() ? NULL : g_usermapRows.data(), (int)g_usermapRows.size());
+                    if (pick == DMS_IMPORT) {
+                        const int result = dms_import_map(&menu, &IMPORT_HOOKS);
+                        if (result == DMS_QUIT) { state = APP_DONE; break; }
+                        continue;
+                    }
+                    if (pick == DMS_QUIT) { state = APP_DONE; break; }
+                    if (pick < 0 || pick >= (int)g_usermaps.size()) break;
+                    static char uscen[16], upack[64], udir[1024];
+                    snprintf(uscen, sizeof uscen, "%s", g_usermaps[pick].scen.c_str());
+                    if (g_ra3dPreview) {
+                        ra_engine_opts(&opt, uscen);
+                        opt.dir = "ra3d/missions/user_maps/";
+                    } else {
                         snprintf(upack, sizeof upack, "%s", g_usermaps[pick].pack.c_str());
                         snprintf(udir, sizeof udir, "%suser_maps/", base_dir(opt.dir));
-                        opt.scen = uscen;
-                        opt.pack = upack;      /* borrowed: see usermaps_scan */
-                        opt.dir  = udir;       /* the mission lives in user_maps/ */
-                        opt.reskin = 1;        /* re-skin the borrowed pack from its .BIN */
-                        opt.skirmish = 0;      /* a skirmish before it left this on */
-                        g_camp.active = 0;
-                        state = APP_GAME;
+                        opt.scen = uscen; opt.pack = upack; opt.dir = udir; opt.reskin = 1;
                     }
+                    opt.skirmish = 0; opt.load_slot1 = 0;
+                    g_camp.active = 0; g_camp.ants = 0;
+                    printf("APP|usermap|play|%s|game=%s|dir=%s\n", uscen,
+                           g_ra3dPreview ? "ra3d" : "dawn3d", opt.dir);
+                    fflush(stdout);
+                    state = APP_GAME;
+                    break;
                 }
             } else if (choice == DM_SKIRMISH) {
                 /* SKIRMISH. ONE screen, not two: the campaign's side plate followed by
@@ -7124,18 +8297,28 @@ int main(int argc, char** argv)
                     SK_Lobby lob;
                     memset(&lob, 0, sizeof lob);
                     SK_Prev* prev = skirmish_previews();
-                    if (g_lobbyPlay && dms_enhanced_menu(&menu)) {
-                        g_lobbyProbe.script = ENHANCED_LOBBY_SCRIPT;
-                        g_lobbyProbe.steps = (int)(sizeof ENHANCED_LOBBY_SCRIPT / sizeof ENHANCED_LOBBY_SCRIPT[0]);
+                    const bool enhancedLobby = dms_enhanced_menu(&menu);
+                    static std::vector<DMS_LobbyStep> modeSteps;
+                    if (g_lobbyPlay && enhancedLobby) {
+                        modeSteps = enhanced_lobby_script_in_mode(opt.rally ? SK_MODE_RALLY
+                                                                  : opt.gun_game ? SK_MODE_GUN_GAME
+                                                                  : SK_MODE_FFA);
+                        g_lobbyProbe.script = modeSteps.data();
+                        g_lobbyProbe.steps = (int)modeSteps.size();
                         g_lobbyProbe.shotdir = g_shotDir;
                     }
                     /* &v[0] on an empty vector is undefined and the list is now
                        allowed to be empty; sk_init takes a null list with count 0. */
-                    const int r = dms_lobby(&menu,
-                                            g_skirmishMaps.empty()
-                                                ? NULL : &g_skirmishMaps[0],
-                                            (int)g_skirmishMaps.size(), prev, &lob,
-                                            g_lobbyPlay ? &g_lobbyProbe : NULL);
+                    /* THE LOBBY OPENS IN FREE FOR ALL; the player picks Gun Game or Rally
+                       with its Game Mode dropdown. An automated run (--lobbyplay with
+                       --gungame or --rally) seeds that mode instead. */
+                    dms_lobby_set_gun_game(g_lobbyPlay && !enhancedLobby && opt.gun_game && !opt.rally);
+                    dms_lobby_set_rally(g_lobbyPlay && !enhancedLobby && opt.rally);
+                    int r = dms_lobby(&menu,
+                                      g_skirmishMaps.empty()
+                                          ? NULL : &g_skirmishMaps[0],
+                                      (int)g_skirmishMaps.size(), prev, &lob,
+                                      g_lobbyPlay ? &g_lobbyProbe : NULL);
                     if (r == DMS_QUIT) {
                         state = APP_DONE;
                     } else if (r == DMS_CANCEL) {
@@ -7221,11 +8404,25 @@ int main(int argc, char** argv)
                     mp_ready = true;
                 }
 
+                /* A ROOM THIS PLAYER HOSTS OPENS IN FREE FOR ALL, and the host changes the
+                   mode with the room's Game Mode dropdown, which reaches every joiner on
+                   the next push. An automated run (--mpplay --rally) opens a Rally room. */
+                const bool mp_seed_rally = g_mpPlay && opt.rally && !g_ra3dPreview;
                 lobby_scan(base_dir(opt.dir));
                 for (;;) {
                     NmSetup ns;
                     NmSetup* nsp = NULL;
                     unsigned abi = 0, scen = 0;
+                    /* A ROOM KEPT FROM ANOTHER MODE whose map the opening mode does not list
+                       opens again on that mode's default (a course after a Rally, when the
+                       next room opens in Free for All). Asked on every pass: after a match
+                       the room kept is the one just played, which the browser may have
+                       joined in another mode (it lists every room), and the next HOST opens
+                       it in Free for All below. */
+                    if (!g_mpHost && !g_mpJoin && mp_have_setup && mplob.map >= 0
+                        && mplob.map < (int)g_skirmishMaps.size()
+                        && !sk_map_fits_mode(&g_skirmishMaps[mplob.map], mp_seed_rally))
+                        mp_have_setup = false;
                     /* THE SEATS THE LAST START CLOSED GO BACK TO OPEN. The room the last
                        match left behind is the one the next room is built from, and the
                        START had blocked every seat nobody was sitting in; a host who left
@@ -7243,9 +8440,17 @@ int main(int argc, char** argv)
                     if (!mp_have_setup && !g_skirmishMaps.empty()) {
                         SK_State tmp;
                         sk_init(&tmp, &g_skirmishMaps[0], (int)g_skirmishMaps.size(), NULL);
+                        sk_set_rally(&tmp, mp_seed_rally && !g_mpHost && !g_mpJoin);
                         sk_result(&tmp, &mplob);
                         if (g_ra3dPreview) ra_lobby_defaults(&mplob, NULL);
                         mp_have_setup = (mplob.map >= 0);
+                    }
+                    /* the room a host opens is in Free for All (a Rally for --mpplay --rally);
+                       a joiner adopts the host's */
+                    if (!g_mpHost && !g_mpJoin) {
+                        mplob.gun_game = 0;
+                        mplob.rally_laps = mp_seed_rally ? (mplob.rally_laps > 0 ? mplob.rally_laps
+                                                                                 : SK_LAPS_DEFAULT) : 0;
                     }
                     if (mp_have_setup && mplob.map >= 0
                         && mplob.map < (int)g_skirmish.size()) {
@@ -7276,9 +8481,19 @@ int main(int argc, char** argv)
                                     (int)g_skirmishMaps.size(), NULL);
                             tmp.sel = idx;
                             sk_result(&tmp, &mplob);
+                            mplob.tiberium = opt.tiberium;
                             /* A Red Alert room opens on Red Alert's match, with the command
                                line's rules. */
                             if (g_ra3dPreview) ra_lobby_defaults(&mplob, &opt);
+                            else if (!g_mpRelay) mplob.gun_game = opt.gun_game;
+                            /* A COURSE NAMED ON THE COMMAND LINE IS A RALLY ROOM, with --laps
+                               when given, as choosing Rally in the room would make it */
+                            if (!g_ra3dPreview && g_skirmishMaps[idx].course != SK_COURSE_NONE) {
+                                mplob.gun_game = 0;
+                                mplob.rally_laps = opt.rally_laps > 0 ? opt.rally_laps : SK_LAPS_DEFAULT;
+                            } else {
+                                mplob.rally_laps = 0;
+                            }
                             mplob.ai_difficulty = opt.ai_difficulty > 0 ? opt.ai_difficulty - 1 : 1;
                             memcpy(mplob.ai_levels, opt.ai_levels, sizeof mplob.ai_levels);
                             /* THE ROOM IS AS WIDE AS THE MAP SEATS, left that way on
@@ -7634,18 +8849,20 @@ int main(int argc, char** argv)
                                 nb_announce_close();
                                 continue;
                             }
-                            static char mpscen[16], mppack[24], mpdir[512];
+                            static char mpscen[16], mppack[64], mpdir[1024];
                             snprintf(mpscen, sizeof mpscen, "%s",
                                      g_skirmish[mplob.map].scen.c_str());
                             snprintf(mppack, sizeof mppack, "%s",
                                      g_skirmish[mplob.map].pack.c_str());
-                            snprintf(mpdir, sizeof mpdir, "%s", base_dir(opt.dir));
+                            const bool userMap = (size_t)mplob.map >= g_skirmishUserFrom;
+                            snprintf(mpdir, sizeof mpdir, "%s%s", base_dir(opt.dir),
+                                     userMap ? "user_maps/" : "");
                             if (!g_ra3dPreview) {
                                 opt.scen = mpscen;
                                 opt.pack = mppack;
                                 opt.dir = mpdir;
                             }
-                            opt.reskin = 0;
+                            opt.reskin = !g_ra3dPreview && userMap ? 1 : 0;
                             opt.skirmish = 1;
                             opt.net_mode = nm_lobby_is_host() ? 1 : 2;
                             opt.net_players = nm_lobby_wanted();
@@ -7697,8 +8914,36 @@ int main(int argc, char** argv)
                 if (sl == -2) {
                     state = APP_DONE;                 /* the window was closed */
                 } else if (sl >= 0) {
-                    if (load_slot_prepare(&opt, sl))
+                    if (load_slot_prepare(&opt, sl)) {
                         state = APP_GAME;
+                    } else if (g_loadWidthRefused) {
+                        /* A save another kind of build wrote: the player is told why, and
+                           the menu comes back with nothing booted. An automated run draws
+                           the same notice once, into its shot folder (--shotdir, the
+                           working folder by default), so the box a player gets is seen
+                           and not only logged, and then ends, since its next pass would
+                           choose the same row. */
+                        if (g_harnessTicks > 0 && g_harnessLoad) {
+                            char path[512];
+                            path[0] = 0;
+                            if (g_shotDir)
+                                snprintf(path, sizeof path, "%s/h_loadrefused%d.png",
+                                         g_shotDir, round + 1);
+                            const int drawn = game_notice_open(win, opt.dospack, DS_WIDTH_CAPTION,
+                                                               ds_width_refusal(DS_HOST_WIN64),
+                                                               path);
+                            printf("HARNESS|load|refused|notice=%s|shot=%s\n",
+                                   drawn == 0 ? "drawn" : "not drawn", path[0] ? path : "none");
+                            printf("HARNESS|load|refused|the run ends without a mission\n");
+                            fflush(stdout);
+                            state = APP_DONE;
+                        } else if (!shell_automated()
+                                   && game_notice_open(win, opt.dospack, DS_WIDTH_CAPTION,
+                                                       ds_width_refusal(DS_HOST_WIN64),
+                                                       NULL) == -2) {
+                            state = APP_DONE;
+                        }
+                    }
                 }
             } else {
                 /* Anything else the DOS menu drew and this build has not built puts
@@ -7743,15 +8988,39 @@ int main(int argc, char** argv)
                 if (side == DMS_CANCEL) { state = APP_MENU; continue; }
                 }
             } else {
-                /* Original CHOOSE TV/static screen in both Classic and Enhanced. */
+                /* Original CHOOSE TV/static screen in both Classic and Enhanced. A harness
+                   run of a Funpark row has no hand to press it, so the plate's own
+                   autopilot clicks the side --flowside names (GDI by default). */
+                const int keep = camp_autopilot;
+                if (g_funparkStart && g_harnessTicks > 0) camp_autopilot = 1;
                 side = camp_side_select(&camp);
+                camp_autopilot = keep;
             }
-            if (side < 0) { state = APP_DONE; continue; }
+            if (side < 0) { g_funparkStart = 0; state = APP_DONE; continue; }
+            if (!g_ra3dPreview && g_funparkStart) {
+                /* THE FUNPARK CHAIN, from the mission the row asked for. Choose_Side
+                   played no briefing in Funpark mode (intro.cpp), so neither does this. */
+                g_camp.active = 1;
+                g_camp.ants = 1;
+                g_camp.side = side;
+                g_camp.scenario = g_funparkStart;
+                g_camp.dir = 'E';
+                g_camp.var = 'A';
+                g_funparkStart = 0;
+                printf("CAMPAIGN|funpark|side=%s|from=%d\n", side ? "NOD" : "GDI",
+                       g_camp.scenario);
+                fflush(stdout);
+                state = APP_BRIEF;
+                continue;
+            }
             g_camp.active = 1;
+            g_camp.ants = 0;
             g_camp.side = side;
-            g_camp.scenario = g_ra3dPreview && g_flowTest > 0 ? g_raFlowStart : 1;
+            g_camp.scenario = g_flowTest > 0 ? (g_ra3dPreview ? g_raFlowStart
+                                                : (side && g_tdFlowStart > 13 ? 13 : g_tdFlowStart))
+                                             : 1;
             g_camp.dir = 'E';
-            g_camp.var = 'A';
+            g_camp.var = g_flowTest > 0 && !g_ra3dPreview ? g_tdFlowVar : 'A';
             /* Choose_Side itself plays the scenario-1 briefing (intro.cpp): GDI1
                for GDI; NOD1PRE for Nod (that movie is on the Nod disc and is a
                registered gap until CD-2's set is staged). */
@@ -7781,6 +9050,10 @@ int main(int argc, char** argv)
             int ok = 1;
             if (g_ra3dPreview) {
                 ok = ok && camp_movie(win, au, intro);
+                ok = ok && camp_movie(win, au, brief);
+            } else if (g_camp.ants) {
+                /* Funpark mode (scenario.cpp Start_Scenario): no intro, the mission briefing
+                   and the action movie, whichever mission of the five it is. */
                 ok = ok && camp_movie(win, au, brief);
             } else {
                 if (g_camp.scenario != 1 || g_camp.side == 0)
@@ -7813,6 +9086,19 @@ int main(int argc, char** argv)
             }
             if (!g_ra3dPreview)
                 snprintf(packname, sizeof packname, "%s.pack", scen);
+            /* A Funpark mission ships no pack: it borrows its theater's and is re-skinned
+               from its own .BIN and .HGT, as its Special Ops row does. Every other
+               campaign mission plays its own pack as it is. */
+            if (!g_ra3dPreview) {
+                opt.reskin = 0;
+                if (g_camp.ants) {
+                    char ini[1024];
+                    opt.dir = base_dir(opt.dir);
+                    snprintf(ini, sizeof ini, "%s%s.INI", opt.dir, scen);
+                    snprintf(packname, sizeof packname, "%s", theater_donor_pack(ini));
+                    opt.reskin = 1;
+                }
+            }
             opt.scen = scen;
             opt.pack = packname;
             if (g_ra3dPreview)
@@ -7830,8 +9116,8 @@ int main(int argc, char** argv)
             printf("HARNESS|rss|round=%d|before-boot=%ld KiB|footprint=%ld KiB|resident=%ld KiB\n",
                    round, heap_kib(), phys_kib(), res_kib());
 
-        opt.forcewin_ticks = g_flowTest;
-        opt.forcewin_real = g_ra3dPreview && g_flowTest > 0 && g_raFlowRealWin;
+        opt.forcewin_ticks = g_flowTest ? g_flowTest : (g_harnessTicks > 0 ? g_harnessWin : 0);
+        opt.forcewin_real = g_flowTest > 0 && g_raFlowRealWin;
         /* THE CAMPAIGN POSITION GOES DOWN WITH THE MISSION, so a save made in it
            records where the campaign has got to, and comes back up after the mission
            so a load can move it. Both calls existed for as long as the save layer has;
@@ -7881,6 +9167,7 @@ int main(int argc, char** argv)
                                ? (game_run_script(win, &opt) ? GAME_EXIT_ERROR : GAME_EXIT_MENU)
                                : game_loop(win, &opt);
         printf("APP|game|round=%d|reason=%d\n", round, reason);
+        game_log_commit();
         {
             /* The other half of the campaign position: a slot loaded in the mission
                carries the position it was saved at, and the verdict below must judge
@@ -7903,6 +9190,26 @@ int main(int argc, char** argv)
                the full thirty second silence instead of being told, and the line that says
                what the match cost and how often a stuck turn had to be asked for and
                answered was never printed on the door every relayed run uses. */
+            /* A MATCH THAT BROKE ENDS ON ITS DEBRIEF ON THIS DOOR TOO, drawn once and
+               passed, the way a scripted Red Alert skirmish's is. A player's lobby match
+               reaches the debrief through game_loop's NETLOST; this door plays the match
+               through the script runner instead and used to leave before any screen, so
+               the one screen a broken match changes had no automated way in. The table is
+               taken inside game_shutdown, which also says goodbye, so the nm_shutdown
+               below is then a no-op.
+               A MATCH THAT REACHED A VERDICT ENDS ON IT TOO, as a lobby match a player
+               fights to its end does (game_loop's WON and LOST): a scripted match whose
+               house is destroyed is then the way to photograph a real board. */
+            const GameOverInfo* verdict = game_over_info();
+            if (game_net_fail()[0] || (verdict && verdict->valid)) {
+                static MatchStats ms;
+                game_shutdown();
+                ms = *game_match_stats();
+                camp_autopilot = 1;
+                g_debriefNoWait = 1;
+                g_camp.active = 0;
+                app_match_score(&camp, &ms);
+            }
             nm_shutdown();
             printf("MPLOBBY|done|reason=%d\n", reason);
             fflush(stdout);
@@ -7924,7 +9231,12 @@ int main(int argc, char** argv)
             snprintf(name, sizeof name, "h_game%d.png", round);
             shot(win, name);
             printf("HARNESS|game%d|ink=%.4f|digest=%016llx\n", round, ink, dig);
-            if (ink < 0.05) {
+            if (ink < 0.05 && g_harnessWin > 0 && reason == GAME_EXIT_WON) {
+                /* --harnesswin ended the round on a verdict, and the frame after a verdict
+                   is its banner on black: that is the screen working, not a blank one. */
+                printf("HARNESS|game%d|verdict banner (ink %.4f), the round was won by "
+                       "--harnesswin\n", round, ink);
+            } else if (ink < 0.05) {
                 printf("HARNESS|FAIL|game%d is blank (ink %.4f)\n", round, ink);
                 g_harnessFails++;
             }
@@ -7938,9 +9250,25 @@ int main(int argc, char** argv)
            renderer fills it INSIDE game_shutdown, at the last moment the engine still
            holds the numbers, so this copy has to be taken after that call rather than
            before it. */
-        MatchStats mstats;
+        /* Static: the match's timeline makes the table too large for a thread's stack. */
+        static MatchStats mstats;
 
+        /* How long the mission's teardown took, on disk: it hands back every texture,
+           buffer and render target the mission made, and a driver that stops in that
+           release is otherwise told apart from one that stops later only by guesswork. */
+        const Uint32 teardownT0 = SDL_GetTicks();
+        /* A MISSION LEFT BY CLOSING THE PROGRAM IS ALREADY ON THE WAY OUT, so the watch
+           over the way out starts here and covers this teardown too: it is the largest
+           release of GL resources the program makes, and nothing else watches it (the
+           mission's own watcher is switched off inside it). Not for a scripted Red Alert
+           skirmish, which may go on to another round after its debrief. */
+        if (reason == GAME_EXIT_APP && !(g_raSkirmishRan && opt.script)) {
+            game_exit_watch();
+            game_exit_step("mission-teardown");
+        }
         game_shutdown();
+        printf("APP|teardown|round=%d|ms=%u\n", round, (unsigned)(SDL_GetTicks() - teardownT0));
+        game_log_commit();
         mstats = *game_match_stats();
 
         /* THE SAMPLE THE LIMIT IS ASSERTED ON IS TAKEN HERE, AFTER THE TEARDOWN, and it
@@ -7977,7 +9305,7 @@ int main(int argc, char** argv)
             printf("APP|raskirmish|done|reason=%d\n", reason);
             fflush(stdout);
             g_camp.active = 0;
-            g_raDebriefNoWait = 1;
+            g_debriefNoWait = 1;
             if (!app_match_score(&camp, &mstats)) state = APP_DONE;
             else state = g_raSkirmishScen[0] ? APP_MENU : APP_DONE;
         }
@@ -7996,6 +9324,12 @@ int main(int argc, char** argv)
             printf("LOBBYPLAY|complete|the match the lobby described booted and "
                    "returned\n");
             fflush(stdout);
+            /* AND IT ENDS ON ITS DEBRIEF, drawn once into the shot folder, the way a
+               scripted Red Alert skirmish's does: the one automated way to see the board
+               and the graph of a real Tiberian Dawn skirmish against computers. */
+            g_debriefNoWait = 1;
+            g_camp.active = 0;
+            (void)app_match_score(&camp, &mstats);
             state = APP_DONE;
         }
         else if (reason == GAME_EXIT_APP) { state = APP_DONE; }
@@ -8030,8 +9364,14 @@ int main(int argc, char** argv)
             } else {
                 fprintf(stderr, "app: the slot to load (%d) could not be described; back "
                                 "to the menu\n", sl);
+                /* (the pause dialog refuses such a slot before it leaves the mission, so
+                   this is only a slot whose payload changed in between) */
                 g_camp.active = 0;
                 state = APP_MENU;
+                if (g_loadWidthRefused && !shell_automated()
+                    && game_notice_open(win, opt.dospack, DS_WIDTH_CAPTION,
+                                        ds_width_refusal(DS_HOST_WIN64), NULL) == -2)
+                    state = APP_DONE;
             }
         }
         else if (reason == GAME_EXIT_RESTART) {
@@ -8066,6 +9406,23 @@ int main(int argc, char** argv)
                 state = APP_BRIEF;
                 continue;
             }
+            if (!g_ra3dPreview && g_camp.ants) {
+                /* Funpark (scenario.cpp Do_Win): no score screen and no map in Funpark
+                   mode, straight on to the next mission; the fifth ends the chain. */
+                if (g_camp.scenario >= SPECOP_FUNPARK_LAST) {
+                    printf("CAMPAIGN|complete|FUNPARK\n");
+                    g_camp.active = 0;
+                    g_camp.ants = 0;
+                    state = APP_MENU;
+                } else {
+                    g_camp.scenario++;
+                    g_camp.var = 'A';
+                    printf("CAMPAIGN|funpark|next=%d\n", g_camp.scenario);
+                    state = APP_BRIEF;
+                }
+                fflush(stdout);
+                continue;
+            }
             const RaCampaignFlags ra_flags = g_ra3dPreview
                 ? ra_campaign_flags(opt.dir, opt.scen) : RaCampaignFlags{0, 0, 0, 0};
             CampScore cs;
@@ -8094,9 +9451,44 @@ int main(int argc, char** argv)
                 state = APP_DONE;
                 continue;
             }
+            if(g_ra3dPreview && g_camp.ants) {
+                if(ra_flags.one_time || g_camp.scenario>=4){
+                    printf("CAMPAIGN|complete|ANTS\n");g_camp.active=0;g_camp.ants=0;state=APP_MENU;
+                } else {g_camp.scenario++;g_camp.var='A';state=APP_BRIEF;}
+                continue;
+            }
             /* RA's campaign endings are data-driven: both sides finish at 14.
                TD retains its historical 15/13 campaign boundary. */
             const int last = g_ra3dPreview ? 14 : (g_camp.side ? 13 : 15);
+            if (!g_ra3dPreview && g_camp.scenario >= last) {
+                /* THE REST OF THE 1995 ENDING (ending.cpp GDI_Ending, Nod_Ending). The
+                   engine has named the movies either side of the score (GDIFINA or
+                   GDIFINB, then GDIEND1 or GDIEND2; NODFINAL after it) and they have
+                   played above. Nod then picks a target over the satellite picture and
+                   sees that city fall (NODEND1..4). Both sides then get the Red Alert
+                   teaser TRAILER behind the ATTRACT2 still when that movie exists (no
+                   disc this project reads carries it), the still again, and the
+                   Command & Conquer 2 teaser CC2TEASE. */
+                if (g_camp.side) {
+                    const int target = camp_nod_target(&camp);
+                    if (target < 0) { state = APP_DONE; continue; }
+                    char nodend[16];
+                    snprintf(nodend, sizeof nodend, "NODEND%d", target);
+                    if (!camp_movie(win, au, nodend)) { state = APP_DONE; continue; }
+                }
+                FILE* trailer = fopen("dosdata/movies/TRAILER.VQA", "rb");
+                if (trailer) {
+                    fclose(trailer);
+                    if (camp_attract(&camp) < 0 || !camp_movie(win, au, "TRAILER")) {
+                        state = APP_DONE;
+                        continue;
+                    }
+                }
+                if (camp_attract(&camp) < 0 || !camp_movie(win, au, "CC2TEASE")) {
+                    state = APP_DONE;
+                    continue;
+                }
+            }
             if (ra_flags.end_game || ra_flags.one_time || g_camp.scenario >= last) {
                 printf("CAMPAIGN|complete|%s\n", g_ra3dPreview
                        ? (g_camp.side ? "SOVIET" : "ALLIED")
@@ -8112,6 +9504,15 @@ int main(int argc, char** argv)
                 fflush(stdout);
                 state = APP_BRIEF;
                 continue;
+            }
+            /* Original TD scenario.cpp skips mission 7 when the commando destroyed
+               the airstrip (StructType 11). The callback carried it, but the shell
+               discarded the field while taking over campaign progression. */
+            const int map_row = camp_map_row(g_ra3dPreview, g_camp.side,
+                                             g_camp.scenario, gover.sabotaged_structure);
+            if (map_row != g_camp.scenario) {
+                g_camp.scenario = map_row;
+                printf("CAMPAIGN|sabotage|airstrip|skip=7|next=8\n");
             }
             char dir = g_ra3dPreview ? g_camp.dir : 'E', var = 'A';
             if ((g_ra3dPreview
@@ -8152,16 +9553,36 @@ int main(int argc, char** argv)
             state = APP_MENU;
         }
     }
+    /* THE WAY OUT, each step named and on disk before it runs, and watched on Windows
+       (game_exit_step, game_exit_watch). A freeze on leaving the game, on a virtual
+       machine's GL driver, left logs that stopped after the sound closed with nothing to
+       say which of the steps below never returned.
+
+       THE WINDOW IS HIDDEN BEFORE THE GL CONTEXT IS RELEASED. SDL_DestroyWindow hides it
+       anyway, and in doing so leaves full screen (and puts back the desktop's display mode
+       after an exclusive one), so this moves that same work ahead of the context's release
+       rather than adding any. What it changes is what a player is left with when a driver
+       stops inside the release: the desktop, instead of a full-screen picture that holds
+       the display and reads as the whole machine having frozen. */
+    game_exit_watch();
+    game_exit_step("menu");
     camp_close(&camp);
 
     game_diagnostics_phase(8,0);
     game_diagnostics_end();
     dms_close(&menu);
+    game_exit_step("audio");
     game_set_audio(NULL);
     audio_boot_shutdown(au);
+    game_exit_step("hide-window");
+    SDL_HideWindow(win);
+    game_exit_step("gl-context");
     SDL_GL_DeleteContext(ctx);
+    game_exit_step("window");
     SDL_DestroyWindow(win);
+    game_exit_step("sdl-quit");
     SDL_Quit();
+    game_exit_step("process-exit");
 
     /* THE LEAK ASSERTION IS A TREND ACROSS THE WHOLE RUN, NOT ONE ROUND AGAINST THE ONE
        BEFORE IT, and that is the second half of why this gate used to go red at random.

@@ -55,6 +55,91 @@ WHAT IS DRAWN, AND WHERE EACH PART COMES FROM
              is not invented. Blocking terrain is therefore missing from the preview;
              that is a known gap, not an oversight.
 
+RACE COURSES: A MAP WHOSE INI HAS A [Rally] SECTION
+
+A race course is cut from clear ground: every cell of its .BIN is the same flat clear
+cell, so the ground alone is a blank field with a little tiberium on it. The course is
+drawn over the ground, in BOTH planes, from the course's own lines and nothing else.
+Every key the drawing needs is read the way the engine's race module reads it (rally.cpp
+Rally_Read_INI). Where the race refuses a course (no usable Finish, P000 or Grid0, or
+any of them off the map) the bake stops too; where the race reads leniently (the grid
+ends at the first missing or malformed slot, GridFacing is read like any INI integer)
+the bake reads the same way. A run with no scenario named bakes every course in
+game/missions after the nine retail maps and the game modes' own maps (MODE_SCENARIOS).
+
+  walls      [OVERLAY] cells naming one of the engine's wall overlays (odata.cpp: SBAG,
+             CYCL, BRIK, BARB, WOOD). They are the track's edges. A wall is plotted
+             nearest-neighbour: a pixel is a wall pixel when the cell under its centre
+             is a wall cell, which puts every wall where the ground under it, the lines
+             and the grid say it is. At about two pixels a cell every wall cell owns at
+             least one pixel centre, and the bake stops if one does not. That is also
+             how the race sees a wall, as a whole impassable square. A wall is a line
+             one cell thick, so it is plotted solid rather than composited and averaged:
+             an average at this scale would smear it into the ground it has to stand
+             out from.
+             The COLOUR is a legend, for the reason tiberium's is. The 1995 radar paints
+             a wall cell DKGREY (const.cpp Ground[LAND_WALL]), (85,85,85) in the game
+             palettes, which is about 8 from the winter ground's mean (79,85,80); and
+             the sandbag art's own colour, (113,103,56) averaged over the opaque texels
+             of its DOS shape with the shadow left out, is about 25 from the desert
+             ground's (133,96,70). So the fill is WALL_RGB, a pale sand in the sandbag
+             art's warm family but far lighter. The bake checks, rather than trusting
+             this paragraph, that it is an exact palette entry; that it is not green
+             (green is tiberium's); that it is a different entry from the tiberium
+             legend, every start colour of this pack and the lines' black and white;
+             that it is at least START_MIN_SEPARATION from every colour the lobby marks
+             a start with (the seat colours, the idle start, the rim and the label ink,
+             read out of menu/doslobby.c, the nearest being the light blue seat at
+             about 82); and that it clears every theater's mean ground by
+             START_GROUND_CLEARANCE. The pack's own start colours are held only to being
+             different entries, because on a course none of them is drawn.
+
+  finish     [Rally] Finish=x1,y1,x2,y2, in leptons (256 a cell). A strip of black and
+             white squares along the segment, as the race draws it on the ground
+             (rally_mod.h rly_checker_strip): squares counted along the line and across
+             it, black where the two counts add up to an even number. There it is half a
+             cell wide in quarter-cell squares; here it is COURSE_LINE_PX pixels wide in
+             one-pixel squares, the least that still reads as checkered at about two
+             pixels a cell. The lobby draws the frame at one or two menu pixels per
+             frame pixel, where a square stays a square; a panel that samples the frame
+             down to fewer pixels than it has breaks the strip into plain bars and drops
+             most of the grid.
+
+  start      The start line, built exactly as rly_draw_ground builds it, because the
+             course file has no key for it: across the grid's facing (GridFacing, an
+             engine DirType, 0 north and clockwise), three quarters of a cell ahead of
+             the foremost grid slot, centred on the grid, and as wide as the grid plus
+             three quarters of a cell either side or the first course point's half
+             width (P000), whichever is wider. The same checkered strip as the finish.
+
+  grid       Grid0..Grid7, the slots the racers line up on, each one pixel of opaque
+             black. That is what tells the two checkered lines apart: the start is the
+             one with the grid behind it.
+
+  Decided against, by looking at all three courses:
+    the centre line (P000..), which is the computer drivers' route. Faint, it lands on
+             a different grey on each theater once it is quantised to this palette, and
+             it is a stripe the game never paints on the ground, so it reads as a road
+             marking that is not there. The walls already draw the corridor.
+    defences ([STRUCTURES] of the Hostile= house). The radar would plot each one as its
+             footprint in its owner's house colour, which is real data, but the
+             footprints are a table this file does not have, and the race's hostile
+             house is Nod, whose red is one of the start colours and a seat colour in
+             the lobby: a red block beside the track would read as a player. They stay
+             under the NOT drawn rule above with everything else on [STRUCTURES]. Crate
+             spots are not drawn either; they are objects, not ground.
+
+  starts     The start records are unchanged: Waypoints 0..25, as above, because a
+             battle on a course map seats its players there. On a course those
+             waypoints are the grid's own cells, eight of them within four cells of each
+             other, and diamonds seven pixels across and two pixels apart stamp one blob
+             over the start line they mark. So on a course the MARKED plane carries no
+             diamonds and is the same picture as the plain one: the grid is the start.
+             A lobby still draws its own markers from px,py.
+
+  Walls are drawn on race courses only. On a battle map a wall is one obstacle among
+  the trees and rocks this bake leaves out, and the nine retail maps carry none.
+
 THE SIZE, AND WHY IT IS 120x120
 
 The screen this is drawn on is 320x200. A lobby needs a map list, a side plate and
@@ -89,10 +174,17 @@ INPUTS, and every one of them is either tracked or regenerable by a named comman
 
   game/missions/<SCEN>.INI                          tracked
   tools/bakery/sharecopy/assets/terrain/
-      terrain_<SCEN>.json                           sh tools/stage-skirmish-maps.sh
-      TEMPERAT_tiles.png / DESERT_tiles.png         tracked
+      terrain_<SCEN>.json                           n64_terrain.py <SCEN> beside it,
+                                                    from the tracked extracted .MAP
+                                                    (sh tools/stage-skirmish-maps.sh
+                                                    runs it too, and so does this
+                                                    file given --resolve-terrain)
+      <THEATER>_tiles.png, the atlas it names       tracked
   data/dosdata/LOCAL.MIX  (TITLE.CPS palette)       tracked
   game/dostib.pack or playable/dostib.pack          python3 game/bake_dostiberium.py
+      (or the one --tib names)
+  menu/doslobby.c  (the lobby's marker colours,     tracked
+      read only when a race course is baked)
 
 Missing any of them stops the run with the command that makes it, rather than baking
 a grey rectangle and calling it a fallback.
@@ -131,8 +223,10 @@ FORMAT (all little-endian), magic "MAPPREV1":
             u8  colour                          palette index its diamond is drawn in
             u8  reserved                        0
         }                                       slots past `starts` are all zero
-        u8    plain [frame_w*frame_h]           terrain only, row major, top row first
+        u8    plain [frame_w*frame_h]           the ground (and on a race course the
+                                                course), row major, top row first
         u8    marked[frame_w*frame_h]           the same with the start diamonds on it
+                                                (none on a race course; see above)
     }
 
     Record size is 12+24+12+8+8+4 + max_starts*10 + 2*frame_w*frame_h, fixed.
@@ -160,11 +254,36 @@ used here because a lobby preview and the radar showing the same map should agre
 
 USAGE
 
-    python3 tools/bake_map_previews.py                     # all nine, to the pack below
+    python3 tools/bake_map_previews.py                     # the nine retail maps, the
+                                                           # game modes' maps and every
+                                                           # race course in
+                                                           # game/missions, to the pack
+                                                           # below
     python3 tools/bake_map_previews.py SCM02EA SCM07EA     # a subset
     python3 tools/bake_map_previews.py --png /tmp/prev     # also plain PNGs, 1:1 and 4:1
     python3 tools/bake_map_previews.py --proof /tmp/sheet.png   # a labelled contact sheet
     python3 tools/bake_map_previews.py --verify            # the fidelity check, alone
+    python3 tools/bake_map_previews.py --check playable/mappreview.pack
+                                                           # does a built pack carry
+                                                           # every map the committed
+                                                           # manifest lists?
+    python3 tools/bake_map_previews.py --list              # the scenarios a default
+                                                           # bake covers
+    python3 tools/bake_map_previews.py --resolve-terrain --out X.pack
+                                                           # make any missing
+                                                           # terrain_<SCEN>.json first
+
+A BUILT PACK IS CHECKED AGAINST THE COMMITTED MANIFEST, because the pack is a build
+product and the manifest is not. game/mappreview.manifest.json is written by every bake
+and committed with the change that made it, so it names the maps the source says a lobby
+has a picture for. A play folder only ever gains the pack somebody baked, and the lobby
+does not complain about a map it has no record for: it draws an empty panel. A folder
+whose pack was baked before the three race courses existed therefore shipped every
+course with no picture and nothing said so. --check reads the pack's own header and
+records (magic MAPPREV1, the format above) and refuses any map the manifest lists that
+the pack does not carry; game/make-build.sh rebakes on that refusal and fails the build
+if the rebake does not cure it, and both packagers ask the same question of what they
+are about to zip.
 """
 
 import argparse
@@ -183,6 +302,9 @@ TERRAIN = os.path.join(ROOT, "tools", "bakery", "sharecopy", "assets", "terrain"
 DOSDATA = os.path.join(ROOT, "data", "dosdata")
 OUT = os.path.join(ROOT, "game", "mappreview.pack")
 
+MANIFEST = os.path.join(ROOT, "game", "mappreview.manifest.json")
+N64_TERRAIN = os.path.join(TERRAIN, "n64_terrain.py")
+
 MAGIC = b"MAPPREV1"
 VERSION = 1
 FRAME_W = 120
@@ -192,7 +314,7 @@ MAX_STARTS = 26          # the size of the engine's own compacted waypoint array
 CELL_PX = 24             # the atlas is 24 texels per cell, display.h ICON_PIXEL_W
 
 # The nine retail multiplayer scenarios off the 1995 disc, in disc order.
-DEFAULT_SCENARIOS = ["SCM%02dEA" % n for n in range(1, 10)]
+RETAIL_SCENARIOS = ["SCM%02dEA" % n for n in range(1, 10)]
 
 # cnc_eyes.cpp: the flat colour the in-game radar paints a water cell with, and the
 # fallback mean colour it gives a cell that is nothing but hole. Reused here so the
@@ -236,6 +358,31 @@ START_GROUND_CLEARANCE = 90    # euclidean in RGB from each theater's mean groun
 # marker that still reads as a deliberate mark rather than a speck of terrain.
 MARK_RIM = 3
 MARK_FILL = 2
+
+# ---- race courses (see RACE COURSES at the top) ----
+# odata.cpp: the engine's five wall overlays, by their INI names.
+WALL_TYPES = ("SBAG", "CYCL", "BRIK", "BARB", "WOOD")
+# The wall legend. It is palette entry 48 exactly, a pale sand, so a wall pixel is this
+# index with no quantisation in between.
+WALL_RGB = (244, 212, 148)
+# The lobby that draws these previews puts its own start markers and labels on them,
+# in colours it keeps in menu/doslobby.c rather than in this pack: each start in its
+# holder's seat colour (SK_PLAYER_COLOUR), an unheld one in SK_START_IDLE, every one
+# rimmed in SK_START_RIM, and its number in the palette's whitest entry. The wall legend
+# is checked against those, read out of that file, so a seat colour changed there is a
+# bake that stops here rather than a wall that quietly looks like a player.
+LOBBY_SOURCE = os.path.join(ROOT, "menu", "doslobby.c")
+# The checkered start and finish lines: this many pixels across, in one-pixel squares.
+COURSE_LINE_PX = 2
+# rly_draw_ground: the start line stands this far ahead of the foremost grid slot, and
+# reaches this far past the grid on either side, both in cells.
+START_LINE_AHEAD = 0.75
+START_LINE_MARGIN = 0.75
+# rally_internal.h MAX_GRID: Grid0..Grid7, read until the first one missing or malformed.
+MAX_GRID = 8
+LEPTONS_PER_CELL = 256
+# rally.cpp LEPTON_LIMIT: Read_Ints refuses a number outside -limit..limit.
+LEPTON_LIMIT = 1 << 20
 
 
 def die(msg):
@@ -308,23 +455,23 @@ def nearest_index(rgb, lut):
     return int(lut[((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)])
 
 
-def ground_colours():
-    """The mean opaque colour of every theater atlas in the terrain directory. This is
+def ground_colours(atlases):
+    """The mean opaque colour of the theater atlases used by this bake. This is
     what "the ground" is, measured rather than guessed, and it is what a start marker
     has to stand out from."""
     import numpy as np
     from PIL import Image
     out = {}
     for f in sorted(os.listdir(TERRAIN)):
-        if not f.endswith("_tiles.png"):
+        if f not in atlases:
             continue
         a = np.asarray(Image.open(os.path.join(TERRAIN, f)).convert("RGBA"))
         op = a[a[:, :, 3] >= 128][:, :3].astype(float)
         if not len(op):
             die("%s has no opaque texels at all" % f)
         out[f[:-len("_tiles.png")]] = [int(round(v)) for v in op.mean(axis=0)]
-    if not out:
-        die("no <THEATER>_tiles.png in %s" % TERRAIN)
+    if len(out) != len(atlases):
+        die("missing theater atlas in %s: %s" % (TERRAIN, sorted(atlases)))
     return out
 
 
@@ -413,6 +560,34 @@ def ini_sections(text):
     return out
 
 
+def course_scenarios():
+    """Every scenario in game/missions whose INI has a [Rally] section, sorted. These
+    are the race courses the skirmish list offers beside the retail maps, so a bake run
+    with no scenario named covers them too: a course added to game/missions gets its
+    preview from the same command, and a release bake cannot leave one out."""
+    found = []
+    for fn in sorted(os.listdir(MISSIONS)):
+        stem, ext = os.path.splitext(fn)
+        if ext != ".INI":
+            continue
+        with open(os.path.join(MISSIONS, fn), errors="replace") as fh:
+            if "RALLY" in ini_sections(fh.read()):
+                found.append(stem)
+    return found
+
+
+# Maps a game mode adds to the skirmish list that are neither retail nor race courses:
+# Pitfall Quarter, the Gun Game arena.
+MODE_SCENARIOS = ["SCM92EA"]
+
+
+def default_scenarios():
+    """The run with no scenario named: the nine retail maps, the game modes' own maps,
+    then every race course."""
+    fixed = RETAIL_SCENARIOS + MODE_SCENARIOS
+    return fixed + [s for s in course_scenarios() if s not in fixed]
+
+
 def kv(lines):
     out = {}
     for line in lines:
@@ -480,7 +655,102 @@ def read_ini(scen):
                     % (scen, o.group(1)))
             tib[int(m.group(1))] = kind
     return {"scenario": scen, "name": name, "theater": theater, "rect": rect,
-            "starts": starts, "tiberium": tib}
+            "starts": starts, "tiberium": tib, "rally": read_rally(scen, secs)}
+
+
+def read_rally(scen, secs):
+    """The [Rally] lines the preview draws, or None for a map that is not a race course.
+
+    Read with the engine's own rules (rally.cpp Rally_Read_INI and Read_Ints): keys are
+    case-insensitive; a value is comma-separated integers, each within LEPTON_LIMIT, with
+    anything after the last one ignored; a course point is P000 or P0. Where the engine
+    refuses the course (Finish or P000 missing or malformed, anything off the map, no
+    grid slot at all) this stops too, rather than drawing a guess. Where the engine is
+    lenient this is lenient the same way: the grid is Grid0 upwards and ends at the
+    first slot that is missing or malformed, and GridFacing is INIClass::Get_Int's
+    reading of whatever is there."""
+    if "RALLY" not in secs:
+        return None
+    keys = {}
+    for line in secs["RALLY"]:
+        if "=" in line:
+            k, v = line.split("=", 1)
+            keys[k.strip().upper()] = v.split(";", 1)[0].strip()
+
+    def ints(key, count, alt=None):
+        """The engine's Read_Ints: None when the key is absent or empty, "malformed"
+        when it does not hold `count` integers within LEPTON_LIMIT, else the list."""
+        raw = keys.get(key.upper(), "")
+        if not raw and alt:
+            raw = keys.get(alt.upper(), "")
+        if not raw:
+            return None
+        m = re.match(r"^[ \t]*" + r"[ \t]*,[ \t]*".join([r"([-+]?\d+)"] * count), raw)
+        if not m:
+            return "malformed"
+        v = [int(g) for g in m.groups()]
+        if any(abs(n) > LEPTON_LIMIT for n in v):
+            return "malformed"
+        return v
+
+    def needed(key, count, what, alt=None):
+        v = ints(key, count, alt)
+        if v is None or v == "malformed":
+            why = "is missing" if v is None else \
+                "is not %d comma-separated integers within %d" % (count, LEPTON_LIMIT)
+            die("%s.INI [Rally] %s %s; the race refuses this course" % (scen, what, why))
+        return v
+
+    def in_map(x, y, what):
+        if not (0 <= x < 64 * LEPTONS_PER_CELL and 0 <= y < 64 * LEPTONS_PER_CELL):
+            die("%s.INI [Rally] %s (%d,%d) is off the map; the race refuses this course"
+                % (scen, what, x, y))
+
+    finish = needed("Finish", 4, "Finish")
+    in_map(finish[0], finish[1], "Finish")
+    in_map(finish[2], finish[3], "Finish")
+
+    grid = []
+    for i in range(MAX_GRID):
+        g = ints("Grid%d" % i, 2)
+        if g is None or g == "malformed":
+            break
+        in_map(g[0], g[1], "Grid%d" % i)
+        grid.append(tuple(g))
+    if not grid:
+        die("%s.INI [Rally] has no usable Grid0; the race refuses this course" % scen)
+
+    p0 = needed("P000", 3, "P000, the first course point,", alt="P0")
+    in_map(p0[0], p0[1], "P000")
+    if not 0 < p0[2] <= 64 * LEPTONS_PER_CELL:
+        die("%s.INI [Rally] P000's half width %d is out of range; the race refuses this "
+            "course" % (scen, p0[2]))
+
+    walls = set()
+    for line in secs.get("OVERLAY", []):
+        m = re.match(r"^(\d+)\s*=\s*(\S+)\s*$", line)
+        if m and m.group(2).upper() in WALL_TYPES:
+            walls.add(int(m.group(1)))
+    return {"finish": tuple(finish), "grid": grid,
+            "facing": ini_get_int(keys.get("GRIDFACING", ""), 0) & 255,
+            "first_half_width": p0[2], "walls": sorted(walls)}
+
+
+def ini_get_int(raw, default):
+    """INIClass::Get_Int on one value: "$1F" and "1Fh" are hexadecimal, anything else is
+    atoi's reading (leading blanks, a sign, the digits up to the first non-digit, and 0
+    when there are none); an absent or empty value is the default."""
+    raw = raw.strip()
+    if not raw:
+        return default
+    if raw.startswith("$"):
+        m = re.match(r"^\$([0-9A-Fa-f]+)", raw)
+        return int(m.group(1), 16) if m else default
+    if raw[-1] in "hH":
+        m = re.match(r"^[ \t]*([0-9A-Fa-f]+)", raw)
+        return int(m.group(1), 16) if m else default
+    m = re.match(r"^[ \t]*([-+]?\d+)", raw)
+    return int(m.group(1)) if m else 0
 
 
 # ---------------------------------------------------------------------------
@@ -490,10 +760,15 @@ def read_ini(scen):
 def read_terrain(scen):
     path = os.path.join(TERRAIN, "terrain_%s.json" % scen)
     if not os.path.exists(path):
+        if os.path.exists(os.path.join(TERRAIN, "..", "extracted", "MAP", scen + ".MAP")):
+            tool = os.path.relpath(os.path.join(TERRAIN, "n64_terrain.py"), ROOT)
+            how = "python3 %s %s" % (tool, scen)
+        else:
+            how = "sh tools/stage-skirmish-maps.sh %s" % scen
         die("no %s.\n"
             "       That file is the resolved terrain, and it is a regenerated\n"
             "       intermediate rather than tracked data. Make it with:\n"
-            "           sh tools/stage-skirmish-maps.sh %s" % (path, scen))
+            "           %s" % (path, how))
     with open(path) as fh:
         t = json.load(fh)
     if t.get("tileSize") != CELL_PX:
@@ -509,13 +784,19 @@ def read_terrain(scen):
     return t, atlas
 
 
-def load_tiberium():
+def load_tiberium(explicit=None):
     """The tiberium overlay art out of dostib.pack, as 12 kinds x 12 stages of 24x24
     RGBA. Format is bake_dostiberium.py's own, read here with a parser that knows only
-    what that file's header comment documents."""
+    what that file's header comment documents. `explicit` (--tib) names the pack to
+    read, which a build passes so the pictures are made from the pack it ships."""
     import numpy as np
-    cands = [os.path.join(ROOT, "game", "dostib.pack"),
-             os.path.join(ROOT, "playable", "dostib.pack")]
+    if explicit:
+        if not os.path.exists(explicit):
+            die("no dostib.pack at %s (--tib)" % explicit)
+        cands = [explicit]
+    else:
+        cands = [os.path.join(ROOT, "game", "dostib.pack"),
+                 os.path.join(ROOT, "playable", "dostib.pack")]
     path = next((p for p in cands if os.path.exists(p)), None)
     if path is None:
         die("no dostib.pack in game/ or playable/. The preview composites the REAL\n"
@@ -547,7 +828,7 @@ def load_tiberium():
         for stage in range(frames):
             sh, x0, y0 = slots[kind * frames + stage]
             art[(kind, stage)] = sheets[sh][y0:y0 + fh, x0:x0 + fw, :]
-    return art, os.path.relpath(path, ROOT), types, frames
+    return art, os.path.relpath(os.path.abspath(path), ROOT), types, frames
 
 
 def render_full(ini, terr, atlas_path, tib_art):
@@ -642,6 +923,189 @@ def stamp_start(plane, px, py, colour, black):
             if x < 0 or y < 0 or x >= FRAME_W or y >= FRAME_H:
                 continue
             plane[y][x] = colour if d <= MARK_FILL else black
+
+
+def checker_strip(plane, img, a, b, width, black, white):
+    """A strip of one-pixel black and white squares `width` pixels across, centred on the
+    segment a-b (frame pixels, fractional). A pixel belongs to the strip when its centre
+    does. Its square is counted from the segment's start along it and from one edge
+    across it, the way rly_checker_strip counts its squares, and is black when the two
+    counts add up to an even number and white when odd, as there. Clipped to the map's
+    own rectangle, so the margin stays index 0."""
+    import math
+    ix, iy, iw, ih = img
+    ax, ay = a
+    dx, dy = b[0] - ax, b[1] - ay
+    length = math.hypot(dx, dy)
+    if length < 0.5:
+        return 0
+    ux, uy = dx / length, dy / length
+    nx, ny = -uy, ux
+    half = width / 2.0
+    painted = 0
+    x_lo = max(ix, int(math.floor(min(ax, b[0]) - width)))
+    x_hi = min(ix + iw - 1, int(math.ceil(max(ax, b[0]) + width)))
+    y_lo = max(iy, int(math.floor(min(ay, b[1]) - width)))
+    y_hi = min(iy + ih - 1, int(math.ceil(max(ay, b[1]) + width)))
+    for y in range(y_lo, y_hi + 1):
+        for x in range(x_lo, x_hi + 1):
+            px, py = x + 0.5 - ax, y + 0.5 - ay
+            along = px * ux + py * uy
+            across = px * nx + py * ny
+            if 0.0 <= along < length and -half <= across < half:
+                odd = (int(math.floor(along)) + int(math.floor(across + half))) & 1
+                plane[y, x] = white if odd else black
+                painted += 1
+    return painted
+
+
+def start_line(course):
+    """The start line's two ends in cells, built as rly_draw_ground builds it: across the
+    grid's facing, START_LINE_AHEAD ahead of the foremost slot, centred on the grid, as
+    wide as the grid plus START_LINE_MARGIN a side or the first course point's half
+    width, whichever is wider. DirType 0 is north and the map's y grows southwards."""
+    import math
+    ang = course["facing"] * 2.0 * math.pi / 256.0
+    fx, fy = math.sin(ang), -math.cos(ang)           # the way the grid faces
+    sx, sy = -fy, fx                                 # across it
+    grid = [(gx / float(LEPTONS_PER_CELL), gy / float(LEPTONS_PER_CELL))
+            for gx, gy in course["grid"]]
+    front = max(gx * fx + gy * fy for gx, gy in grid)
+    lo = min(gx * sx + gy * sy for gx, gy in grid)
+    hi = max(gx * sx + gy * sy for gx, gy in grid)
+    mx = sum(g[0] for g in grid) / len(grid)
+    my = sum(g[1] for g in grid) / len(grid)
+    hw = max(0.5 * (hi - lo) + START_LINE_MARGIN,
+             course["first_half_width"] / float(LEPTONS_PER_CELL))
+    along = front + START_LINE_AHEAD - (mx * fx + my * fy)
+    cx, cy = mx + fx * along, my + fy * along
+    return (cx - sx * hw, cy - sy * hw), (cx + sx * hw, cy + sy * hw)
+
+
+def draw_course(plane, ini, img, wall, black, white):
+    """The race course over the quantised ground, in place: walls, then the two
+    checkered lines over them, then the grid. Returns what was drawn, for the
+    manifest."""
+    course = ini["rally"]
+    x0, y0, cw, ch = ini["rect"]
+    ix, iy, iw, ih = img
+
+    def frame_xy(cell_x, cell_y):
+        return (ix + (cell_x - x0) * iw / float(cw), iy + (cell_y - y0) * ih / float(ch))
+
+    # The walls: a pixel is a wall pixel when the cell under its centre is a wall cell.
+    # Integer arithmetic, so the cell is exact: pixel p's centre is p + 1/2, which is
+    # cell x0 + (2p + 1) * cw / (2 * iw), rounded down.
+    import numpy as np
+    is_wall = np.zeros((64, 64), dtype=bool)
+    shown = 0
+    for cell in course["walls"]:
+        cx, cy = cell % 64, cell // 64
+        if x0 <= cx < x0 + cw and y0 <= cy < y0 + ch:
+            is_wall[cy, cx] = True
+            shown += 1
+    col = x0 + ((2 * np.arange(iw) + 1) * cw) // (2 * iw)
+    row = y0 + ((2 * np.arange(ih) + 1) * ch) // (2 * ih)
+    mask = is_wall[row[:, None], col[None, :]]
+    # Every wall cell must own at least one pixel centre, or a wall would vanish. At
+    # this frame size a cell is about two pixels, so this only trips if the frame or
+    # the map size changes.
+    owned = set(zip(row[np.nonzero(mask)[0]].tolist(), col[np.nonzero(mask)[1]].tolist()))
+    if len(owned) != shown:
+        die("%s: %d wall cells but only %d of them own a pixel at this scale"
+            % (ini["scenario"], shown, len(owned)))
+    plane[iy:iy + ih, ix:ix + iw][mask] = wall
+
+    f = course["finish"]
+    L = float(LEPTONS_PER_CELL)
+    fin = checker_strip(plane, img, frame_xy(f[0] / L, f[1] / L),
+                        frame_xy(f[2] / L, f[3] / L), COURSE_LINE_PX, black, white)
+    sa, sb = start_line(course)
+    sta = checker_strip(plane, img, frame_xy(*sa), frame_xy(*sb), COURSE_LINE_PX,
+                        black, white)
+    if not fin or not sta:
+        die("%s: the %s line drew no pixel" % (ini["scenario"],
+                                               "finish" if not fin else "start"))
+
+    grid_px = []
+    for gx, gy in course["grid"]:
+        px, py = frame_xy(gx / L, gy / L)
+        px, py = int(px), int(py)
+        if ix <= px < ix + iw and iy <= py < iy + ih:
+            plane[py, px] = black
+            grid_px.append([px, py])
+    return {"wall_cells": len(course["walls"]), "wall_cells_shown": shown,
+            "finish_leptons": list(f), "finish_pixels": fin,
+            "start_line_cells": [round(v, 3) for v in sa + sb], "start_pixels": sta,
+            "grid_facing": course["facing"], "grid_slots": len(course["grid"]),
+            "grid_pixels": grid_px}
+
+
+def lobby_marker_colours(pal8):
+    """The palette entries the lobby draws its own start markers and labels in, read
+    out of menu/doslobby.c: the eight seat colours, the idle start, the marker rim, and
+    the label ink, which sk_start_ink finds as the entry whose darkest channel is the
+    brightest. Returned as {name: index}."""
+    try:
+        src = open(LOBBY_SOURCE, errors="replace").read()
+    except OSError as exc:
+        die("cannot read %s, where the lobby keeps its marker colours (%s)"
+            % (LOBBY_SOURCE, exc))
+    m = re.search(r"SK_PLAYER_COLOUR\[(\d+)\]\s*=\s*\{([^}]*)\}", src)
+    if not m:
+        die("%s has no SK_PLAYER_COLOUR table; the wall legend cannot be checked "
+            "against the lobby's seat colours" % LOBBY_SOURCE)
+    # The table's own comments carry RGB triples; only what is outside them counts.
+    body = re.sub(r"/\*.*?\*/", " ", m.group(2), flags=re.S)
+    seats = [int(v) for v in re.findall(r"\d+", body)]
+    if len(seats) != int(m.group(1)) or not all(0 < v < 256 for v in seats):
+        die("%s SK_PLAYER_COLOUR does not read as %s palette indices: %r"
+            % (LOBBY_SOURCE, m.group(1), seats))
+    out = {"seat%d" % n: v for n, v in enumerate(seats)}
+    for name in ("SK_START_IDLE", "SK_START_RIM"):
+        d = re.search(r"^#define\s+%s\s+(\d+)\b" % name, src, flags=re.M)
+        if not d:
+            die("%s has no #define %s" % (LOBBY_SOURCE, name))
+        out[name] = int(d.group(1))
+    out["start_ink"] = max(range(256), key=lambda i: (min(pal8[i * 3:i * 3 + 3]), -i))
+    return out
+
+
+def check_wall_legend(pal8, lut, grounds, start_idxs, tib_index, black, white):
+    """The wall legend's claims, checked: an exact palette entry; not green; not the same
+    entry as the tiberium legend, a start colour, or the lines' black or white; at least
+    START_MIN_SEPARATION from every colour the lobby marks a start with; and clear of
+    every theater's mean ground in this run by the start markers' own clearance.
+
+    The bake's own start colours need only be different entries: a course's marked
+    plane carries no diamonds, so no start colour of this pack is ever drawn beside a
+    wall. The colours that are drawn beside one are the lobby's, which is why those are
+    held to the distance."""
+    import math
+    wall = nearest_index(WALL_RGB, lut)
+    got = tuple(pal8[wall * 3:wall * 3 + 3])
+    if got != WALL_RGB:
+        die("WALL_RGB %r is not a palette entry (nearest is %d, %r)"
+            % (WALL_RGB, wall, got))
+    r, g, b = WALL_RGB
+    if g > r + 24 and g > b + 24:
+        die("the wall legend %r is green, which is reserved for tiberium" % (WALL_RGB,))
+    if wall in start_idxs or wall in (tib_index, black, white, 0):
+        die("the wall legend resolves to index %d, which is already taken" % wall)
+    lobby = lobby_marker_colours(pal8)
+    lobby["tiberium"] = tib_index
+    apart = {k: round(math.dist(WALL_RGB, pal8[v * 3:v * 3 + 3]), 1)
+             for k, v in lobby.items()}
+    near = min(apart, key=apart.get)
+    if apart[near] < START_MIN_SEPARATION:
+        die("the wall legend %r is %.1f from the lobby's %s (index %d), closer than %d"
+            % (WALL_RGB, apart[near], near, lobby[near], START_MIN_SEPARATION))
+    clear = {k: int(round(sum((WALL_RGB[n] - v[n]) ** 2 for n in range(3)) ** 0.5))
+             for k, v in grounds.items()}
+    if min(clear.values()) < START_GROUND_CLEARANCE:
+        die("the wall legend %r is within %d of a theater's mean ground: %r"
+            % (WALL_RGB, START_GROUND_CLEARANCE, clear))
+    return wall, clear, apart
 
 
 # ---------------------------------------------------------------------------
@@ -903,25 +1367,118 @@ def write_proof(path, maps, pal8, scale=3):
         d.text((cx + 8, cy + FRAME_H * scale + 12),
                "%s  %s" % (m["scenario"], m["name"]), fill=(230, 230, 230))
         d.text((cx + 8, cy + FRAME_H * scale + 24),
-               "%s  %dx%d cells  %d starts  %d tiberium cells"
+               "%s  %dx%d cells  %d starts  %d tiberium cells%s"
                % (m["theater"], m["rect"][2], m["rect"][3],
-                  len(m["starts"]), m["tiberium"]), fill=(150, 150, 150))
+                  len(m["starts"]), m["tiberium"],
+                  "  race course, %d wall cells" % m["course"]["wall_cells_shown"]
+                  if m["course"] else ""), fill=(150, 150, 150))
     sheet.save(path)
     return sheet.size
 
 
 # ---------------------------------------------------------------------------
 
+def pack_scenarios(path):
+    """The scenario of every record in a built pack, in record order, read from the pack's
+    own header with nothing but the format comment at the top of this file. A file that is
+    not a MAPPREV1 pack of this version, or whose length disagrees with its own header,
+    is refused rather than half read."""
+    try:
+        blob = open(path, "rb").read()
+    except OSError as exc:
+        die("cannot read %s (%s)" % (path, exc.strerror))
+    if len(blob) < 8 + 5 * 4 or blob[:8] != MAGIC:
+        die("%s is not a %s pack" % (path, MAGIC.decode()))
+    ver, count, fw, fh, ms = struct.unpack_from("<5I", blob, 8)
+    if ver != VERSION:
+        die("%s is format version %d; this reader knows %d" % (path, ver, VERSION))
+    record = 12 + 24 + 12 + 8 + 8 + 4 + ms * 10 + 2 * fw * fh
+    if len(blob) != HEADER_BYTES + count * record:
+        die("%s is %d bytes; its header (%d records of %d) says %d"
+            % (path, len(blob), count, record, HEADER_BYTES + count * record))
+    return [blob[HEADER_BYTES + i * record:HEADER_BYTES + i * record + 12]
+            .split(b"\x00")[0].decode("ascii", "replace") for i in range(count)]
+
+
+def manifest_scenarios(path):
+    try:
+        with open(path) as fh:
+            man = json.load(fh)
+    except (OSError, ValueError) as exc:
+        die("cannot read the manifest %s (%s)" % (path, exc))
+    scens = [m.get("scenario") for m in man.get("maps", [])]
+    if not scens or not all(scens):
+        die("%s lists no maps" % path)
+    return scens
+
+
+def check_pack(path, manifest):
+    """--check: every map the committed manifest lists must have a record in the pack.
+    Extra records are allowed (a course added in a working copy before its manifest is
+    committed); a missing one is the empty lobby panel this exists to stop."""
+    want = manifest_scenarios(manifest)
+    have = pack_scenarios(path)
+    missing = [s for s in want if s not in have]
+    if missing:
+        print("MAPPREVIEW|STALE|%s carries %d previews and lacks %d of the %d the "
+              "manifest lists: %s" % (path, len(have), len(missing), len(want),
+                                      " ".join(missing)))
+        print("  rebake it:  python3 tools/bake_map_previews.py --resolve-terrain "
+              "--out <pack>   (game/make-build.sh does this on its own)")
+        return 1
+    print("MAPPREVIEW|OK|%s carries all %d previews the manifest lists (%d records)"
+          % (path, len(want), len(have)))
+    return 0
+
+
+def resolve_terrain(scenarios):
+    """--resolve-terrain: make terrain_<SCEN>.json for every scenario in the run that has
+    none, with n64_terrain.py, from the tracked extracted .MAP and .INI. A scenario with
+    no .MAP is left for read_terrain to refuse with its own message."""
+    todo = [s for s in scenarios
+            if not os.path.exists(os.path.join(TERRAIN, "terrain_%s.json" % s))
+            and os.path.exists(os.path.join(TERRAIN, "..", "extracted", "MAP", s + ".MAP"))]
+    if not todo:
+        return
+    import subprocess
+    print("resolving terrain for %s" % " ".join(todo))
+    r = subprocess.run([sys.executable, N64_TERRAIN] + todo, cwd=ROOT,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if r.returncode != 0:
+        sys.stderr.write(r.stdout)
+        die("n64_terrain.py %s failed" % " ".join(todo))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     ap.add_argument("scenarios", nargs="*", default=None,
-                    help="scenario codes; default is the nine retail skirmish maps")
+                    help="scenario codes; default is the nine retail skirmish maps, "
+                         "the game modes' own maps and every race course in game/missions")
     ap.add_argument("--out", default=OUT)
     ap.add_argument("--png", metavar="DIR", help="also write plain PNGs, 1:1 and 4:1")
     ap.add_argument("--proof", metavar="FILE", help="write a labelled contact sheet")
     ap.add_argument("--verify", action="store_true",
                     help="check the ground against n64_terrain.py's proof renders")
+    ap.add_argument("--check", metavar="PACK",
+                    help="refuse a built pack that lacks a map the manifest lists")
+    ap.add_argument("--manifest", default=MANIFEST,
+                    help="the manifest --check reads (default: the committed one)")
+    ap.add_argument("--list", action="store_true",
+                    help="print the scenarios a bake with none named covers")
+    ap.add_argument("--resolve-terrain", action="store_true",
+                    help="make a missing terrain_<SCEN>.json with n64_terrain.py first")
+    ap.add_argument("--tib", metavar="PACK",
+                    help="the dostib.pack to read (default game/, then playable/)")
     a = ap.parse_args()
+
+    # The two read-only questions answer and stop, and need neither numpy nor Pillow.
+    if a.check:
+        if a.scenarios or a.png or a.proof or a.verify or a.list:
+            die("--check reads a built pack and stops; run it on its own")
+        sys.exit(check_pack(a.check, a.manifest))
+    if a.list:
+        print("\n".join(a.scenarios or default_scenarios()))
+        return
 
     try:
         import numpy  # noqa: F401
@@ -940,7 +1497,9 @@ def main():
 
     import numpy as np
 
-    scenarios = a.scenarios or DEFAULT_SCENARIOS
+    scenarios = a.scenarios or default_scenarios()
+    if a.resolve_terrain:
+        resolve_terrain(scenarios)
 
     pal6, pal8 = load_menu_palette()
     lut = build_pal_lut(pal8)
@@ -951,7 +1510,7 @@ def main():
     inis = [read_ini(scen) for scen in scenarios]
     need = max(max(len(i["starts"]) for i in inis), START_COUNT)
 
-    grounds = ground_colours()
+    grounds = ground_colours({os.path.basename(read_terrain(s)[1]) for s in scenarios})
     colours, separation = pick_start_colours(pal8, grounds, need)
     idxs = [c["index"] for c in colours]
     if black in idxs:
@@ -960,7 +1519,16 @@ def main():
     if tib_index in idxs:
         die("a start colour is the tiberium legend colour (index %d)" % tib_index)
 
-    tib_art, tib_path, tib_types, tib_frames = load_tiberium()
+    tib_art, tib_path, tib_types, tib_frames = load_tiberium(a.tib)
+
+    # The course legend is checked only when a course is in the run: a run of battle maps
+    # draws no course and has no business failing over a legend it never uses.
+    white = nearest_index((252, 252, 252), lut)
+    courses = [i["scenario"] for i in inis if i["rally"]]
+    wall_index = wall_clear = wall_apart = None
+    if courses:
+        wall_index, wall_clear, wall_apart = check_wall_legend(pal8, lut, grounds, idxs,
+                                                               tib_index, black, white)
 
     maps = []
     for ini in inis:
@@ -988,6 +1556,15 @@ def main():
             die("%s: %d pixels inside the map quantised to index 0, the transparent "
                 "one" % (scen, int((inner == 0).sum())))
 
+        course = None
+        if ini["rally"]:
+            course = draw_course(plane, ini, img, wall_index, black, white)
+            inner = plane[iy:iy + ih, ix:ix + iw]
+            if (inner == 0).any() or plane[:iy, :].any() or plane[iy + ih:, :].any() \
+                    or plane[:, :ix].any() or plane[:, ix + iw:].any():
+                die("%s: the course drew index 0 inside the map or paint outside it"
+                    % scen)
+
         plain = plane.tolist()
         marked = [row[:] for row in plain]
 
@@ -1001,13 +1578,16 @@ def main():
             px = ix + int((cx - x0 + 0.5) * iw / float(cw))
             py = iy + int((cy - y0 + 0.5) * ih / float(chh))
             col = colours[n]["index"]
-            stamp_start(marked, px, py, col, black)
+            # On a course the grid is the start marker; see RACE COURSES at the top.
+            if course is None:
+                stamp_start(marked, px, py, col, black)
             starts.append((cx, cy, px, py, col))
 
         maps.append({
             "scenario": scen, "name": ini["name"], "theater": ini["theater"],
             "rect": list(ini["rect"]), "img": list(img), "starts": starts,
             "tiberium": len(ini["tiberium"]), "hole_cells": hole_cells,
+            "course": course,
             "plain": np.asarray(plain, dtype=np.uint8).tobytes(),
             "marked": np.asarray(marked, dtype=np.uint8).tobytes(),
         })
@@ -1015,6 +1595,12 @@ def main():
               "%2d starts  %4d tiberium  %4d water cells"
               % (scen, ini["name"][:18], ini["theater"], x0, y0, cw, chh,
                  iw, ih, ix, iy, len(starts), len(ini["tiberium"]), hole_cells))
+        if course:
+            print("           race course: %d wall cells, finish %d px, "
+                  "start line %d px, %d grid slots facing %d"
+                  % (course["wall_cells_shown"], course["finish_pixels"],
+                     course["start_pixels"], course["grid_slots"],
+                     course["grid_facing"]))
 
     size = write_pack(a.out, pal6, pal8, maps)
     n = readback(a.out, maps)
@@ -1047,13 +1633,31 @@ def main():
         "marker": {"shape": "diamond", "rim_radius": MARK_RIM,
                    "fill_radius": MARK_FILL, "rim_index": black},
         "not_drawn": ["TERRAIN", "SMUDGE", "STRUCTURES", "UNITS", "INFANTRY"],
-        "maps": [{"scenario": m["scenario"], "name": m["name"],
-                  "theater": m["theater"], "cell_rect": m["rect"],
-                  "image_rect": m["img"], "starts": len(m["starts"]),
-                  "start_cells": [[s[0], s[1]] for s in m["starts"]],
-                  "tiberium_cells": m["tiberium"],
-                  "cells_touching_water": m["hole_cells"]} for m in maps],
+        "maps": [dict({"scenario": m["scenario"], "name": m["name"],
+                       "theater": m["theater"], "cell_rect": m["rect"],
+                       "image_rect": m["img"], "starts": len(m["starts"]),
+                       "start_cells": [[s[0], s[1]] for s in m["starts"]],
+                       "tiberium_cells": m["tiberium"],
+                       "cells_touching_water": m["hole_cells"]},
+                      **({"race_course": m["course"]} if m["course"] else {}))
+                 for m in maps],
     }
+    if courses:
+        manifest["race_course_legend"] = {
+            "courses": courses,
+            "wall_overlays": list(WALL_TYPES),
+            "wall_rgb": list(WALL_RGB), "wall_index": wall_index,
+            "wall_clearance_from_ground": wall_clear,
+            "wall_distance_from_lobby_markers": wall_apart,
+            "lines": "checkered, %d px across in 1 px squares, black index %d and white "
+                     "index %d" % (COURSE_LINE_PX, black, white),
+            "start_line": "rly_draw_ground's construction: %.2f cells ahead of the "
+                          "grid, %.2f cells past it a side, or P000's half width"
+                          % (START_LINE_AHEAD, START_LINE_MARGIN),
+            "grid_slot": "one pixel, index %d" % black,
+            "marked_plane": "the same as plain: no start diamonds on a course",
+            "not_drawn": ["course centre line", "defences", "crate spots"],
+        }
     mpath = os.path.splitext(a.out)[0] + ".manifest.json"
     with open(mpath, "w") as fh:
         json.dump(manifest, fh, indent=1, sort_keys=True)

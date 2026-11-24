@@ -33,17 +33,21 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VERSION = "2"
+VERSION = "3"
 
 # (script file, mission, width, height, what the player is told, renderer). A renderer
 # other than cnc_eyes.exe is optional: its runs are skipped when the file is not in the
-# folder, so the same probe serves a plain install and a test build that ships a variant
-# (cnc_eyes_sse2.exe: the renderer compiled for SSE2 floating point instead of x87).
+# folder, so the same probe serves a plain install and a test build that ships a variant.
+#
+# THE x87 AGAINST SSE2 COMPARISON IS RETIRED. Version 2 of the probe also ran
+# cnc_eyes_sse2.exe, the 32-bit renderer compiled for SSE2 floating point instead of x87,
+# beside the shipped one. Windows builds are now 64-bit only, and x86-64 has SSE2 as its
+# one floating-point unit, so there is no second renderer left to compare and no build
+# ships one. Version 3 measures the shipped renderer on the same two scenes. Logs from
+# version 2 that carry "the SSE2 renderer" runs belong to the 32-bit builds.
 RUNS = [
     ("perfprobe-main.txt",   "SCG01EA", 1920, 1080, "GDI mission 1, the shipped renderer", "cnc_eyes.exe"),
-    ("perfprobe-main.txt",   "SCG01EA", 1920, 1080, "GDI mission 1, the SSE2 renderer", "cnc_eyes_sse2.exe"),
     ("perfprobe-bigmap.txt", "SCG10EA", 1920, 1080, "a large map and a battle, the shipped renderer", "cnc_eyes.exe"),
-    ("perfprobe-bigmap.txt", "SCG10EA", 1920, 1080, "a large map and a battle, the SSE2 renderer", "cnc_eyes_sse2.exe"),
 ]
 # --cache-ab: the same renderer with the ground cache (terrain_cache.h) on and then off,
 # for a test build that carries it. A seventh field is an environment setting for that

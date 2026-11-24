@@ -170,8 +170,11 @@ def check(where):
     else:
         say.append('the lamps light %d pixels of two views, %.1f%% of them brighter and none of '
                    'consequence darker, %d red behind' % (tot[0], 100.0 * tot[1] / tot[0], tot[2]))
-    # 4. the headlights' shadows only take light away
-    p = picture(shot('e_a_on'), shot('e_a_nosh'))
+    # 4. the headlights' shadows only take light away. The pair is drawn with the temporal
+    #    anti-aliasing off: its clip of the history at hard edges answers any change of light
+    #    nearby by moving a few edge pixels either way, which is the filter and not the
+    #    shadow, and the light pass is what this claim is about
+    p = picture(shot('e_a_sh'), shot('e_a_nosh'))
     if p is None or p[0] < 300 or p[3] < 0.98 * p[0]:
         bad.append('shadows(%s)' % (p,))
     else:

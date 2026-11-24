@@ -17,6 +17,45 @@ static double rms_db(const short* x, long n, long stride)
     return 10 * log10(sum / n + 1e-9);
 }
 
+/* The near bed leaves gradually as the camera zooms out, one wheel step at a time, on
+   both cameras: the N64 camera's 100 lepton steps over 1920..4200 and the old camera's
+   1.1x steps over 50..20. While the near bed is louder than -20 dB of full (where its
+   top end is plainly heard) no step may take more than 5 dB off it on the N64 camera,
+   or 8 dB on the old camera, whose steps are about twice as wide; it never rises while
+   zooming out; and by the last step before it reaches silence it is below -30 dB, under
+   the far bed. The curve that ended at 0.25 failed all three: -10.5 to -31.2 dB in one
+   N64 step, and -16.4 dB to silence in one step of the old camera. */
+static void zoom_steps(const std::vector<float>& zooms, double maxStep, const char* name)
+{
+    double worst = 0, prev = 1, lastHeard = 0;
+    for (size_t i = 0; i < zooms.size(); ++i) {
+        const double g = sin(ambience_near_mix(zooms[i]) * M_PI / 2);
+        assert(g <= prev + 1e-6);
+        if (i && prev > pow(10.0, -20 / 20.0)) {
+            const double drop = 20 * log10(prev) - 20 * log10(g > 1e-9 ? g : 1e-9);
+            worst = drop > worst ? drop : worst;
+        }
+        if (g > 0) lastHeard = 20 * log10(g);
+        prev = g;
+    }
+    printf("AMBIENCE|zoomsteps|%s|%zu steps|largest step while above -20 dB %.1f dB (limit %.0f)|"
+           "last level before silence %.1f dB\n", name, zooms.size(), worst, maxStep, lastHeard);
+    assert(worst <= maxStep);
+    assert(lastHeard < -30);
+    assert(prev == 0);
+}
+
+static void zoom_fade_is_gradual()
+{
+    std::vector<float> n64, old;
+    for (float d = 1920; d < 4200; d += 100) n64.push_back(ambience_zoom_fraction(d, 1920, 4200));
+    n64.push_back(ambience_zoom_fraction(4200, 1920, 4200));
+    for (float z = 50; z > 20; z /= 1.10f) old.push_back(ambience_zoom_fraction(z, 50, 20));
+    old.push_back(ambience_zoom_fraction(20, 50, 20));
+    zoom_steps(n64, 5, "n64");
+    zoom_steps(old, 8, "old");
+}
+
 /* A crossfaded loop on real mixer output. Noise for the level checks, because the two
    ends of a recording are uncorrelated and that is what equal power is for; a smooth
    signal for the seam check, because on noise a click hides among the steps. */
@@ -235,9 +274,13 @@ int main(int argc, char** argv)
     close_to(ambience_zoom_fraction(27.5f,50,20),.25f);
     close_to(ambience_near_mix(1),1);
     close_to(ambience_near_mix(.5f),1);
+    close_to(ambience_near_mix(.4375f),.75f);
     close_to(ambience_near_mix(.375f),.5f);
-    close_to(ambience_near_mix(.25f),0);
+    close_to(ambience_near_mix(.375f - 1e-4f),.5f - 4e-4f);   // no corner at the crossover
+    assert(ambience_near_mix(.25f) > .15f && ambience_near_mix(.25f) < .2f);
     close_to(ambience_near_mix(0),0);
+    close_to(ambience_near_mix(-1),0);
+    zoom_fade_is_gradual();
     close_to(ambience_river_mix(.5f),1);
     close_to(ambience_river_mix(.25f),.5f);
     close_to(ambience_river_mix(0),0);
@@ -277,6 +320,6 @@ int main(int argc, char** argv)
     crossfaded_loop();
     bed_body();
     if (argc > 1 && real_beds(argv[1])) { puts("AMBIENCE GATE FAIL: a shipped bed"); return 1; }
-    puts("AMBIENCE GATE PASS: camera endpoints/changed limits, crossfades, river attenuation, stereo wrapping, mute phase, ramps, voice protection, crossfaded loop (equal power, no seam, exact period, muted clock), bed body excludes the recording's fades");
+    puts("AMBIENCE GATE PASS: camera endpoints/changed limits, crossfades, gradual near-bed fade per wheel step, river attenuation, stereo wrapping, mute phase, ramps, voice protection, crossfaded loop (equal power, no seam, exact period, muted clock), bed body excludes the recording's fades");
     return 0;
 }

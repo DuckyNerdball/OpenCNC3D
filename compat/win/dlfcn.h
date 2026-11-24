@@ -26,7 +26,9 @@
 #define RTLD_LOCAL  0
 #define RTLD_GLOBAL 0
 
-static char opencnc3d_dl_err[512];
+/* Long enough for both paths a failed load names and the sentence after them, which is
+   the part a player reads and the first to be cut off if this were short. */
+static char opencnc3d_dl_err[1024];
 
 /* Loading the brain: TiberianDawn.dylib does not exist on Windows, and find_brain() in
    cnc_eyes.cpp hardcodes that extension in both of its candidate paths. Rather than edit
@@ -64,15 +66,31 @@ static void* opencnc3d_dlopen(const char* path, int flags)
 
        GetLastError 126 is ERROR_MOD_NOT_FOUND and is worth spelling out, because it
        means either the library or ONE OF ITS OWN DEPENDENCIES is missing, and those two
-       cases look identical from here. */
+       cases look identical from here.
+
+       GetLastError 193 is ERROR_BAD_EXE_FORMAT: the file, or a DLL it needs, was built
+       for the other width of Windows. The text reaches the player in the refusal the
+       game shows when the brain does not load, so it says what to do, not only what
+       happened. For the 64-bit game the cause is a file left behind by an older 32-bit
+       build, and running Setup again installs the 64-bit files over it. */
     if (!h) {
         DWORD e = GetLastError();
+        const char* why = "";
+        if (e == 126)
+            why = " (ERROR_MOD_NOT_FOUND: the file itself, or a DLL it depends"
+                  " on, is not where the loader looked)";
+        else if (e == 193)
+#if defined(_WIN64)
+            why = " (ERROR_BAD_EXE_FORMAT: a file from an older 32-bit build is in the"
+                  " game folder. Run OpenCNC3D Setup again to replace it)";
+#else
+            why = " (ERROR_BAD_EXE_FORMAT: the file, or a DLL it needs, was built for"
+                  " another kind of Windows than this program)";
+#endif
         snprintf(opencnc3d_dl_err, sizeof opencnc3d_dl_err,
                  "LoadLibrary(%s%s%s) failed, GetLastError=%lu%s",
                  path, tried_alt ? " and " : "", tried_alt ? alt : "",
-                 (unsigned long)e,
-                 e == 126 ? " (ERROR_MOD_NOT_FOUND: the file itself, or a DLL it depends"
-                            " on, is not where the loader looked)" : "");
+                 (unsigned long)e, why);
     }
     return (void*)h;
 }

@@ -514,8 +514,13 @@ typedef enum
  *
  * ListClass has no scroll arrows on this build (BTN-UP.SHP and BTN-DN.SHP are baked
  * into no pack, the same gap the jukebox and the Advanced page have), so a list longer
- * than its well scrolls with the wheel and the keys, the way those two do. Sixteen
- * slots plus the empty row is seventeen against a well of thirteen (nine in SAVE).
+ * than its well scrolls with the wheel and the keys, the way those two do. A hundred
+ * slots plus the empty row against a well of thirteen (nine in SAVE).
+ *
+ * WITH EVERY SLOT TAKEN there is no empty row, and SAVE opens with no row chosen and
+ * the Save button greyed until the player picks the save to replace. Opening on the
+ * newest row instead, as an earlier build did, made the next Save go over the last save
+ * without the player ever choosing it.
  * ------------------------------------------------------------------------ */
 #define DOPT_SL_W 250                       /* d_dialog_w    loaddlg.cpp:112 */
 #define DOPT_SL_H 156                       /* d_dialog_h    loaddlg.cpp:113 */
@@ -541,7 +546,8 @@ typedef enum
 #define DOPT_SL_BTN_Y (DOPT_SL_Y + DOPT_SL_H - DOPT_SL_BTN_H - DOPT_SL_MARGIN) /* :137 */
 #define DOPT_SL_CANCEL_X (DOPT_SL_CX + DOPT_SL_MARGIN)             /* :146 */
 #define DOPT_SL_DESCR_MAX 40                /* EditClass(..., game_descr, 40, ...) :199 */
-#define DOPT_SL_ROWS_MAX 17                 /* sixteen slots and the empty row */
+#define DOPT_SL_SLOTS 100                   /* DS_SLOTS, dossave.h: the index's size */
+#define DOPT_SL_ROWS_MAX (DOPT_SL_SLOTS + 1)  /* every slot and the empty row */
 #define DOPT_SL_ROW_TEXT 64                 /* "(GDI) " and a 44 char description */
 
 #define DOPT_SL_EMPTY_S "[EMPTY SLOT]"      /* TXT_EMPTY_SLOT 249 */
@@ -560,11 +566,17 @@ typedef enum
 } DOPT_SlotItem;
 
 /* One row as the host supplies it: the file number and the text to print, which the
-   host builds as "(GDI) description" so the dialog need not know what a house is. */
+   host builds as "(GDI) description" so the dialog need not know what a house is.
+   `disabled` marks a slot this build cannot load (the host's call, dossave.h
+   ds_slot_loadable): Load Mission draws it in the disabled text colour (grey in the
+   Enhanced dialog, gold in the 1996 palette), and the host refuses it with a notice
+   if it is chosen anyway. It is still listed and still chosen like any other row, because
+   saving over it and deleting it stay the player's to do. */
 typedef struct
 {
     int slot;
     char text[DOPT_SL_ROW_TEXT];
+    int disabled;
 } DOPT_SlotRow;
 
 typedef struct
@@ -1117,10 +1129,11 @@ enum { DOPT_PERSP_COUNT = 2 };                  /* Classic, Isometric (v0.6.8)  
 
 typedef enum
 {
-    /* ON, the button that selects, orders and builds becomes the right one and the button
-       that cancels, holds a cameo and navigates the radar becomes the left. OFF by
-       default. The exchange happens at the SDL event boundary and nowhere else. */
-    DOPT_G_SWAPBTN = 0,
+    /* THE MOUSE SCHEME, and the one row here that is not a yes/no: it holds 0 Classic
+       (the default), 1 left-handed (the two buttons exchanged at the SDL event boundary)
+       or 2 Modern (left selects, right orders). A press steps to the next one. The
+       values are FX_MOUSE_* (fx_input.h), which this C89 file does not include. */
+    DOPT_G_MOUSE = 0,
     /* ON, holding the right button and moving past the click threshold PUSHES the view.
        ON by default. OFF, the right button never moves the camera at all. */
     DOPT_G_RPUSH,
@@ -1193,6 +1206,12 @@ typedef struct
 
 #define DOPT_MAX_SPEED 7   /* OptionsClass::MAX_SPEED_SETTING     options.h:44 */
 #define DOPT_MAX_SCROLL 7  /* OptionsClass::MAX_SCROLL_SETTING    options.h:43 */
+/* THE ENHANCED SCROLL SPEEDS GO FURTHER than the 1995 slider did. The first seven steps
+   are the 1995 ones and index 3 is still the default, so a file written by an older build
+   means the same thing; the three steps above them are new, faster than anything the
+   1995 dialog offered. The 1995-style Game Controls slider keeps its seven steps and
+   shows a faster setting at its top. */
+#define DOPT_MAX_SCROLL_EXT 10
 #define DOPT_VOL_MAX 255   /* sounddlg.cpp:231                                 */
 #define DOPT_VOL_THUMB 16  /* sounddlg.cpp:232                                 */
 #define DOPT_VOL_TOP (DOPT_VOL_MAX - DOPT_VOL_THUMB) /* the real top of travel */
@@ -1209,11 +1228,18 @@ typedef struct
 typedef struct
 {
     int speed;      /* 0 .. DOPT_MAX_SPEED-1,  higher is faster  */
-    int scrollrate; /* 0 .. DOPT_MAX_SCROLL-1, higher is faster  */
+    int scrollrate; /* 0 .. DOPT_MAX_SCROLL_EXT-1, higher is faster: the screen
+                       edges and the arrow keys */
     int music;      /* 0 .. DOPT_VOL_TOP                          */
     int sound;      /* 0 .. DOPT_VOL_TOP                          */
     int speech;     /* 0 .. DOPT_VOL_TOP                          */
     int ambience;   /* independent Enhanced environment volume */
+    /* APPENDED, so the members above keep their places. Each scroll gesture has its own
+       speed: the right-button push and the middle-button drag, 0 .. DOPT_MAX_SCROLL_EXT-1
+       like scrollrate and with the same default, which is the speed each had while one
+       slider drove them all (the drag's default is the exact grab). */
+    int scrollpush;
+    int scrollgrab;
 } DOPT_Settings;
 
 /* THE MIXER / RENDERER BINDING.
@@ -1342,10 +1368,12 @@ typedef struct
     /* THE NOTICE PAGE's caption. The box itself is the Restate box (brief, brwrap,
        rx..rh above), opened with no movie so it carries the lone OK. */
     char ncaption[DOPT_N_CAPTION_MAX];
-    /* Non-zero when the notice was opened from the pause page: its OK goes back there,
-       to the button it was opened from, instead of closing the dialog. */
+    /* Non-zero when the notice was opened over a page of the dialog: its OK goes back to
+       that page (npage: the pause page, or the slot list a refused load came from), to the
+       item it was opened from, instead of closing the dialog. */
     int nback;
     int nprev;
+    int npage;
     char nbrief[DOPT_R_TEXT_MAX];   /* the mission's briefing, kept while the notice uses the box */
     int nvideo;
     /* THE SLOT DIALOG's state, and which question the confirmation box is asking:
@@ -1441,8 +1469,9 @@ const char *dopt_brief_line(const DOPT_State *st, int i);
    report DOPT_ACT_RESUME, "close me". It is the Restate box lent to a caller that has
    something to say before the menu comes back, which is why it takes the pack and does
    the layout itself: there is no pause page whose open would have done so. */
-/* A notice over the pause page, answered by going back to it (dopt_open_notice closes the
-   dialog). The Enhanced menu draws it from the caption and text alone. */
+/* A notice over the page now open (the pause page, or the slot list), answered by going
+   back to it (dopt_open_notice closes the dialog). The Enhanced menu draws it from the
+   caption and text alone. */
 void dopt_open_page_notice(DOPT_State *st, const char *caption, const char *text);
 void dopt_open_notice(DOPT_State *st, const DB_Pack *p, const char *caption,
                       const char *text);
@@ -1574,14 +1603,19 @@ void dopt_enh_row(DOPT_State *st, int ix);
 int dopt_enh_action(DOPT_State *st, int item);
 void dopt_enh_control(DOPT_State *st, int item, int value);
 /* The Settings screen's Gameplay and Audio tabs: one setting each, by which. */
+/* (appended rather than inserted, so the numbers already in use do not move) */
 enum { DOPT_ES_SPEED = 0, DOPT_ES_SCROLL, DOPT_ES_MUSIC, DOPT_ES_SOUND, DOPT_ES_VOICES,
-       DOPT_ES_AMBIENCE, DOPT_ES_COUNT };
+       DOPT_ES_AMBIENCE, DOPT_ES_SCROLLPUSH, DOPT_ES_SCROLLGRAB, DOPT_ES_COUNT };
 int  dopt_enh_setting_max(int which);
 /* "Normal", "Fast" ...: a game speed setting's name */
 const char *dopt_speed_name(int speed);
 int  dopt_enh_setting_value(DOPT_State *st, int which);
 void dopt_enh_setting(DOPT_State *st, int which, int value);
 void dopt_enh_gameplay_toggle(DOPT_State *st, int which);
+/* The mouse scheme row: set it to one of its DOPT_G_MOUSE_COUNT values outright, as the
+   Enhanced page's three buttons do. */
+#define DOPT_G_MOUSE_COUNT 3
+void dopt_enh_gameplay_set(DOPT_State *st, int which, int value);
 void dopt_enh_mode(DOPT_State *st, int mode);
 int dopt_enh_drop_value(const DOPT_State *st, int item);
 int dopt_enh_drop_allowed(DOPT_State *st, int item, int value);

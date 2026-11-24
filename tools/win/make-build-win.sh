@@ -130,7 +130,15 @@ printf '%s\n' 'OpenCNC3D fresh public package v1' > "$OUT/.opencnc3d-public-stag
 # renderer (--edit) and not a program of its own, and opencnc3d-game.exe's entry point
 # never reads that flag. So the launcher's EDITOR button runs this file. It is still not
 # a plausible thing to double-click; the button in front of it is.
-PLACED="OpenCNC3D.exe opencnc3d-game.exe OpenCNC3D-Diagnostics.exe cnc_eyes.exe netcheck.exe SDL2.dll TiberianDawn.dll"
+#
+# THERE IS NO SDL2.dll. SDL is linked into every Windows program, so nothing in the
+# package loads a DLL of that name. One in build/win is left over from an older build and
+# is not copied; one that reaches the package by any other road is refused at the end.
+ARCHIVE_FILES="archive.dll map-archive.json map-archive-LICENSE.txt"
+if [ -n "$OPENCNC3D_COOKED" ] && strings -a "$ROOT/build/win/opencnc3d-game.exe" | grep -qxF 'MAPARCHIVE|builtin|3.8.10'; then
+    ARCHIVE_FILES=""
+fi
+PLACED="OpenCNC3D.exe opencnc3d-game.exe OpenCNC3D-Diagnostics.exe cnc_eyes.exe netcheck.exe TiberianDawn.dll $ARCHIVE_FILES"
 PLACED_DUP=$(printf '%s\n' $PLACED | tr '[:upper:]' '[:lower:]' | sort | uniq -d)
 [ -z "$PLACED_DUP" ] || {
     echo "two files this package places share a name once letter case is ignored:" >&2
@@ -141,8 +149,8 @@ PLACED_DUP=$(printf '%s\n' $PLACED | tr '[:upper:]' '[:lower:]' | sort | uniq -d
 cp "$ROOT/build/win/OpenCNC3D.exe"  "$OUT/OpenCNC3D.exe"
 cp "$ROOT/build/win/opencnc3d-game.exe"  "$OUT/opencnc3d-game.exe"
 cp "$ROOT/build/win/OpenCNC3D-Diagnostics.exe" "$OUT/OpenCNC3D-Diagnostics.exe"
-cp "$ROOT/build/win/cnc_eyes.exe" \
-   "$ROOT/build/win/SDL2.dll"  "$ROOT/build/win/TiberianDawn.dll" "$OUT/"
+cp "$ROOT/build/win/cnc_eyes.exe" "$ROOT/build/win/TiberianDawn.dll" "$OUT/"
+for name in $ARCHIVE_FILES; do cp "$ROOT/build/win/$name" "$OUT/"; done
 # Red Alert uses the same renderer build, its own brain and its own data, all inside
 # ra3d/, staged without its movies and score. Only the full package carries it: the
 # binary-only update is flat by contract (see the zip step at the end), so it has no
@@ -180,6 +188,9 @@ set --
 [ -z "$OPENCNC3D_COOKED" ] || set -- "$@" --cooked
 [ -z "$OPENCNC3D_BUILD_ID" ] || set -- "$@" --expected-build "$OPENCNC3D_BUILD_ID"
 python3 "$ROOT/tools/win/check-diagnostics.py" "$OUT" "$@"
+# 64-BIT ONLY, every .exe and .dll in the folder, ra3d/ included: one 32-bit file is
+# enough to stop the program that loads it.
+python3 "$ROOT/tools/win/check-pe-arch.py" "$OUT"
 
 # ---- the editor ships, and the button in front of it is wired to it ----------------
 # The launcher's EDITOR button was drawn grey for as long as the editor existed in the
@@ -306,11 +317,16 @@ Binaries only, build $GITDESC.
 Copy these over the folder you already have, keeping the game data where it is:
 
   OpenCNC3D.exe  opencnc3d-game.exe  OpenCNC3D-Diagnostics.exe
-  cnc_eyes.exe  netcheck.exe  SDL2.dll  TiberianDawn.dll
+  cnc_eyes.exe  netcheck.exe  TiberianDawn.dll
   dosclassic.pack  dosmenu.pack  decalenh.pack  CONQUER.MIX
 
 OpenCNC3D.exe is the launcher and opencnc3d-game.exe is the game. If you have the launcher
 already you do not need to do any of this by hand: press Update in it.
+
+For a bug report, send opencnc3d-log.txt from the game folder. The previous session's log
+is kept as opencnc3d-log-previous.txt and a crashed one as opencnc3d-crash-<date>-<time>.txt,
+so starting the game again does not erase them. The launcher writes
+opencnc3d-launcher-log.txt, which names a game that closed as it started.
 
 For a performance report, run OpenCNC3D-Diagnostics.exe, reproduce the problem,
 and exit. Zip the newest Logs/session-... folder and attach it to your report.
@@ -342,6 +358,9 @@ else
     done
     python3 "$ROOT/tools/make-package-notice.py" "$OUT/NOTICE.md" \
         --package-root "$OUT" --no-ra "$NO_RA"
+    if strings -a "$ROOT/build/win/opencnc3d-game.exe" | grep -qxF 'MAPARCHIVE|builtin|3.8.10'; then
+        cat "$ROOT/build/win/map-archive-LICENSE.txt" >> "$OUT/NOTICE.md"
+    fi
 
     # The data. -L on dosdata because it is a symlink into the repo on the Mac side and
     # a symlink is worthless once this is unzipped on another machine.
@@ -370,6 +389,16 @@ else
     for theater in TEMPERAT DESERT; do
         [ -s "$OUT/content/$theater.MIX" ] || { echo "content/$theater.MIX is required for DOS Classic" >&2; exit 1; }
     done
+    # THE GROUND MARKS, in the staged copy and never in the play folder it came from.
+    # Classic draws a building apron, a crater or a scorch only when the engine loaded its
+    # shape from these two archives, and a repack without the 1995 members starts, plays
+    # and draws bare ground under every building. The missing members come from the 1995
+    # archives in data/dosdata; an archive that has them already is left as it is.
+    python3 "$ROOT/game/dosclassic_content.py" "$OUT/content" --merge "$ROOT/data/dosdata" || {
+        echo "the staged content/ cannot carry the 1995 aprons, craters and scorch marks," >&2
+        echo "so Classic would draw none of them. Nothing is packaged." >&2
+        exit 1
+    }
     # THE DOS ARCHIVES, WITHOUT THE MEDIA. Every path of the MEDIA list that lies inside
     # dosdata/ is excluded from the copy, anchored at the package root the way the list is
     # written. The archives that remain are the sound effects, the EVA lines, the fonts,
@@ -425,6 +454,10 @@ MEDIA
         for m in "$ROOT"/game/ebld/*.ebld.fclv "$ROOT"/game/ebld/*.spec; do
             [ -f "$m" ] && cp "$m" "$OUT/ebld/"
         done
+        # A tree stage identical to its temperate one is carried once (ebld/shared-stages.txt),
+        # as the Mac package does, so the download stays under 2 GiB.
+        python3 "$ROOT/tools/ebld-share-stages.py" "$OUT/ebld" \
+            || { echo "the tree stages could not be shared in $OUT/ebld" >&2; exit 1; }
     fi
     python3 "$ROOT/tools/art/terrain/stage_desert_details.py" "$OUT"
     if [ $NO_RA -eq 1 ]; then
@@ -447,6 +480,27 @@ MEDIA
         cp "$ROOT"/game/evhc/*.evhc "$OUT/evhc/"
         # (a type's specular maps, <TYPE>.spec, where its export has them)
         for f in "$ROOT"/game/evhc/*.spec; do [ -f "$f" ] && cp "$f" "$OUT/evhc/"; done
+    fi
+    # Gun Game's Red Alert supplement (evhc/gunra/ with GUNRA.MIX and the models, and
+    # gunra-sprites.pack, gunra-cameos.pack), staged from the Red Alert module this package carries, as the Mac build
+    # stages it: the roster files a Gun Game match refuses to start without, and the
+    # borrowed vehicles' and aircraft's models, the module's own approved files.
+    # Without the module in the package (every release), the roster is baked from the Red
+    # Alert module folder OPENCNC3D_GUN_RA_SOURCE names and the models come from the tree's
+    # approved Red Alert files, as the Mac package stages them.
+    if [ $NO_RA -ne 1 ] && [ -d "$OUT/ra3d" ]; then
+        python3 "$ROOT/tools/ra3d/stage-gun-game.py" --module "$OUT/ra3d" --out "$OUT" \
+            || { echo "Gun Game's Red Alert supplement did not stage" >&2; exit 1; }
+    elif [ -n "${OPENCNC3D_GUN_RA_SOURCE:-}" ]; then
+        python3 "$ROOT/tools/ra3d/stage-gun-game.py" --roster-source "$OPENCNC3D_GUN_RA_SOURCE" \
+            --out "$OUT" || { echo "Gun Game's supplement did not stage from $OPENCNC3D_GUN_RA_SOURCE" >&2; exit 1; }
+    fi
+    if [ -n "${OPENCNC3D_GUN_RA_SOURCE:-}" ] || [ -d "$OUT/evhc/gunra" ]; then
+        for f in evhc/gunra/GUNRA.MIX gunra-sprites.pack gunra-cameos.pack; do
+            [ -s "$OUT/$f" ] || { echo "Gun Game's supplement left no $f" >&2; exit 1; }
+        done
+        ls "$OUT"/evhc/gunra/*.evhc >/dev/null 2>&1 || { echo "Gun Game's supplement staged
+       no Red Alert models, so Gun Game would draw its Red Alert units as sprites" >&2; exit 1; }
     fi
     # The remastered soldiers (einf/<TYPE>.c3m, Enhanced only), from the TREE for the same
     # reason; an empty folder stops the build the same way.
@@ -489,6 +543,12 @@ MEDIA
         exit 1
     fi
     echo "   skirmish: $skpairs map(s) with an INI and a pack"
+    # THE LOBBY'S MAP PREVIEWS, the check the Mac packager makes: a stale mappreview.pack
+    # draws an empty preview panel for every map it lacks, and the pack comes from $SRC.
+    python3 "$ROOT/tools/bake_map_previews.py" --check "$OUT/mappreview.pack" || {
+        echo "mappreview.pack lacks a map game/mappreview.manifest.json lists." >&2
+        echo "Run game/make-build.sh on $SRC first; it rebakes a stale one." >&2
+        exit 1; }
 
     # WHAT THE EDITOR NEEDS ON DISK, and it is a short list because most of the editor
     # is not on disk at all: its font, its emblem and its legality tables are baked into
@@ -594,6 +654,19 @@ MEDIA
     exit 1
 }
 echo "   media: no movies and no music in the package"
+# NO SDL2.dll, IN ANY FOLDER OF IT, ra3d/ included. SDL is linked into every Windows
+# program, so a copy here could only be left over from an older build, and it would not
+# be harmless: a launcher from v0.9.0 to v0.9.2 is a 32-bit program that loads the
+# SDL2.dll in its own folder, and an update that wrote another one over it would stop
+# that launcher from starting.
+SDL_LEFT=$(cd "$OUT" && find . -iname 'sdl2.dll' -print | sed 's|^\./||')
+[ -z "$SDL_LEFT" ] || {
+    echo "the package holds SDL2.dll, which no Windows package carries: SDL is linked" >&2
+    echo "into every program, so this is a leftover from an older build:" >&2
+    echo "$SDL_LEFT" | sed 's/^/  /' >&2
+    exit 1
+}
+echo "   sdl: linked into the programs, no SDL2.dll in the package"
 # WITHOUT RED ALERT MEANS NONE OF IT. The module is one folder today, and leaving that
 # folder out is the whole of the switch; this asks the result rather than trusting it,
 # so a pack, a brain or an engine copy for Red Alert that reaches the package by any
@@ -642,28 +715,27 @@ if [ $DO_ZIP -eq 1 ]; then
     # THE LAST ENTRIES ARE MADE, NOT HOPED FOR, because the launcher that unpacks this
     # zip is the one already installed. Launchers up to v0.6.11 write entries in zip
     # order with a plain fopen, write the install record wherever the zip lists it, and
-    # stop at the first refusal; SDL2.dll is the one file they always have loaded, so
-    # Windows always refuses it. zip -r lists files in whatever order the file system
-    # hands them out, which put the record at entry 412 of 460, so an old launcher that
-    # stopped at any of the 47 files after it (a pack it could not write, the window
-    # closed part way) left a folder claiming a version it did not hold. So the full
-    # package ends
+    # stop at the first file they cannot write. zip -r lists files in whatever order the
+    # file system hands them out, which put the record at entry 412 of 460, so an old
+    # launcher that stopped at any of the 47 files after it (a pack it could not write,
+    # the window closed part way) left a folder claiming a version it did not hold. So
+    # the full package ends
     #
-    #     CHANGELOG.txt  opencnc3d-install.txt  BUILD-ID.txt  SDL2.dll
+    #     CHANGELOG.txt  opencnc3d-install.txt  BUILD-ID.txt
     #
     # An old launcher stopped anywhere before the record has not claimed the new
-    # version, and the update is offered again. One that reaches SDL2.dll has written
-    # everything else, its own replacement included, and the next start runs the new
-    # launcher, which replaces files by renaming.
+    # version, and the update is offered again.
     #
-    # THE BINARY-ONLY ZIP IS FLAT, ending BUILD-ID.txt, SDL2.dll, and carries no record.
-    # Those launchers unpack it without stripping a folder, so a zip wrapped in
+    # THE BINARY-ONLY ZIP IS FLAT, ending BUILD-ID.txt, and carries no record. Those
+    # launchers unpack it without stripping a folder, so a zip wrapped in
     # OpenCNC3D-windows-<id>/ lands in a subfolder of the install, leaves every binary at
     # the top untouched, and records the new version; launchers from v0.6.12 on read
     # the shape off the archive either way.
     #
-    # Both only make SDL2.dll harmless while it is byte identical to the installed copy,
-    # which tools/release.sh holds it to (the note at SDL2_VER in setup-toolchain.sh).
+    # NEITHER CARRIES SDL2.dll. SDL is linked into the programs, and a launcher from
+    # v0.9.0 to v0.9.2, a 32-bit program, still loads the SDL2.dll its own folder holds:
+    # the one file an update must never replace. The staged folder was asked above; the
+    # zip is asked again below, because it is what ships.
     if [ $BINS_ONLY -eq 1 ]; then
         ZDIR="$OUT"
         ZPRE=""
@@ -672,7 +744,7 @@ if [ $DO_ZIP -eq 1 ]; then
         ZPRE="$NAME/"
     fi
     ZTAIL=""
-    for f in CHANGELOG.txt opencnc3d-install.txt BUILD-ID.txt SDL2.dll; do
+    for f in CHANGELOG.txt opencnc3d-install.txt BUILD-ID.txt; do
         [ -f "$OUT/$f" ] && ZTAIL="$ZTAIL $f"
     done
     (
@@ -690,18 +762,20 @@ if [ $DO_ZIP -eq 1 ]; then
     ZGOT=$(unzip -Z1 "$ZIP" | tail -n "$(echo $ZTAIL | wc -w | tr -d ' ')")
     ZBAD=""
     [ "$ZGOT" = "$ZWANT" ] || ZBAD="its last entries are not$ZTAIL"
-    case " $ZTAIL " in *" SDL2.dll "*) ;; *) ZBAD="it carries no SDL2.dll" ;; esac
+    case " $ZTAIL " in *" BUILD-ID.txt "*) ;; *) ZBAD="it carries no BUILD-ID.txt" ;; esac
     if [ $BINS_ONLY -eq 1 ]; then
         ! unzip -Z1 "$ZIP" | grep -q / || ZBAD="the binary-only zip is not flat"
     else
         case " $ZTAIL " in *" opencnc3d-install.txt "*) ;; *) ZBAD="it carries no opencnc3d-install.txt" ;; esac
     fi
+    ! unzip -Z1 "$ZIP" | grep -qiE '(^|/)sdl2\.dll$' \
+        || ZBAD="it carries an SDL2.dll, and SDL is linked into the programs"
     [ -z "$ZBAD" ] || {
         rm -f "$ZIP"
-        echo "the Windows zip is refused: $ZBAD. Every installed launcher up to v0.6.11" >&2
-        echo "writes the install record where the zip lists it and stops at SDL2.dll," >&2
-        echo "so the order above is what keeps those players' folders honest. The zip" >&2
-        echo "has been removed." >&2
+        echo "the Windows zip is refused: $ZBAD. Installed launchers unpack this zip as" >&2
+        echo "it is, so its last entries and what it leaves out are what keep their" >&2
+        echo "folders honest (the note above the zip step says why each one matters)." >&2
+        echo "The zip has been removed." >&2
         exit 1
     }
     echo "   last entries:$ZTAIL$([ $BINS_ONLY -eq 1 ] && echo ', flat')"

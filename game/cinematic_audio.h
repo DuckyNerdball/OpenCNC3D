@@ -36,6 +36,18 @@ static CinematicClip* cinematic_audio_clip(int kind)
     }
     fprintf(stderr,"CINEMATICAUDIO|missing/invalid|%s\n",g_cinematicNames[kind]);return NULL;
 }
+/* Every clip read before it is first needed: a big blast's first collapse and first
+   vehicle impact used to read their files from disk on the frame they sounded, the frame
+   that already draws everything the blast threw. Called once a tick; a clip is read once
+   a mission (tried), so after the first tick this is a few compares. Under the rule of
+   the events that play them, or while another mode is in a run that can switch to Enhanced
+   (enh_ahead_on, as the buildings' preparation), so a run that can never play one reads
+   none and a switch's first tick reads none either. */
+static void cinematic_audio_preload(void)
+{
+    if (!g_au || !(g_fx.enabled || enh_ahead_on()) || g_editOn) return;
+    for(int i=0;i<CIN_COUNT;++i) cinematic_audio_clip(i);
+}
 // `splash`: a placement impact played as Red Alert's water splash (VOC_SPLASH, SPLASH9) in
 // place of placement_impact, at the same gain and with the same duck: a building in the sea.
 static void cinematic_audio_note_as(int kind,float x,float z,float mass,bool splash)

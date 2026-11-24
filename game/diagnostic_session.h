@@ -15,6 +15,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <time.h>
 #include <sys/stat.h>
@@ -35,7 +36,11 @@ namespace game_diag {
 static FILE* native_fopen(const char*,const char*);
 static int native_mkdir(const char*);
 static int native_replace(const char*,const char*);
-static const size_t QUEUE_CAPACITY=1024, CONTEXT_CAPACITY=1024, PASS_COUNT=40, WORK_COUNT=8, GAUGE_COUNT=21;
+/* PASS_COUNT is the passes a frame row keeps, the first that many the trace names. It is
+   below the trace's own table (PERFTRACE_SECTIONS) because every queued packet carries a
+   frame's per-pass counters and the queue stays under 16 MB; a pass past it is named once
+   in schema.csv as kind 2 rather than dropped without a word. */
+static const size_t QUEUE_CAPACITY=1024, CONTEXT_CAPACITY=1024, PASS_COUNT=48, WORK_COUNT=8, GAUGE_COUNT=21;
 static const char* const WORK_NAMES[WORK_COUNT]={"mesh_draw_calls","immediate_vertices","mesh_vbo_uploads","mesh_cache_hits","mesh_cache_misses","mesh_evictions","hud_upload_bytes","fragment_upload_bytes"};
 static const char* const GAUGE_NAMES[GAUGE_COUNT]={"mesh_entries","mesh_bytes","frame_pose_entries","frame_pose_bytes","geometry_entries","geometry_bytes","settled_entries","settled_bytes","frame_pool_stores","frame_pool_fallbacks","frame_pool_trimmed","game_speed_setting","object_infantry","object_vehicles","object_buildings","object_terrain","object_aircraft","object_other","enhanced_model_entries","enhanced_burning_trees","mesh_admission_refused"};
 static const char* const PHASE_NAMES[]={"startup","initialization","menu","movie","mission_load","mission","settings","display","shutdown","error"};
@@ -260,7 +265,9 @@ if(native_mkdir(logsRoot)!=0&&errno!=EEXIST){delete s;return false;}
  }
  if(!created){delete s;return false;}
  FILE* probe=native_fopen((s->dir+"/status.json").c_str(),"wb");if(!probe){delete s;return false;}fputs("{\"clean_exit\":false,\"initializing\":true}\n",probe);fclose(probe);
- try{s->queue.resize(QUEUE_CAPACITY);s->active=true;state=s;s->worker=std::thread(worker_main,s);}catch(...){s->active=false;state=NULL;delete s;return false;}
+ try{s->queue.resize(QUEUE_CAPACITY);s->active=true;state=s;s->worker=std::thread(worker_main,s);}
+ catch(const std::system_error& e){fprintf(stderr,"DIAGNOSTICS|no worker thread (%s): this session is not recorded\n",e.what());s->active=false;state=NULL;delete s;return false;}
+ catch(...){s->active=false;state=NULL;delete s;return false;}
  phase(0);return true;
 }
 static bool finish() {

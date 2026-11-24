@@ -13,7 +13,9 @@
 set -eu
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$repo/playable"
+# The suite's run folder when game/gates.sh calls this (it exports RUNDIR), the
+# checkout's playable/ when it is run by hand.
+cd "${RUNDIR:-$repo/playable}"
 
 SRC=SCG09EA
 WORK=/tmp/opencnc3d-enhgate

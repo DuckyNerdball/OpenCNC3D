@@ -28,6 +28,12 @@
 // Rejects hidden enemy object destinations for fair skirmish vehicles.
 // This changes multiplayer simulation; campaign rules remain on their original path.
 
+// MODIFIED for OpenCNC3D. When OPENCNC3D_FILM_STRAIGHT_FACTORY
+// is set to 1 as the program starts (a capture mode for recording showcase footage),
+// the weapons factory exit track is FilmFactoryTrack, a straight line out of the door,
+// instead of Track13. Without it nothing changes. In that mode it DOES change the game
+// simulation.
+
 /* $Header:   F:\projects\c&c\vcs\code\drive.cpv   2.17   16 Oct 1995 16:51:16   JOE_BOSTIC  $ */
 /***********************************************************************************************
  ***             C O N F I D E N T I A L  ---  W E S T W O O D   S T U D I O S               ***
@@ -68,6 +74,8 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "gun_game_ability.h"
 
 DriveClass::DriveClass(void)
     : Class(0)
@@ -270,9 +278,12 @@ void DriveClass::Overrun_Square(CELL cell, bool threaten)
                 **	does not call Take_Damage at all, it goes straight to Record_The_Kill,
                 **	Limbo and delete a few lines below. Without this term an invincible house
                 **	would still lose every infantryman a tracked vehicle drove over.
+                **	Gun_Ability_Crush_Blocked is the same rule for the Gun Game's Iron
+                **	Curtain and its unarmed decoys.
                 */
                 if (object->Class_Of().IsCrushable && !House->Is_Ally(object)
-                    && !object->OpenCNC3D_Is_Invincible() && Distance(object->Center_Coord()) < 0x80) {
+                    && !object->OpenCNC3D_Is_Invincible() && !Gun_Ability_Crush_Blocked(this, object)
+                    && Distance(object->Center_Coord()) < 0x80) {
                     ObjectClass* next = object->Next;
                     crushed = true;
 
@@ -580,9 +591,23 @@ void DriveClass::Assign_Destination(TARGET target)
     */
     FootClass::Assign_Destination(target);
     Path[0] = FACING_NONE; // Force recalculation of path.
-    if (!IsDriving) {
+    if (!IsDriving && !Gun_Game_Airborne(this)) {
         Start_Of_Move();
     }
+}
+
+int DriveClass::Track_Speed() const
+{
+    int speed = min((int)(Class->MaxSpeed * House->GroundspeedBias), (int)MPH_LIGHT_SPEED);
+    if (static_cast<const UnitClass*>(this)->Flagged != HOUSE_NONE) speed /= 2;
+    speed = Gun_Ability_Speed(this, speed);
+    return Fixed_To_Cardinal(speed, Speed);
+}
+
+int DriveClass::Forward_Speed() const
+{
+    if (!IsDriving || TrackNumber == -1 || IsOnShortTrack || (IsRotating && !Class->IsTurretEquipped)) return 0;
+    return Track_Speed();
 }
 
 /***********************************************************************************************
@@ -619,12 +644,7 @@ bool DriveClass::While_Moving(void)
     **	visibly move on the map, then process accordingly.
     ** Slow the unit down if he's carrying a flag.
     */
-    MPHType maxspeed = MPHType(min((int)(Class->MaxSpeed * House->GroundspeedBias), (int)MPH_LIGHT_SPEED));
-    if (((UnitClass*)this)->Flagged != HOUSE_NONE) {
-        actual = SpeedAccum + Fixed_To_Cardinal(maxspeed / 2, Speed);
-    } else {
-        actual = SpeedAccum + Fixed_To_Cardinal(maxspeed, Speed);
-    }
+    actual = SpeedAccum + Track_Speed();
 
     if (actual > PIXEL_LEPTON_W) {
         TurnTrackType const* track; // Track control pointer.

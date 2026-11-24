@@ -32,8 +32,8 @@ and say what you saw, including the exact text of any error box.
 
 1. WHAT YOU NEED
 ----------------
-  * Windows 10 or 11. The build is 32-bit on purpose and runs on 64-bit
-    Windows with nothing extra installed.
+  * 64-bit Windows 10 or 11. The build is 64-bit x86 and runs with nothing
+    extra installed. 32-bit Windows cannot run it.
   * A GPU with OpenGL 2.1, which means anything from the last decade. If you
     are on a virtual machine or a remote desktop, OpenGL is often the thing
     that is missing.

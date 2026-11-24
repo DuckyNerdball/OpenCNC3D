@@ -1,5 +1,16 @@
 # Enhanced menu runtime integration — 11 October 2026
 
+## Map importer foundation — 1 November 2026
+
+User Maps now has an explicit Import Map capability, including its empty state,
+without adding an import action to Special Ops/Mission Disks. The native in-menu
+file browser, async preview/import worker and real stage progress reuse each
+game's accepted kit. See [the importer recipe](map-importer.md) for supported
+formats, shared Classic/Enhanced action geometry, preservation, classification,
+height generation, runtime routing and verification entry points. The dated
+verification folder records browser, native and Dock delivery separately; a UI
+render gate is not an installed gameplay check or a new artistic approval.
+
 The accepted menu v06 and authorized integration into current main and Dock delivery. Native RGBA chrome preserves the reviewed source corners, guard rails, bevels, grain, button states and original font shadow classes. Scale follows the HUD integer density, with fit checks for the wider lobby. CPU composition and GL 1.1 nearest presentation remain separate from game state.
 
 Enhanced Tiberian Dawn uses these screens. Enhanced Red Alert uses the same screens in its own kit (`ra3d/enhanced-menu.pack`, baked by `menu/bake_ra_enhanced_menu.py` from the 1996 data; design `art/interface/ra-enhanced-menu-v01`), chosen once per process by `em_set_red_alert`. Classic keeps the original menu paths for both games. The separate RA executable must still be refreshed from the combined build. Existing controller code owns settings callbacks, save/delete/load, mission identity, faction/team/colour/start constraints, host permissions, real chat and network readiness. The Database now shares the Enhanced menu housing and actual installed Enhanced model importers; see the v08 amendment below.

@@ -25,7 +25,7 @@
 #
 #   2. THE PICTURE: the launcher's module grid drawn from that folder with --shot. Its
 #      LMOD line for Red Alert must read installed=1 and drawn=1.
-#   3. THE GAME: `--module ra3d --play` there starts the real Red Alert game, hidden,
+#   3. THE GAME: `--play` in an RA-only install selects Red Alert and starts it hidden,
 #      which must run a script to its end, find no movie and no theme (MEDIA|movies=0,
 #      music=0, the bank holding no theme but its sound effects), and meet the missing
 #      title movie and carry on past it.
@@ -90,6 +90,8 @@ media = [m for m in open(media_file, encoding='utf-8').read().split('\n') if m]
 def walk(rel):
     src = os.path.join(play, rel) if rel else play
     for name in sorted(os.listdir(src)):
+        if not rel and name in {'opencnc3d', 'TiberianDawn.dylib', 'missions', 'content', 'dosdata'}:
+            continue
         r = f'{rel}/{name}' if rel else name
         low = r.lower()
         if low in media:
@@ -132,7 +134,7 @@ EOF
             # reaches the game the launcher becomes. A good run takes a few seconds.
             rc=0
             (cd "$pkg" && OPENCNC3D_BACKGROUND=1 perl -e 'alarm 120; exec @ARGV' \
-                "$launcher" --dir . --module ra3d --play -- --hidden --raskirmish SCM10EA \
+                "$launcher" --dir . --play -- --hidden --raskirmish SCM10EA \
                 --side soviet --ai 3 --seed 4242 --savedir "$work/save" \
                 --script "$work/run.script") > "$work/game.log" 2>&1 || rc=$?
             [ "$rc" -ne 142 ] || echo "(stopped after 120 seconds: the script never ended the game)" >> "$work/game.log"
@@ -142,7 +144,7 @@ EOF
             themes=$(echo "$bank" | sed -n 's/.*|themes=\([0-9]*\)\/.*/\1/p')
             logo=$(grep -c '^movie: cannot open ra3d/movies/' "$work/game.log" || true)
             if [ "$rc" -ne 0 ] || ! grep -q '^SCRIPT|end .* 0 failures' "$work/game.log"; then
-                bad "--module ra3d --play there: exit=$rc script-end=$(grep -c '^SCRIPT|end ' "$work/game.log") first lines: $(head -3 "$work/game.log" | tr '\n' ' ')$(grep '^(stopped after' "$work/game.log" || true)"
+                bad "--play in an RA-only install: exit=$rc script-end=$(grep -c '^SCRIPT|end ' "$work/game.log") first lines: $(head -3 "$work/game.log" | tr '\n' ' ')$(grep '^(stopped after' "$work/game.log" || true)"
             elif ! echo "$media" | grep -q '^MEDIA|movies=0|music=0/'; then
                 bad "the game ran there and did not find the folder empty of movies and music: [$media]"
             elif [ "${themes:-x}" != "0" ] || [ "${sfx:-0}" -le 0 ]; then
@@ -150,7 +152,7 @@ EOF
             elif [ "$logo" -lt 1 ]; then
                 bad "the game ran there and never met a missing Red Alert movie, so the movie path went unexercised"
             else
-                echo "MOD|ok|--module ra3d --play there runs the Red Alert game to the end of its script: $media, $sfx sound effects and no theme, past a missing title movie"
+                echo "MOD|ok|--play in an RA-only install runs the Red Alert game to the end of its script: $media, $sfx sound effects and no theme, past a missing title movie"
             fi
 
             # ------------------------------------------------------------------ 4

@@ -16,6 +16,12 @@
 // MODIFIED for OpenCNC3D fair skirmish difficulty, 19 October 2026.
 // Filters hidden enemy navigation and suspended targets and uses public type values for fair skirmish target scoring.
 // This changes multiplayer simulation; campaign rules remain on their original path.
+// MODIFIED for OpenCNC3D. A player's attack-move (a guard-area order
+// that starts with its centre a cell outside the unit's own guard radius) now fights along
+// its route: it scans around the unit, prefers an enemy already in weapon range, drops a
+// target that gets farther than the guard radius away and carries on to the clicked cell.
+// Every other guard-area unit, the G key included, runs the original routine again.
+// It DOES change the game simulation.
 
 /* $Header:   F:\projects\c&c\vcs\code\foot.cpv   2.17   16 Oct 1995 16:51:42   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -1003,6 +1009,69 @@ int FootClass::Mission_Guard_Area(void)
             Assign_Destination(TARGET_NONE);
             ArchiveTarget = ::As_Target(Coord_Cell(Coord));
         }
+    }
+
+    /*
+    **	OpenCNC3D: A PLAYER'S ATTACK-MOVE. The ground form of ctrl+alt (and the A key) is a
+    **	guard-area order whose centre is the clicked cell, so the unit sets off with that
+    **	cell as both its home and its destination. The routine below was written for a unit
+    **	standing at its home: it scans around the home, which for a travelling unit is the
+    **	far end of its route, and it pulls the unit back home as soon as it stops to fight.
+    **	So a human unit whose guard-area order STARTS with its home a cell farther away than
+    **	its own guard radius is on an attack-move, and stays on it until it arrives: it
+    **	scans around itself, takes an enemy already in weapon range before a farther one,
+    **	switches to one in range while its own target is out of reach, gives up a target
+    **	that gets farther than the guard radius away from it, and with nothing to fight
+    **	walks on to the clicked cell. It arrives, and from then on is an ordinary area
+    **	guard there, once it is within 2 cells of that cell, or walking in to it with no
+    **	target and within one weapon range of it.
+    **	The decision is taken once, when the guard-area mission starts, and kept in the
+    **	mission's own state value (Status, which this mission did not otherwise use, which
+    **	every mission change resets, and which the guard-area order resets too, see
+    **	EventClass::Execute). A unit's position during the mission cannot tell the two
+    **	apart: the G key centres the order on the unit's own cell, and a G-key unit that has
+    **	chased a target far from home, or is walking back, looks like an attack-move. So the
+    **	G key, and every computer-owned or unarmed unit, runs the original routine below
+    **	unchanged, however far it strays.
+    **	Every input is shared game state (the house's human flag, the mission, its state
+    **	value, the unit's home, target, destination and position), never a local view, so
+    **	every peer decides alike.
+    */
+    int guardrange = Threat_Range(1);
+    if (Mission == MISSION_GUARD_AREA && House->IsHuman) {
+        if (Status == 0) {
+            Status = (guardrange > 0 && Is_Target_Cell(ArchiveTarget) && Distance(ArchiveTarget) > guardrange) ? 1 : 2;
+        }
+        if (Status == 1
+            && (Distance(ArchiveTarget) <= 0x0200
+                || (!Target_Legal(TarCom) && NavCom == ArchiveTarget && Distance(ArchiveTarget) <= guardrange / 2))) {
+            Status = 2;
+        }
+    }
+    if (Mission == MISSION_GUARD_AREA && House->IsHuman && Status == 1) {
+        if (Target_Legal(TarCom) && !In_Range(TarCom, 0) && !In_Range(TarCom, 1)) {
+            TARGET inrange = Greatest_Threat(THREAT_RANGE);
+            if (Target_Legal(inrange)) {
+                Assign_Target(inrange);
+                Assign_Destination(TARGET_NONE);
+            }
+        }
+        if (Target_Legal(TarCom) && Distance(TarCom) > guardrange) {
+            Assign_Target(TARGET_NONE);
+            Assign_Destination(ArchiveTarget);
+        }
+        if (!Target_Legal(TarCom)) {
+            if (Target_Something_Nearby(THREAT_RANGE) || Target_Something_Nearby(THREAT_AREA)) {
+                Assign_Destination(TARGET_NONE);
+                return (1);
+            }
+            if (!Target_Legal(NavCom)) {
+                Assign_Destination(ArchiveTarget);
+            }
+        } else {
+            Approach_Target();
+        }
+        return (TICKS_PER_SECOND + Random_Pick(0, 4));
     }
 
     /*

@@ -185,6 +185,9 @@ need_file opencnc3d-launcher
 _n=0
 for f in "$SRC"/*.dylib; do
     [ -f "$f" ] || continue
+    if [ "${f##*/}" = libmaparchive.dylib ] && strings -a "$SRC/opencnc3d" | grep -qxF 'MAPARCHIVE|builtin|3.8.10'; then
+        continue
+    fi
     cp "$f" "$OUT/"; _n=$((_n+1))
 done
 [ "$_n" -gt 0 ] || die "there is no .dylib in $SRC. The engine ships as TiberianDawn.dylib
@@ -207,8 +210,39 @@ for f in "$SRC"/*.pack; do
     cp "$f" "$OUT/"; _n=$((_n+1))
 done
 [ "$_n" -gt 0 ] || die "there are no .pack files in $SRC."
+# THE LOBBY'S MAP PREVIEWS must cover every map the committed manifest lists: a stale pack
+# draws an empty preview panel for each map it lacks and says nothing. game/make-build.sh
+# rebakes a stale one; a folder that skipped it is refused here.
+python3 "$ROOT/tools/bake_map_previews.py" --check "$OUT/mappreview.pack" || die "mappreview.pack
+       lacks a map game/mappreview.manifest.json lists. Run game/make-build.sh on $SRC."
 [ ! -f "$SRC/temperate_grass_rgb.bin" ] || cp "$SRC/temperate_grass_rgb.bin" "$OUT/"
 need_file CONQUER.MIX
+# Gun Game's Red Alert supplement (evhc/gunra/ with GUNRA.MIX and the models, and
+# gunra-sprites.pack, gunra-cameos.pack), staged from the Red Alert module this package carries, exactly as the
+# Windows package stages it, so the two platforms' packages carry the same Gun Game. After
+# the pack copy above, so the roster packs are the ones baked from this module.
+# A package without the module (OPENCNC3D_NO_RA=1, every release) needs the supplement
+# just the same, or a Gun Game match refuses to start: OPENCNC3D_GUN_RA_SOURCE names a Red
+# Alert module folder to bake the roster from, and the models come from the tree's approved
+# Red Alert files, staged as Red Alert 3D stages them.
+if [ "$OPENCNC3D_NO_RA" != "1" ] && [ -d "$OUT/ra3d" ]; then
+    python3 "$ROOT/tools/ra3d/stage-gun-game.py" --module "$OUT/ra3d" --out "$OUT" \
+        || die "Gun Game's Red Alert supplement did not stage."
+elif [ -n "$OPENCNC3D_GUN_RA_SOURCE" ]; then
+    python3 "$ROOT/tools/ra3d/stage-gun-game.py" --roster-source "$OPENCNC3D_GUN_RA_SOURCE" \
+        --out "$OUT" || die "Gun Game's supplement did not stage from $OPENCNC3D_GUN_RA_SOURCE."
+fi
+if [ -n "$OPENCNC3D_GUN_RA_SOURCE" ] || [ -d "$OUT/evhc/gunra" ]; then
+    for f in evhc/gunra/GUNRA.MIX gunra-sprites.pack gunra-cameos.pack; do
+        [ -s "$OUT/$f" ] || die "Gun Game's supplement left no $f."
+    done
+    for f in GUNRA.MIX gunra-evhc; do
+        [ ! -e "$OUT/$f" ] || die "the package still holds $f, which no module installer accepts
+       (Gun Game's supplement lives in evhc/gunra/)."
+    done
+    ls "$OUT"/evhc/gunra/*.evhc >/dev/null 2>&1 || die "Gun Game's supplement staged no
+       Red Alert models, so Gun Game would draw its Red Alert units as sprites."
+fi
 
 # THE AUTHORED MODELS, models3d/<TYPE>.c3m, which the renderer finds by name beside the
 # missions. This allow-list predates them and never named the folder, so a package made
@@ -261,6 +295,10 @@ if [ -d "$ROOT/game/ebld" ]; then
     for f in "$ROOT"/game/ebld/*.ebld.fclv "$ROOT"/game/ebld/*.spec; do
         [ -f "$f" ] && cp "$f" "$OUT/ebld/"
     done
+    # A tree stage identical to its temperate one is carried once (ebld/shared-stages.txt),
+    # as the Windows package does, so the download stays under 2 GiB.
+    python3 "$ROOT/tools/ebld-share-stages.py" "$OUT/ebld" \
+        || die "the tree stages could not be shared in $OUT/ebld."
 fi
 
 # Final Desert albedo/geometry overrides must precede their paired mineral maps.
@@ -339,6 +377,13 @@ need_dir content       # original theater scenery merged with the playable terra
 for _theater in TEMPERAT DESERT; do
     [ -s "$OUT/content/$_theater.MIX" ] || die "content/$_theater.MIX is required for DOS Classic"
 done
+# The ground marks, completed in the staged copy as the Windows packager does: Classic
+# draws a building apron, a crater or a scorch only when the engine loaded its shape from
+# these two archives, and a repack without the 1995 members draws bare ground under every
+# building. An archive that has them already is left as it is.
+python3 "$ROOT/game/dosclassic_content.py" "$OUT/content" --merge "$ROOT/data/dosdata" \
+    || die "the staged content/ cannot carry the 1995 aprons, craters and scorch marks,
+       so Classic would draw none of them."
 need_dir missions      # the scenario INIs
 # No top-level movies/: it was a second copy of LOGO.VQA and INTRO2.VQA that nothing in the
 # game reads (the game plays dosdata/movies/), and the movies no longer ship anyway.
@@ -531,6 +576,9 @@ for f in LICENSE; do
 done
 python3 "$ROOT/tools/make-package-notice.py" "$OUT/NOTICE.md" \
     --package-root "$OUT" --no-ra "${OPENCNC3D_NO_RA:-0}"
+if strings -a "$SRC/opencnc3d" | grep -qxF 'MAPARCHIVE|builtin|3.8.10'; then
+    cat "$SRC/map-archive-LICENSE.txt" >> "$OUT/NOTICE.md"
+fi
 
 # ---- what is deliberately NOT above, named so the omission is visible -------------
 #

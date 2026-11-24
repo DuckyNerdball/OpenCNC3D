@@ -20,6 +20,19 @@
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
+// MODIFIED for OpenCNC3D in November 2026. In a Rally match (rally.h) a racer's
+// vehicle skips UnitClass::AI, because the Rally module drives it, and leaves no
+// crewman when it is destroyed. Outside a Rally match nothing changes. In a Rally
+// match it DOES change the game simulation.
+//
+// MODIFIED for OpenCNC3D. A harvester never heads for, or
+// waits at, a refinery its owner has switched off (BuildingClass::IsPowerOff):
+// Find_Best_Refinery skips a remembered refinery that is switched off, and
+// Mission_Enter turns a harvester that is approaching or queued at one, and is
+// not already backing in, back to its harvest mission, which picks a powered
+// refinery. It DOES change the game simulation, only where a building has been
+// switched off.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\unit.cpv   2.17   16 Oct 1995 16:48:28   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -102,7 +115,10 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "gun_game_ability.h"
 #include "ccini.h"
+#include "rally.h"
 
 /***********************************************************************************************
  * UnitClass::Validate -- validates unit pointer.															  *
@@ -253,26 +269,26 @@ void UnitClass::Debug_Dump(MonoClass* mono) const
 {
     Validate();
     mono->Set_Cursor(0, 0);
-    mono->Print("ÚName:ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂMission:ÄÄÄÂTarCom:ÂNavCom:ÂRadio:ÂCoord:ÄÄÂHeadTo:ÄÂSt:Ä¿\n"
-                "³                   ³           ³       ³       ³      ³        ³        ³    ³\n"
-                "ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂNÂYÂHealth:ÄÂBody:ÂTurret:ÂSpeed:ÂPath:ÁÄÄÄÄÄÄÂCargo:ÄÄÄÄÁÄÄÄÄ´\n"
-                "³Active........³ ³ ³        ³     ³       ³      ³            ³               ³\n"
-                "³Limbo.........³ ³ ÃÄÄÄÄÄÄÄÄÁÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´\n"
-                "³Owned.........³ ³ ³Last Message:                                             ³\n"
-                "³Discovered....³ ³ ÃTimer:ÂArm:ÂTrack:ÂTiberium:ÂFlash:ÂStage:ÂTeam:ÄÄÄÄÂArch:´\n"
-                "³Selected......³ ³ ³      ³    ³      ³         ³      ³      ³         ³     ³\n"
-                "³Teathered.....³ ³ ÃÄÄÄÄÄÄÁÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÙ\n"
-                "³Locked on Map.³ ³ ³                                                           \n"
-                "³Turret Locked.³ ³ ³                                                           \n"
-                "³Is A Loaner...³ ³ ³                                                           \n"
-                "³Deploying.....³ ³ ³                                                           \n"
-                "³Rotating......³ ³ ³                                                           \n"
-                "³Firing........³ ³ ³                                                           \n"
-                "³Driving.......³ ³ ³                                                           \n"
-                "³To Look.......³ ³ ³                                                           \n"
-                "³Recoiling.....³ ³ ³                                                           \n"
-                "³To Display....³ ³ ³                                                           \n"
-                "ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÁÄÙ                                                           \n");
+    mono->Print("ÃšName:Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã‚Mission:Ã„Ã„Ã„Ã‚TarCom:Ã‚NavCom:Ã‚Radio:Ã‚Coord:Ã„Ã„Ã‚HeadTo:Ã„Ã‚St:Ã„Â¿\n"
+                "Â³                   Â³           Â³       Â³       Â³      Â³        Â³        Â³    Â³\n"
+                "ÃƒÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã‚NÃ‚YÃ‚Health:Ã„Ã‚Body:Ã‚Turret:Ã‚Speed:Ã‚Path:ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã‚Cargo:Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Â´\n"
+                "Â³Active........Â³ Â³ Â³        Â³     Â³       Â³      Â³            Â³               Â³\n"
+                "Â³Limbo.........Â³ Â³ ÃƒÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Â´\n"
+                "Â³Owned.........Â³ Â³ Â³Last Message:                                             Â³\n"
+                "Â³Discovered....Â³ Â³ ÃƒTimer:Ã‚Arm:Ã‚Track:Ã‚Tiberium:Ã‚Flash:Ã‚Stage:Ã‚Team:Ã„Ã„Ã„Ã„Ã‚Arch:Â´\n"
+                "Â³Selected......Â³ Â³ Â³      Â³    Â³      Â³         Â³      Â³      Â³         Â³     Â³\n"
+                "Â³Teathered.....Â³ Â³ ÃƒÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„Ã„Ã„Ã„Ã„Ã™\n"
+                "Â³Locked on Map.Â³ Â³ Â³                                                           \n"
+                "Â³Turret Locked.Â³ Â³ Â³                                                           \n"
+                "Â³Is A Loaner...Â³ Â³ Â³                                                           \n"
+                "Â³Deploying.....Â³ Â³ Â³                                                           \n"
+                "Â³Rotating......Â³ Â³ Â³                                                           \n"
+                "Â³Firing........Â³ Â³ Â³                                                           \n"
+                "Â³Driving.......Â³ Â³ Â³                                                           \n"
+                "Â³To Look.......Â³ Â³ Â³                                                           \n"
+                "Â³Recoiling.....Â³ Â³ Â³                                                           \n"
+                "Â³To Display....Â³ Â³ Â³                                                           \n"
+                "Ã€Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„Ã„ÃÃ„ÃÃ„Ã™                                                           \n");
     mono->Set_Cursor(1, 1);
     mono->Printf("%s:%s", House->Class->IniName, Class->IniName);
     CargoClass::Debug_Dump(mono);
@@ -324,6 +340,9 @@ COORDINATE UnitClass::Sort_Y(void) const
 void UnitClass::AI(void)
 {
     Validate();
+    if (Gun_Game_Jump_Step(this)) return;
+    if (Rally_Unit_AI(this))
+        return;
 
     /*
     **	Act on new orders if the unit is at a good position to do so.
@@ -375,7 +394,7 @@ void UnitClass::AI(void)
     **	If this is a vehicle that heals itself (e.g., Mammoth Tank), then it will perform
     **	the heal logic here.
     */
-    if (*this == UNIT_HTANK && (Frame % 16) == 0 && Health_Ratio() < 0x0080) {
+    if (*this == UNIT_HTANK && (Frame % 16) == 0 && Health_Ratio() < 0x0080 && !Gun_Ability_Decoy(this)) {
         Strength++;
         Mark(MARK_CHANGE);
     }
@@ -852,6 +871,12 @@ ResultType UnitClass::Take_Damage(int& damage, int distance, WarheadType warhead
         (Is_Selected_By_Player() && Is_Owned_By_Player()); // Fox for GlyphX multiplayer. ST - 4/16/2019 9:46AM
 
     /*
+    **	OpenCNC3D Rally: asked before the damage is applied, because a racer destroyed by
+    **	it is no longer a racer by the time the crew check below runs.
+    */
+    const bool rally_racer = Rally_Is_Racer(this);
+
+    /*
     **	In order for a this to be damaged, it must either be a unit
     **	with a crew or a sandworm.
     */
@@ -900,7 +925,7 @@ ResultType UnitClass::Take_Damage(int& damage, int distance, WarheadType warhead
         **	Possibly have the crew member run away.
         */
         Mark(MARK_UP);
-        if (Class->IsCrew && !Class->IsTransporter) {
+        if (Class->IsCrew && !Class->IsTransporter && !Gun_Game_Active() && !rally_racer) {
             if (Random_Pick(0, 1) == 0) {
                 InfantryClass* i = 0;
                 if (Class->Primary == WEAPON_NONE) {
@@ -2424,7 +2449,13 @@ BuildingClass* UnitClass::Find_Best_Refinery(void) const
         if (TiberiumUnloadRefinery->House == House && !TiberiumUnloadRefinery->IsInLimbo
             && TiberiumUnloadRefinery->Mission != MISSION_DECONSTRUCTION
             && *TiberiumUnloadRefinery == STRUCT_REFINERY) {
-            return TiberiumUnloadRefinery;
+            /*
+            **	OpenCNC3D: a refinery switched off by its owner is passed over (but still
+            **	remembered); Find_Docking_Bay below skips it too.
+            */
+            if (!TiberiumUnloadRefinery->IsPowerOff) {
+                return TiberiumUnloadRefinery;
+            }
         } else {
             TiberiumUnloadRefinery = NULL;
         }
@@ -2909,6 +2940,27 @@ int UnitClass::Mission_Enter(void)
         if (contact == NULL) {
             contact = As_Techno(NavCom);
         }
+
+        /*
+        **	OpenCNC3D: a harvester heading for, or queued at, a refinery its owner has
+        **	switched off gives up on it and goes back to its harvest mission, which picks a
+        **	powered refinery (the same hack FootClass::Mission_Enter uses to skip straight to
+        **	finding a refinery). One already backing in finishes docking and is unloaded.
+        */
+        if (contact != NULL && contact->What_Am_I() == RTTI_BUILDING && *((BuildingClass*)contact) == STRUCT_REFINERY
+            && ((BuildingClass*)contact)->IsPowerOff && !IsTethered && !IsInLimbo) {
+            if (Contact_With_Whom() == contact) {
+                Transmit_Message(RADIO_OVER_OUT);
+            }
+            if (ArchiveTarget == contact->As_Target()) {
+                ArchiveTarget = TARGET_NONE;
+            }
+            Assign_Destination(TARGET_NONE);
+            Assign_Mission(MISSION_HARVEST);
+            Assign_Target(As_Target());
+            return (TICKS_PER_SECOND / 2);
+        }
+
         if (contact != NULL && contact->What_Am_I() == RTTI_BUILDING && *((BuildingClass*)contact) == STRUCT_REFINERY) {
             TiberiumUnloadRefinery = (BuildingClass*)contact;
         }
@@ -3165,7 +3217,11 @@ MoveType UnitClass::Can_Enter_Cell(CELL cell, FacingType) const
     if (cellptr->Overlay != OVERLAY_NONE) {
         OverlayTypeClass const* optr = &OverlayTypeClass::As_Reference(cellptr->Overlay);
 
-        if (optr->IsCrate && !House->IsHuman) {
+        /*
+        **	OpenCNC3D: a Gun Game combatant collects crates whether a person or the
+        **	computer plays it; the computer's own crate seeking drives it onto them.
+        */
+        if (optr->IsCrate && !House->IsHuman && !(Gun_Game_Active() && Gun_Game_Combatant(Owner()) == this)) {
             return (MOVE_NO);
         }
 

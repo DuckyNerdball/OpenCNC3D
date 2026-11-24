@@ -56,6 +56,11 @@ python3 ../menu/bake_enhanced_menu.py ../art/interface/enhanced-menu-v06 ../menu
 (cd ../launcher && ./build.sh) # the front door: version, changelog, update, Play
 mkdir -p "$DEST"
 cp cnc_eyes "$DEST/"
+if [ -d sprites ]; then mkdir -p "$DEST/sprites"; cp sprites/e1-v15.pack sprites/e1-v15-player-mask.png sprites/manifest.json "$DEST/sprites/"; fi
+# The Gun Game ability cameos, composed from the original art (tools/art/gun_abilities).
+python3 ../tools/art/gun_abilities/bake_cameos.py >/dev/null || {
+    echo "make-build.sh: bake_cameos.py failed; Gun Game would draw no ability cameos" >&2; exit 1; }
+cp gun_abilities.pack "$DEST/"
 cp ../app/opencnc3d "$DEST/"
 # Preserve an existing legacy C&C3D.app Dock launcher, whose entry point retains the old name.
 if [ -x "$DEST/C&C3D.app/Contents/MacOS/cnc3d-launch" ]; then
@@ -79,12 +84,28 @@ elif [ -d "$DEST/ra3d" ]; then
     fi
     cp "$REPO/brain/vanilla/build-native/redalert/RedAlert.dylib" "$DEST/ra3d/RedAlert.dylib"
     python3 "$REPO/tools/ra3d/stage-structures.py" "$DEST/ra3d"
+    # Gun Game's Red Alert supplement, from the module just staged: the roster files a Gun
+    # Game match refuses to start without, and evhc/gunra/, the borrowed vehicles' and
+    # aircraft's models (the module's own approved files, so both games draw one version).
+    python3 "$REPO/tools/ra3d/stage-gun-game.py" --module "$DEST/ra3d" --out "$DEST" \
+        || { echo "FATAL: Gun Game's Red Alert supplement did not stage" >&2; exit 1; }
     # The 24 multiplayer maps and the list with a picture of each that a skirmish screen
     # reads, refreshed here as well because a module staged before they existed has none.
     python3 "$REPO/tools/ra3d/ramix.py" extract "$REPO/data/radata/GENERAL.MIX" "$DEST/ra3d/missions" \
         $(for n in $(seq -w 1 24); do printf 'SCM%sEA.INI ' "$n"; done) >/dev/null
     python3 "$REPO/tools/ra3d/bake-ra-map-previews.py" "$DEST/ra3d" >/dev/null \
         || { echo "FATAL: Red Alert's map previews did not bake" >&2; exit 1; }
+    # The sidebar packs, refreshed for the same reason: each carries the darkening table
+    # the build clock draws with, so a module staged before a change to the baker would
+    # go on drawing the old one under every cameo that is building.
+    for th in SNOW TEMPERAT INTERIOR; do
+        lo=$(echo "$th" | tr 'A-Z' 'a-z')
+        python3 "$REPO/tools/ra3d/bake-sidebar.py" --data "$REPO/data/radata" --theater "$th" \
+            --out "$DEST/ra3d/sidebar-$lo.pack" >/dev/null \
+        && python3 "$REPO/tools/ra3d/bake-sidebar.py" --data "$REPO/data/radata" --theater "$th" \
+            --hires --out "$DEST/ra3d/sidebar-$lo-win95.pack" >/dev/null \
+        || { echo "FATAL: Red Alert's $th sidebar did not bake" >&2; exit 1; }
+    done
 fi
 cp ../art/generated/temperate_grass/v3_color_matched/grass_rgb.bin \
    "$DEST/temperate_grass_rgb.bin"
@@ -225,10 +246,14 @@ fi
 # correct source for all of them is the bakery, never the snapshot, and this script's job
 # is to say so rather than to paper over it with old bytes.
 #
-# content/ and CONQUER.MIX are the two with no baker. They are left alone here: where they
-# are meant to live is still an open question, and not this script's to settle.
+# content/ and CONQUER.MIX are the two with no baker. They are not rebuilt here: where
+# they are meant to live is still an open question, and not this script's to settle.
 # game/build.sh preserves the playable CONQUER.MIX members and adds missing original
-# sprite members from data/dosdata/CONQUER.MIX for DOS Classic.
+# sprite members from data/dosdata/CONQUER.MIX for DOS Classic. The theater archives in
+# content/ are COMPLETED here, though, by game/dosclassic_content.py below: a repacked
+# TEMPERAT.MIX or DESERT.MIX without the 1995 apron, crater and scorch shapes makes Classic
+# draw bare ground under every building, and a full build of game/build.sh is the only
+# other thing that adds them.
 
 # THE PACKS THE GAME ACTUALLY RUNS COME FROM THE BAKERY, and nothing
 # put them here: this script copied the binaries and left whatever .pack files happened
@@ -259,6 +284,13 @@ python3 ../tools/sidebar_redesign/bake_pack.py >/dev/null || {
     echo "make-build.sh: bake_pack.py failed; hud640.pack would be stale" >&2; exit 1; }
 python3 bake_logos.py >/dev/null || {
     echo "make-build.sh: bake_logos.py failed; logos.pack would be stale" >&2; exit 1; }
+# AND THE CAMPAIGN SCREENS' PACK, for the reason logos.pack is here: the loop sees game/,
+# but only a re-bake makes campaign.pack newer than the copy a folder already holds, so a
+# folder keeps the pack it was first given. When Nod's country highlight (COUNTRYA) was
+# added, every existing folder would have kept a pack without it. It reads only the
+# committed DOS disc (data/dosdata) and takes under a second.
+python3 bake_campaign.py >/dev/null || {
+    echo "make-build.sh: bake_campaign.py failed; campaign.pack would be stale" >&2; exit 1; }
 # AND THE SOLID TIBERIUM, for a different reason: the loop above DOES see game/, so a
 # baked tib3d.pack travels -- but it is gitignored like every other pack, so a machine
 # that has only ever pulled has never had one at all, and the feature is then simply
@@ -469,6 +501,30 @@ for HGT in "$REPO"/data/autoheight/*.HGT; do
     fi
 done
 
+# A CARTRIDGE MISSION INSTALLED UNDER ANOTHER CODE. tools/bakery/runtime-scenarios.txt
+# writes these as TARGET=SOURCE (SCG99EA=SCG90EA: GDI's second N64 Special Ops, whose own
+# code is the Test Map's here). The release bakes every listed pack from scratch, but a
+# development folder only ever gains the packs someone baked, so a new alias would ship
+# its INI with no pack and the Special Ops list would leave the mission out without a
+# word. Bake any alias pack that is missing or older than its INI; a few seconds each.
+for ALIAS in $(grep '=' ../tools/bakery/runtime-scenarios.txt | grep -v '^#'); do
+    T=${ALIAS%%=*}; S=${ALIAS#*=}
+    P="../tools/bakery/game/$T.pack"
+    if [ ! -f "$P" ] || [ "missions/$T.INI" -nt "$P" ]; then
+        TJ="../tools/bakery/sharecopy/assets/terrain/terrain_$S.json"
+        if [ ! -f "$TJ" ]; then
+            python3 ../tools/bakery/sharecopy/assets/terrain/n64_terrain.py "$S" \
+                > "../tools/bakery/game/$T.terrain.log" 2>&1 && [ -f "$TJ" ] || {
+                cat "../tools/bakery/game/$T.terrain.log" >&2
+                echo "make-build.sh: n64_terrain.py $S failed; $T could not be baked" >&2; exit 1; }
+        fi
+        echo "scenario packs: baking $T from the cartridge's $S"
+        python3 ../tools/bakery/bake5.py "$ALIAS" > "../tools/bakery/game/$T.bake.log" 2>&1 || {
+            cat "../tools/bakery/game/$T.bake.log" >&2
+            echo "make-build.sh: bake5.py $ALIAS failed; $T would not ship" >&2; exit 1; }
+    fi
+done
+
 n=0
 for BAKED in ../tools/bakery/game .; do
   [ -d "$BAKED" ] || continue
@@ -481,6 +537,35 @@ done
 echo "packs: $n refreshed"
 python3 "$REPO/tools/autoheight/check_packs.py" "$DEST" || {
     echo "make-build.sh: a scenario pack does not carry its generated heightmap" >&2; exit 1; }
+
+# THE LOBBY'S MAP PREVIEWS, checked against the committed manifest and rebaked when stale.
+# mappreview.pack is a build product and only the release's bootstrap bake used to make
+# it, so a play folder kept whatever pack it was first given. Folders baked before the
+# race courses existed carried ten previews against the manifest's thirteen, and the
+# lobby drew an empty panel for every Rally course with nothing to say why: a missing
+# record is not an error to the lobby. tools/bake_map_previews.py --check reads the
+# staged pack's own records against game/mappreview.manifest.json. On a refusal the pack
+# is baked again here (a few seconds; --resolve-terrain makes any terrain_<SCEN>.json the
+# checkout lacks from the tracked .MAP), into the bakery and game/ as the bootstrap bake
+# does so the next refresh does not bring the stale copy back, and the build stops if
+# the result still lacks a map.
+if ! python3 ../tools/bake_map_previews.py --check "$DEST/mappreview.pack" >/dev/null 2>&1; then
+    python3 ../tools/bake_map_previews.py --check "$DEST/mappreview.pack" 2>&1 | head -1
+    echo "map previews: rebaking mappreview.pack"
+    # The tiberium in the pictures comes from the dostib.pack this folder ships, when
+    # it has one; otherwise from game/ or playable/, the baker's own default.
+    MPTIB="$DEST/dostib.pack"
+    [ -f "$MPTIB" ] || MPTIB=""
+    python3 ../tools/bake_map_previews.py --resolve-terrain ${MPTIB:+--tib "$MPTIB"} \
+        --out ../tools/bakery/game/mappreview.pack > ../tools/bakery/game/mappreview.bake.log 2>&1 || {
+        cat ../tools/bakery/game/mappreview.bake.log >&2
+        echo "make-build.sh: bake_map_previews.py failed; the lobby would show an empty" >&2
+        echo "  map preview for every map the stale pack lacks" >&2; exit 1; }
+    cp ../tools/bakery/game/mappreview.pack mappreview.pack
+    cp ../tools/bakery/game/mappreview.pack "$DEST/mappreview.pack"
+fi
+python3 ../tools/bake_map_previews.py --check "$DEST/mappreview.pack" || {
+    echo "make-build.sh: $DEST/mappreview.pack lacks a map game/mappreview.manifest.json lists" >&2; exit 1; }
 
 # THE REMASTERED EFFECTS (Enhanced): efx_enh.pack, baked every build from the committed
 # sources in art/remaster/fx by tools/art/remaster/fx/make_fx.py, on top of the cartridge's
@@ -816,6 +901,17 @@ check_asset() {   # $1 = file or dir, $2 = how to get it
   $1
       $2"
 }
+# THE THEATER ARCHIVES CARRY THE GROUND MARKS. Classic draws a building apron, a crater or
+# a scorch only when the engine loaded its shape from content/TEMPERAT.MIX or DESERT.MIX,
+# and a repack without them starts, plays and draws bare ground under every building. The
+# missing members are added from the 1995 archives in data/dosdata (an archive that has
+# them is left byte for byte as it is), and the folder is refused if any is still absent.
+if [ -f "$DEST/content/TEMPERAT.MIX" ] && [ -f "$DEST/content/DESERT.MIX" ]; then
+  python3 "$REPO/game/dosclassic_content.py" "$DEST/content" --merge "$REPO/data/dosdata" \
+    || MISSING="$MISSING
+  content/TEMPERAT.MIX or DESERT.MIX lacks the 1995 aprons, craters and scorch marks
+      python3 game/dosclassic_content.py $DEST/content --merge data/dosdata"
+fi
 check_asset content            "the theater archives (TEMPERAT.MIX, DESERT.MIX); game/build.sh stages them"
 check_asset content/TEMPERAT.MIX "original temperate scenery; staged by game/build.sh"
 check_asset content/DESERT.MIX   "original desert scenery; staged by game/build.sh"
@@ -827,6 +923,8 @@ check_asset dosinfantry.pack   "game/bake_dosinfantry.py"
 check_asset n64infantry.pack   "game/bake_n64infantry.py   (the cartridge infantry's firing, prone and crawling frames)"
 check_asset dosmake.pack       "game/bake_dosmake.py"
 check_asset campaign.pack      "game/bake_campaign.py"
+check_asset doscrate.pack      "game/bake_doscrate.py   (legacy crate and repair-wrench sprites)"
+check_asset mappreview.pack    "tools/bake_map_previews.py   (retail Skirmish map thumbnails)"
 check_asset efx.pack           "game/bake_efx.py"
 check_asset efx_enh.pack       "tools/art/remaster/fx/make_fx.py   (Enhanced remastered effects; without it Enhanced draws the cartridge's)"
 check_asset dosmenu.pack       "menu/, copied above"

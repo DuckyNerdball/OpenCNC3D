@@ -1,0 +1,32 @@
+# G474, the join leg (SCG90EA, Enhanced HUD). Medium Tank started, then Jeep, Medium Tank,
+# Medium Tank clicked: the strip reads Medium Tank 1 (building), Jeep 1, Medium Tank 2.
+# Right-clicking the Jeep off leaves an unbroken run of tanks, so the waiting tanks must
+# join the run of the one in the factory: ONE card reading 3, not a second tank card that
+# would swap places with the first when it leaves the factory. SBQUEUEITEM's run= must
+# then name the run the factory's tank was given, and both tanks still come out.
+tick 30
+cheatset invuln 1
+tick 2
+count MTNK:@me
+sbclickitem MTNK
+sbclickitem JEEP
+sbclickitem MTNK
+sbclickitem MTNK
+tick 2
+hudqlog 1
+frames 20
+echo G474-join-before
+frames 1
+hudqlog 0
+queuedump
+sbrclickitem JEEP
+queuedump
+hudqlog 1
+frames 20
+echo G474-join-after
+frames 1
+hudqlog 0
+tick 3600
+queuedump
+count MTNK:@me
+quit

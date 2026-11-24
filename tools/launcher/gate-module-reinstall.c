@@ -4,6 +4,21 @@
 #undef main
 #include <assert.h>
 static int cancel_extract(void *user,int done,int total){(void)user;(void)total;return done<2;}
+/* Every install that succeeds removes the package it came from, so the reinstall steps
+ * below put it back first, as a stopped install or a Mac installer package would leave it. */
+static void reseed(const char *dir)
+{
+    char from[1400],to[1400],sha[65],error[256],buf[65536];FILE *in,*out;size_t n;
+    snprintf(to,sizeof to,"%s/.opencnc3d-modules",dir);mkdir(to,0755); /* gone with its last file */
+    snprintf(from,sizeof from,"%s/pristine-ra3d.zip",dir);snprintf(to,sizeof to,"%s/.opencnc3d-modules/ra3d.zip",dir);
+    in=fopen(from,"rb");assert(in);out=fopen(to,"wb");assert(out);while((n=fread(buf,1,sizeof buf,in))>0)assert(fwrite(buf,1,n,out)==n);fclose(in);assert(!fclose(out));
+    assert(lz_sha256_file(to,sha,error,sizeof error));
+    snprintf(to,sizeof to,"%s/.opencnc3d-modules/ra3d.zip.sha256",dir);out=fopen(to,"wb");assert(out);fprintf(out,"%s\n",sha);assert(!fclose(out));
+    snprintf(to,sizeof to,"%s/.opencnc3d-modules/ra3d.zip.version",dir);out=fopen(to,"wb");assert(out);fprintf(out,"%s\n",LCFG_BUILD);assert(!fclose(out));
+    assert(lmod_cached(dir,1));
+}
+static int package_left(const char *dir)
+{char path[1400];struct stat st;snprintf(path,sizeof path,"%s/.opencnc3d-modules/ra3d.zip",dir);return !stat(path,&st)||lmod_cached(dir,1);}
 int main(int argc,char**argv){
  L_App a;LZ_Lock lock;char error[512],path[1400],backup[1400];int x,y,w,h,i;
  assert(argc==2);assert(!SDL_Init(SDL_INIT_TIMER));memset(&a,0,sizeof a);snprintf(a.dir,sizeof a.dir,"%s",argv[1]);a.mod[0].name="OpenCNC3D";a.mod[0].installed=1;
@@ -14,12 +29,16 @@ int main(int argc,char**argv){
  l_activate_module(&a,1);assert(a.view==L_VIEW_MODULE_OPTIONS);a.want_movies=a.want_music=0;l_activate(&a,L_BTN_PLAY);assert(a.view==L_VIEW_MODULE_RUN);
  for(i=0;i<5000&&(a.view==L_VIEW_MODULE_RUN||a.view==L_VIEW_MEDIA_RUN);i++){l_module_tick(&a);l_m_tick(&a);if(SDL_AtomicGet(&a.module_phase)==-1){fprintf(stderr,"%s\n",a.module_error);assert(0);}SDL_Delay(2);}
  assert(a.view==L_VIEW_MODULES&&a.mod[1].installed&&a.mod_sel==1&&lmod_ra_present(a.dir,NULL,0));
+ assert(!package_left(a.dir)); /* the controller's install removed the package it used */
  l_set_view(&a,L_VIEW_BROWSE);l_browser_rect(&a,1,&x,&y,&w,&h);assert(l_mod_hit(&a,x+w/2,y+h/2)==-1&&a.hot==L_BTN_CLOSE);
  assert(lmod_remove(a.dir,1,error,sizeof error));assert(!lmod_ra_present(a.dir,NULL,0));db_pack_free(a.ra_pack);a.ra_pack=NULL;a.mod[1].name=NULL;a.mod[1].installed=0;
  l_find_ra_module(&a);assert(a.mod[1].name&&!a.mod[1].installed); /* restart catalog detection */
+ assert(!lmod_cached(a.dir,1));reseed(a.dir);
  assert(!lmod_install_cached(a.dir,1,LCFG_BUILD,cancel_extract,NULL,error,sizeof error));assert(!lmod_ra_present(a.dir,NULL,0));
+ assert(lmod_cached(a.dir,1)); /* a stopped install keeps its package for the next try */
  assert(lmod_install_cached(a.dir,1,LCFG_BUILD,NULL,NULL,error,sizeof error));assert(lmod_ra_present(a.dir,NULL,0));
- assert(lmod_remove(a.dir,1,error,sizeof error));
+ assert(!package_left(a.dir));
+ assert(lmod_remove(a.dir,1,error,sizeof error));reseed(a.dir);
  /* A checksum mismatch must not touch any game path. */
  snprintf(path,sizeof path,"%s/.opencnc3d-modules/ra3d.zip.sha256",a.dir);snprintf(backup,sizeof backup,"%s.saved",path);assert(!rename(path,backup));
  {FILE*f=fopen(path,"wb");assert(f);fputs("0000000000000000000000000000000000000000000000000000000000000000\n",f);fclose(f);}
@@ -30,5 +49,5 @@ int main(int argc,char**argv){
  {char sha[65],side[1400];FILE*f;assert(lz_sha256_file(path,sha,error,sizeof error));snprintf(side,sizeof side,"%s.sha256",path);f=fopen(side,"wb");assert(f);fprintf(f,"%s\n",sha);fclose(f);}
  assert(!lmod_install_cached(a.dir,1,LCFG_BUILD,NULL,NULL,error,sizeof error));assert(strstr(error,"unowned"));assert(!lmod_ra_present(a.dir,NULL,0));
  assert(l_has_named_file(a.dir,"savegame.sav")&&l_has_named_file(a.dir,"ra3d/missions/custom-map.ini")&&lmod_td_present(a.dir));
- l_free_components(&a);lz_unlock(&lock);SDL_Quit();puts("MODULE-REINSTALL|PASS|installed disabled, removed clickable after restart, controller install, remove/reinstall, cancellation rollback, checksum/ownership refusal, saves/settings/other game preserved");return 0;
+ l_free_components(&a);lz_unlock(&lock);SDL_Quit();puts("MODULE-REINSTALL|PASS|installed disabled, removed clickable after restart, controller install, remove/reinstall, every successful install removes its package, a stopped one keeps it, cancellation rollback, checksum/ownership refusal, saves/settings/other game preserved");return 0;
 }

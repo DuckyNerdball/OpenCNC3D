@@ -12,9 +12,12 @@
 set -eu
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$repo/playable"
+# The suite's run folder when game/gates.sh calls this (it exports RUNDIR), the
+# checkout's playable/ when it is run by hand.
+play="${RUNDIR:-$repo/playable}"
+cd "$play"
 
-WORK="$repo/playable/missions/user_maps"
+WORK="$play/missions/user_maps"
 SCEN=SCM95EA
 mkdir -p "$WORK"
 rm -f "$WORK/$SCEN".*

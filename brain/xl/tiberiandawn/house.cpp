@@ -1,3 +1,4 @@
+// MODIFIED for OpenCNC3D. A random cell for a newly spawned map creature is drawn column then row in two statements, so every compiler deals it alike.
 //
 // Copyright 2020 Electronic Arts Inc.
 //
@@ -16,6 +17,15 @@
 // MODIFIED for OpenCNC3D fair skirmish difficulty, 19 October 2026.
 // Runs the per-house fair skirmish planner, neutralizes difficulty stat handicaps and applies ordinary economy and prerequisites.
 // This changes multiplayer simulation; campaign rules remain on their original path.
+
+// MODIFIED for OpenCNC3D. The skirmish planner it includes
+// (fair_ai_td.inc) keeps building past the opening: refineries on a game-time schedule,
+// silos, the Comm Center, Repair Bay, defences and the top of the tech tree, started on
+// the ordinary per-tick installments, and it sends tanks out in waves. A skirmish
+// computer house's building placement also refuses a spot that would wall its base
+// off from the rest of the map, judged on the ground that house has explored, and the
+// planner orders a building only when such a spot exists. Campaign play is unchanged. This DOES change the
+// skirmish game simulation.
 
 /* $Header:   F:\projects\c&c\vcs\code\house.cpv   2.13   02 Aug 1995 17:03:50   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -1095,8 +1105,15 @@ void HouseClass::AI(void)
                 }
 
                 if (obj) {
-                    cell = XY_Cell(Map.MapCellX + Random_Pick(0, Map.MapCellWidth - 1),
-                                   Map.MapCellY + Random_Pick(0, Map.MapCellHeight - 1));
+                    /*
+                    **	OpenCNC3D: the two draws are taken one statement at a time. As two arguments of
+                    **	one call their order is unspecified in C++, and the macOS and Windows compilers
+                    **	take them in opposite orders, so a Mac and a Windows peer of one match would place
+                    **	this creature on different cells. Column first, the order the macOS build always used.
+                    */
+                    int opencnc3d_col = Random_Pick(0, Map.MapCellWidth - 1);
+                    int opencnc3d_row = Random_Pick(0, Map.MapCellHeight - 1);
+                    cell = XY_Cell(Map.MapCellX + opencnc3d_col, Map.MapCellY + opencnc3d_row);
                     if (!Scan_Place_Object(obj, cell)) {
                         delete obj;
                     }
@@ -8148,31 +8165,55 @@ CELL HouseClass::Find_Cell_In_Zone(TechnoClass const* techno, ZoneType zone) con
     /*
     **	Find a legal placement position as close as possible to the picked location while still
     **	remaining within the zone.
+    **
+    **	A skirmish computer house also refuses a spot whose building would wall off part of
+    **	the ground (TD_Fair_AI_Keeps_Paths): the nearest legal cell is tried, and if it would
+    **	seal the base off from its Tiberium, the next nearest, up to a bounded number of tries.
     */
-    for (CELL cell = 0; cell < MAP_CELL_TOTAL; cell++) {
-        //		if (Map.In_Radar(cell)) {
-        if (Map.In_Radar(cell) && Which_Zone(cell) != ZONE_NONE
-            && (GameToPlay == GAME_NORMAL || Map[cell].Is_Mapped(Class->House))) {
-            bool ok = ttype->Legal_Placement(cell);
-            // TD permits a foundation to extend beyond explored origin cells.
-            // Match the normal human placement rule, including terrain/bib and
-            // adjacency validation, rather than requiring every bib pixel seen.
+    CELL rejected[24];
+    int rejected_count = 0;
+    for (;;) {
+        bestval = -1;
+        bestcell = 0;
+        for (CELL cell = 0; cell < MAP_CELL_TOTAL; cell++) {
+            //		if (Map.In_Radar(cell)) {
+            if (Map.In_Radar(cell) && Which_Zone(cell) != ZONE_NONE
+                && (GameToPlay == GAME_NORMAL || Map[cell].Is_Mapped(Class->House))) {
+                bool ok = ttype->Legal_Placement(cell);
+                // TD permits a foundation to extend beyond explored origin cells.
+                // Match the normal human placement rule, including terrain/bib and
+                // adjacency validation, rather than requiring every bib pixel seen.
 
-            /*
-            **	Another (adjacency) check is required for buildings.
-            */
-            if (ok && list != NULL && !Map.Passes_Proximity_Check(ttype, techno->House->Class->House, list, cell)) {
-                ok = false;
-            }
+                /*
+                **	Another (adjacency) check is required for buildings.
+                */
+                if (ok && list != NULL && !Map.Passes_Proximity_Check(ttype, techno->House->Class->House, list, cell)) {
+                    ok = false;
+                }
+                for (int r = 0; ok && r < rejected_count; r++) {
+                    if (rejected[r] == cell) {
+                        ok = false;
+                    }
+                }
 
-            if (ok) {
-                int dist = Distance(Cell_Coord(cell), Cell_Coord(trycell));
-                if (bestval == -1 || dist < bestval) {
-                    bestval = dist;
-                    bestcell = cell;
+                if (ok) {
+                    int dist = Distance(Cell_Coord(cell), Cell_Coord(trycell));
+                    if (bestval == -1 || dist < bestval) {
+                        bestval = dist;
+                        bestcell = cell;
+                    }
                 }
             }
         }
+        if (!bestcell || list == NULL || GameToPlay == GAME_NORMAL || IsHuman
+            || TD_Fair_AI_Keeps_Paths(this, (BuildingTypeClass const*)ttype, bestcell)) {
+            break;
+        }
+        if (rejected_count == ARRAY_SIZE(rejected)) {
+            bestcell = 0;
+            break;
+        }
+        rejected[rejected_count++] = bestcell;
     }
 
     /*

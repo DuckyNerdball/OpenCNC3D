@@ -1,0 +1,55 @@
+# G474. A MIXED BUILD QUEUE, IN CLICK ORDER (game/cnc_sidebar.h, sb_click_build and the
+# per-category FIFO). Clicking a different cameo while its category is building queues it
+# behind what is building instead of being refused, and the queue comes out in the order
+# it was clicked. The click order below is deliberately NOT the order of the unit ids:
+# Grenadier (bid 1) before Minigunner (bid 0), Jeep (bid 8) before Medium Tank (bid 1), so
+# a queue drained by id would come out the other way round and fail.
+#
+# The Enhanced strip is logged once the clicks are in: its cards must read in build order,
+# one card per unbroken run of one type, so the Minigunner after the Grenadier and the
+# Medium Tank after the Jeep each get a card of their own.
+#
+# Invulnerability is on so that every unit built is still standing to be counted at the
+# end: the counts, not the bank, are the assertion, because a harvester unloading during
+# the run puts money back while the queue spends it.
+tick 30
+cheatset invuln 1
+tick 2
+echo G474-before
+count E1:@me
+count E2:@me
+count MTNK:@me
+count JEEP:@me
+echo G474-infantry
+sbclickitem E1
+sbclickitem E2
+sbclickitem E1
+sbclickitem E2
+sbrclickitem E2
+echo G474-vehicles
+sbclickitem MTNK
+sbrclickitem MTNK
+sbclickitem MTNK
+sbclickitem JEEP
+sbclickitem MTNK
+sbclickitem JEEP
+sbrclickitem JEEP
+queuedump
+hudqlog 1
+frames 40
+echo G474-cards
+frames 1
+hudqlog 0
+echo G474-drain
+tick 1000
+queuedump
+tick 1000
+queuedump
+tick 800
+echo G474-after
+queuedump
+count E1:@me
+count E2:@me
+count MTNK:@me
+count JEEP:@me
+quit

@@ -1,0 +1,20 @@
+# E1 Tiberian Dawn's map editor on the first GDI mission (SCG01EA, temperate), Enhanced.
+# The editor rewrites the ground in place, so it rebuilds the ground surface and the sea
+# from the sheets on every frame it draws: 20 of those frames are timed (framebench),
+# with a ledger line before and after, and the beach and the sea are shot.
+game: td
+scen: SCG01EA
+modes: enh
+flags: --edit
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+cam 50 57
+frames 4
+memledger e0
+framebench 20
+memledger e20
+shot {OUT}/edit_beach.png
+quit

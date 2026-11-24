@@ -843,7 +843,11 @@ bool HouseClass::Can_Build(ObjectTypeClass const* type, HousesType house) const
     **	The computer records prerequisite buildings because it can't relay on the
     **	sidebar to keep track of this information.
     */
-    return (Can_Build_With_Prerequisites(type, house, (Session.Type != GAME_NORMAL) ? FairAI_RA_Prerequisites(this) : (IsHuman ? ActiveBScan : OldBScan)));
+    /* Human sidebar discovery runs from Grand_Opening before the building leaves
+       MISSION_CONSTRUCTION. Its authoritative scan already includes the new yard;
+       the AI's completed-building scan deliberately excludes it at that instant. */
+    return (Can_Build_With_Prerequisites(type, house, IsHuman ? ActiveBScan
+        : (Session.Type != GAME_NORMAL ? FairAI_RA_Prerequisites(this) : OldBScan)));
 }
 
 /* OpenCNC3D: Can_Build's own test with the prerequisite set handed in, so a read-only query
@@ -3336,7 +3340,12 @@ bool HouseClass::Place_Object(RTTIType type, CELL cell)
             if (tech) {
                 TechnoClass* builder = tech->Who_Can_Build_Me(false, false);
                 if (builder) {
-
+                    /* Validate at the event boundary too, not just in the local
+                       placement cursor: remote PLACE requests reach this path. */
+                    if (tech->What_Am_I() == RTTI_BUILDING && IsHuman && !Debug_Map
+                        && !Map.Passes_Proximity_Check(tech->Techno_Type_Class(), Class->House,
+                                                      tech->Occupy_List(true), cell))
+                        return false;
                     builder->Transmit_Message(RADIO_HELLO, tech);
                     if (tech->Unlimbo(Cell_Coord(cell))) {
                         factory->Completed();
@@ -8228,7 +8237,9 @@ void HouseClass::Check_Pertinent_Structures(void)
     ** Game is over when no pertinent structures remain
     */
 
-    if (!Special.IsEarlyWin) {
+    /* Campaign loss conditions belong to mission triggers, even if a previous
+       skirmish used the destroy-structures rule. */
+    if (Session.Type == GAME_NORMAL || !Special.IsEarlyWin) {
         return;
     }
 

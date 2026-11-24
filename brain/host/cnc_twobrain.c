@@ -209,6 +209,8 @@ typedef void(CNC_CALL* fn_Sidebar)(int, unsigned long long, int, int, short, sho
 typedef void(CNC_CALL* fn_Input)(int, unsigned char, unsigned long long, int, int, int, int);
 typedef void(CNC_CALL* fn_DebugReq)(int, unsigned long long, const char*, int, int, unsigned char, unsigned char);
 typedef int(CNC_CALL* fn_GetState)(int, unsigned long long, unsigned char*, unsigned int);
+typedef unsigned char(CNC_CALL* fn_Select)(unsigned long long, int, int);
+typedef unsigned char(CNC_CALL* fn_SellUnit)(unsigned long long, int, int);
 
 typedef struct
 {
@@ -234,6 +236,8 @@ typedef struct
     fn_Input Input;
     fn_DebugReq DebugReq;
     fn_GetState GetState;
+    fn_Select Select;
+    fn_SellUnit SellUnit; /* optional: NULL on a brain without it, and leg 6 then fails */
     char path[1024];
 } Brain;
 
@@ -251,9 +255,11 @@ static void CNC_CALL noop_callback(const void* event)
    HOUSE|...|player=1 marks the house the caller's player id resolved to, and an OBJ line's
    flashme= says whether the target blush is that house's to see. The two instances are
    advanced under different ids on purpose (see main), so both differ by design and are
-   blanked before the compare. Everything else in the dump is simulation. (The lockstep
-   world hash in the renderer skips the same fields, plus sel= and group=, which a
-   headless brain never sets.) */
+   blanked before the compare, and so is sel=, the selection of whichever player the brain's
+   context names, which only the Repair Bay leg sets (on the instance that gives the order,
+   as a real peer would). Everything else in the dump is simulation. (The lockstep world
+   hash in the renderer skips the same fields, plus group=, which a headless brain never
+   sets.) */
 static void blank_field(char* d, const char* key)
 {
     char* p = d;
@@ -270,6 +276,7 @@ static void normalise_dump(char* d)
 {
     blank_field(d, "|player=");
     blank_field(d, "|flashme=");
+    blank_field(d, "|sel=");
 }
 
 static char* capture_dump(Brain* b, size_t* len_out)
@@ -415,7 +422,9 @@ static int load_brain(Brain* b, const char* src, const char* copy_path, const ch
     SYM(Input, "CNC_Handle_Input")
     SYM(DebugReq, "CNC_Handle_Debug_Request")
     SYM(GetState, "CNC_Get_Game_State")
+    SYM(Select, "CNC_Select_Object")
 #undef SYM
+    b->SellUnit = (fn_SellUnit)cnc_lib_sym(b->lib, "OpenCNC3D_Sell_Unit");
     return (1);
 }
 
@@ -531,6 +540,9 @@ static int arm_multiplayer(Brain* b, int seats)
 #define TB_SIDEBAR_START_PLACEMENT 3
 #define TB_SIDEBAR_PLACE 4
 #define TB_INPUT_SELL_AT_POSITION 7
+#define TB_INPUT_COMMAND_AT_POSITION 9
+#define TB_DLL_UNIT 2 /* DllObjectTypeEnum UNIT */
+#define TB_RTTI_UNIT 3 /* Tiberian Dawn's RTTI_UNIT, what OpenCNC3D_Sell_Unit takes */
 #define TB_DEBUG_SPAWN_OBJECT 0
 #define TB_DEBUG_END_PRODUCTION 5
 #define TB_DEBUG_KILL_OBJECT 4
@@ -1146,6 +1158,193 @@ static int gesture_legs(Brain* A, Brain* B, unsigned event_size)
                 return (0);
             }
             printf("  wall sell: executed on both, walls %d -> %d\n", before, after);
+        }
+    }
+
+    /* 6. SELL A UNIT ON THE REPAIR BAY. The 1995 sell-unit click queues EventClass::SELL on
+       the unit, and OpenCNC3D_Sell_Unit is that click: in a match it must change nothing
+       until the order crosses, then take the unit off both worlds for the same refund.
+       A Jeep is driven onto a Repair Bay by an ordinary order first, because only the bay's
+       own radio contact makes a unit sellable (FootClass::Can_Demolish). */
+    {
+        char prefix[64];
+        char* fix_line;
+        char* jeep_line = NULL;
+        char owner[32] = {0};
+        int rpx, rpy, fix_x, fix_y, jeep_id = -1, t, docked = -1, credits0 = -1, credits1 = -1;
+        int jeeps0, jeeps1, fix_id, built = -1;
+        const char* o;
+        if (A->SellUnit == NULL || B->SellUnit == NULL) {
+            printf("FAILED: the brain does not export OpenCNC3D_Sell_Unit, so a unit on the Repair\n");
+            printf("        Bay cannot be sold in a match\n");
+            return (0);
+        }
+        fix_line = tb_spawn_building(A, B, "FIX", &rpx, &rpy);
+        if (fix_line == NULL) {
+            return (0);
+        }
+        fix_id = tb_field(fix_line, "id", -1);
+        fix_x = tb_field(fix_line, "x", -1);
+        fix_y = tb_field(fix_line, "y", -1);
+        /* OBJ|BUILDING|FIX|<owner>|... */
+        o = fix_line + strlen("OBJ|BUILDING|FIX|");
+        snprintf(owner, sizeof(owner), "%.*s", (int)strcspn(o, "|"), o);
+        free(fix_line);
+        printf("  fixture: Repair Bay of %s at cell %d,%d (pixel %d,%d), on both\n", owner, fix_x, fix_y, rpx, rpy);
+        /* A bay still in its build-up refuses every unit (RADIO_CAN_LOAD answers negative
+           during BSTATE_CONSTRUCTION), so wait for it to stand. */
+        for (t = 0; t < 200 && built < 0; t++) {
+            if (!tb_settle(A, B, 1, "while the Repair Bay builds up")
+                || !tb_agree(A, B, "while the Repair Bay builds up", &dump)) {
+                return (0);
+            }
+            fix_line = tb_find_building(dump, "FIX", fix_id);
+            if (fix_line != NULL && strstr(fix_line, "|mission=Construction|") == NULL) {
+                built = t + 1;
+            }
+            free(fix_line);
+            free(dump);
+        }
+        if (built < 0) {
+            printf("FAILED: the Repair Bay was still building up after 200 ticks\n");
+            return (0);
+        }
+
+        if (!tb_agree(A, B, "before the Jeep spawn", &dump)) {
+            return (0);
+        }
+        jeeps0 = tb_count_lines(dump, "OBJ|UNIT|JEEP|");
+        free(dump);
+        if (!tb_spawn_both(A, B, "JEEP", rpx + 96, rpy + 24, 0)
+            || !tb_agree(A, B, "after the Jeep spawn", &dump)) {
+            return (0);
+        }
+        {
+            const char* p = dump;
+            while ((p = strstr(p, "OBJ|UNIT|JEEP|")) != NULL) {
+                if (p == dump || p[-1] == '\n') {
+                    char* l = tb_find_line(p, "OBJ|UNIT|JEEP|");
+                    if (l != NULL && tb_field(l, "id", -1) > jeep_id) {
+                        jeep_id = tb_field(l, "id", -1);
+                    }
+                    free(l);
+                }
+                p += 1;
+            }
+        }
+        jeeps1 = tb_count_lines(dump, "OBJ|UNIT|JEEP|");
+        free(dump);
+        if (jeep_id < 0 || jeeps1 != jeeps0 + 1) {
+            printf("FAILED: the Jeep fixture did not spawn (Jeeps %d -> %d)\n", jeeps0, jeeps1);
+            return (0);
+        }
+
+        /* Off the bay it is not for sale: refused, and nothing is queued. */
+        if (A->SellUnit(TB_P0, TB_RTTI_UNIT, jeep_id)) {
+            printf("FAILED: OpenCNC3D_Sell_Unit accepted Jeep %d standing beside the bay\n", jeep_id);
+            return (0);
+        }
+        if (!tb_cross(A, B, event_size, "sell a Jeep off the bay (refused)", 0)) {
+            return (0);
+        }
+
+        /* Onto the bay: select it and command at the bay's centre, on A alone, as the
+           player's own machine does. Selection is not simulation; the order crosses. */
+        A->Select(TB_P0, TB_DLL_UNIT, jeep_id);
+        A->Input(TB_INPUT_COMMAND_AT_POSITION, 0, TB_P0, rpx + 24, rpy + 24, 0, 0);
+        if (!tb_cross(A, B, event_size, "Jeep onto the bay", 1)) {
+            return (0);
+        }
+        jeep_line = NULL;
+        for (t = 0; t < 600 && docked < 0; t++) {
+            if (!tb_settle(A, B, 1, "while the Jeep drives onto the bay")
+                || !tb_agree(A, B, "while the Jeep drives onto the bay", &dump)) {
+                return (0);
+            }
+            snprintf(prefix, sizeof(prefix), "OBJ|UNIT|JEEP|");
+            {
+                const char* p = dump;
+                while ((p = strstr(p, prefix)) != NULL) {
+                    if (p == dump || p[-1] == '\n') {
+                        char* l = tb_find_line(p, prefix);
+                        if (l != NULL && tb_field(l, "id", -1) == jeep_id) {
+                            if (tb_field(l, "sellu", 0) == 1) {
+                                docked = t + 1;
+                            }
+                            free(jeep_line);
+                            jeep_line = l;
+                            l = NULL;
+                        }
+                        free(l);
+                    }
+                    p += 1;
+                }
+            }
+            free(dump);
+        }
+        if (docked < 0) {
+            printf("FAILED: Jeep %d never read sellu=1 on the bay in 600 ticks; its last line:\n  %s\n", jeep_id,
+                   jeep_line ? jeep_line : "(gone)");
+            free(jeep_line);
+            return (0);
+        }
+        free(jeep_line);
+        jeep_line = NULL;
+        printf("  Jeep %d is on the bay and sellable after %d tick(s), on both\n", jeep_id, docked);
+
+        if (!tb_agree(A, B, "before the unit sale", &dump)) {
+            return (0);
+        }
+        {
+            char hp[64];
+            snprintf(hp, sizeof(hp), "HOUSE|%s|", owner);
+            jeep_line = tb_find_line(dump, hp);
+            credits0 = jeep_line ? tb_field(jeep_line, "credits", -1) : -1;
+            free(jeep_line);
+        }
+        free(dump);
+        if (!A->SellUnit(TB_P0, TB_RTTI_UNIT, jeep_id)) {
+            printf("FAILED: OpenCNC3D_Sell_Unit refused Jeep %d on the bay\n", jeep_id);
+            return (0);
+        }
+        if (!tb_agree(A, B, "after the unit sell click and BEFORE the drain: the Jeep left A's world alone, so the unit sale bypasses the order queue", NULL)) {
+            return (0);
+        }
+        printf("  unit sell: the click changed nothing locally, so it is an order and not an act\n");
+        if (!tb_cross(A, B, event_size, "unit sell", 1)) {
+            return (0);
+        }
+        if (!tb_settle(A, B, 5, "after the unit sell order executed")
+            || !tb_agree(A, B, "reading the world after the unit sale", &dump)) {
+            return (0);
+        }
+        {
+            char hp[64];
+            char* l;
+            int gone = 1;
+            const char* p = dump;
+            snprintf(hp, sizeof(hp), "HOUSE|%s|", owner);
+            l = tb_find_line(dump, hp);
+            credits1 = l ? tb_field(l, "credits", -1) : -1;
+            free(l);
+            while ((p = strstr(p, "OBJ|UNIT|JEEP|")) != NULL) {
+                if (p == dump || p[-1] == '\n') {
+                    l = tb_find_line(p, "OBJ|UNIT|JEEP|");
+                    if (l != NULL && tb_field(l, "id", -1) == jeep_id && strstr(l, "|limbo=0|") != NULL) {
+                        gone = 0;
+                    }
+                    free(l);
+                }
+                p += 1;
+            }
+            free(dump);
+            if (!gone || credits0 < 0 || credits1 <= credits0) {
+                printf("FAILED: the unit sell order executed on both and Jeep %d is %s, credits %d -> %d\n",
+                       jeep_id, gone ? "gone" : "STILL THERE", credits0, credits1);
+                return (0);
+            }
+            printf("  unit sell: executed on both, Jeep %d gone, %s credits %d -> %d (+%d)\n", jeep_id, owner,
+                   credits0, credits1, credits1 - credits0);
         }
     }
     return (1);

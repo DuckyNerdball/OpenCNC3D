@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """G295's two halves: the scene it stages and the claims it checks.
 
-    python3 gate_ebldmg.py maps DIR        write the three test missions and their scripts
+    python3 gate_ebldmg.py maps DIR        write the test missions and their scripts
     python3 gate_ebldmg.py check LOGS DIR  read the runs' logs (shots/g295*.log) and print
                                            "1 message" or "0 why"
 
@@ -17,6 +17,7 @@ is on the maps: no trees, no Tiberium but the field, no triggers.
 Each script orders the attack and then dumps the system's state every fifty ticks
 (ebldump, ebldbodies), with a few shots on the way. The engine prints every stage change
 as it happens (EBLD|hit, damaged, wreck, sink, gone).
+Each type also has a single-target mission that keeps its full collapse in view.
 """
 import json
 import os
@@ -32,6 +33,11 @@ MAPS = {"SCG91EA": ["AFLD", "BIO", "EYE", "FACT", "FIX", "HAND", "HOSP", "HPAD",
                     "NUKE", "MISS"],
         "SCG92EA": ["ATWR", "GTWR", "GUN", "HQ", "OBLI", "PROC", "PYLE", "SAM", "SILO",
                     "TMPL", "WEAP"]}
+# A Helipad opens with its helicopter parked on it, and an attack on the pad's middle is an
+# attack on that helicopter (it is the object a click there lands on). The tanks kill it
+# within the first 50 ticks and then have no target, so each pad's tanks are ordered onto
+# the pad a second time once it is empty.
+PADS = {"HPAD"}
 TAIL = ["", "[TERRAIN]", "", "[SMUDGE]", "", "[Triggers]", "", "[CellTriggers]", "",
         "[Teams]", "", "[Waypoints]", "", "[Base]", "Count=0", ""]
 
@@ -77,10 +83,26 @@ def maps(out):
                 sys.exit("gate_ebldmg: no room for %s on %s" % (t, name))
             x, y = spot
             taken.append(spot)
-            st.append("%03d=BadGuy,%s,256,%d,0,None" % (i, t, cell(x, y)))
-            for tx in (x, x + fw - 1 if fw > 1 else x + 1):
-                un.append("%03d=GoodGuy,HTNK,256,%d,0,Guard,None" % (len(un), cell(tx, y + fh + 2)))
+            building = "BadGuy,%s,256,%d,0,None" % (t, cell(x, y))
+            st.append("%03d=%s" % (i, building))
+            pair = ["GoodGuy,HTNK,256,%d,0,Guard,None" % cell(tx, y + fh + 2)
+                    for tx in (x, x + max(1, fw - 1))]
+            un.extend("%03d=%s" % (j, unit) for j, unit in enumerate(pair, start=len(un)))
             layout.setdefault(name, []).append(dict(type=t, x=x, y=y, fw=fw, fh=fh))
+            # This case keeps one wreck in the local viewport for its entire lifetime.
+            single = os.path.join(out, "wreck-" + t)
+            os.makedirs(single, exist_ok=True)
+            one = basic() + [mapsec, ""] + houses() + ["[STRUCTURES]", "000=" + building,
+                   "", "[UNITS]", "000=" + pair[0], "001=" + pair[1], "", "[INFANTRY]", "", "[OVERLAY]"] + TAIL
+            with open(os.path.join(single, "SCG91EA.INI"), "w", encoding="latin-1", newline="") as f:
+                f.write("\r\n".join(one))
+            with open(os.path.join(single, "SCG91EA.BIN"), "wb") as f:
+                f.write(b)
+            with open(os.path.join(single, "SCG91EA.txt"), "w") as f:
+                order = ["lclickobj HTNK 0", "orderobj %s 0" % t, "lclickobj HTNK 1", "orderobj %s 0" % t]
+                again = order + ["tick 2950"] if t in PADS else ["tick 2950"]
+                f.write("\n".join(["tick 3", "zoom max", "cam %d %d" % (x + fw // 2, y + fh // 2 + 1),
+                                   "tick 1"] + order + ["tick 50"] + again + ["quit"]) + "\n")
         text = basic() + [mapsec, ""] + houses() + ["[STRUCTURES]"] + st + ["", "[UNITS]"] + \
             un + ["", "[INFANTRY]", "", "[OVERLAY]"] + TAIL
         open(os.path.join(out, name + ".INI"), "w", encoding="latin-1", newline="").write("\r\n".join(text))
@@ -92,8 +114,18 @@ def maps(out):
             for j in (0, 1):
                 s += ["lclickobj HTNK %d" % (2 * i + j), "orderobj %s 0" % d["type"]]
         d0 = layout[name][0]
+        last = layout[name][-1]
         for k in range(60):
-            s += ["tick 50", "echo g295 dump %d" % k, "ebldump", "ebldbodies"]
+            s += ["tick 50"]
+            if k == 0:
+                # the helicopters on the pads are dead by now: order their tanks onto the pads
+                for i, d in enumerate(layout[name]):
+                    if d["type"] in PADS:
+                        s += ["cam %d %d" % (d["x"] + d["fw"] // 2, d["y"] + d["fh"] // 2 + 1), "tick 1"]
+                        for j in (0, 1):
+                            s += ["lclickobj HTNK %d" % (2 * i + j), "orderobj %s 0" % d["type"]]
+                        s += ["cam %d %d" % (last["x"] + last["fw"] // 2, last["y"] + last["fh"] // 2 + 1)]
+            s += ["echo g295 dump %d" % k, "ebldump", "ebldbodies"]
             if k in (4, 8):
                 s += ["cam %.1f %.1f" % (d0["x"] + d0["fw"] / 2.0, d0["y"] + d0["fh"] / 2.0 + 1.2),
                       "dist 1600", "shot shots/g295_%s_%d.png" % (name, k)]
@@ -158,11 +190,19 @@ def check(logs, d):
             need(len(chips) >= 3, "%s: %d hits knocked a chip off, want 3 or more" % (t, len(chips)))
             dm = [int(re.search(r"pieces=(\d+)", l).group(1)) for l in e.get("damaged", [])]
             need(dm and dm[0] > 0, "%s: no damaged stage with loose pieces %s" % (t, dm))
-            wr = [int(re.search(r"pieces=(\d+)", l).group(1)) for l in e.get("wreck", [])]
+            need("wreck" in e and "gone" in e, "%s: no complete death in the group fight" % t)
+            single = rd(os.path.join(logs, "g295-wreck-" + t + ".log"))
+            stages = {}
+            for line in single:
+                match = re.match(r"^EBLD\|(wreck|sink|gone)\|key=2000000\|", line)
+                if match:
+                    stages[match.group(1)] = line
+            wreck = re.search(r"pieces=(\d+)", stages.get("wreck", ""))
+            pieces = int(wreck.group(1)) if wreck else 0
             cut, dest = mesh.get(t, (0, 0))
             want = dest if dest else cut - 4
-            need(wr and wr[0] >= want > 0, "%s: its wreck has %s pieces, want %d or more" % (t, wr, want))
-            need("sink" in e and "gone" in e, "%s: its wreck never sank and went (%s)" % (t, sorted(e)))
+            need(pieces >= want > 0, "%s: its wreck has %d pieces, want %d or more" % (t, pieces, want))
+            need("sink" in stages and "gone" in stages, "%s: its wreck never sank and went (%s)" % (t, sorted(stages)))
         # every emitter of the damaged state gave off particles (a fill-gated one needs
         # Tiberium, which only SCG93EA has), and every intact one before it broke
         spawned = {}

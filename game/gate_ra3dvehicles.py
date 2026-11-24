@@ -166,13 +166,22 @@ def script(d):
          'lclickobj E1:Greece 0', 'actclickobj APC:Greece 0']
     for _ in range(7):
         t += ['tick 2', f'shot {d}/t_run.png', 'evhcdump']
-    t += ['hurtunit APC:USSR 0 5000', 'hurtunit HELI:USSR 0 5000', 'hurtunit 1TNK:USSR 0 5000']
-    for _ in range(8):
+    t += ['hurtunit APC:USSR 0 5000', 'hurtunit HELI:USSR 0 5000']
+    # Long enough for the Longbow to come down before the camera leaves: a wreck that
+    # leaves the tactical viewport is retired at once, mid-fall too, and then never lands.
+    # It falls from the height it was drawn at, which over this low ground is its altitude
+    # plus the smoothed flight floor (1.232 cells above the ground under it, against 0.938
+    # for the altitude alone). Measured: it lands 16 ticks after the shot, the very tick
+    # the camera used to leave, so the wait is 24 ticks.
+    for _ in range(12):
         t += ['tick 2', f'shot {d}/t_dead.png', 'evhcdump']
+    # Let the two wrecks leave the tactical viewport before testing a third.
+    t += ['cam 45 53', 'frames 1', 'tick 1', 'look 1TNK:USSR', 'frames 1', 'hurtunit 1TNK:USSR 0 5000']
+    t += ['tick 2', 'frames 1', 'evhcdump']
     # the Mammoth fights on (its guns are slow to reload), then goes too
     for _ in range(20):
         t += ['tick 4', 'evhcdump']
-    t += [f'shot {d}/t_mammoth.png', 'hurtunit 4TNK:USSR 0 5000']
+    t += ['look 4TNK:USSR', f'shot {d}/t_mammoth.png', 'hurtunit 4TNK:USSR 0 5000']
     for _ in range(8):
         t += ['tick 2', 'evhcdump']
     t += ['gfxmode 0', 'tick 1', 'evhcdump', 'quit']
@@ -409,8 +418,8 @@ def check(d):
         fails.append(f'the deaths: {sorted(deaths)}')
     elif not any(l.startswith('EVHC|impact|') and 'type=HELI' in l for l in t):
         fails.append('the Longbow did not come down')
-    elif not any(l.startswith('EVHCWRECK|APC|') for l in t):
-        fails.append('the APC left no wreck')
+    elif any(not any(l.startswith(f'EVHCWRECK|{kind}|') for l in t) for kind in ('APC', '1TNK')):
+        fails.append('the APC or Light Tank left no wreck')
     elif '4TNK' in want and ('4TNK' not in deaths or not any(l.startswith('EVHCWRECK|4TNK|') for l in t)):
         fails.append('the Soviet Mammoth left no wreck')
     else:

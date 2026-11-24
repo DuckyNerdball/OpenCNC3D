@@ -12,6 +12,18 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D. This is not EA's original file.
+// In a single-player mission (GAME_NORMAL), StripClass::Recalc drops a sidebar
+// entry that was added only because the player owned a captured enemy factory
+// (BuildableViaCapture) once no factory the player still owns may make it under
+// that factory's own side's rules and the mission level. Production of such an
+// entry is abandoned and refunded when the entry goes. Entries added in the
+// ordinary way, and every multiplayer and skirmish game, keep the original rule.
+// No saved field is added: the test reads the buildings the player owns.
+// It DOES change the game simulation, in a single-player mission only.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
 
 /* $Header:   F:\projects\c&c\vcs\code\sidebar.cpv   2.13   02 Aug 1995 17:03:22   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -2004,6 +2016,34 @@ void SidebarClass::StripClass::Draw_It(bool complete)
     }
 }
 
+/*
+** OpenCNC3D: does the player still own a factory that may make this object?
+**
+** A factory makes what its original side could make (its ActLike), so the question is
+** asked once per factory with that side. Prerequisite buildings are deliberately not
+** part of it: an ordinary sidebar entry never goes when a prerequisite is lost, and an
+** entry first offered by a captured factory should not either while the player's own
+** factory could offer it. What is left is the side and mission-level rules, such as
+** GDI training rocket soldiers only from mission 7. Reads only game state, so it is
+** the same on every machine.
+*/
+static bool OpenCNC3D_Capture_Buildable_Owned(TechnoTypeClass const* tech)
+{
+    if (tech == NULL || PlayerPtr == NULL) {
+        return (false);
+    }
+    RTTIType kind = tech->What_Am_I();
+    for (int index = 0; index < Buildings.Count(); index++) {
+        BuildingClass* building = Buildings.Ptr(index);
+        if (building && !building->IsInLimbo && building->House == PlayerPtr
+            && building->Mission != MISSION_DECONSTRUCTION && building->Class->ToBuild == kind
+            && PlayerPtr->Can_Build_With_Prerequisites(tech, building->ActLike, 0xFFFFFFFFu)) {
+            return (true);
+        }
+    }
+    return (false);
+}
+
 /***********************************************************************************************
  * SidebarClass::StripClass::Recalc -- Revalidates the current sidebar list of objects.        *
  *                                                                                             *
@@ -2041,6 +2081,22 @@ bool SidebarClass::StripClass::Recalc(void)
         TechnoTypeClass const* tech = Fetch_Techno_Type(Buildables[index].BuildableType, Buildables[index].BuildableID);
         if (tech != NULL) {
             ok = tech->Who_Can_Build_Me(true, false, PlayerPtr->Class->House) != NULL;
+
+            /*
+            **	OpenCNC3D: an entry that only a captured enemy factory offered goes when the
+            **	last factory that could offer it does. The test above accepts any factory of
+            **	the right kind whose side may own the object, so after a captured Hand of Nod
+            **	is lost a GDI Barracks would keep the Nod-unlocked rocket soldier listed
+            **	before GDI may train one. Single player only; the abandoned production is
+            **	refunded by Abandon_Production.
+            */
+            if (ok && Buildables[index].BuildableViaCapture && GameToPlay == GAME_NORMAL
+                && !OpenCNC3D_Capture_Buildable_Owned(tech)) {
+                ok = false;
+                if (Buildables[index].Factory != -1) {
+                    PlayerPtr->Abandon_Production(Buildables[index].BuildableType);
+                }
+            }
         } else {
             switch (Buildables[index].BuildableID) {
             case SPC_ION_CANNON:

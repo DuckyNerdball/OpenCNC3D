@@ -1,5 +1,315 @@
 # Enhanced terrain controls
 
+## Latest saved lighting - 27 October 2026, 20:36
+
+The newest Dock save supersedes the 14:49 preset below. Its SHA256 is
+`48c5ef0003befc6d9e9297209b5bf4b39fc53f78ccefa7a7ca01e24d5375a1bf`.
+The v04 includes import all884 named theater values and528 shared visual
+candidates, preserving local display, input, audio and graphics-mode choices.
+The saved Temperate and Desert exposure, contrast, clouds and tree fill are
+retained; Desert also retains the revised second-sun energy and infantry light.
+The active saved theater is not promoted to a global default.
+
+No panel layout, labels, artwork or controls changed. The running 14:49 release
+candidate is superseded; its results cannot certify this newer preset. Both games
+require fresh default comparisons and Dock verification before delivery, and the
+release candidate must be rebuilt from the newly integrated private main.
+Public publication still requires final approval of the concrete build/changelog;
+public source and refs remain manual USER actions only.
+
+
+## Final saved lighting for the v0.9.2 candidate - 27 October 2026, 14:49
+
+The newest actual Dock F5 save is now the default authority for both games, SHA256
+`8414eb87526c9121eee05cdf4ad736cd5e90ae57176f455675e9a900ec1bf8f1`.
+The dated v03 includes import all884 named values across four theaters and the
+saved shared visual rows. They supersede the earlier27October layers by key.
+The user's saved category checkbox states are now defaults too: Structures is
+on at1.232143x in Temperate and1.526786x in Desert; Desert Vehicles is on at0.75x.
+Other categories/theaters retain their exact saved values. This explicit latest
+save supersedes the feature's original all-off initial defaults. Display, input,
+audio, graphics-mode selection, saves and unrelated settings remain local.
+
+No F5 label, artwork, fitting, layout or hit-testing changes in this tuning pass.
+The existing348px panel and20character/120px slider label remain authoritative.
+Both games' CPU gates compare all884 saved authority values and keep category
+neutrality, independence and save/load checks separate from tuned defaults.
+The private v0.9.2 candidate is built and gated through the normal release script;
+release binaries are cooked while Dock testing keeps the developer F5 controls.
+Compilation, package gates, native Mac checks, native Windows visual verification,
+Dock delivery and final publication approval remain separate. Native Windows
+verification is not implied by a successful cross compile. Current results and
+hashes belong to the final release-v092-2026-10-27 verification report.
+
+The concrete candidate/changelog must receive final design-review approval before public
+binary or website publication. Public source snapshots remain manual USER actions
+only. Preparing this candidate does not authorize any public repository ref write.
+
+
+
+## Category second-sun power and revised defaults - 27 October 2026, 14:06
+
+The newest actual Dock F5 save supersedes the earlier 13:29 tuning as the visual
+authority: SHA256
+`2eb67647ccf22cf3efa2222d0fb11dff75ec5eb105d825f9a46f2fe3a7b2f8d1`.
+The v02 dated includes import its shared visual values and all860 named lighting
+values across four theaters, including the user's enabled second sun in Temperate
+and Desert. Display, input, audio and graphics-mode selection remain local.
+The older dated includes remain historical layers; v02 wins by schema key.
+
+F5 > Lighting exposes Second Sun Power checkboxes in STRUCTURES, VEHICLES and
+SOLDIERS. Each is followed by second sun power (x), a0-3 multiplier in0.01 steps.
+All three checkboxes default off, meaning the category follows the global second
+sun exactly. A checked box enables only its paired slider;1 preserves current
+brightness,0 removes that category's secondary contribution,3 triples it. Turning
+the box off retains its slider value for later, while restoring global behavior.
+The slider stays visible but dim and cannot be clicked or dragged while unchecked.
+The master Second sun checkbox/energy must still enable the source light. These
+controls do not add a sun, change the primary sun, or create any shadow pass.
+
+Reuse the accepted348px panel,15px rows,160px label well and existing checkbox/
+slider fittings. The longest added label is20characters/120px, within the label
+well. The shared enablement policy drives native hit testing and drawing. All six
+keys save independently per theater and migrate from older presets as off/1.
+Structures/walls and vehicles/aircraft use their existing pixel classes; authored
+PBR vehicles/buildings and3D infantry receive the multiplier in their own direct
+light uniforms. Trees, terrain, sky fill, emissive parts and existing primary-light
+shares retain their previous behavior. Infantry follows the existing3D Soldiers
+group; this does not invent directional lighting for the original flat sprite art.
+
+CPU tests cover both games'860 authority values, four profiles, independent
+checkbox/slider persistence, disabled neutrality, actual row enablement, legacy
+migration and label fitting. Hidden Mac checks separately cover category brightness
+and other-category cores, exact disabled/1x images, primary shadows/depth/normals/
+fog, and actual SDL checkbox and slider clicks with saved-value assertions.
+Unallocated optional targets are recorded as absent, never claimed as exact data.
+F5 on/off screenshots are inspected directly; this is a schema/control extension
+using existing artwork, not a new artistic variation or approval.
+
+The dated second-sun-power-2026-10-27 report records current-main build identity,
+Windows compilation, native Mac results and both installed Dock folders separately.
+Native Windows graphics are not verified for this change. Delivery preserves the
+Dock wrappers, local preferences, saves and unrelated assets and merges only the
+requested visual CFG rows. Private builds only; the release remains paused.
+
+
+Private Dock delivery completed as v0.9.1+b4ab12e, runtime source
+`b4ab12e5839cf14c200ca791f5c35e4ec4a81bfd`. Both universal Mac frontends,
+standalone renderer and launcher aliases are refreshed in canonical and actual
+Dock play folders. Both games pass two hidden menu/mission/return rounds in each
+installation. Installed category tests show exact prior-build default images,
+exact disabled/1x and master-off images, separate brightness response with zero
+changed pixels in the other categories' cores, unchanged available shadow/depth/
+normals/fog targets, and actual checkbox/disabled-slider behavior. The separate
+terrain shadow target is not allocated in these views, so no exact-data claim is
+made for that absent target. The native F5 on/off screenshots were inspected.
+
+At1280x720 the tested checkbox/slider click centers are structures212/227,
+vehicles338/353 (bottom scroll clamp), and infantry287/302; x180 toggles a box
+and x280 moves an enabled slider. Disabled clicks retain1, enabled clicks save2.79.
+Shared layout governs other resolutions; these coordinates are test evidence,
+not fixed product assumptions. The preservation audit covers11077 canonical and
+11182 actual-Dock protected files with zero changed and zero unexpected additions.
+All unrelated CFG rows are preserved and all860 named values match in each of
+four installed CFGs. The same-commit Windows update ZIP is on Desktop; native
+Windows graphics remain untested. Exact hashes, private CFG backups and receipts
+are in the local the engineering reports report. No public
+publication occurred and the release task remains paused.
+
+## Second sun and saved visual defaults - 27 October 2026
+
+The user's 13:29 Dock F5 save is the current shared visual and four-theater
+lighting authority, SHA256
+`18af297657db3c5cdb1b20ae81a98ee6a2813a0cfd7521a966332821b74491cb`.
+The dated Enhanced include imports visual keys by schema name; the dated lighting
+include imports all 848 saved values across Temperate, Winter, Snow and Desert.
+Display, mode selection, input and audio preferences stay local. Personal CFGs
+are never committed or shipped. Installed CFG delivery merges only those visual
+keys and named profiles, preserving unrelated rows and player files.
+
+F5 > Lighting > SUN AND SHADOWS now places Second Sun bearing, Second sun and
+Second sun energy immediately below sun bearing. Reuse the existing 348px panel,
+15px rows, 160px label well and native font. The longest new label is 18 characters
+(108px); no new artwork or layout variation is introduced. Bearing spans 0-360
+degrees. Energy spans 0-3 in 0.01 steps and is independent of primary sun energy.
+The second sun shares the primary height, starts disabled at bearing225/energy1,
+and adds diffuse/specular lighting only in Enhanced unified daylight. Its three
+keys save independently in each theater, including through old-preset migration,
+Save/Load and Defaults. No second shadow pass, map, contact ray or cloud shadow
+is created; the existing split-light targets retain only the primary direct share
+so primary shadows cannot darken the secondary contribution.
+
+CPU gates pass separately for Dawn3D and RA3D: all848 saved authority values,
+four profiles, toggle/bearing/energy roundtrip, legacy-off defaults, global fog,
+Classic edits and the existing public Visuals switches. Hidden native macOS
+checks pass separately on Dawn GDI1 and RA Ant1: independent energy with primary
+sun/sky at zero, bearing response, energy-zero/disabled exact pixels and exact
+primary/terrain/infantry shadow maps, scene depth, normals and fog coverage.
+Fully hidden fog pixels remain unchanged in both games. Disabled output versus
+the prior shader differs at one pixel by at most2 channel levels per game;
+this is the explicit shader rounding tolerance, not an exact full-image claim.
+The new F5 panel was captured and inspected with all three labels fitting.
+
+Build, Windows compilation, actual Dock delivery and installed checks are distinct
+receipts in the local second-sun-2026-10-27 report. Native Windows graphics have
+not been tested for this change. The actual Dock entry remains
+CNC3D-latest/playable/OpenCNC3D.app; both it and the canonical CNC3D/playable
+installation receive matching current-main binaries. Preserve their wrappers,
+saves, settings and unrelated assets. This is private testing delivery; the
+release remains paused and no publication is authorized.
+
+
+## Final v0.9.1 settings and fog corrections — 27 October 2026
+
+The ordinary Visuals switches now commit changes to the selected Enhanced theater
+profile, including edits made while Classic is active. Other theater profiles
+retain their own values. Automatic theater selection at mission startup adopts
+the loaded state without treating it as a user preference edit: opening a page
+and leaving without changes writes no settings file. Visuals Reset restores the
+current theater's compiled defaults while preserving other theater banks, input,
+display and other graphics modes. Presets record `lighting.context` so a saved
+named bank wins over the duplicated flat rows when loaded; default annotations
+compare against the same theater. Legacy presets still migrate as before.
+
+Final Fog of War coverage starts with the existing native-height shroud geometry
+in an independent color target. It temporarily shares scene depth read-only, then
+detaches it before reconstructing solid surfaces. The old geometry mask left holes
+where upright units won the depth test; the solid pass fills those silhouettes.
+Transparent water does not write scene depth, so clear-depth pixels retain the
+native geometry coverage rather than being mapped to a far off-map position.
+No flat sea level is invented. Scene depth is never owned, cleared or written. Smooth/fan/hard coverage follows the same engine visibility
+field, and the five fog controls remain global. The GL2.1 shader uses the existing
+inverse camera transform and a normalized 16-bit visibility texture. Clear pixels
+receive no correction; hidden pixels stay black. F5 layout and artwork are unchanged.
+
+The unit gate covers both games, all four preset contexts, exact save/load/save,
+424 shared authority values, global fog isolation, five public switches and
+Classic edits. Hidden native checks cover both games' public switches, five
+preference scenarios (writes 1/1/0/1/0), full Reset with exact frame equality under
+a fixed simulation seed, and actual F5 theater switching. Native fog probes show
+256 coverage levels, black cores, unchanged depth and unchanged revealed pixels;
+the formerly brighter hidden infantry now agrees with its dark surrounding ground.
+
+Older visual regression fixtures now freeze their lighting explicitly. Approved
+damage/placement reference images remain unchanged and use the exact original
+calibration. Rain animation measures newly moving pixel locations rather than
+subtracting two whole-screen counts; the disabled-animation negative control
+still fails the original floor. Structure color scope uses the existing eight
+pixel RGB-footprint tolerance in both art modes: four actual object pixels happen
+to match their exposed background RGB. This is an explicit measurement tolerance
+change from zero in the older-art arm, not proof that every pixel is separable by
+color. Snow keeps its shipped quality caps plus a paired bright-sun on/off control.
+No product lighting or artwork was changed to satisfy these fixture corrections.
+
+The unchanged ground/sea gates catch the depth-free-water case: the defective
+depth-only candidate had a black cove and only1940 strip pixels; the corrected
+mask draws2474 strip pixels and75% water motion against7% in its control. Both
+games retain256 coverage levels, black cores, neutral revealed pixels and exact
+scene depth. Hidden infantry stays at0.0 luminance on surrounding ground at0.8.
+See `HYBRID-FOG-WATER.json`; fresh-main rebuild/delivery follows these diagnostics.
+
+Verification receipts are in `docs/verification/2026-10-27-v091-release/`.
+Current runtime integration, final package verification and Dock delivery remain
+pending until the final release receipt records their exact source and hashes.
+These technical checks do not authorize public source publication or replace
+final approval of the concrete binaries and changelog.
+
+
+## Global Fog of War and promoted theater tuning —26 October2026, late evening
+
+Current design direction: Fog of War controls are **global across theaters**. F5 →
+Lighting opens with **FOG OF WAR (GLOBAL)** above the sun group. Its five rows are
+smooth edges, edge falloff, unseen darkness, final darkness and banding noise.
+Their `fow_*` keys never enter a named theater profile; switching the theater
+selector leaves them unchanged. They save once in the ordinary shared schema.
+The existing panel artwork, dimensions, tabs and dropdown fittings are retained.
+Lighting's Defaults button still resets only the selected lighting profile and
+leaves the global fog settings alone.
+
+Enhanced fog can use a continuous bilinear coverage field with quarter-cell
+triangles instead of the old centre fan. A native-height coverage target refined from solid-surface depth reapplies
+adjustable darkness after the light/grade/shadow-detail toe; its stationary grain
+only touches partially covered pixels. Fully covered pixels stay black, and
+fully clear pixels receive no final fog correction. The geometry seed temporarily shares scene depth read-only and detaches it before
+the solid pass samples it; the mask never clears, writes, owns or deletes scene depth. Legacy N64/DOS rendering
+and engine visibility/culling remain authoritative. The controls do not reveal
+units or change exploration rules. Disabling smooth edges and setting final
+darkness/noise to zero retains the previous soft-shroud presentation at falloff1
+and unseen darkness0.45.
+
+The user's actual Dock Dawn save from23:27, SHA256
+`18937f5e865622de80e84bdb84211b013a0109833b3e8e056f3560d8931517b6`,
+is the new **Temperate and Desert lighting** authority for both games.
+`game/lighting_defaults_20261026.inc` imports exactly212 visual values for each
+of those two profiles. Winter/Snow retain their earlier defaults; local display,
+input, graphics mode and other global preferences are excluded. Existing named
+profiles still load as saved, and legacy presets still seed their four profiles
+from their own values. Delivery merges only the requested two named profiles
+into existing installed presets, preserving every unrelated row. No personal
+CFG is committed or shipped.
+
+The expanded compiled profile gate checks all424 authority values for both
+frontends, global fog save/load and theater switching, legacy migration and
+Classic-mode preservation. Hidden native checks exercise the actual dropdown,
+pixel response, black core, depth preservation and clear-region neutrality.
+Clean source `d5c9d3744` is delivered as private v0.9.1+d5c9d37 to both play
+folders. `docs/verification/2026-10-26-global-fog/DELIVERY.json` binds the actual
+Dock target and preserved files. Both games pass hidden native Mac/RTX3070 fog
+checks, exact legacy-off images, unchanged depth and revealed-ground neutrality. Technical verification
+does not confer artistic approval or public publication authority.
+
+
+## v0.9.1 private development delivery — 26 October 2026
+
+Final verified delivery: private **v0.9.1+d01f248**, runtime source commit
+`d01f24886`. See `docs/verification/2026-10-26-v091-final/README.md` and its
+hash-bound receipts. Actual launcher/menu screenshots verify Mission Disks,
+Counterstrike/Aftermath and the Shift-speaker Ant list. All Ant chapters and
+four private Dawn User Maps launch through their native lists. The four-tab F5
+layout and theater selector are verified on Mac and native Windows; no artistic
+approval is inferred from these technical checks. Both Dock play folders receive
+the clean binaries and engines while preserving their launcher and personal state.
+The original tree mesh class is 0.247 (outside emissive bands); RA fallback cards
+reuse their exact theater-prefixed sprite coverage and painter order. Existing
+Enhanced tree normals retain their original foliage class.
+
+
+RA's title button and mission picker are named **Mission Disks**; Dawn retains
+Special Ops. The existing accepted RA menu kit is reused. Hold Shift and click
+the title backdrop's top-right speaker to open the four Ant missions. Both classic
+and Enhanced layouts use the same native-art hotspot, scaled with the backdrop.
+The original Spain player and Ant rules are enabled; mission 2 inherits the actual
+surviving objects exported by mission 1. Direct selection of chapter 2 seeds the
+original Discovery base rather than losing immediately with an empty player.
+All 38 add-on maps have their own freshly generated, verified height corners.
+
+F5 tabs are Enhanced, Weather, **Lighting**, Experimental. The four 80 px tabs
+fit the existing 348 px panel. Lighting's sticky selector occupies y78–98;
+rows begin at y108 on that tab and y80 elsewhere. Shared layout/hit testing
+splits mixed groups by parameter, keeping geometry and motion on their existing
+tabs. Temperate, Winter, Snow and Desert save independently by named keys.
+Old files seed all four from their existing values. Loading a map chooses its
+theater; the selector previews another profile immediately. Lighting's Defaults
+resets only the selected theater. Classic mode keeps its effect switches off.
+
+Four personal maps named Effects - Temperate/Winter/Snow/Desert are installed in
+Dawn's user_maps through tools/install-effects-lab.py. Snow uses the existing
+Snow renderer with the original engine's Winter rules. Their own flat 65x65
+heightfields accompany clear ground; 51 production effect recipes loop on labeled
+ground stations. These are private tuning maps, gated by private_developer and
+excluded by existing public user_maps package filters. No map changes engine rules.
+
+The fallback tree mesh path now writes its foliage class before the remastered
+normal pass. This connects original trees to the same tree shadow fill/object fill
+and foliage occlusion rules as the Enhanced trees, including cutout coverage.
+Native checks and raw buffer comparisons remain separate from artistic approval.
+
+The earlier delivery reached the canonical `CNC3D/playable` folder. The actual Dock points to
+`CNC3D-latest/playable/OpenCNC3D.app`. Final delivery receipts must identify the
+latter and preserve its launcher, saves, settings, current HUD/fog/art assets.
+All candidates remain private; no public source or binary publication is authorized.
+
+
 ## Latest shared visual preset —26 October2026
 
 The latest user-saved RA3D picture, SHA256
@@ -666,3 +976,7 @@ Tracks, other theaters, Classic/N64 and water retain their current rendering.
 `tools/gate-desert-decal-blend.cpp` checks the actual delivered pack as well as
 independent RGB/support/ground-grain fixtures. Hidden old/new/ground-only shots
 cover all six crater types and scorch marks; the dated delivery retains proof.
+
+## Windows opaque-land alpha — 26 October 2026
+
+The RTX 3070 native reproduction showed empty opaque-land ownership targets in both games. `GL_GREATER, 0.999` can quantize the reference to 1 and reject opaque alpha. Both native terrain depth/ownership prepasses now use `GL_GEQUAL, 1.0`; colour feathers retain their existing threshold. This removes RA Soviet 1's rectangular snow shading and restores the proper land/water lighting classes and land shadows. The same shared failure was checked in Dawn's coastal view. Standalone GPU proof, before/after raw ownership and normal readbacks, inspected screenshots, all four faction build checks and both surrender regressions are retained in `docs/verification/2026-10-26-v091-development/`. Current-main Mac Dock aliases and hidden renderer were rebuilt and verified; Windows tests ran invisibly on the RTX 3070. The earlier camera and texture-unit candidates were removed.

@@ -287,6 +287,9 @@ FireErrorType TurretClass::Can_Fire(TARGET target, int which) const
     int diff;
     FireErrorType fire = DriveClass::Can_Fire(target, which);
 
+    // The Tesla Tank's rotating coil can zap in any direction, including while driving.
+    if (*this == UNIT_RA_TESLA) return fire;
+
     if (fire == FIRE_OK) {
         WeaponTypeClass const* weapon = (which == 0) ? &Weapons[Class->Primary] : &Weapons[Class->Secondary];
 

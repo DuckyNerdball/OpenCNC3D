@@ -59,6 +59,7 @@
  * ---------------------------------------------------------------------------------- */
 #ifndef EBLD_TERR_H
 #define EBLD_TERR_H
+#include "scenery_bounds.h"
 
 static bool g_eterrOn = true;
 
@@ -135,12 +136,9 @@ static int eterr_cell_draw(int what, const char* type, int x, int y, int pass)
     return ETERR_DRAWN;
 }
 
-/* THE SAME FOR A TERRAIN OBJECT drawn whole by ebld_draw_object: a rock is up to four
-   cells long and a blossom tree 2,600 triangles, and the object loops submit every object
-   of the map in every pass. Its reach is the model's own (the farthest corner from its
-   anchor and its height, cells, measured once per model), plus the box's two cells. Only
-   under Enhanced's rule and only for a type with a remaster: the cartridge's objects are
-   drawn as they always were. */
+/* The original projected-ground reach, retained for the blossom stain and the
+   diagnostic legacy path. Whole scenery now uses the selected model's complete
+   tuned/wind bounds below: this radius predates those F5 geometry controls. */
 static std::vector<float> g_eterrReach;
 static float eterr_reach(int m)
 {
@@ -160,7 +158,7 @@ static float eterr_reach(int m)
     }
     return r;
 }
-static bool eterr_object_off(const SimObject& o)
+static bool eterr_ground_off(const SimObject& o)
 {
     if (o.kind != K_TERRAIN || g_ebld.empty() || !ebld_rule_now()) return false;
     if (!g_cullOn || !g_cullValid || !g_clip_to_map) return false;
@@ -169,6 +167,114 @@ static bool eterr_object_off(const SimObject& o)
     const float r = eterr_reach(m) + 2.0f;
     return o.wx + r < g_cullX0 || o.wx - r > g_cullX1 || o.wz + r < g_cullZ0
         || o.wz - r > g_cullZ1;
+}
+
+/* The early test uses the exact model SELECTED by ebld_draw_object, including a
+   burning tree or snag. Its attached mesh also includes the borrowed shadow
+   plate. Cache rest extents only: every call expands wind over all phases and
+   applies this object's current F5 scale/variation/lean, so no tune or clock can
+   leave yesterday's smaller box behind. A pack switch invalidates the cache.
+   Unsupported deformation keeps its preexisting cull and preparation path;
+   a supported bound with invalid math fails open. The ground-reach test stays
+   at its original call sites. By default the new bounds activate only after
+   pose-cache pressure latches for the mission. OPENCNC3D_SCENERY_PREP_CULL=1/0
+   forces the new/legacy policy for diagnostic comparisons. */
+struct EterrRestBounds {
+    int serial = -1, mesh = -1;
+    const PackTri* source = NULL;
+    size_t count = 0;
+    bool usable = false;
+    SceneryBounds box;
+};
+static std::vector<EterrRestBounds> g_eterrRestBounds;
+static bool eterr_preparation_supported(const SimObject& o, int m, int pass)
+{
+    if (!g_fx.enabled || g_meshBatchEditor || debug_meshes_on() || o.kind != K_TERRAIN
+        || m < 0 || m >= (int)g_ebld.size() || g_meshGroundPerVertex
+        || g_meshFillY < 3.0e38f || wobble_of(o) != WOBBLE_NONE) return false;
+    const EbldModel& model = g_ebld[(size_t)m];
+    const int mi = model.mesh[EBM_INTACT];
+    if (!model.attached || model.nset != 1 || !model.move.empty() || !model.clip.empty()
+        || !model.wave.empty() || model.service.kind
+        || mi < 0 || mi >= (int)g_pack.mesh.size()) return false;
+    const PackMesh& mesh = g_pack.mesh[(size_t)mi];
+    if (mesh.gpuDeformed || mesh.animFrames > 0 || mesh.tris.empty()) return false;
+    /* Other draw_mesh presentation transforms retain their original draw path. */
+    float special[12];
+    if (ra_barrel_visual_matrix(g_raModule, g_fx.enabled != 0, g_fx.dos_classic != 0,
+                               mesh.name, pass == MODE_SHADOW, false, NULL, special)) return false;
+    return true;
+}
+static bool eterr_preparation_bounds(const SimObject& o, int m, int pass,
+                                      float lo[3], float hi[3])
+{
+    if (!eterr_preparation_supported(o, m, pass)) return false;
+    const EbldModel& model = g_ebld[(size_t)m];
+    const int mi = model.mesh[EBM_INTACT];
+    const PackMesh& mesh = g_pack.mesh[(size_t)mi];
+    try {
+        if (g_eterrRestBounds.size() <= (size_t)m) g_eterrRestBounds.resize((size_t)m + 1);
+    } catch (const std::bad_alloc&) { return false; }
+    EterrRestBounds& rest = g_eterrRestBounds[(size_t)m];
+    if (rest.serial != g_ebldPackSerial || rest.mesh != mi || rest.source != mesh.tris.data()
+        || rest.count != mesh.tris.size()) {
+        rest = EterrRestBounds();
+        rest.serial = g_ebldPackSerial; rest.mesh = mi;
+        rest.source = mesh.tris.data(); rest.count = mesh.tris.size();
+        rest.usable = true;
+        for (size_t t = 0; t < mesh.tris.size() && rest.usable; t++)
+            for (int k = 0; k < 3; k++) {
+                const PackVert& v = mesh.tris[t].v[k];
+                if (!rest.box.add(v.x, v.y, v.z)) { rest.usable = false; break; }
+            }
+    }
+    if (!rest.usable) return false;
+    SceneryBounds box = rest.box;
+    if (!model.sway.empty() && g_meshSwayOn
+        && !scenery_bounds_wind(box, g_fx.tree3d_wind, g_fx.tree3d_flutter)) return false;
+    const bool tree = o.type[0] == 'T'
+        && ((o.type[1] >= '0' && o.type[1] <= '9') || o.type[1] == 'C');
+    if (tree && (g_fx.etree_height != 1.0f || g_fx.etree_width != 1.0f
+                 || g_fx.etree_vary != 0.0f || g_fx.etree_lean != 0.0f)) {
+        const float variation = ((float)(efx_hash(0x54524545u, (unsigned)o.cx,
+            (unsigned)o.cy, 0u) % 2001u) / 1000.0f - 1.0f) * g_fx.etree_vary;
+        const float lean = (float)(efx_hash(0x4c45414eu, (unsigned)o.cx,
+            (unsigned)o.cy, 0u) % 6283u) * 0.001f;
+        const float w = g_fx.etree_width * (1.0f + variation);
+        const float h = g_fx.etree_height * (1.0f + variation);
+        const float matrix[12] = {w, sinf(lean) * g_fx.etree_lean, 0, 0,
+            0, h, 0, 0, 0, cosf(lean) * g_fx.etree_lean, w, 0};
+        if (!scenery_bounds_affine(box, matrix)) return false;
+    }
+    /* Terrain's facing and lift are currently identity/zero, but use the same
+       helpers as the draw. The sink belongs to this selected snag, in cells. */
+    float rs, rc;
+    facing_rot(draw_facing(o), &rs, &rc);
+    const float scale = MODEL_SCALE;
+    const float nudgeX = pass == MODE_SHADOW ? shadow_nudge_x() : 0.0f;
+    const float nudgeZ = pass == MODE_SHADOW ? shadow_nudge_z() : 0.0f;
+    const float bias = pass == MODE_SHADOW ? 0.012f : 0.0f;
+    const float world[12] = {rc * scale, 0, rs * scale, o.wx + nudgeX,
+        0, scale, 0, terrain_y(o.wx, o.wz) + alt_lift(o) - g_etreeSink + bias,
+        -rs * scale, 0, rc * scale, o.wz + nudgeZ};
+    return scenery_bounds_affine(box, world) && scenery_bounds_export(box, lo, hi);
+}
+
+static bool eterr_object_off(const SimObject& o)
+{
+    /* Supported remasters defer to the current-pass model box, so a tuned tall
+       tree is never dropped by the older projected-ground radius first. Keep
+       unsupported types' ground test here, exactly where callers used it before;
+       some RA passes intentionally reach ebld_draw_object without this test. */
+    if (o.kind == K_TERRAIN && g_fx.enabled && !g_ebld.empty() && ebld_rule_now()
+        && eterr_preparation_cull_enabled()) {
+        int m = ebld_model_of(o.type);
+        const EbldBld* entry = ebld_find(o);
+        if (entry && entry->stage == EB_WRECKED) m = entry->model;
+        else m = etree_draw_model(o, entry, m);
+        if (eterr_preparation_supported(o, m, MODE_OPAQUE)) return false;
+    }
+    return eterr_ground_off(o);
 }
 
 /* Accepted Enhanced trees, controlled by Visuals / 3D Trees, the tree clumps TC01 to TC05
@@ -281,6 +387,7 @@ static void eterr_draw_normals(void)
     g_meshNrmOut = 1;
     g_eterrAux[2] = 0;
     eterr_draw_aux(MODE_OPAQUE, 2);
+    ra3d_interior_draw(MODE_OPAQUE, 2);   /* (and Red Alert's indoor walls) */
     if (g_fieldsDraw)
         for (size_t i = 0; i < g_fields.size(); i++) {
             const FieldCell& fc = g_fields[i];
@@ -417,7 +524,7 @@ static void eterr_draw_stains(void)
     for (size_t i = 0; i < g_objects.size(); i++) {
         const SimObject& o = g_objects[i];
         if (o.kind != K_TERRAIN || strncmp(o.type, "SPLIT", 5) || !visible(o)) continue;
-        if (shroud_cell_hidden(o.cx, o.cy) || eterr_object_off(o)) continue;
+        if (shroud_cell_hidden(o.cx, o.cy) || eterr_ground_off(o)) continue;
         const int m = ebld_model_of(o.type);
         if (m < 0) continue;
         const EterrRoots R = eterr_roots(m);

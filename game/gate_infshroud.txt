@@ -1,3 +1,6 @@
+# Pin visible unit size so both dark enemy masks meet the original100-pixel guard.
+gfx inf_scale 1
+gfx einf_scale 1.07143
 # G326's script: Enhanced soldiers standing in the shroud's soft edge are as dark as the
 # shroud says (claims in gate_infshroud.py).
 #

@@ -35,6 +35,15 @@ def bake(source, output):
         records.append((name,im.width,im.height,data))
         proofs[name]={'source_sha256':a['sha256'],'rgba_sha256':hashlib.sha256(data).hexdigest(),
                       'width':im.width,'height':im.height}
+    # The game mode picker's tiles (Multiplayer and Skirmish), outside the accepted v06 kit.
+    icons=source.parent/'game-mode-icons-v01'
+    for mode in ('ffa','gungame','rally'):
+        path=icons/f'td-mode-{mode}.png'
+        if not path.exists(): continue
+        im=Image.open(path).convert('RGBA'); data=im.tobytes()
+        records.append((f'mode-{mode}',im.width,im.height,data))
+        proofs[f'mode-{mode}']={'source_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                                'rgba_sha256':hashlib.sha256(data).hexdigest(),'width':im.width,'height':im.height}
     out=bytearray(b'ENMENU06'+struct.pack('<I',len(records)))
     for name,w,h,data in records:
         key=name.encode('ascii'); assert len(key)<64

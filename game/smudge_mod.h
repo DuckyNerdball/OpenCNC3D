@@ -47,7 +47,11 @@
 
 struct SmudgeSet {
     unsigned    theaterId;
-    int         texw, texh;
+    int         texw, texh;     /* the sheet ON THE CARD: the gutter layout below, or the
+                                   pack's own grid when the gutter is switched off */
+    int         rawW, rawH;     /* the pack's own gutterless grid, as read off disk */
+    int         slotW, slotH;   /* one frame's slot on the card, gutter included */
+    int         gut;            /* texels of gutter on each side of a frame: 1 or 0 */
     GLuint      tex;
     int         nframes[16];
     /* The sheet as it came off disk, kept so the feathered alpha can be rebuilt when the
@@ -117,6 +121,68 @@ static void smudge_feather(unsigned char* dst, const unsigned char* src,
     }
 }
 
+/* A ONE-TEXEL GUTTER ROUND EVERY FRAME, built at load, so bilinear filtering cannot
+ * reach into the wrong art.
+ *
+ * WHY. The pack is a gutterless grid: frame after frame along a row, one row per smudge
+ * type, and each cell's texture coordinates run exactly to its frame's edges. Under
+ * GL_NEAREST that is exact. Under GL_LINEAR (the bilinear switch reaches this sheet) a
+ * texel on a frame's edge is averaged half a texel into whatever lies beyond it: along
+ * the top and bottom that is the NEXT SMUDGE TYPE's strip, which is different art and
+ * partly transparent, and at the end of an apron row it is the first frame of the row
+ * below. The result was a dark, partly cut line across every building apron at the join
+ * between its two rows of cells and along its south edge, plus fainter lines at its
+ * outer left and right edges.
+ *
+ * WHAT GOES IN THE GUTTER is what the texel beyond the edge really is on the ground.
+ * An apron (types 12..14) is one picture cut into Width x Height cells, and the engine
+ * numbers its cells w + h * Width, so the texel beyond a cell's edge is the matching
+ * texel of the cell beside it in that picture: the internal joins filter across exactly
+ * as one unbroken texture would. Beyond the apron's own outer edge, and for every crater
+ * and scorch frame (each frame is a separate state of one cell, not a neighbour), the
+ * edge texel is repeated: GL's clamp-to-edge, per frame.
+ *
+ * NEAREST IS UNCHANGED: every cell still reads the same texels it always read, they have
+ * only moved one texel right and down per slot. --nobilfix drops the gutter and uploads
+ * the pack's own grid, which is the A/B gate G451 renders against. */
+static const int SMUDGE_BIB_W[3] = { 4, 3, 2 };  /* BIB1..3, tiberiandawn/sdata.cpp */
+static const int SMUDGE_BIB_H[3] = { 2, 2, 2 };
+
+static void smudge_gutter(const SmudgeSet& s, const unsigned char* src,
+                          std::vector<unsigned char>& out)
+{
+    const int fw = g_smFW, fh = g_smFH, g = s.gut;
+    out.assign((size_t)s.texw * s.texh * 4, 0);
+    const int cols = s.rawW / fw, rows = s.rawH / fh;
+    for (int row = 0; row < rows && row < g_smTypes; row++) {
+        /* The picture this row's frames are cut from: an apron's own grid, or 1x1. */
+        int pw = 1, ph = 1;
+        if (row < 3 && SMUDGE_BIB_W[row] * SMUDGE_BIB_H[row] == s.nframes[row]) {
+            pw = SMUDGE_BIB_W[row];
+            ph = SMUDGE_BIB_H[row];
+        }
+        for (int f = 0; f < cols; f++) {
+            /* A frame past the strip is never drawn (draw_smudges skips it); copy it
+               clamped all the same so the sheet holds no uninitialised slot. */
+            const bool inPic = (pw > 1 || ph > 1) && f < s.nframes[row];
+            const int cx = inPic ? f % pw : 0, cy = inPic ? f / pw : 0;
+            const int picW = inPic ? pw * fw : fw, picH = inPic ? ph * fh : fh;
+            for (int y = -g; y < fh + g; y++) {
+                for (int x = -g; x < fw + g; x++) {
+                    int gx = cx * fw + x, gy = cy * fh + y;      /* in the picture */
+                    if (gx < 0) gx = 0; else if (gx >= picW) gx = picW - 1;
+                    if (gy < 0) gy = 0; else if (gy >= picH) gy = picH - 1;
+                    const int sf = inPic ? (gy / fh) * pw + (gx / fw) : f;
+                    const int sx = sf * fw + (gx % fw), sy = row * fh + (gy % fh);
+                    const int dx = f * s.slotW + g + x, dy = row * s.slotH + g + y;
+                    memcpy(&out[((size_t)dy * s.texw + dx) * 4],
+                           &src[((size_t)sy * s.rawW + sx) * 4], 4);
+                }
+            }
+        }
+    }
+}
+
 /* Re-upload every theater's sheet when the dial has moved, and only then. The compare is
    one float per frame; the rebuild is 270 KB of box blur and happens when a
    slider is dragged, which is not a frame budget anybody is counting. */
@@ -142,16 +208,23 @@ static void smudge_apply_soft(float amount)
     if (amount == g_smSoftApplied)
         return;
     g_smSoftApplied = amount;
-    std::vector<unsigned char> tmp;
+    std::vector<unsigned char> tmp, card;
     for (size_t i = 0; i < g_smSet.size(); i++) {
         SmudgeSet& s = g_smSet[i];
         if (s.raw.empty() || !s.tex)
             continue;
         tmp.resize(s.raw.size());
-        smudge_feather(&tmp[0], &s.raw[0], s.texw, s.texh, g_smFW, g_smFH, amount);
+        /* Feathered on the pack's own grid, per frame, then given its gutter, so the
+           gutter carries the feathered alpha of the texels it copies. */
+        smudge_feather(&tmp[0], &s.raw[0], s.rawW, s.rawH, g_smFW, g_smFH, amount);
+        const unsigned char* up = &tmp[0];
+        if (s.gut) {
+            smudge_gutter(s, &tmp[0], card);
+            up = &card[0];
+        }
         glBindTexture(GL_TEXTURE_2D, s.tex);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s.texw, s.texh,
-                        GL_RGBA, GL_UNSIGNED_BYTE, &tmp[0]);
+                        GL_RGBA, GL_UNSIGNED_BYTE, up);
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     fprintf(stderr, "smudges: edge softness %.2f applied to %d sheet(s)\n",
@@ -174,7 +247,8 @@ static bool smudge_load(const char* path)
         || fread(&nth, 4, 1, f) != 1 || fread(&fw, 4, 1, f) != 1
         || fread(&fh, 4, 1, f) != 1 || fread(&types, 4, 1, f) != 1
         || fread(&maxf, 4, 1, f) != 1
-        || nth < 1 || nth > 8 || types < 1 || types > 16 || maxf < 1 || maxf > 16) {
+        || nth < 1 || nth > 8 || types < 1 || types > 16 || maxf < 1 || maxf > 16
+        || fw < 1 || fw > 256 || fh < 1 || fh > 256) {
         fprintf(stderr, "smudges: %s is not a readable smudge pack\n", path);
         fclose(f);
         return false;
@@ -182,17 +256,26 @@ static bool smudge_load(const char* path)
     g_smFW = (int)fw; g_smFH = (int)fh; g_smTypes = (int)types; g_smMax = (int)maxf;
     for (unsigned t = 0; t < nth; t++) {
         char nm[13]; memset(nm, 0, sizeof nm);
-        SmudgeSet s;
-        memset(&s, 0, sizeof s);
+        SmudgeSet s = SmudgeSet();  /* value-initialised: every number 0, raw empty */
         unsigned texw = 0, texh = 0;
         if (fread(nm, 1, 12, f) != 12 || fread(&s.theaterId, 4, 1, f) != 1
             || fread(&texw, 4, 1, f) != 1 || fread(&texh, 4, 1, f) != 1
-            || texw < 1 || texw > 2048 || texh < 1 || texh > 2048) {
+            || texw < fw || texw > 2048 || texh < fh || texh > 2048
+            /* A whole number of frames each way: the card's layout (and, with no
+               gutter, the upload stride) is counted in frames, so a remainder
+               column would shear every row of the sheet on upload. */
+            || texw % fw != 0 || texh % fh != 0) {
             fprintf(stderr, "smudges: %s theater %u header unreadable\n", path, t);
             fclose(f);
             return false;
         }
-        s.texw = (int)texw; s.texh = (int)texh;
+        s.rawW = (int)texw; s.rawH = (int)texh;
+        /* The card's layout; see smudge_gutter. --nobilfix keeps the pack's own grid. */
+        s.gut = fx_bilfix_on ? 1 : 0;
+        s.slotW = g_smFW + 2 * s.gut;
+        s.slotH = g_smFH + 2 * s.gut;
+        s.texw = (s.rawW / g_smFW) * s.slotW;
+        s.texh = (s.rawH / g_smFH) * s.slotH;
         for (int i = 0; i < g_smTypes; i++) {
             unsigned c = 0;
             if (fread(&c, 4, 1, f) != 1) {
@@ -211,8 +294,13 @@ static bool smudge_load(const char* path)
         /* Bleed the artwork's colour into the transparent texels before it goes
            up, so bilinear has something to average that is not a key colour.
            No-op for the nearest path. See fx_bleed_rgba. */
-        fx_bleed_rgba(&px[0], s.texw, s.texh, 4);
+        fx_bleed_rgba(&px[0], s.rawW, s.rawH, 4);
         s.raw = px;                 /* kept so the feather dial can be moved either way */
+        std::vector<unsigned char> card;
+        if (s.gut) {
+            smudge_gutter(s, &px[0], card);
+            px.swap(card);
+        }
         glGenTextures(1, &s.tex);
         glBindTexture(GL_TEXTURE_2D, s.tex);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, fx_filter_mode(GL_NEAREST));
@@ -223,7 +311,8 @@ static bool smudge_load(const char* path)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, s.texw, s.texh, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, &px[0]);
         g_smSet.push_back(s);
-        fprintf(stderr, "smudges: %s %dx%d, %d strips\n", nm, s.texw, s.texh, g_smTypes);
+        fprintf(stderr, "smudges: %s %dx%d, %d strips, %d-texel gutter (%dx%d on the card)\n",
+                nm, s.rawW, s.rawH, g_smTypes, s.gut, s.texw, s.texh);
     }
     fclose(f);
     g_smHave = !g_smSet.empty();

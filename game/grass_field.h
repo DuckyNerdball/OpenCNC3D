@@ -161,6 +161,29 @@
    trees together. A driver with no EXT_blend_minmax should lose exactly one feature. */
 typedef void (APIENTRY *GRASSPFNBLENDEQUATION)(GLenum);
 static GRASSPFNBLENDEQUATION grass_glBlendEquation = 0;
+/* The blend equation goes through the state cache (gl_state_cache.h), which shadows it
+   only from here: no other call in this tree sets it. */
+static inline void gls_grass_blend_equation(GLenum e)
+{
+    (grass_glBlendEquation)(e);
+    GlsKnown& k = g_glsShadow.blendEq;
+    k.known = e == GL_FUNC_ADD || e == GL_FUNC_SUBTRACT || e == GL_FUNC_REVERSE_SUBTRACT || e == GL_MIN || e == GL_MAX;
+    k.i[0] = k.i[1] = (GLint)e;
+}
+#define grass_glBlendEquation(e) gls_grass_blend_equation(e)
+/* The top of a frame (gl_state_cache.h): the equation set to adding by command. Before
+   the entry point is resolved nothing can have changed it from GL's own adding. */
+static void gls_frame_blend_equation(void)
+{
+    if (gls_query_verify()) {
+        GLint e = GL_FUNC_ADD; (glGetIntegerv)(GL_BLEND_EQUATION_RGB, &e);
+        g_glsVerifyChecked++;
+        char d[16]; snprintf(d, sizeof d, "0x%X", (unsigned)e);
+        if (e != GL_FUNC_ADD) gls_verify_report("frame start", GL_BLEND_EQUATION_RGB, __FILE__, __LINE__, "0x8006", d);
+    }
+    if (grass_glBlendEquation) grass_glBlendEquation(GL_FUNC_ADD);
+    else { g_glsShadow.blendEq.known = true; g_glsShadow.blendEq.i[0] = g_glsShadow.blendEq.i[1] = GL_FUNC_ADD; }
+}
 static int  g_crushGlTried = 0;
 static int  g_crushGlReady = 0;
 
@@ -434,6 +457,11 @@ static std::vector<CrushVeh>  g_crushVeh;
 static std::vector<CrushRect> g_crushRect;
 static std::vector<CrushTick> g_crushTick;
 static std::vector<CrushRect> g_crushRectExtra;   /* see grass_crush_note_rect */
+/* Red Alert's apron cells this parse, the control switch, and the last count logged:
+   see crush_apron_rects. */
+static std::vector<SmudgeCell> g_crushApronRa;
+static bool g_crushApronOn = true;
+static int  g_crushApronSaid = -1;
 static std::vector<CrushRing> g_crushRing;
 
 /* EVERY BUILDING FOOTPRINT THE FIELD HAS SEEN, keyed on the footprint map's own key (the
@@ -691,6 +719,7 @@ static void grass_crush_free(void)
     g_crushRing.clear();
     g_crushPrev.clear();
     g_crushBld.clear();
+    g_crushApronSaid = -1;
     g_crushNoteFrame = -1;
     g_crushOverflow = 0;
     /* THE HULL CACHE IS KEYED ON A MESH INDEX INTO THE PACK, SO IT CANNOT OUTLIVE ONE.
@@ -728,6 +757,52 @@ static void grass_crush_note_rect(float x0, float z0, float x1, float z1)
 {
     CrushRect r; r.x0 = x0; r.z0 = z0; r.x1 = x1; r.z1 = z1;
     g_crushRectExtra.push_back(r);
+}
+
+/* ---- A BUILDING'S APRON IS CLAIMED GROUND TOO.
+   Every apron (SmudgeType BIB1..BIB3, 12..14) is two rows of cells, and the engine lays
+   its top-left on the footprint's LAST row (Bib_And_Offset), so its upper row lies inside
+   the footprint and its lower row always lies one row south of it. Claiming the footprint
+   alone left the grass standing on that lower row and cut a straight line across every
+   apron at the footprint's south edge: bare gravel above, blades below. The apron cells
+   are claimed here the way the footprint is, one rectangle a run of cells along a row,
+   and take the same skirt.
+   The cells are the engine's own: Tiberian Dawn prints one SMUDGE| line per apron cell
+   (g_smudges), and Red Alert's apron cells are read from its engine's map on every parse
+   into g_crushApronRa (ra3d_cells_from_map). An apron leaves those lists when its building
+   is sold or destroyed (the engine's own Disown), the stamp stops, and the grass regrows
+   on it on the regrowth clock, as it does under a razed footprint.
+   g_crushApronOn is the control for the gate that holds this (--grassonaprons clears it)
+   and is never off in play. */
+static int crush_apron_rects(const std::vector<SmudgeCell>& cells)
+{
+    std::vector<int> keys;
+    for (size_t i = 0; i < cells.size(); i++) {
+        const SmudgeCell& c = cells[i];
+        if (c.type < 12 || c.type > 14) continue;
+        if (c.x < 0 || c.y < 0 || c.x >= g_gridW || c.y >= g_gridH) continue;
+        keys.push_back((int)c.y * 512 + (int)c.x);
+    }
+    std::sort(keys.begin(), keys.end());
+    keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+    int runs = 0;
+    for (size_t i = 0; i < keys.size();) {
+        size_t j = i + 1;
+        while (j < keys.size() && keys[j] == keys[j - 1] + 1 && keys[j] % 512 != 0) j++;
+        CrushRect r;
+        r.x0 = (float)(keys[i] % 512);         r.z0 = (float)(keys[i] / 512);
+        r.x1 = (float)(keys[j - 1] % 512 + 1); r.z1 = r.z0 + 1.0f;
+        g_crushRect.push_back(r);
+        runs++;
+        i = j;
+    }
+    /* (logged whenever the number of claimed cells changes: once a building, not a tick) */
+    if ((int)keys.size() != g_crushApronSaid) {
+        g_crushApronSaid = (int)keys.size();
+        fprintf(stderr, "GRASS|aprons|cells=%d|runs=%d|frame=%d\n",
+                (int)keys.size(), runs, g_engineFrame);
+    }
+    return runs;
 }
 
 static void grass_crush_note_tick(void)
@@ -821,6 +896,14 @@ static void grass_crush_note_tick(void)
             g_crushRect.push_back(r);
             t.rectCount++;
         }
+    }
+    /* ---- AND THE APRONS, whose lower row the footprint never covers. See
+       crush_apron_rects. */
+    if (g_crushApronOn)
+        t.rectCount += crush_apron_rects(g_raModule ? g_crushApronRa : g_smudges);
+    else if (g_crushApronSaid != -2) {
+        g_crushApronSaid = -2;
+        fprintf(stderr, "GRASS|aprons|off (--grassonaprons)\n");
     }
     for (size_t i = 0; i < g_crushRectExtra.size(); i++) {
         g_crushRect.push_back(g_crushRectExtra[i]);
@@ -938,7 +1021,7 @@ static void grass_crush_note_tick(void)
     for (size_t i = 0; i < g_objects.size(); i++) {
         const SimObject& o = g_objects[i];
         if (o.kind != K_UNIT || o.id < 0 || o.limbo) continue;
-        if (water_is_boat(o)) continue;
+        if (water_is_boat(o) || (g_raModule && ant3d::type(o.type))) continue;
 
         const int key = smooth_key(o);
         const CrushHull hull = crush_hull_for_mesh(mesh_for(o));

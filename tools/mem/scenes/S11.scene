@@ -1,0 +1,40 @@
+# S11 Tiberian Dawn, first Nod mission (SCB01EA, desert): desert ground, mottle and the
+# desert decal set. Frames the village and the Nod start at tick 1 and tick 300, then
+# destroys two village houses (explosions, craters, wrecks) and frames them again.
+game: td
+scen: SCB01EA
+modes: enh,cls,n64
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger t1
+cam 25 21
+frames 2
+shot {OUT}/t0001_village.png
+cam 52 18
+frames 2
+shot {OUT}/t0001_start.png
+tick 299
+frames 2
+memledger t300
+cam 25 21
+frames 2
+shot {OUT}/t0300_village.png
+hurtobj V26 0
+hurtobj V26 0
+hurtobj V20 0
+hurtobj V20 0
+tick 20
+frames 2
+cam 25 21
+frames 2
+shot {OUT}/t0320_village.png
+tick 100
+frames 2
+cam 25 21
+frames 2
+shot {OUT}/t0420_village.png
+quit

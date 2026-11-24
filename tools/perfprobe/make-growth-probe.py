@@ -10,7 +10,8 @@ import math
 from pathlib import Path
 
 
-def make_script(result_dir="performance-growth-results", live_minutes=0, samples=90):
+def make_script(result_dir="performance-growth-results", live_minutes=0, samples=90, game="dawn"):
+    power, barracks = ("POWR", "TENT") if game == "ra" else ("NUKE", "PYLE")
     quality = result_dir + "/quality.cfg"
     lines = ["gfxsave " + quality, "gfx show_stats 0", "cheatset invuln 1", "tick 5",
              "look MCV:@me", "dist 3000", "count MCV:@me 1"]
@@ -30,24 +31,24 @@ def make_script(result_dir="performance-growth-results", live_minutes=0, samples
     lines.extend(["lclickobj MCV:@me", "actclickobj MCV:@me", "tick 200",
                   "count MCV:@me 0", "count FACT:@me 1", "look FACT:@me"])
     measure("yard_1_building")
-    construct("NUKE", 1, 150)
+    construct(power, 1, 150)
     measure("power_2_buildings")
     construct("PROC", 1, 300)
     measure("refinery_3_buildings")
-    construct("PYLE", 1, 150)
+    construct(barracks, 1, 150)
     measure("barracks_4_buildings")
     # Counts include the yard, refinery and barracks. No failed build is omitted.
     for total in range(5, 21):
-        construct("NUKE", total - 3)
+        construct(power, total - 3)
         if total in (5, 10, 20):
-            lines.extend(["count FACT:@me 1", "count PROC:@me 1", "count PYLE:@me 1"])
+            lines.extend(["count FACT:@me 1", "count PROC:@me 1", "count " + barracks + ":@me 1"])
             measure(str(total) + "_buildings")
-    lines.extend(["reveal 1", "cam 32 32", "dist 4200"])
+    lines.extend(["reveal 1", "look FACT:@me", "dist 4200"])
     measure("revealed")
     if live_minutes:
-        lines.extend(["echo STEP|live_soak", "livebench " + f"{live_minutes * 60:.1f}",
-                      "count FACT:@me 1", "count NUKE:@me 17", "count PROC:@me 1",
-                      "count PYLE:@me 1"])
+        lines.extend(["echo STEP|live_soak", "livebench " + f"{live_minutes * 60:.1f} play",
+                      "count FACT:@me 1", "count " + power + ":@me 17", "count PROC:@me 1",
+                      "count " + barracks + ":@me 1"])
     lines.extend(["echo STEP|burst", "blowup 1", "tick 15"])
     measure("flight")
     lines.append("tick 300")
@@ -58,12 +59,17 @@ def make_script(result_dir="performance-growth-results", live_minutes=0, samples
     return "\n".join(lines) + "\n"
 
 
-def make_batch(script):
+def make_batch(script, game="dawn"):
     result = "performance-growth-results"
+    ra = game == "ra"
+    pack = "ra3d/3d/SCM01EA.pack" if ra else "SCM01EA.pack"
+    engine = "ra3d/RedAlert.dll" if ra else "TiberianDawn.dll"
+    module = "--ra3d --dir ra3d/missions/ --content ra3d/data/ --dosdata ra3d/audio/" if ra else "--dir missions/ --content content/"
     lines = ["@echo off", "setlocal EnableExtensions DisableDelayedExpansion", 'cd /d "%~dp0"',
              'if not exist cnc_eyes.exe (echo Place this probe beside cnc_eyes.exe. & exit /b 2)',
              'if not exist opencnc3d-fx.cfg (echo Missing opencnc3d-fx.cfg. & exit /b 2)',
-             'if not exist SCM01EA.pack (echo Missing SCM01EA.pack. & exit /b 2)',
+             f'if not exist "{pack}" (echo Missing {pack}. & exit /b 2)',
+             f'if not exist "{engine}" (echo Missing {engine}. & exit /b 2)',
              f'if not exist "{result}" mkdir "{result}"',
              "set OPENCNC3D_BACKGROUND=1", "set OPENCNC3D_FRAMEPROF=1",
              "set OPENCNC3D_GPUPROF=1", "set OPENCNC3D_PERFDETAIL=1",
@@ -77,14 +83,14 @@ def make_batch(script):
             line = line.replace(char, "^" + char)
         lines.append(f'>> "{result}\\script.txt" echo ' + line)
     lines.extend([
-        f'cnc_eyes.exe --scen SCM01EA --pack SCM01EA.pack --skirmish --side gdi --credits 99999 --starts 1,6 --dylib TiberianDawn.dll --dir missions/ --content content/ --nosound --w 1920 --h 1080 --enhanced --gfx opencnc3d-fx.cfg --savedir "{result}\\saves" --script "{result}\\script.txt" >> "%LOG%" 2>&1',
+        f'cnc_eyes.exe --scen SCM01EA --pack {pack} --skirmish --side gdi --ai 3 --seed 4242 --build 98 --credits 99999 --dylib {engine} {module} --nosound --w 1920 --h 1080 --enhanced --gfx opencnc3d-fx.cfg --gfxsave "{result}\\session.cfg" --visualscfg "{result}\\visuals.cfg" --savedir "{result}\\saves" --script "{result}\\script.txt" >> "%LOG%" 2>&1',
         'set "RESULT=%ERRORLEVEL%"', '>> "%LOG%" echo exit code %RESULT%',
         'if not "%RESULT%"=="0" (echo Probe FAILED. Review %LOG% & exit /b %RESULT%)'])
     if any(line.startswith("livebench ") for line in script.splitlines()):
         # A game-over return is not a completed soak, even when the remaining script
         # commands succeed. Require the real loop to last for the requested interval.
         lines.extend([
-            'powershell -NoProfile -Command "$s=Get-Content -Raw $env:LOG; $m=[regex]::Match($s,\'LIVEBENCH\\|requested=([0-9.]+)\\|elapsed=([0-9.]+)\\|ticks=([0-9]+)\\|result=([0-9]+)\'); if(-not $m.Success){exit 3}; $c=[Globalization.CultureInfo]::InvariantCulture; $r=[double]::Parse($m.Groups[1].Value,$c); $e=[double]::Parse($m.Groups[2].Value,$c); if($e+0.1 -lt $r -or [int]$m.Groups[3].Value -le 0 -or [int]$m.Groups[4].Value -ne 0){exit 3}" >> "%LOG%" 2>&1',
+            'powershell -NoProfile -Command "$s=Get-Content -Raw $env:LOG; $m=[regex]::Match($s,\'LIVEBENCH\\|requested=([0-9.]+)\\|elapsed=([0-9.]+)\\|ticks=([0-9]+)\\|result=([0-9]+)\\|taa_sync=(0)\'); if(-not $m.Success){exit 3}; $c=[Globalization.CultureInfo]::InvariantCulture; $r=[double]::Parse($m.Groups[1].Value,$c); $e=[double]::Parse($m.Groups[2].Value,$c); if($e+0.1 -lt $r -or [int]$m.Groups[3].Value -le 0 -or [int]$m.Groups[4].Value -ne 0){exit 3}" >> "%LOG%" 2>&1',
             'if errorlevel 1 (echo Probe FAILED: live soak ended early. Review %LOG% & exit /b 3)'])
     lines.extend(['echo Probe finished. Results: %LOG%', 'exit /b %RESULT%'])
     return "\r\n".join(lines) + "\r\n"
@@ -93,6 +99,7 @@ def make_batch(script):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--game", choices=("dawn", "ra"), default="dawn")
     parser.add_argument("--live-minutes", type=float, default=0,
                         help="Optional real-loop soak after constructing 20 buildings (maximum 30)")
     parser.add_argument("--script-output", type=Path,
@@ -100,8 +107,8 @@ def main():
     args = parser.parse_args()
     if not math.isfinite(args.live_minutes) or not 0 <= args.live_minutes <= 30:
         parser.error("--live-minutes must be between 0 and 30")
-    script = make_script(live_minutes=args.live_minutes)
-    args.output.write_bytes(make_batch(script).encode("utf-8"))
+    script = make_script(live_minutes=args.live_minutes, game=args.game)
+    args.output.write_bytes(make_batch(script, game=args.game).encode("utf-8"))
     if args.script_output:
         args.script_output.write_text(script)
     print(args.output)

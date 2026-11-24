@@ -54,6 +54,9 @@ static std::vector<unsigned char> g_mottleClear;  /* per grid cell: plain ground
 static bool g_mottleReady = false;
 static bool g_mottleActive = false;              /* last frame, after postprocessing ends */
 static int  g_mottleDrawn = 0;                    /* last frame's count, for the log */
+/* Move whenever the patch set or the plain-ground map is replaced, for the kept patches
+   in mottle_draw. */
+static unsigned g_mottleSetGen = 0, g_mottleClearGen = 0;
 
 /* A cell's own number, mixed. Nothing here reads a clock or a counter, so the answer for
  * a cell is the same in every frame of every run. */
@@ -103,6 +106,7 @@ static bool mottle_load(const char* path)
         glGenTextures(1, &p.tex);
         glBindTexture(GL_TEXTURE_2D, p.tex);
         bool ok = true;
+        long long bytes = 0;   /* this patch's levels on the card, for the memory ledger */
         for (unsigned l = 0; l < levels && ok; l++) {
             unsigned w = 0, h = 0, raw = 0, comp = 0;
             if (fread(&w, 4, 1, f) != 1 || fread(&h, 4, 1, f) != 1
@@ -114,6 +118,7 @@ static bool mottle_load(const char* path)
             if (l == 0) p.side = (int)w;
             glTexImage2D(GL_TEXTURE_2D, (GLint)l, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0,
                          GL_RGBA, GL_UNSIGNED_BYTE, &rbuf[0]);
+            bytes += (long long)w * h * 4;
         }
         if (!ok) { glDeleteTextures(1, &p.tex); break; }
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -125,12 +130,14 @@ static bool mottle_load(const char* path)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint)levels - 1);
         g_mottle.push_back(p);
+        memledger_add("mottle_gl", bytes);
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     fclose(f);
 
     g_mottleReady = !g_mottle.empty();
     g_mottlePath = g_mottleReady ? path : "";
+    g_mottleSetGen++;
     fprintf(stderr, "mottle: %s -- %d patches\n", path, (int)g_mottle.size());
     return g_mottleReady;
 }
@@ -146,11 +153,14 @@ static void mottle_free(void)
     for (size_t i = 0; i < g_mottle.size(); i++)
         glDeleteTextures(1, &g_mottle[i].tex);
     g_mottle.clear();
+    memledger_bytes("mottle_gl", 0);
     g_mottlePath.clear();
     g_mottleClear.clear();
     g_mottleReady = false;
     g_mottleDrawn = 0;
     g_mottleActive = false;
+    g_mottleSetGen++;
+    g_mottleClearGen++;
 }
 
 /* Plain ground, per cell, worked out once for the pack rather than per frame. The clear
@@ -159,6 +169,7 @@ static void mottle_free(void)
 static void mottle_mark_clear(void)
 {
     g_mottleClear.assign((size_t)g_gridW * g_gridH, 0);
+    g_mottleClearGen++;
     if(g_raModule) {
         for(int y=0;y<g_gridH;y++) for(int x=0;x<g_gridW;x++) {
             int slot=-1;g_mottleClear[(size_t)y*g_gridW+x]=(ra3d_detail_cell(x,y,&slot)&1)?1:0;
@@ -196,6 +207,20 @@ static bool mottle_available(void)
            && g_fx.mottle_on && g_fx.mottle_strength > 0.0f
            && (g_raModule ? ra3d_detail_plants() : (!strcmp(g_pack.theater, "TEMPERAT") || !strcmp(g_pack.theater, "DESERT")
                || !strcmp(g_pack.theater, "SAND"))) && mottle_ground_texels() > 0.0f;
+}
+
+/* CAN THIS MISSION'S THEATER EVER DRAW THEM: the theater half of mottle_available, asked
+   at the start, before any frame (boot_art.h). Tiberian Dawn's test is the same one on the
+   same pack; Red Alert's draw asks ra3d_detail_plants, whose theater is the map's letter,
+   and this reads the letter of the engine's theater number the boot has already taken
+   from that map (g_theater). The mode, the ground set and the dials are left to the draw:
+   any of them can change in the middle of a mission, the theater cannot. */
+static char ra2d_theater_letter_of(int theater);   /* dosclassic_mod.h */
+static bool mottle_theater_can_draw(void)
+{
+    return g_raModule ? ra2d_theater_letter_of(g_theater) == 'T'
+                      : (!strcmp(g_pack.theater, "TEMPERAT") || !strcmp(g_pack.theater, "DESERT")
+                         || !strcmp(g_pack.theater, "SAND"));
 }
 
 /* ------------------------------------------------------------------------------ *
@@ -278,24 +303,68 @@ static bool mottle_disc_ok(float cx, float cz, float r)
     return true;
 }
 
-static void mottle_draw(void)
+/* THE PATCHES AS DATA. Where the patches lie depends on the map, the patch set and the
+ * dials, and not on the shroud; the vertices of a patch depend as well on the ground, its
+ * light and the shroud; and only the test of whether a patch is on screen depends on the
+ * camera. So the whole-grid scan is done again only when its own inputs change, a patch's
+ * vertices are worked out the first time a frame draws it after any of theirs changed
+ * (never for a patch off screen), and a frame redoes the screen test and hands the kept
+ * vertices over in the order the scan made the patches, with the same values
+ * (OPENCNC3D_SHROUD_CACHE, shroud_mod.h; =0 works them out every frame as before). */
+struct MottleKeptPatch {
+    GLuint tex;
+    int x0, x1, z0, z1;                /* the cells it can touch */
+    float cx, cz, span, ca, sa;        /* its centre, its width in cells, its turn */
+    unsigned stamp;                    /* the epoch its vertices were worked out in */
+    int first, n;                      /* and where they are kept */
+};
+struct MottleKept {
+    std::vector<MottleKeptPatch> patch;
+    std::vector<float> col, uv, pos;   /* 4, 2 and 3 floats a vertex, patch by patch */
+    unsigned epoch;
+};
+
+/* Everything the scan is made of, for its key. */
+static void mottle_lay_key(std::vector<unsigned>& k, float groundTexels)
 {
-    g_mottleDrawn = 0;
-    g_mottleActive = mottle_available();
-    if (!g_mottleActive) return;
-    if (g_mottleClear.size() != (size_t)g_gridW * g_gridH) mottle_mark_clear();
+    k.clear();
+    k.push_back((unsigned)g_gridW); k.push_back((unsigned)g_gridH);
+    k.push_back(g_mottleClearGen); k.push_back(g_mottleSetGen);
+    k.push_back(shroud_key_bits(g_fx.mottle_density));
+    k.push_back(shroud_key_bits(groundTexels));
+}
 
-    glEnable(GL_TEXTURE_2D);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+/* Everything else a patch's vertices are made of, for theirs. */
+static void mottle_vertex_key(std::vector<unsigned>& k, bool oneSun)
+{
+    shroud_corners_sync();
+    const float tb = g_terrainBase;
+    k.clear();
+    k.push_back(shroud_key_bits(g_fx.mottle_strength));
+    k.push_back(oneSun ? 1u : 0u);
+    /* terrain_shade */
+    k.push_back(g_terrainShade ? 1u : 0u); k.push_back(g_shadeReady ? 1u : 0u); k.push_back(g_shadeGen);
+    /* terrain_corner_y */
+    k.push_back(g_groundGen); k.push_back(g_padEpoch); k.push_back(shroud_key_bits(tb));
+    k.push_back(ra3d_flat_ground() ? 1u : 0u); k.push_back(g_pack.corner.empty() ? 1u : 0u);
+    /* shroud_corner_vis */
+    k.push_back(g_shroudFieldGen); k.push_back((unsigned)g_shroudEditorOff);
+    k.push_back((unsigned)g_shroudTerrainLight); k.push_back((unsigned)g_shroudSoft);
+    k.push_back((unsigned)g_shroudRimOn); k.push_back((unsigned)g_shroudOn);
+    k.push_back((unsigned)g_shroudValid); k.push_back((unsigned)g_shroudRevealed);
+    k.push_back((unsigned)shroud_fow_enhanced()); k.push_back(shroud_key_bits(g_fx.fow_falloff));
+    /* cell_shown */
+    k.push_back(g_clip_to_map ? 1u : 0u); k.push_back((unsigned)g_terrainMargin);
+    k.push_back((unsigned)g_mapX); k.push_back((unsigned)g_mapY);
+    k.push_back((unsigned)g_mapW); k.push_back((unsigned)g_mapH);
+    k.push_back(g_raModule ? 1u : 0u);
+}
 
-    const bool oneSun = g_fxActive && g_fx.sun_lambert && g_fx.terrain_normals;
-    const float flat = 160.0f / 255.0f;
-    const float groundTexels = mottle_patch_texels();
-    int ax, ay, gx, gz, k, tix;
-
+/* The scan: every patch the map has room for, in grid order, with where it lies. */
+static void mottle_lay(std::vector<MottleKeptPatch>& out, float groundTexels)
+{
+    int ax, ay;
+    out.clear();
     for (ay = 0; ay < g_gridH; ay++)
     for (ax = 0; ax < g_gridW; ax++) {
         const unsigned h = mottle_hash(ax, ay);
@@ -313,53 +382,178 @@ static void mottle_draw(void)
         const float cz = (float)ay + (float)((h >> 19) & 255u) / 255.0f;
         if (!mottle_disc_ok(cx, cz, r)) continue;
 
-        {
-            const float ang = (float)((h >> 13) & 1023u) * (6.2831853f / 1024.0f);
-            const float ca = (float)cos(ang), sa = (float)sin(ang);
-            const int x0 = (int)floorf(cx - r) - 1, x1 = (int)ceilf(cx + r) + 1;
-            const int z0 = (int)floorf(cz - r) - 1, z1 = (int)ceilf(cz + r) + 1;
-            bool seen = false;
-            for (gz = z0; gz <= z1 && !seen; gz++)
-                for (gx = x0; gx <= x1 && !seen; gx++)
-                    if (gx >= 0 && gz >= 0 && gx < g_gridW && gz < g_gridH
-                        && cell_in_view(gx, gz)) seen = true;
-            if (!seen) continue;
+        const float ang = (float)((h >> 13) & 1023u) * (6.2831853f / 1024.0f);
+        MottleKeptPatch kp;
+        kp.tex = p.tex;
+        kp.x0 = (int)floorf(cx - r) - 1; kp.x1 = (int)ceilf(cx + r) + 1;
+        kp.z0 = (int)floorf(cz - r) - 1; kp.z1 = (int)ceilf(cz + r) + 1;
+        kp.cx = cx; kp.cz = cz; kp.span = span;
+        kp.ca = (float)cos(ang); kp.sa = (float)sin(ang);
+        kp.stamp = 0; kp.first = 0; kp.n = 0;
+        out.push_back(kp);
+    }
+}
 
-            glBindTexture(GL_TEXTURE_2D, p.tex);
-            glBegin(GL_TRIANGLES);
-            for (gz = z0; gz <= z1; gz++)
-            for (gx = x0; gx <= x1; gx++) {
-                static const int QX[4] = { 0, 1, 1, 0 };
-                static const int QZ[4] = { 0, 0, 1, 1 };
-                static const int TRI[6] = { 0, 3, 1, 1, 3, 2 };
-                float vx[4], vy[4], vz[4], vu[4], vv[4], vsh[4];
-                if (gx < 0 || gz < 0 || gx >= g_gridW || gz >= g_gridH) continue;
-                if (!cell_shown(gx, gz)) continue;
-                for (k = 0; k < 4; k++) {
-                    const int wxi = gx + QX[k], wzi = gz + QZ[k];
-                    const float lx = ((float)wxi - cx) / span;
-                    const float lz = ((float)wzi - cz) / span;
-                    vx[k] = (float)wxi; vz[k] = (float)wzi;
-                    vy[k] = terrain_corner_y(wxi, wzi);
-                    vsh[k] = (oneSun ? flat : terrain_shade(wxi, wzi))
-                             * shroud_corner_vis(wxi, wzi);
-                    /* Offset from the patch centre in patch widths, turned, then moved
-                       into 0..1. Outside that the mask is transparent and the clamped
-                       edge keeps it so, which is what lets a patch overflow its cells. */
-                    vu[k] = (lx * ca - lz * sa) + 0.5f;
-                    vv[k] = (lx * sa + lz * ca) + 0.5f;
-                }
-                for (tix = 0; tix < 6; tix++) {
-                    k = TRI[tix];
-                    glColor4f(vsh[k], vsh[k], vsh[k], g_fx.mottle_strength);
-                    glTexCoord2f(vu[k], vv[k]);
-                    glVertex3f(vx[k], vy[k], vz[k]);
-                }
-            }
-            glEnd();
-            g_mottleDrawn++;
+/* Every vertex of one patch, appended in drawing order. */
+static void mottle_patch_work(const MottleKeptPatch& kp, bool oneSun, std::vector<float>& col,
+                              std::vector<float>& uv, std::vector<float>& pos)
+{
+    const float flat = 160.0f / 255.0f;
+    const float cx = kp.cx, cz = kp.cz, span = kp.span, ca = kp.ca, sa = kp.sa;
+    int gx, gz, k, tix;
+    for (gz = kp.z0; gz <= kp.z1; gz++)
+    for (gx = kp.x0; gx <= kp.x1; gx++) {
+        static const int QX[4] = { 0, 1, 1, 0 };
+        static const int QZ[4] = { 0, 0, 1, 1 };
+        static const int TRI[6] = { 0, 3, 1, 1, 3, 2 };
+        float vx[4], vy[4], vz[4], vu[4], vv[4], vsh[4];
+        if (gx < 0 || gz < 0 || gx >= g_gridW || gz >= g_gridH) continue;
+        if (!cell_shown(gx, gz)) continue;
+        for (k = 0; k < 4; k++) {
+            const int wxi = gx + QX[k], wzi = gz + QZ[k];
+            const float lx = ((float)wxi - cx) / span;
+            const float lz = ((float)wzi - cz) / span;
+            vx[k] = (float)wxi; vz[k] = (float)wzi;
+            vy[k] = terrain_cell_corner_y(gx,gz,wxi,wzi);
+            vsh[k] = (oneSun ? flat : terrain_shade(wxi, wzi))
+                     * shroud_corner_vis(wxi, wzi);
+            /* Offset from the patch centre in patch widths, turned, then moved
+               into 0..1. Outside that the mask is transparent and the clamped
+               edge keeps it so, which is what lets a patch overflow its cells. */
+            vu[k] = (lx * ca - lz * sa) + 0.5f;
+            vv[k] = (lx * sa + lz * ca) + 0.5f;
+        }
+        for (tix = 0; tix < 6; tix++) {
+            k = TRI[tix];
+            col.push_back(vsh[k]); col.push_back(vsh[k]);
+            col.push_back(vsh[k]); col.push_back(g_fx.mottle_strength);
+            uv.push_back(vu[k]); uv.push_back(vv[k]);
+            pos.push_back(vx[k]); pos.push_back(vy[k]); pos.push_back(vz[k]);
         }
     }
+}
+
+/* Is any cell the patch can touch inside the camera's box? */
+static bool mottle_seen(const MottleKeptPatch& kp)
+{
+    for (int gz = kp.z0; gz <= kp.z1; gz++)
+        for (int gx = kp.x0; gx <= kp.x1; gx++)
+            if (gx >= 0 && gz >= 0 && gx < g_gridW && gz < g_gridH
+                && cell_in_view(gx, gz)) return true;
+    return false;
+}
+
+/* Verify: the scan done again against the kept one, and every drawn patch's vertices
+   worked out again against the kept ones. */
+static void mottle_check(const MottleKept& kept, float groundTexels, bool oneSun)
+{
+    static std::vector<MottleKeptPatch> lay;
+    static std::vector<float> col, uv, pos;
+    mottle_lay(lay, groundTexels);
+    g_shroudCache.checks++;
+    bool same = lay.size() == kept.patch.size();
+    for (size_t i = 0; same && i < lay.size(); i++) {
+        const MottleKeptPatch& a = lay[i];
+        const MottleKeptPatch& b = kept.patch[i];
+        same = a.tex == b.tex && a.x0 == b.x0 && a.x1 == b.x1 && a.z0 == b.z0 && a.z1 == b.z1
+            && !memcmp(&a.cx, &b.cx, sizeof a.cx) && !memcmp(&a.cz, &b.cz, sizeof a.cz)
+            && !memcmp(&a.span, &b.span, sizeof a.span)
+            && !memcmp(&a.ca, &b.ca, sizeof a.ca) && !memcmp(&a.sa, &b.sa, sizeof a.sa);
+    }
+    if (!same) { shroud_cache_mismatch("mottle layout", (long)lay.size()); return; }
+    long bad = 0;
+    for (size_t i = 0; i < kept.patch.size(); i++) {
+        const MottleKeptPatch& kp = kept.patch[i];
+        if (!mottle_seen(kp)) continue;
+        col.clear(); uv.clear(); pos.clear();
+        mottle_patch_work(kp, oneSun, col, uv, pos);
+        g_shroudCache.checks++;
+        if (kp.stamp != kept.epoch || (int)(pos.size() / 3) != kp.n
+            || memcmp(col.data(), kept.col.data() + (size_t)kp.first * 4, col.size() * sizeof(float))
+            || memcmp(uv.data(), kept.uv.data() + (size_t)kp.first * 2, uv.size() * sizeof(float))
+            || memcmp(pos.data(), kept.pos.data() + (size_t)kp.first * 3, pos.size() * sizeof(float)))
+            bad++;
+    }
+    if (bad) shroud_cache_mismatch("mottle", bad);
+}
+
+static void mottle_draw(void)
+{
+    g_mottleDrawn = 0;
+    g_mottleActive = mottle_available();
+    if (!g_mottleActive) return;
+    if (g_mottleClear.size() != (size_t)g_gridW * g_gridH) mottle_mark_clear();
+
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    const bool oneSun = g_fxActive && g_fx.sun_lambert && g_fx.terrain_normals;
+    const float groundTexels = mottle_patch_texels();
+
+    static MottleKept kept;
+    static std::vector<unsigned> keptLay, lay, keptVertex, vertex;
+    mottle_lay_key(lay, groundTexels);
+    mottle_vertex_key(vertex, oneSun);
+    const int cache = shroud_cache_mode();
+    bool forget = false;
+    if (cache == 0 || lay != keptLay) {
+        mottle_lay(kept.patch, groundTexels);
+        keptLay = lay;
+        forget = true;
+    }
+    if (forget || vertex != keptVertex) {
+        kept.col.clear(); kept.uv.clear(); kept.pos.clear();
+        if (++kept.epoch == 0) {
+            for (size_t i = 0; i < kept.patch.size(); i++) kept.patch[i].stamp = 0;
+            kept.epoch = 1;
+        }
+        keptVertex = vertex;
+        g_shroudCache.mottleBuilt++;
+    } else
+        g_shroudCache.mottleKept++;
+
+    /* Written through an OverlayArrays (overlay_arrays.h): immediate mode by default.
+       With the overlay_arrays dial every patch is collected with its texture and drawn
+       after the loop, bound and drawn in the same order, one glDrawArrays where there
+       was one glBegin/glEnd. */
+    static OverlayArrays batch;
+    batch.reset(true, true);
+
+    bool worked = false;
+    for (size_t i = 0; i < kept.patch.size(); i++) {
+        MottleKeptPatch& kp = kept.patch[i];
+        if (!mottle_seen(kp)) continue;
+        if (kp.stamp != kept.epoch) {
+            kp.first = (int)(kept.pos.size() / 3);
+            mottle_patch_work(kp, oneSun, kept.col, kept.uv, kept.pos);
+            kp.n = (int)(kept.pos.size() / 3) - kp.first;
+            kp.stamp = kept.epoch;
+            worked = true;
+            g_shroudCache.mottleCells++;
+        }
+
+        batch.bind_texture(kp.tex);
+        batch.begin(GL_TRIANGLES);
+        const float* c = kept.col.data() + (size_t)kp.first * 4;
+        const float* t = kept.uv.data() + (size_t)kp.first * 2;
+        const float* v = kept.pos.data() + (size_t)kp.first * 3;
+        for (int j = 0; j < kp.n; j++, c += 4, t += 2, v += 3) {
+            batch.color(c[0], c[1], c[2], c[3]);
+            batch.texcoord(t[0], t[1]);
+            batch.vertex(v[0], v[1], v[2]);
+        }
+        batch.end();
+        g_mottleDrawn++;
+    }
+    /* The key is taken again after any patch was worked out, which may have built the
+       terrain light on its first use: what was worked out already saw that light. */
+    if (worked) mottle_vertex_key(keptVertex, oneSun);
+    if (cache == 2) mottle_check(kept, groundTexels, oneSun);
+
+    batch.flush();
 
     glBindTexture(GL_TEXTURE_2D, 0);
     glDepthMask(GL_TRUE);

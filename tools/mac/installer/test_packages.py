@@ -9,7 +9,7 @@ def main():
  with tempfile.TemporaryDirectory(prefix='mac-installer-fixture-',dir=ROOT/'build')as name:
   work=Path(name);base=work/'base';base.mkdir();modules=work/'modules';modules.mkdir();out=work/'out';out.mkdir()
   source=work/'inert.c';source.write_text('#include <stdio.h>\nint main(int n,char **v){if(n==241)puts("/api/builds --module-file --media-game --media-add-only 0.9.0");return 0;}\n')
-  binary=work/'inert';subprocess.run(['cc','-arch','arm64','-arch','x86_64','-mmacosx-version-min=14.0',str(source),'-o',str(binary)],check=True)
+  binary=work/'inert';subprocess.run(['cc','-arch','arm64','-arch','x86_64','-mmacosx-version-min='+p.os_floor.macos_min(),str(source),'-o',str(binary)],check=True)
   for rel in p.BOOTSTRAP:
    q=base/rel;q.parent.mkdir(parents=True,exist_ok=True)
    if rel=='opencnc3d-launcher'or rel.endswith('.dylib'):shutil.copy2(binary,q)
@@ -32,8 +32,15 @@ def main():
   subprocess.run([str(ROOT/'tools/mac/make-release-packages-mac.sh'),'--version','0.9.0','--base-stage',str(base),'--module-dir',str(modules),'--out',str(out)],check=True)
   r=json.loads((out/'macos-package-receipt-v0.9.0.json').read_text())
   assert len(r['artifacts'])==5 and r['native_container_and_choice_checks_passed']and not r['gui_launched']
+  assert r['macos_min']==p.os_floor.macos_min()
+  natives=0
   for a in r['artifacts']:
    if a['kind']=='native-installer':
+    # Every native product explains the floor and enforces the one in deployment-target.sh.
+    natives+=1;exp=work/('expanded-'+a['name']);subprocess.run(['pkgutil','--expand',a['path'],str(exp)],check=True)
+    d=p.ET.parse(exp/'Distribution').getroot();p.verify_os_floor(d);shutil.rmtree(exp)
+    assert d.find('installation-check').get('script')=='opencnc3d_os_ok()'and[x.get('min')for x in d.iter('os-version')]==[p.os_floor.macos_min()]
+    assert a['macos_min']==p.os_floor.macos_min()
     names={x['path']for x in a['payload_files']}
     assert not any(x.endswith(('.cfg','.sav'))for x in names)
     if a['game']is None:assert not any('TiberianDawn'in x or'ra3d/'in x or x.startswith('.opencnc3d-modules/')for x in names)
@@ -42,5 +49,6 @@ def main():
      assert not any(x.endswith(('.pack','.cfg','.sav'))for x in z.namelist())
      assert ('ra3d/RedAlert.dylib'in z.namelist())==(a['game']=='ra')
      assert ('TiberianDawn.dylib'in z.namelist())==(a['game']=='td')
-  print('MAC-INSTALLER-FIXTURE|PASS|three real native PKGs; all four Complete media choices; two distinct binary ZIPs; exact payload/container hashes; no GUI/system install; temporary inert fixtures retired')
+  assert natives==3
+  print('MAC-INSTALLER-FIXTURE|PASS|three real native PKGs, each with the macOS '+p.os_floor.macos_min()+' installation check; all four Complete media choices; two distinct binary ZIPs; exact payload/container hashes; no GUI/system install; temporary inert fixtures retired')
 if __name__=='__main__':main()

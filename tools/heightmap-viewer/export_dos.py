@@ -168,7 +168,28 @@ def scenarios():
     return out
 
 
+def install_dinosaur(dest):
+    """Write SCJ01EA..SCJ05EA.INI and .BIN into dest, byte for byte as GENERAL.MIX holds
+    them. The game plays them from its mission folder like any other scenario; nothing
+    in them is converted. Refuses (exit 1) when a file is missing or a BIN is short."""
+    mix = Mix(GENERAL)
+    for scen in DINOSAUR:
+        for ext in (".INI", ".BIN"):
+            blob = mix.get(scen + ext)
+            if not blob or (ext == ".BIN" and len(blob) != 8192):
+                raise SystemExit(f"export_dos: {scen}{ext} is not in {GENERAL} as expected")
+            with open(os.path.join(dest, scen + ext), "wb") as f:
+                f.write(blob)
+            print(f"{scen}{ext} {len(blob)} bytes -> {dest}")
+
+
 if __name__ == "__main__":
+    import sys
+    # --install-dinosaur DIR: the five Funpark missions into a mission folder
+    # (game/missions in this repository).
+    if len(sys.argv) == 3 and sys.argv[1] == "--install-dinosaur":
+        install_dinosaur(sys.argv[2])
+        sys.exit(0)
     for s in scenarios():
         print(f"{s['scenario']:9s} {s['theaterDos']:10s} -> {s['theater']:8s} "
               f"unresolved {s['unresolved']:4d}  {s['name']}")

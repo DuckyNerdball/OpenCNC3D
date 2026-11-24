@@ -32,8 +32,9 @@ The loading-to-live boundary separately prepares the finite current-stage
 working set of shroud-visible enhanced objects. This is conservative about
 camera visibility because damaged objects also draw in auxiliary passes.
 It does not draw a hidden frame, advance the engine or scan the asset catalog.
-It checks the complete missing-cost estimate against actual physical and
-32-bit virtual headroom with a 256 MiB reserve, rejects jobs above the original
+It checks the complete missing-cost estimate against actual physical memory and
+the memory the process can still commit (on 64-bit Windows; the 32-bit builds
+asked for free address space instead) with a 256 MiB reserve, rejects jobs above the original
 96 MiB transient bound, and admits at most 8,192 individual texture jobs.
 Each upload remains transactional; refusal preserves ordinary demand fallback.
 Platforms without the Windows headroom query keep the original preparation

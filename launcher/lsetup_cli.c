@@ -24,9 +24,12 @@
 
 #include <SDL.h>
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <dirent.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -513,19 +516,301 @@ static int ls_install_module(const char *dir,int target,const char *file,const c
     return ok?0:r->cancelled?2:1;
 }
 
+/* ---- --uninstall ----------------------------------------------------------------
+ *
+ * WHAT THE INSTALLER AND THE LAUNCHER PUT IN THE FOLDER, AND NOTHING ELSE. The
+ * Windows uninstaller runs this before it deletes the launcher, which is the only
+ * program that knows what each game owns:
+ *
+ *   - every file either game's ownership list names, shared files included, in the
+ *     same journaled transaction the single game Remove uses (lmodule.h);
+ *   - the movies and music of both games, and every language pack, by the exact
+ *     names their manifests give (lmedia.h);
+ *   - the launcher's module download cache and an update's leftover download;
+ *   - the launcher's records of what was installed;
+ *   - and, unless --keep-settings, the game's settings files and logs, by name.
+ *
+ * Then the folders those files emptied. Nothing is ever removed by pattern or by
+ * walking a folder (the launcher's own download folder aside), so a map, a
+ * screenshot or any file the player put there stays, and so does a folder holding
+ * one. Saves are not in the folder at all: they live in the per-user folder
+ * (app/userdir.h), which this never touches.
+ *
+ * IT STOPS BEFORE IT CHANGES ANYTHING when another launcher holds the folder, or, on
+ * Windows, when one of the game's programs is running; and a removal that fails part
+ * way keeps the launcher (the uninstaller aborts before deleting it), so running the
+ * uninstaller again finishes the job. */
+
+typedef struct
+{
+    char **rel;
+    int n, cap, failed;
+} LS_Names;
+
+static void ls_name_add(void *user, const char *rel)
+{
+    LS_Names *l = (LS_Names *)user;
+    if (l->n == l->cap) {
+        int grow = l->cap ? l->cap * 2 : 1024;
+        char **more = (char **)realloc(l->rel, (size_t)grow * sizeof *more);
+        if (!more) {
+            l->failed = 1;
+            return;
+        }
+        l->rel = more;
+        l->cap = grow;
+    }
+    l->rel[l->n] = (char *)malloc(strlen(rel) + 1);
+    if (!l->rel[l->n]) {
+        l->failed = 1;
+        return;
+    }
+    strcpy(l->rel[l->n++], rel);
+}
+
+static void ls_names_free(LS_Names *l)
+{
+    int i;
+    for (i = 0; i < l->n; i++)
+        free(l->rel[i]);
+    free(l->rel);
+    memset(l, 0, sizeof *l);
+}
+
+/* Remove one file by its name inside the folder. 1 when it is gone (or never was);
+ * 0, with `why` naming it, when it is a link, not a file, or could not be removed. */
+static int ls_unlink(const char *dir, const char *rel, LS_Names *names, char *why, int len)
+{
+    char path[1400];
+    struct stat st;
+    if (!lz_inside(dir, rel, path, sizeof path) || lz_is_symlink(path)) {
+        snprintf(why, (size_t)len, "%.200s is behind a link, so it was left alone", rel);
+        return 0;
+    }
+    if (stat(path, &st)) {
+        if (errno == ENOENT)
+            return 1;
+        snprintf(why, (size_t)len, "%.200s could not be read", rel);
+        return 0;
+    }
+    if (!S_ISREG(st.st_mode) || remove(path)) {
+        snprintf(why, (size_t)len, "%.200s could not be removed. Close OpenCNC3D and try again", rel);
+        return 0;
+    }
+    if (names)
+        ls_name_add(names, rel);
+    return 1;
+}
+
+/* One removal job of lmedia, run to its end. */
+static int ls_media_remove(LM_State *m, LS_Names *names, char *why, int len)
+{
+    char rel[600];
+    LM_Phase ph;
+    int i;
+    if (!m) {
+        snprintf(why, (size_t)len, "out of memory");
+        return 0;
+    }
+    for (i = 0; lm_name(m, i, rel, sizeof rel); i++)
+        ls_name_add(names, rel);
+    if (!lm_apply(m, 0, 0)) {
+        lm_status(m, why, len);
+        lm_destroy(m);
+        return 0;
+    }
+    while ((ph = lm_phase(m)) != LM_DONE && ph != LM_FAILED && ph != LM_CANCELLED)
+        SDL_Delay(20);
+    if (ph != LM_DONE)
+        lm_status(m, why, len);
+    lm_destroy(m);
+    return ph == LM_DONE;
+}
+
+#ifdef _WIN32
+/* A running program keeps its own file and every library it loaded open with no
+ * sharing for writing, so asking for exactly that tells whether the game is running
+ * without touching any file. Asked before anything is removed. */
+static int ls_in_use(const char *dir, char *why, int len)
+{
+    static const char *const progs[] = {"opencnc3d-game.exe", "ra3d/opencnc3d-game.exe", "cnc_eyes.exe",
+                                        "TiberianDawn.dll", "TiberianDawnXL.dll", "ra3d/RedAlert.dll",
+                                        "OpenCNC3D-Diagnostics.exe", "netcheck.exe", NULL};
+    char path[1400];
+    int i;
+    for (i = 0; progs[i]; i++) {
+        HANDLE h;
+        if (!lz_inside(dir, progs[i], path, sizeof path) || lz_is_symlink(path))
+            continue;
+        h = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            CloseHandle(h);
+            continue;
+        }
+        if (GetLastError() == ERROR_SHARING_VIOLATION) {
+            snprintf(why, (size_t)len, "%.200s is in use. Close OpenCNC3D and try again", progs[i]);
+            return 1;
+        }
+    }
+    return 0;
+}
+#endif
+
+/* The settings and logs the game writes beside itself (its saves are elsewhere),
+ * in the top folder and in Red Alert's. */
+static const char *const ls_settings_names[] = {
+    "opencnc3d-fx.cfg", "opencnc3d-controls.cfg", "opencnc3d-multiplayer.cfg", "opencnc3d-skirmish.cfg",
+    "ra3d-fx.cfg", "ra3d-controls.cfg", "ra3d-skirmish.cfg",
+    "cnc3d-fx.cfg", "cnc3d-controls.cfg", "cnc3d-multiplayer.cfg",
+    "opencnc3d-log.txt", "opencnc3d-log-previous.txt", NULL};
+
+/* The dated copies of a crashed session's log, opencnc3d-crash-<date>.txt, which the
+ * game keeps a few of beside its log (game/log_keep.h). */
+/* `sub` is "" for the top folder or "ra3d/". */
+static int ls_crash_logs(const char *dir, const char *sub, LS_Names *names, char *why, int len)
+{
+    char folder[1400], rel[400];
+    DIR *d;
+    struct dirent *e;
+    int ok = 1;
+    if (!sub[0])
+        snprintf(folder, sizeof folder, "%s", dir);
+    else if (!lz_inside(dir, "ra3d", folder, sizeof folder) || lz_is_symlink(folder))
+        return 1;
+    d = opendir(folder);
+    if (!d)
+        return 1;
+    while ((e = readdir(d)) != NULL) {
+        size_t n = strlen(e->d_name);
+        if (n < 21 || n >= 200 || strncmp(e->d_name, "opencnc3d-crash-", 16) || strcmp(e->d_name + n - 4, ".txt"))
+            continue;
+        snprintf(rel, sizeof rel, "%s%s", sub, e->d_name);
+        if (!ls_unlink(dir, rel, names, why, len))
+            ok = 0;
+    }
+    closedir(d);
+    return ok;
+}
+
+static int ls_uninstall(const char *dir, int keep_settings, const char *manifest)
+{
+    static const char *const leftovers[] = {"opencnc3d-update.zip", "opencnc3d-update.zip.part",
+                                            "opencnc3d-update.zip" LZ_PART, "opencnc3d-update.id" LZ_PART,
+                                            NULL};
+    static const char *const records[] = {"opencnc3d-media.txt", "opencnc3d-media-td.txt",
+                                          "opencnc3d-media-ra.txt", "CHANGELOG.txt", "BUILD-ID.txt", NULL};
+    static const char *const subs[] = {"", "ra3d/", NULL};
+    LS_Names names;
+    LZ_Lock lock;
+    char why[600], err[512], code[16], label[80], rel[200], path[1400];
+    struct stat st;
+    int rc, ra, i, j, ok = 0, failed = 0;
+
+    memset(&names, 0, sizeof names);
+    why[0] = '\0';
+    printf("UNINSTALL|start|dir=%s|settings=%s\n", dir, keep_settings ? "kept" : "removed");
+    if (lz_is_private_developer(dir)) {
+        snprintf(why, sizeof why, "this is a private source build, managed from its source checkout");
+        goto done;
+    }
+    rc = lz_lock_new(dir, &lock);
+    if (rc != 1) {
+        snprintf(why, sizeof why, "%s",
+                 rc == 0 ? "another OpenCNC3D launcher is using this folder. Close it and try again"
+                         : "the folder could not be locked");
+        goto done;
+    }
+#ifdef _WIN32
+    if (ls_in_use(dir, why, sizeof why))
+        goto unlock;
+#endif
+    /* An update or a game removal that was interrupted is finished first, exactly as
+     * the launcher's next start would. One that cannot be finished stops here. */
+    lz_settle(&lock);
+    if (lz_inside(dir, LZ_JOURNAL, path, sizeof path) && !stat(path, &st)) {
+        snprintf(why, sizeof why, "an unfinished update could not be completed. Open OpenCNC3D once, then try again");
+        goto unlock;
+    }
+    if (!lmod_settle(dir, err, sizeof err) || !lmod_remove_all(dir, ls_name_add, &names, err, sizeof err)) {
+        snprintf(why, sizeof why, "%s", err);
+        goto unlock;
+    }
+    printf("UNINSTALL|games|removed|names listed=%d\n", names.n);
+    if (!ls_media_remove(lm_create(dir, manifest), &names, why, sizeof why))
+        goto unlock;
+    printf("UNINSTALL|media|removed\n");
+    for (ra = 0; ra < 2; ra++)
+        for (i = 0; lm_language_pack(ra, i, code, sizeof code, label, sizeof label); i++) {
+            if (!ls_media_remove(lm_create_language(dir, ra, code, NULL), &names, why, sizeof why))
+                goto unlock;
+            snprintf(rel, sizeof rel, "opencnc3d-language-%s-%s.txt", ra ? "ra" : "td", code);
+            if (!ls_unlink(dir, rel, NULL, why, sizeof why))
+                failed = 1;
+        }
+    printf("UNINSTALL|languages|removed\n");
+    if (!lmod_cache_clear(dir, err, sizeof err)) {
+        snprintf(why, sizeof why, "%s", err);
+        goto unlock;
+    }
+    for (i = 0; leftovers[i]; i++)
+        if (!ls_unlink(dir, leftovers[i], NULL, why, sizeof why))
+            failed = 1;
+    for (i = 0; records[i]; i++)
+        if (!ls_unlink(dir, records[i], NULL, why, sizeof why))
+            failed = 1;
+    if (!keep_settings)
+        for (j = 0; subs[j]; j++) {
+            for (i = 0; ls_settings_names[i]; i++) {
+                snprintf(rel, sizeof rel, "%s%s", subs[j], ls_settings_names[i]);
+                if (!ls_unlink(dir, rel, &names, why, sizeof why))
+                    failed = 1;
+            }
+            if (!ls_crash_logs(dir, subs[j], &names, why, sizeof why))
+                failed = 1;
+        }
+    if (failed || names.failed) {
+        if (!why[0])
+            snprintf(why, sizeof why, "out of memory");
+        goto unlock;
+    }
+    /* Last of all the install record, so a run that stopped above still leaves a
+     * folder the launcher recognises and can be run again. */
+    if (!ls_unlink(dir, "opencnc3d-install.txt", NULL, why, sizeof why))
+        goto unlock;
+    for (i = 0; i < names.n; i++)
+        lmod_prune_parents(dir, names.rel[i]);
+    ok = 1;
+unlock:
+    lz_unlock(&lock);
+done:
+    ls_names_free(&names);
+    if (ok)
+        printf("UNINSTALL|PASS|the games, their movies, music and language packs and the launcher's "
+               "downloads are removed%s\n", keep_settings ? "; settings and logs are kept" : "");
+    else {
+        printf("UNINSTALL|FAIL|%s\n", why);
+        fprintf(stderr, "uninstall: %s\n", why);
+    }
+    fflush(stdout);
+    return ok ? 0 : 1;
+}
+
 int lsetup_cli_main(int argc, char **argv, int *handled)
 {
     const char *dir = NULL, *media_install = NULL, *media = NULL, *manifest = NULL;
     const char *build = NULL,*module_file=NULL,*module_sha=NULL,*module_site=NULL;
     LS_Report r;
     int install_game = 0, fetch_pack = 0, stall = 30, i, rc,media_game=-1,module_target=-1,media_add_only=0;
+    int uninstall = 0, keep_settings = 0;
 
     *handled = 0;
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--"))
             break; /* everything after belongs to the game */
         if (!strcmp(argv[i], "--media-install") || !strcmp(argv[i], "--install-game")
-            || !strcmp(argv[i], "--fetch-menu-art") || !strcmp(argv[i],"--install-module"))
+            || !strcmp(argv[i], "--fetch-menu-art") || !strcmp(argv[i],"--install-module")
+            || !strcmp(argv[i], "--uninstall"))
             *handled = 1;
     }
     if (!*handled)
@@ -550,6 +835,8 @@ int lsetup_cli_main(int argc, char **argv, int *handled)
         if(!strcmp(a,"--install-module")&&v){
             module_target=!strcmp(v,"td")?0:(!strcmp(v,"ra")||!strcmp(v,"ra3d"))?1:-1;
             if(module_target<0){fprintf(stderr,"--install-module takes td or ra3d\n");return 1;}i++;
+        }else if(!strcmp(a,"--uninstall")){uninstall=1;
+        }else if(!strcmp(a,"--keep-settings")){keep_settings=1;
         }else if(!strcmp(a,"--module-file")&&v){module_file=v;i++;}
         else if(!strcmp(a,"--module-sha")&&v){module_sha=v;i++;}
         else if(!strcmp(a,"--module-site")&&v){
@@ -599,11 +886,21 @@ int lsetup_cli_main(int argc, char **argv, int *handled)
                   "the setup was not told which folder to use", 1);
         return 1;
     }
-    if ((install_game ? 1 : 0) + (media_install ? 1 : 0) + fetch_pack + (module_target>=0?1:0) > 1) {
+    if ((install_game ? 1 : 0) + (media_install ? 1 : 0) + fetch_pack + (module_target>=0?1:0) + uninstall > 1) {
         fprintf(stderr, "use --install-game with --media, or --media-install or --fetch-menu-art "
                         "on its own\n");
         ls_report(&r, "GAME", LS_FAILED, 0, 0, "", "the setup was asked for two things at once", 1);
         return 1;
+    }
+    if (keep_settings && !uninstall) {
+        fprintf(stderr, "--keep-settings belongs to --uninstall\n");
+        return 1;
+    }
+    if (uninstall) {
+        rc = ls_uninstall(dir, keep_settings, manifest);
+        printf("SETUP|exit|%d\n", rc);
+        fflush(stdout);
+        return rc;
     }
     if((module_file&&!module_sha)||(!module_file&&module_sha)){
         fprintf(stderr,"--module-file and --module-sha must be supplied together\n");return 1;

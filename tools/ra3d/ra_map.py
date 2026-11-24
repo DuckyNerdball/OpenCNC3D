@@ -65,15 +65,15 @@ def ra_template_theaters():
 
 
 def mission_ini(scen):
-    mix = ramix.Mix(os.path.join(ROOT, "data", "radata", "GENERAL.MIX")) if hasattr(ramix, "Mix") else None
-    if mix is not None:
-        return mix.read(scen + ".INI").decode("cp437", "replace")
-    import subprocess, tempfile
-    d = tempfile.mkdtemp()
-    subprocess.run([sys.executable, os.path.join(HERE, "ramix.py"), "extract",
-                    os.path.join(ROOT, "data", "radata", "GENERAL.MIX"), d, scen + ".INI"],
-                   check=True, stdout=subprocess.DEVNULL)
-    return open(os.path.join(d, scen + ".INI"), "rb").read().decode("cp437", "replace")
+    # Expansion originals are isolated from the base GENERAL.MIX. Never replace
+    # campaign missions or guess a different map when an expansion is absent.
+    original = os.path.join(ROOT, "data", "ra3d", "expansions", "missions", scen + ".INI")
+    if os.path.isfile(original):
+        return open(original, "rb").read().decode("cp437", "replace")
+    content = ramix.RaMix(os.path.join(ROOT, "data", "radata", "GENERAL.MIX")).read(scen + ".INI")
+    if content is None:
+        raise ValueError("Original Red Alert mission is missing: " + scen)
+    return content.decode("cp437", "replace")
 
 
 def ini_sections(text):

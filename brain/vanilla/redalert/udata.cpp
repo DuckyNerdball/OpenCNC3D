@@ -1081,6 +1081,8 @@ void UnitTypeClass::One_Time(void)
 #endif
 
         ((void const*&)uclass.ImageData) = ptr;
+        if (index == UNIT_ANT1 || index == UNIT_ANT2 || index == UNIT_ANT3)
+            fprintf(stderr, "RA3D|shapes|unit=%s|loaded=%d\n", uclass.IniName, ptr ? 1 : 0);
         if (ptr != NULL) {
 
             largest = max(largest, (int)Get_Build_Frame_Width(ptr));

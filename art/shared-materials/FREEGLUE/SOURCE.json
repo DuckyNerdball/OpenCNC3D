@@ -1,0 +1,51 @@
+{
+  "name": "FREEGLUE",
+  "authority": "User supplied and explicitly selected for all game windows on 11 November2026",
+  "source_sha256": "df38b06db36f08dbcedbdfef677408ff01e84910acb57f52b4449623d4c68bc1",
+  "source_size": [
+    600,
+    449
+  ],
+  "cross_size": [
+    600,
+    450
+  ],
+  "conversion": "One missing bottom row edge-padded from last supplied row to restore six150x150squarefaces; no creative alteration or inferred detail.",
+  "layout": {
+    "px": [
+      2,
+      1
+    ],
+    "nx": [
+      0,
+      1
+    ],
+    "py": [
+      1,
+      0
+    ],
+    "ny": [
+      1,
+      2
+    ],
+    "pz": [
+      1,
+      1
+    ],
+    "nz": [
+      3,
+      1
+    ]
+  },
+  "license": "User-provided reference; public distribution license not independently established. No public publication.",
+  "files": {
+    "nx.png": "52e85129d7a120904d4079af27f16bc6df6a738308f04e7f732230465d2aa231",
+    "ny.png": "f473b43d16b8326d3ea3de5ab301edb6bddd127db24eaf3ebab7e95fc16d3fad",
+    "nz.png": "597a90a73573821810916f83c99ab9fc3227643231b0abf34211b77701f47a6e",
+    "pz.png": "56186cac6f7a94b28a549ab38e1976d8a1f04b40d8aaab098abf3ec3a2db0cd6",
+    "px.png": "a3f279a81e91e153999f12a0b6272c27b86ed003399009fdea45bb4f294f8587",
+    "py.png": "e228dc4c19c00807b51744725788e7462b2c7974cd14c4bf35d761f0efed7d66",
+    "user-source.png": "df38b06db36f08dbcedbdfef677408ff01e84910acb57f52b4449623d4c68bc1",
+    "FREEGLUE-cross.png": "ffffae566ae06e37bffee877eae75907765e9e94a2d4f231ab1bbb6261bf7a89"
+  }
+}

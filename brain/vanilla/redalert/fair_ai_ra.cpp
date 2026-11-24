@@ -1,4 +1,6 @@
 /* MODIFIED for OpenCNC3D, 19 October 2026. Fair per-seat skirmish skill.
+ * MODIFIED for OpenCNC3D, 30 October 2026. The naval step waits on time, not on money, and
+ * places its yard by the engine's own placement tests.
  * The controller issues ordinary game orders and purchases through existing factories.
  * Enemy inspection is behind the same house-specific shroud and cloak checks used by
  * players. A remembered objective is a cell snapshot, never a hidden live object handle.
@@ -102,17 +104,24 @@ static int KnownOre(HouseClass* h)
     }
     return count;
 }
-static bool Coastal(HouseClass* h)
+// The naval yard this house may build, when it has none and one could be placed: water
+// clear for the whole footprint, touching the base, explored, inside the base zones. These
+// are the tests Find_Cell_In_Zone applies to the finished yard; without a place it would be
+// built, refused and refunded over and over while the Construction Yard built nothing else.
+static StructType NavalYard(HouseClass* h)
 {
-    CELL home = Home(h);
-    if (!home) return false;
-    for (int y = -10; y <= 10; ++y) for (int x = -10; x <= 10; ++x) {
-        int xx = Cell_X(home) + x, yy = Cell_Y(home) + y;
-        if (xx < 0 || yy < 0 || xx >= MAP_CELL_W || yy >= MAP_CELL_H) continue;
-        CELL cell = XY_Cell(xx, yy);
-        if (Map.In_Radar(cell) && Map[(CELL)(cell)].Is_Mapped(h) && Map[(CELL)(cell)].Land_Type() == LAND_WATER) return true;
+    if (TypeCount(h, STRUCT_SHIP_YARD) || TypeCount(h, STRUCT_SUB_PEN)) return STRUCT_NONE;
+    StructType type = STRUCT_SHIP_YARD;
+    if (!LegalType(h, BuildingTypeClass::As_Reference(type))) type = STRUCT_SUB_PEN;
+    BuildingTypeClass const& t = BuildingTypeClass::As_Reference(type);
+    if (!LegalType(h, t)) return STRUCT_NONE;
+    short const* list = t.Occupy_List(true);
+    for (int cell = 0; cell < MAP_CELL_TOTAL; ++cell) {
+        if (!Map.In_Radar(cell) || Map[(CELL)(cell)].Land_Type() != LAND_WATER || !Map[(CELL)(cell)].Is_Mapped(h)
+            || h->Which_Zone((CELL)cell) == ZONE_NONE) continue;
+        if (t.Legal_Placement(cell) && Map.Passes_Proximity_Check(&t, h->Class->House, list, cell)) return type;
     }
-    return false;
+    return STRUCT_NONE;
 }
 static bool RecoverIncome(HouseClass* h, State& s)
 {
@@ -229,9 +238,11 @@ static void Economy(HouseClass* h, State& s)
     if (h->BuildStructure == STRUCT_NONE && Frame > TICKS_PER_MINUTE * (6 - (int)s.level) && money > 2200) {
         if (!ChooseBuilding(h, STRUCT_HELIPAD, 1 + (s.level >= 2), reserve + 600)) ChooseBuilding(h, STRUCT_AIRSTRIP, 1 + (s.level >= 2), reserve + 600);
     }
-    if (h->BuildStructure == STRUCT_NONE && s.level >= 1 && money > 3500 && Coastal(h)) {
-        if (!ChooseBuilding(h, STRUCT_SHIP_YARD, 1, reserve + 1000)) ChooseBuilding(h, STRUCT_SUB_PEN, 1, reserve + 1000);
-    }
+    // A naval yard once the air is in hand, on the money the saving plan below keeps for it:
+    // the margin is the plan's own 600, so what it saves is what this asks.
+    StructType naval = STRUCT_NONE;
+    if (s.level >= 1 && Frame > TICKS_PER_MINUTE * (8 - (int)s.level)) naval = NavalYard(h);
+    if (h->BuildStructure == STRUCT_NONE && naval != STRUCT_NONE) ChooseBuilding(h, naval, 1, reserve + 600);
     if (h->BuildStructure == STRUCT_NONE && s.level >= 2 && money > 6000) {
         ChooseBuilding(h, STRUCT_MSLO, 1, reserve + 2000);
     }
@@ -252,6 +263,8 @@ static void Economy(HouseClass* h, State& s)
         saving = LegalType(h,BuildingTypeClass::As_Reference(STRUCT_ADVANCED_TECH)) ? STRUCT_ADVANCED_TECH : STRUCT_SOVIET_TECH;
     } else if (!TypeCount(h,STRUCT_HELIPAD) && !TypeCount(h,STRUCT_AIRSTRIP) && Frame > TICKS_PER_MINUTE*(6-(int)s.level)) {
         saving = LegalType(h,BuildingTypeClass::As_Reference(STRUCT_HELIPAD)) ? STRUCT_HELIPAD : STRUCT_AIRSTRIP;
+    } else if (naval != STRUCT_NONE) {
+        saving = naval;
     }
     if (saving != STRUCT_NONE) {
         BuildingTypeClass const& next=BuildingTypeClass::As_Reference(saving);

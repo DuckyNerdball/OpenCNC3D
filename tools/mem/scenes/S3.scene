@@ -1,0 +1,34 @@
+# S3 Red Alert skirmish SCM01EA (snow), seed 4242, seven computer opponents, 600 ticks.
+# Frames the player's start at tick 1, then at tick 600 three computer bases (their
+# construction yards, power plants and what they have built, in their own colours) and
+# the coast, all with the shroud lifted.
+game: ra
+scen: SCM01EA
+modes: enh,cls,n64
+seed: 4242
+build: none
+flags: --skirmish --ai 7
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger t1
+shot {OUT}/t0001_start.png
+tick 599
+frames 2
+memledger t600
+look FACT:Multi8 0
+frames 2
+shot {OUT}/t0600_base8.png
+look FACT:Multi7 0
+frames 2
+shot {OUT}/t0600_base7.png
+look FACT:Multi6 0
+frames 2
+shot {OUT}/t0600_base6.png
+cam 56 40
+frames 2
+shot {OUT}/t0600_coast.png
+quit

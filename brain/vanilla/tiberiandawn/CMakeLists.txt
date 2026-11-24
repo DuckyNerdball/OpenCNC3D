@@ -6,6 +6,8 @@
 # six unless the option is turned off. It also adds Microsoft extension
 # compiler flags for non MSVC compilers and excludes the Windows only COM
 # map editor interface, dllinterfaceeditor.cpp, from non Windows builds.
+# It also compiles the OpenCNC3D Rally race mode (rally.cpp, rally_ai.cpp,
+# rally_items.cpp and rally_physics.cpp).
 # It DOES change the game simulation.
 # The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 # and NOTICE.md lists every modified file.
@@ -45,6 +47,8 @@ set(TIBDAWN_SRC
     edit.cpp
     ending.cpp
     event.cpp
+    gun_game.cpp
+    gun_game_ability.cpp
     expand.cpp
     facing.cpp
     factory.cpp
@@ -100,6 +104,10 @@ set(TIBDAWN_SRC
     queue.cpp
     radar.cpp
     radio.cpp
+    rally.cpp
+    rally_ai.cpp
+    rally_items.cpp
+    rally_physics.cpp
     reinf.cpp
     rules.cpp
     saveload.cpp

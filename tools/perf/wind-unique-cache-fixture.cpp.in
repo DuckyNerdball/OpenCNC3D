@@ -48,6 +48,10 @@ static bool mesh_perf_switch(const char* name) {
 
 @PRODUCTION_CODE@
 
+/* Clearing the CPU cache also drops the card's copies of its sources (mesh_wind_gpu.h);
+   there is no card here, so there is nothing to drop. */
+static void mesh_wind_gpu_release() {}
+
 static unsigned checks=0;
 #define CHECK(expression) do {++checks;if(!(expression)) {std::fprintf(stderr,"line %d: %s\n",__LINE__,#expression);return false;}} while(0)
 static const float matrix[12]={1.13839f,.017f,0,0,0,1.28929f,0,0,0,-.028f,1.13839f,0};

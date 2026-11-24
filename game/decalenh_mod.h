@@ -137,9 +137,17 @@ static bool decalenh_inflate(FILE* f, std::vector<unsigned char>& out, size_t by
         && uncompress(&out[0], &got, &z[0], zb) == Z_OK && got == bytes;
 }
 
+/* WHICH SHEETS OF A SET GO ON THE CARD, asked of `want` per set by its theater number: the
+   body, the burn, the burn on snow. A set with none wanted is read and checked like the
+   others and then dropped, so decalenh_set_for never finds it; a sheet not wanted is never
+   uploaded. No `want` uploads every sheet of every set. */
+enum { DECALENH_WANT_BODY = 1, DECALENH_WANT_SOOT = 2, DECALENH_WANT_SNOW = 4,
+       DECALENH_WANT_ALL = 7 };
+typedef int (*DecalEnhWant)(unsigned theaterId);
+
 /* snowToo: also make each theater's burn on snow (decalenh_snow_soot), for a game whose snow
    draws the temperate set (Red Alert's); Tiberian Dawn makes none. */
-static bool decalenh_load(const char* path, bool snowToo = false)
+static bool decalenh_load(const char* path, bool snowToo = false, DecalEnhWant want = NULL)
 {
     decalenh_free();
     FILE* f = fopen(path, "rb");
@@ -192,21 +200,30 @@ static bool decalenh_load(const char* path, bool snowToo = false)
             T.layers[k] = T.nframes[k] ? (int)(ly[k] & 3u) : 0;
             have += T.layers[k] != 0;
         }
-        /* Desert's depression/rim colours stay authored; blend their coverage and
-           soot density into the real sand instead of painting an opaque black card. */
-        decal_desert_blend(T.theaterId,body.data(),T.texw,T.texh,g_deCell,g_deGutter,
-                           soot.data(),soot.size());
-        T.tex = decalenh_upload(body, T.texw, T.texh, 4);
-        T.soot = decalenh_upload(soot, T.sootw, T.sooth, 3);
-        if (snowToo && T.theaterId == 2) {          /* (the temperate set's, TEMPERATE 2) */
-            decalenh_snow_soot(soot);
-            T.sootSnow = decalenh_upload(soot, T.sootw, T.sooth, 3);
+        const int w = want ? want(T.theaterId) : DECALENH_WANT_ALL;
+        const bool snowSet = snowToo && T.theaterId == 2;   /* (the temperate set's, TEMPERATE 2) */
+        if (want)
+            printf("BOOTART|decals|set=%s|id=%u|body=%d|soot=%d|snowsoot=%d\n", nm, T.theaterId,
+                   (w & DECALENH_WANT_BODY) ? 1 : 0, (w & DECALENH_WANT_SOOT) ? 1 : 0,
+                   (snowSet && (w & DECALENH_WANT_SNOW)) ? 1 : 0);
+        if (w) {
+            /* Desert's depression/rim colours stay authored; blend their coverage and
+               soot density into the real sand instead of painting an opaque black card. */
+            decal_desert_blend(T.theaterId,body.data(),T.texw,T.texh,g_deCell,g_deGutter,
+                               soot.data(),soot.size());
+            if (w & DECALENH_WANT_BODY) T.tex = decalenh_upload(body, T.texw, T.texh, 4);
+            if (w & DECALENH_WANT_SOOT) T.soot = decalenh_upload(soot, T.sootw, T.sooth, 3);
+            if (snowSet && (w & DECALENH_WANT_SNOW)) {
+                decalenh_snow_soot(soot);
+                T.sootSnow = decalenh_upload(soot, T.sootw, T.sooth, 3);
+            }
+            g_deTh.push_back(T);
+            drawn += have;
         }
-        g_deTh.push_back(T);
-        drawn += have;
         fprintf(stderr, "decalenh: %s, %d of %d craters and scorch marks remastered\n",
                 nm, have, DECALENH_TYPES);
     }
+    if (want) fflush(stdout);
     fclose(f);
     fprintf(stderr, "decalenh: the body %d texels a cell, the soot %d over %d x %d cells\n",
             g_deCell, g_deSootCell, g_deSootSpan, g_deSootSpan);

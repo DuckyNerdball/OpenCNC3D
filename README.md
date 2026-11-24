@@ -2,12 +2,13 @@
 
 A faithful PC recreation of the Nintendo 64 presentation of Command & Conquer:
 the GPL Tiberian Dawn game logic (the brain), the N64 cartridge's own 3D assets
-(the skin), and a new renderer written for OpenGL 1.1 (the eyes).
+(the skin), and a new OpenGL renderer (the eyes).
 
-It runs on **Windows and macOS**, and is developed and built on both. The renderer
-is deliberately written to fixed-function OpenGL 1.1, which keeps a native
-**Windows 98 / 3dfx Voodoo 2** build reachable as a stretch goal rather than a
-requirement.
+It runs on **macOS and 64-bit Windows 10/11**, and is developed and built on both.
+For macOS installation and Apple Silicon startup, see the [Mac launch instructions](tools/launchers/READ-ME.txt).
+
+The renderer uses modern OpenGL (shaders, buffer objects, render targets). An
+earlier plan for a native Windows 98 / 3dfx Voodoo 2 build was dropped.
 
 - `game/` the renderer and playable build (see `game/make-build.sh`)
 - `brain/` four additive portability patches over Vanilla Conquer, plus the host

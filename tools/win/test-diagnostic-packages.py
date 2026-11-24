@@ -15,6 +15,7 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 FILES = ('tools/win/make-build-win.sh', 'tools/win/check-diagnostics.py',
+         'tools/win/check-pe-arch.py', 'tools/release.sh',
          'tools/win/installer/readme-windows.sh', 'tools/launcher/data-id.sh',
          # The package's NOTICE.md is written by make-package-notice.py from these.
          'tools/make-package-notice.py', 'brain/patches/vanilla-opencnc3d.patch',
@@ -30,13 +31,20 @@ def check(condition, name, details=''):
         raise AssertionError(name + ('\n' + details if details else ''))
 
 
-def pe(mark, diagnostic=False, machine=0x14c, laa=True, subsystem=3, extra=b''):
+def pe(mark, diagnostic=False, machine=0x8664, laa=True, subsystem=3, extra=b''):
+    wide = machine == 0x8664
     data = bytearray(512)
     data[:2] = b'MZ'
     struct.pack_into('<I', data, 60, 128)
     data[128:132] = b'PE\0\0'
-    struct.pack_into('<HHIIIHH', data, 132, machine, 1, 0, 0, 0, 224, 0x102 | (0x20 if laa else 0))
-    struct.pack_into('<H', data, 152, 0x10b)
+    struct.pack_into('<HHIIIHH', data, 132, machine, 1, 0, 0, 0, 240 if wide else 224,
+                     0x102 | (0x20 if laa else 0))
+    struct.pack_into('<H', data, 152, 0x20b if wide else 0x10b)
+    if wide:
+        # What the x86-64 linker writes by default: an image base above 4 GB, and
+        # DllCharacteristics HIGH_ENTROPY_VA | DYNAMIC_BASE | NX_COMPAT.
+        struct.pack_into('<Q', data, 152 + 24, 0x140000000)
+        struct.pack_into('<H', data, 152 + 70, 0x160)
     struct.pack_into('<H', data, 220, subsystem)
     data.extend(b'\0' + mark.encode() + b'\0unavailable in a cooked build\0')
     if diagnostic:
@@ -89,7 +97,36 @@ if [ "${PACKAGE_TEST_INJECT_LOGS:-0}" = 1 ]; then
     printf 'must not ship' > "$1/Logs/session-leak/seconds.csv"
 fi
 ''')
+    # Current packagers delegate scenery/material staging to Python. Keep this
+    # package-contract fixture tied to the existing tiny rock producer above.
+    write(root / 'tools/art/terrain/stage_desert_details.py', '''import subprocess,sys
+from pathlib import Path
+subprocess.run(['sh',str(Path(__file__).resolve().parents[1]/'rocks/stones.sh'),sys.argv[1]],check=True)
+''')
+    write(root / 'tools/art/rocks/stage_stone_materials.py', 'import sys\n# No authored mineral inputs in this package fixture.\n')
+    # PE stripping and authored-material reduction have their own binary gates;
+    # these intentionally tiny package fixtures exercise inclusion/order only.
+    write(root / 'tools/release/strip-windows-debug.py', 'import sys\n')
+    write(root / 'tools/launcher/prepare-public-runtime.py', '''from pathlib import Path
+import sys
+(Path(sys.argv[1])/'.opencnc3d-public-stage').unlink()
+''')
     write(root / 'tools/launcher/make-changelog-txt.sh', '#!/bin/sh\nprintf "Fixture changelog\\n" > "$1"\n')
+    # Stagers and the cooked strip/reducer are tested on their own; here they are stubs.
+    write(root / 'tools/art/terrain/stage_desert_details.py', 'pass\n')
+    write(root / 'tools/art/rocks/stage_stone_materials.py', 'pass\n')
+    write(root / 'tools/release/strip-windows-debug.py', 'pass\n')
+    write(root / 'tools/launcher/prepare-public-runtime.py',
+          'import sys, pathlib\n(pathlib.Path(sys.argv[1]) / ".opencnc3d-public-stage").unlink(missing_ok=True)\n')
+    # The Classic ground-mark completion reads real 1995 archives, which these fixtures
+    # are not; its own gate (G450) proves it, so the packager's call is a stub here.
+    write(root / 'game/dosclassic_content.py', 'pass\n')
+    # The lobby map preview check reads a real MAPPREV1 pack against the committed manifest;
+    # its own gate (G463) proves it refuses a stale pack, so the call is a stub here too.
+    write(root / 'tools/bake_map_previews.py', 'pass\n')
+    # The tree-stage sharing step is small and works on any ebld folder, so the real one
+    # runs here (on a fixture with no tree stages it shares nothing).
+    write(root / 'tools/ebld-share-stages.py', (repo / 'tools/ebld-share-stages.py').read_text())
     for name in ('tools/win/build-win.sh', 'tools/win/build-launcher-win.sh',
                  'tools/launcher/data-id.sh', 'tools/launcher/make-changelog-txt.sh'):
         (root / name).chmod(0o755)
@@ -126,7 +163,13 @@ def binaries(root, version):
     write(target / 'cnc_eyes.exe', pe(mark, extra=b'edit: world grid\0'))
     write(target / 'OpenCNC3D-Diagnostics.exe', pe(mark, True, subsystem=2))
     write(target / 'OpenCNC3D.exe', pe(mark, extra=b'/api/builds\0cnc_eyes\0--edit\0'))
-    for name in ('netcheck.exe', 'SDL2.dll', 'TiberianDawn.dll', 'ignored-binary.dll'):
+    for name in ('netcheck.exe', 'TiberianDawn.dll', 'archive.dll', 'ignored-binary.dll'):
+        # A bare x86-64 PE header, so the package's architecture check reads a program file.
+        write(target / name, pe('')[:512] + b'fixture ' + name.encode())
+    # A 32-bit SDL2.dll left in build/win by an older build. SDL is linked into the
+    # programs now, so the packager must leave this file where it is.
+    write(target / 'SDL2.dll', pe('', machine=0x14c)[:512] + b'stale 32-bit SDL2.dll')
+    for name in ('map-archive.json', 'map-archive-LICENSE.txt'):
         write(target / name, b'fixture ' + name.encode())
     write(root / 'VERSION', version + '\n')
     return target, mark
@@ -167,9 +210,10 @@ def test_packages(repo, work):
                 check(mark.encode() in z.read(expected), name + ': requested bare release build mark')
                 check(b'OPENCNC3D|diagnostics|1' in z.read(expected), name + ': automatic entry marker')
                 check(all('/' not in member for member in members) if kind == 'bins' else all(member.startswith(prefix) for member in members), name + ': expected archive shape')
-                check(members[-2:] == [prefix + 'BUILD-ID.txt', prefix + 'SDL2.dll'], name + ': legacy update tail remains last')
+                check(members[-1:] == [prefix + 'BUILD-ID.txt'], name + ': legacy update tail remains last')
+                check(not any(member.lower().endswith('sdl2.dll') for member in members), name + ': no SDL2.dll, the stale build/win copy included')
                 if kind == 'full':
-                    check(members[-4:] == [prefix + item for item in ('CHANGELOG.txt', 'opencnc3d-install.txt', 'BUILD-ID.txt', 'SDL2.dll')], name + ': full install record tail unchanged')
+                    check(members[-3:] == [prefix + item for item in ('CHANGELOG.txt', 'opencnc3d-install.txt', 'BUILD-ID.txt')], name + ': full install record tail unchanged')
                 readme = z.read(prefix + ('READ-ME-FIRST.txt' if kind == 'bins' else 'READ-ME-WINDOWS.txt')).decode()
                 check(all(word in readme for word in ('OpenCNC3D-Diagnostics.exe', 'Logs/session-', '%LOCALAPPDATA%', 'sharing')), name + ': normal collection instructions')
                 check(not any('/Logs/' in ('/' + member) for member in members), name + ': runtime Logs/session directory absent')
@@ -177,9 +221,9 @@ def test_packages(repo, work):
                 check(not any(token in member for member in members for token in ('private.INI', 'private.txt', 'proof.png', 'settings.cfg', 'SAVEG000', 'ignored-binary', 'other.app', '.VQA')), name + ': personal/media/unrelated inputs excluded')
                 if kind == 'bins':
                     expected_files = {'OpenCNC3D.exe', 'opencnc3d-game.exe', 'OpenCNC3D-Diagnostics.exe', 'cnc_eyes.exe',
-                                      'netcheck.exe', 'SDL2.dll', 'TiberianDawn.dll', 'dosclassic.pack', 'CONQUER.MIX',
+                                      'netcheck.exe', 'TiberianDawn.dll', 'archive.dll', 'map-archive.json', 'map-archive-LICENSE.txt', 'dosclassic.pack', 'CONQUER.MIX',
                                       'dosmenu.pack', 'enhanced-menu.pack', 'decalenh.pack', 'READ-ME-FIRST.txt', 'BUILD-ID.txt'}
-                    check(set(members) == expected_files and len(members)==14, name + ': exact fourteen-file flat update include list')
+                    check(set(members) == expected_files and len(members)==16, name + ': exact sixteen-file flat update include list')
                     check('decalenh.pack' in readme,name+': binaries-only instructions carry the required decal update')
                 else:
                     check(all(prefix + item in members for item in ('ebld/FIXTURE.ebld', 'evhc/FIXTURE.evhc', 'ecur/ecur.bin', 'content/TEMPERAT.MIX', 'missions/SCG01EA.INI', 'LICENSE', 'NOTICE.md')), name + ': normal runtime data and legal files retained')
@@ -209,6 +253,10 @@ def test_packages(repo, work):
             write(staged / 'unrelated-runtime-data.bin', b'changed data')
             data_changed = run([str(root / 'tools/launcher/data-id.sh'), str(staged)]).stdout.strip()
             check(fingerprint != data_changed, name + ': real data change still alters fingerprint')
+            write(staged / 'unrelated-runtime-data.bin', b'CHANGED DATA')
+            same_size = run([str(root / 'tools/launcher/data-id.sh'), str(staged)]).stdout.strip()
+            check(same_size != data_changed and len(same_size) == 64,
+                  name + ': a data change of the same size still alters fingerprint')
         if version == '12.45.67':
             for corrupt in ('missing-entry-marker', 'matching-stale-version'):
                 binaries(root, version)
@@ -245,7 +293,25 @@ def test_packages(repo, work):
             check(result.returncode != 0 and 'OpenCNC3D-Diagnostics.exe' in result.stdout, version + '-' + kind + ': missing dedicated EXE fails closed')
     binaries(root, version)
     archive = zips / ('OpenCNC3D-windows-v' + version + '.zip')
+    # 64-BIT ONLY: one 32-bit program in the package stops the packager, by name.
     archive.unlink(missing_ok=True)
+    write(target / 'TiberianDawn.dll', pe('', machine=0x14c)[:512] + b'32-bit brain fixture')
+    result = run(['sh', str(root / 'tools/win/make-build-win.sh')], env)
+    write(work / 'refused-32-bit-brain.log', result.stdout)
+    check(result.returncode != 0 and 'TiberianDawn.dll is i386 (32-bit)' in result.stdout
+          and not archive.exists(),
+          'arch: a 32-bit brain DLL stops the packager by name', result.stdout)
+    binaries(root, version)
+    # NO SDL2.dll: one that reaches the staged folder by any road, in any folder and any
+    # letter case, stops the packager before a zip is written.
+    planted = source / 'content' / 'Sdl2.DLL'
+    write(planted, pe('')[:512] + b'64-bit SDL2.dll that must never ship')
+    result = run(['sh', str(root / 'tools/win/make-build-win.sh')], env)
+    write(work / 'refused-sdl2.log', result.stdout)
+    check(result.returncode != 0 and 'the package holds SDL2.dll' in result.stdout
+          and 'content/Sdl2.DLL' in result.stdout and not archive.exists(),
+          'sdl: an SDL2.dll in the staged folder stops the packager', result.stdout)
+    planted.unlink()
     missing_notice_source = notice_inventory[0]
     (root / 'brain/vanilla' / missing_notice_source).unlink()
     result = run(['sh', str(root / 'tools/win/make-build-win.sh')], env)
@@ -278,7 +344,7 @@ def test_identity(repo, work):
     cases = {
         'wrong version': pe('OPENCNC3D|build|v0.0.1|cooked', True, subsystem=2),
         'missing entry marker': pe(mark, subsystem=2),
-        'wrong architecture': pe(mark, True, machine=0x8664, subsystem=2),
+        'wrong architecture': pe(mark, True, machine=0x14c, subsystem=2),
         'missing LAA': pe(mark, True, laa=False, subsystem=2),
         'console instead of GUI': pe(mark, True),
         'conflicting build marks': pe(mark, True, subsystem=2, extra=b'OPENCNC3D|build|v0.0.1|cooked\0'),
@@ -304,6 +370,28 @@ def test_identity(repo, work):
     check(rejected, 'identity: requested cooked build rejects uncooked entries')
 
 
+def test_release_sdl_rule(repo, work):
+    """Run release.sh's own win_sdl_free on packages with and without an SDL2.dll."""
+    text = (repo / 'tools/release.sh').read_text(encoding='utf-8')
+    start = text.index('win_sdl_free() {')
+    function = text[start:text.index('\n}\n', start) + 3]
+    base = work / 'release-sdl'
+    clean, stale = base / 'clean', base / 'stale'
+    write(clean / 'opencnc3d-game.exe', pe(''))
+    write(clean / 'ra3d/RedAlert.dll', pe(''))
+    write(stale / 'opencnc3d-game.exe', pe(''))
+    write(stale / 'ra3d/sdl2.DLL', pe(''))
+    for folder in (clean, stale):
+        with zipfile.ZipFile(str(folder) + '.zip', 'w') as z:
+            for path in sorted(folder.rglob('*')):
+                if path.is_file():
+                    z.write(path, 'OpenCNC3D-windows-v1.2.3/' + path.relative_to(folder).as_posix())
+    for target, free in ((clean, True), (stale, False), (Path(str(clean) + '.zip'), True),
+                         (Path(str(stale) + '.zip'), False), (base / 'missing.zip', False)):
+        rc = subprocess.run(['sh', '-c', function + 'win_sdl_free "$1"', 'sh', str(target)]).returncode
+        check((rc == 0) == free, 'release: win_sdl_free ' + ('accepts ' if free else 'refuses ') + target.name)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', type=Path, default=HERE.parents[1])
@@ -314,6 +402,7 @@ def main():
         try:
             test_packages(args.repo.resolve(), work)
             test_identity(args.repo.resolve(), work)
+            test_release_sdl_rule(args.repo.resolve(), work)
         finally:
             if args.output:
                 args.output.mkdir(parents=True, exist_ok=True)

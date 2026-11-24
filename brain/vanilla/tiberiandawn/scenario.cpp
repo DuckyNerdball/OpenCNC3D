@@ -53,6 +53,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "../common/fire_visibility.h"
 #include "common/framelimit.h"
 
 extern int PreserveVQAScreen;
@@ -354,6 +355,7 @@ void Fill_In_Data(void)
  *=============================================================================================*/
 void Clear_Scenario(void)
 {
+    g_cncFireVisibility.clear();
     /*
     **	OpenCNC3D lockstep: put the SYNCHRONISED simulation stream back where a freshly
     **	launched process holds it, because nothing else in the DLL ever does.

@@ -25,9 +25,9 @@ it tried. A PRIVATE GAME with a passcode shows a `*` in the browser; a joiner wi
 passcode is refused by name.
 
 **The log.** Windows writes `opencnc3d-log.txt` beside `opencnc3d-game.exe` (or under
-`%APPDATA%\Slipgate Ironworks\OpenCNC3D\` if that folder is read-only); from v0.6.8 a Mac
+`%APPDATA%\OpenCNC3D\` if that folder is read-only); from v0.6.8 a Mac
 started from Finder writes the same file under
-`~/Library/Application Support/Slipgate Ironworks/OpenCNC3D/`. Both are overwritten on every
+`~/Library/Application Support/OpenCNC3D/`. Both are overwritten on every
 start, so copy them before launching again. Every `NET|` line is in there.
 
 Every machine simulates the whole world and only ORDERS cross the wire, so all of them must

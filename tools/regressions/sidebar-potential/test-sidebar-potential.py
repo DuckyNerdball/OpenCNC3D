@@ -98,7 +98,7 @@ for tag in ['nod-05','nod-11','nod-13']:
  for name in ['HPAD','APC','MSAM','EYE']:expect(tag,name,'hidden')
 expect('nod-11','STNK','grey')
 for name in ['E3','HTNK','RMBO','ORCA','EYE']:expect('mp-gdi-1',name,'hidden')
-expect('mp-gdi-5','HTNK','grey');expect('mp-gdi-5','RMBO','hidden');expect('mp-gdi-7','HTNK','grey');expect('mp-gdi-7','MSAM','grey');expect('mp-nod-7','HPAD','grey')
+expect('mp-gdi-5','HTNK','grey');expect('mp-gdi-5','RMBO','hidden');expect('mp-gdi-7','HTNK','grey');expect('mp-gdi-7','MSAM','grey');expect('mp-nod-7','HPAD','grey');expect('mp-nod-7','MLRS','grey')
 expect('capture','E4','hidden');expect('captured-hand','E4','live');expect('captured-hand','E5','hidden')
 for name in ['OBLI','TMPL']:expect('captured-yard',name,'hidden')
 expect('restore','E1','live');expect('restore-destroyed','E1','grey');expect('restore-rebuilt','E1','live')

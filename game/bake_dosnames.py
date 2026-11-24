@@ -55,6 +55,10 @@ CHROME = [
     ("SB_DEMOLISH", "TXT_DEMOLISH"),     # Nod's word for the same control
     ("SB_MAP",      "TXT_MAP"),
     ("SB_OPTIONS",  "TXT_OPTIONS"),
+    # Not chrome but a second name for one building: the engine calls the Technology
+    # Center "Prison" in scenario 3 (BuildingTypeClass::Full_Name, bdata.cpp), the Nod
+    # mission whose objective it is. object_title in cnc_eyes.cpp picks this row there.
+    ("MISS_PRISON", "TXT_PRISON"),
 ]
 
 

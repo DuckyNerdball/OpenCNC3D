@@ -835,6 +835,7 @@ typedef enum BulletType : signed char
     BULLET_SPREADFIRE,  // Chain gun bullets.
     BULLET_HEADBUTT,    // Stegosaurus, Triceratops head butt
     BULLET_TREXBITE,    // Tyrannosaurus Rex's bite - especially bad for infantry
+    BULLET_RA_SCUD,
     BULLET_COUNT,
     BULLET_FIRST = 0
 } BulletType;
@@ -1033,6 +1034,8 @@ typedef enum InfantryType : signed char
 
     INFANTRY_E1TR, // Test infantry: a copy of the minigunner, drawn by OpenCNC3D as its own model.
 
+    INFANTRY_RA_TANYA,
+    INFANTRY_RA_SHOCK,
     INFANTRY_COUNT,
     INFANTRY_FIRST = 0
 } InfantryType;
@@ -1068,6 +1071,10 @@ typedef enum UnitType : signed char
     UNIT_TREX,      //	Tyranosaurus Rex
     UNIT_RAPT,      //	Velociraptor
     UNIT_STEG,      //	Stegasaurus
+    UNIT_RA_HEAVY,
+    UNIT_RA_V2,
+    UNIT_RA_TESLA,
+    UNIT_RA_CHRONO,
     UNIT_COUNT,
     UNIT_FIRST = 0
 } UnitType;
@@ -1109,6 +1116,9 @@ typedef enum AircraftType : signed char
     AIRCRAFT_CARGO,      // Cargo plane.
     AIRCRAFT_ORCA,       // Nod attack helicopter.
 
+    AIRCRAFT_RA_HIND,
+    AIRCRAFT_RA_YAK,
+    AIRCRAFT_RA_MIG,
     AIRCRAFT_COUNT,
     AIRCRAFT_NONE = -1,
     AIRCRAFT_FIRST = 0
@@ -1944,6 +1954,14 @@ typedef enum WeaponType : signed char
     WEAPON_HONEST_JOHN,
     WEAPON_STEG,
     WEAPON_TREX,
+    WEAPON_RA_COLT,
+    WEAPON_RA_PORTATESLA,
+    WEAPON_RA_CANNON,
+    WEAPON_RA_SCUD,
+    WEAPON_RA_TUSK,
+    WEAPON_RA_TANKZAP,
+    WEAPON_RA_CHAINGUN,
+    WEAPON_RA_MAVERICK,
     WEAPON_COUNT
 } WeaponType;
 

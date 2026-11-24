@@ -10,7 +10,8 @@
 #   1. SCM05EA, two human seats and two computer seats: the opening, an order that crosses from
 #      one instance to the other, the lookahead rule, the exports leg (every switch and query the
 #      Tiberian Dawn brain carries, asserted by its effect), the gesture legs (repair, the power
-#      switch, sale and placement are orders, read back off the object dump), then every seat handed to the
+#      switch, sale, placement and the sale of a Jeep standing on a Service Depot are orders, read
+#      back off the object dump), then every seat handed to the
 #      computer and 6000 ticks byte identical while the computer players build and fight; then a
 #      one-sided change that MUST make the two differ.
 #   2. The warm start: one instance has already played another map in the same process.
@@ -60,12 +61,25 @@ crossed=$(grep -c '^RA2B|order|crossed=1' long.txt || true)
 control=$(grep -c '^RA2B|control|diverged=1' long.txt || true)
 exports=$(grep -c '^RA2B|exports|ok=1' long.txt || true)
 gestures=$(grep -c '^RA2B|gestures|ok=1' long.txt || true)
+unitsell=$(grep -c '^RA2B|unitsell|ok=1' long.txt || true)
 potential=$(field "$(grep '^RA2B|potential|' long.txt || true)" count)
 if [ "$rc" = "0" ] && [ "${agreed:-0}" = "6000" ] && [ "${crossed:-0}" = "1" ] && [ "${control:-0}" = "1" ] \
-   && [ "${exports:-0}" = "1" ] && [ "${gestures:-0}" = "1" ] && [ "${b1:-0}" -gt "${b0:-0}" ] && [ "${fight:-0}" -gt 0 ]; then
-    say "PASS SCM05EA: 6000 ticks identical with every seat played by the computer (buildings $b0 -> $b1, $fight ticks with an army firing), an order crossed, the exports leg held (invincibility, Build Anywhere, a $potential-entry build potential, super weapons, a rally point carried as an order, the takeover), repair, the power switch and placement each changed nothing until their order crossed and then changed both worlds alike, and the one-sided control was seen"
+   && [ "${exports:-0}" = "1" ] && [ "${gestures:-0}" = "1" ] && [ "${unitsell:-0}" = "1" ] && [ "${b1:-0}" -gt "${b0:-0}" ] && [ "${fight:-0}" -gt 0 ]; then
+    say "PASS SCM05EA: 6000 ticks identical with every seat played by the computer (buildings $b0 -> $b1, $fight ticks with an army firing), an order crossed, the exports leg held (invincibility, Build Anywhere, a $potential-entry build potential, super weapons, a rally point carried as an order, the takeover), repair, the power switch, placement and the sale of a Jeep on a Service Depot each changed nothing until their order crossed and then changed both worlds alike, and the one-sided control was seen"
 else
-    bad "SCM05EA: rc=$rc agreed=$agreed(want 6000) crossed=$crossed exports=$exports gestures=$gestures control=$control buildings=$b0->$b1 fight_ticks=$fight. $(grep -E 'FAILED|first difference|field that' long.txt | head -3 | tr '\n' ' ')"
+    bad "SCM05EA: rc=$rc agreed=$agreed(want 6000) crossed=$crossed exports=$exports gestures=$gestures unitsell=$unitsell control=$control buildings=$b0->$b1 fight_ticks=$fight. $(grep -E 'FAILED|first difference|field that' long.txt | head -3 | tr '\n' ' ')"
+fi
+
+# 1b. the blanking of what each context's spies found. Two instances under different ids see
+# different spied=/spyprod=/spymoney=/powpip= values, of different lengths, by design. The
+# host proves before it loads a brain that two such dumps compare equal once blanked and that
+# a world field (health) still tells them apart; no leg here sends a spy in, so this is the
+# only check that a spy in a future leg would not read as a desync.
+blank=$(grep '^RA2B|blank|' long.txt || true)
+if [ "$(field "$blank" ok)" = "1" ]; then
+    say "PASS blanking: two dumps differing only in spied=, spyprod=, spymoney= and powpip= (values of different lengths) compare equal once blanked, and one differing in health still differs"
+else
+    bad "blanking: ${blank:-no RA2B|blank line}; a spy entering a building in a lockstep leg would read as a desync"
 fi
 
 # 2. the warm start

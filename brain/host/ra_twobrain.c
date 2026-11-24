@@ -172,6 +172,9 @@ typedef void(CNC_CALL* fn_DebugReq)(int, unsigned long long, const char*, int, i
 typedef void(CNC_CALL* fn_Structure)(int, unsigned long long, int);
 typedef void(CNC_CALL* fn_Sidebar)(int, unsigned long long, int, int, short, short);
 typedef unsigned char(CNC_CALL* fn_GetState)(int, unsigned long long, unsigned char*, unsigned int);
+typedef unsigned char(CNC_CALL* fn_Select)(unsigned long long, int, int);
+typedef void(CNC_CALL* fn_Input)(int, unsigned char, unsigned long long, int, int, int, int);
+typedef unsigned char(CNC_CALL* fn_SellUnit)(unsigned long long, int, int);
 
 typedef struct
 {
@@ -213,6 +216,9 @@ typedef struct
     fn_Structure Structure;
     fn_Sidebar Sidebar;
     fn_GetState GetState;
+    fn_Select Select;
+    fn_Input Input;
+    fn_SellUnit SellUnit; /* optional: NULL on a brain without it, and the bay leg then fails */
 } Brain;
 
 static void CNC_CALL noop_callback(const void* event)
@@ -238,6 +244,83 @@ static void blank_field(char* d, const char* key)
     }
 }
 
+/* The same for a field whose value is not a plain number: what a spy shows the context's
+   house over a building (spied=, spyprod=, spymoney=, powpip=). Each instance sees what ITS
+   house's spies found, so the four differ by design once a spy is in, and they differ in
+   LENGTH too (spyprod=- against spyprod=3TNK, spymoney=-1 against spymoney=4061). So the whole
+   value, up to the next bar or the end of the line, becomes one '?' and the rest of the dump
+   moves left over it; masking character by character would keep the lengths, and a length
+   difference reads as a desync. Returns the new length of the dump. */
+static size_t blank_value(char* d, size_t len, const char* key)
+{
+    char* p = d;
+    const size_t n = strlen(key);
+    while ((p = strstr(p, key)) != NULL) {
+        p += n;
+        char* e = p;
+        while (*e && *e != '|' && *e != '\n') {
+            e++;
+        }
+        if (e == p) {
+            /* an empty value gains its '?', so that it reads like any other */
+            memmove(p + 1, p, (size_t)(d + len - p) + 1);
+            len += 1;
+        } else if (e > p + 1) {
+            memmove(p + 1, e, (size_t)(d + len - e) + 1);
+            len -= (size_t)(e - (p + 1));
+        }
+        *p = '?';
+        p += 1;
+    }
+    return (len);
+}
+
+/* Every context-relative field of one dump, blanked in place; returns the new length. The
+   buffer must hold one byte more than len + the number of empty spy values (see the caller). */
+static size_t blank_context_fields(char* buf, size_t len)
+{
+    blank_field(buf, "|player=");
+    blank_field(buf, "|flashme=");
+    /* and the selection of whichever player the context names: only the Service Depot leg
+       selects, on the instance that gives the order, as a real peer would */
+    blank_field(buf, "|sel=");
+    len = blank_value(buf, len, "|spied=");
+    len = blank_value(buf, len, "|spyprod=");
+    len = blank_value(buf, len, "|spymoney=");
+    len = blank_value(buf, len, "|powpip=");
+    return (len);
+}
+
+/* The blanking proves itself before any brain is loaded: two OBJ lines that differ only in
+   what each context's spies found must compare equal afterwards, and two that differ in a
+   world field (health) must still differ. Without the second half a blanking that ate the
+   whole line would pass the first. */
+static int blank_self_check(void)
+{
+    static const char a0[] = "OBJ|id=7|type=PROC|hp=900|spied=1|spyprod=-|spymoney=4061|powpip=-1|act=0\n";
+    static const char b0[] = "OBJ|id=7|type=PROC|hp=900|spied=0|spyprod=3TNK|spymoney=-1|powpip=0|act=0\n";
+    static const char c0[] = "OBJ|id=7|type=PROC|hp=899|spied=0|spyprod=3TNK|spymoney=-1|powpip=0|act=0\n";
+    static const char e0[] = "OBJ|id=7|type=PROC|hp=900|spied=|spyprod=-|spymoney=4061|powpip=-1|act=0\n";
+    char a[160], b[160], c[160], e[160];
+    memcpy(a, a0, sizeof(a0));
+    memcpy(b, b0, sizeof(b0));
+    memcpy(c, c0, sizeof(c0));
+    memcpy(e, e0, sizeof(e0));
+    size_t la = blank_context_fields(a, sizeof(a0) - 1);
+    size_t lb = blank_context_fields(b, sizeof(b0) - 1);
+    size_t lc = blank_context_fields(c, sizeof(c0) - 1);
+    size_t le = blank_context_fields(e, sizeof(e0) - 1);
+    int same = (la == lb && la == strlen(a) && lb == strlen(b) && memcmp(a, b, la) == 0);
+    int empty_same = (le == la && le == strlen(e) && memcmp(a, e, la) == 0);
+    int world_differs = !(lc == lb && memcmp(c, b, lb) == 0);
+    int tail_kept = (strstr(a, "|act=0\n") != NULL && strstr(a, "|hp=900|") != NULL);
+    printf("  blanking: A after = %.*s", (int)la, a);
+    printf("            B after = %.*s", (int)lb, b);
+    printf("RA2B|blank|ok=%d|same=%d|empty=%d|world_differs=%d|tail=%d\n", same && empty_same && world_differs && tail_kept,
+           same, empty_same, world_differs, tail_kept);
+    return (same && empty_same && world_differs && tail_kept);
+}
+
 static char* capture_dump(Brain* b, size_t* len_out)
 {
     FILE* tmp = tmpfile();
@@ -261,7 +344,9 @@ static char* capture_dump(Brain* b, size_t* len_out)
         return (NULL);
     }
     lseek(tmpfd, 0, SEEK_SET);
-    char* buf = (char*)malloc((size_t)size + 1);
+    /* room to grow: an empty spy value gains one byte (see blank_value), and each one costs
+       at least seven bytes of key, so a quarter more always suffices */
+    char* buf = (char*)malloc((size_t)size + (size_t)size / 4 + 2);
     if (buf == NULL) {
         fclose(tmp);
         return (NULL);
@@ -269,9 +354,7 @@ static char* capture_dump(Brain* b, size_t* len_out)
     long got = (long)read(tmpfd, buf, (unsigned)size);
     buf[got < 0 ? 0 : got] = '\0';
     fclose(tmp);
-    blank_field(buf, "|player=");
-    blank_field(buf, "|flashme=");
-    *len_out = (size_t)(got < 0 ? 0 : got);
+    *len_out = blank_context_fields(buf, (size_t)(got < 0 ? 0 : got));
     return (buf);
 }
 
@@ -389,7 +472,10 @@ static int load_brain(Brain* b, const char* src, const char* copy_stem, const ch
     SYM(Structure, "CNC_Handle_Structure_Request")
     SYM(Sidebar, "CNC_Handle_Sidebar_Request")
     SYM(GetState, "CNC_Get_Game_State")
+    SYM(Select, "CNC_Select_Object")
+    SYM(Input, "CNC_Handle_Input")
 #undef SYM
+    b->SellUnit = (fn_SellUnit)cnc_lib_sym(b->lib, "OpenCNC3D_Sell_Unit");
     return (1);
 }
 
@@ -907,6 +993,8 @@ static int count_placed(const char* dump, const char* ini, const char* owner)
 #define RB_DEBUG_END_PRODUCTION 5
 #define RB_RTTI_BUILDINGTYPE 6
 #define RB_STRUCT_POWER 17
+#define RB_INPUT_COMMAND_AT_POSITION 9
+#define RB_DLL_UNIT 2 /* DllObjectTypeEnum UNIT */
 
 static int gesture_legs(Brain* A, Brain* B, unsigned event_size)
 {
@@ -1129,6 +1217,149 @@ static int gesture_legs(Brain* A, Brain* B, unsigned event_size)
             return (0);
         }
     }
+
+    /* SELL A VEHICLE ON THE SERVICE DEPOT. The 1996 sell-unit click queues EventClass::SELL on
+       the vehicle, and OpenCNC3D_Sell_Unit is that click: it must change nothing until the order
+       crosses, then take the vehicle off both worlds for the same refund. A Jeep is driven onto a
+       Service Depot by an ordinary order first, because only the depot's own radio contact makes
+       a vehicle sellable (FootClass::Can_Demolish). */
+    {
+        char owner[32] = {0};
+        char hp[64], key[32];
+        char* before = NULL;
+        static const int offs[][2] = {{96, 24}, {-48, 24}, {24, 96}, {24, -48}, {120, 72}, {-72, 72}, {144, 24}};
+        int n;
+        const char* o;
+        int fix, rpx = -1, rpy = -1, jeep, t, built = -1, docked = -1, c0 = -1, c1 = -1;
+        if (A->SellUnit == NULL || B->SellUnit == NULL) {
+            printf("FAILED: the brain does not export OpenCNC3D_Sell_Unit, so a vehicle on the Service\n");
+            printf("        Depot cannot be sold in a match\n");
+            return (0);
+        }
+        fix = spawn_both_at(A, B, "FIX", "OBJ|BUILDING|FIX|", &rpx, &rpy);
+        if (fix < 0) {
+            return (0);
+        }
+        for (t = 0; t < 200 && built < 0; t++) {
+            if (!settle(A, B, 1, "while the Service Depot builds up") || !agree(A, B, "reading the depot", &dump)) {
+                return (0);
+            }
+            if (building_line(dump, "FIX", fix, line, sizeof(line)) && strstr(line, "|mission=Construction|") == NULL) {
+                built = t + 1;
+            }
+            free(dump);
+        }
+        if (built < 0) {
+            printf("FAILED: the Service Depot was still building up after 200 ticks\n");
+            return (0);
+        }
+        o = line + strlen("OBJ|BUILDING|FIX|");
+        snprintf(owner, sizeof(owner), "%.*s", (int)strcspn(o, "|"), o);
+        snprintf(hp, sizeof(hp), "HOUSE|%s|", owner);
+        /* A spot the debug spawn cannot place it on leaves it in limbo, identically on both;
+           the next spot is tried. */
+        jeep = -1;
+        for (n = 0; n < (int)(sizeof(offs) / sizeof(offs[0])) && jeep < 0; n++) {
+            int fresh = -1;
+            if (!agree(A, B, "before the Jeep spawn", &before)) {
+                return (0);
+            }
+            A->DebugReq(0 /* DEBUG_REQUEST_SPAWN_OBJECT */, 1ULL, "JEEP", rpx + offs[n][0], rpy + offs[n][1], 0, 0);
+            B->DebugReq(0 /* DEBUG_REQUEST_SPAWN_OBJECT */, 1ULL, "JEEP", rpx + offs[n][0], rpy + offs[n][1], 0, 0);
+            if (!settle(A, B, 1, "after the Jeep spawn applied to both") || !agree(A, B, "reading the Jeep", &dump)) {
+                free(before);
+                return (0);
+            }
+            {
+                /* The new one is the id the world did not have before: a heap slot is reused,
+                   so the highest id need not be it. */
+                const char* p = dump;
+                while (fresh < 0 && (p = strstr(p, "OBJ|UNIT|JEEP|")) != NULL) {
+                    if (p == dump || p[-1] == '\n') {
+                        const int id = line_field(p, "id", -1);
+                        snprintf(key, sizeof(key), "|id=%d|", id);
+                        if (id >= 0 && !find_line(before, "OBJ|UNIT|JEEP|", key, line, sizeof(line))) {
+                            fresh = id;
+                        }
+                    }
+                    p += 1;
+                }
+            }
+            if (fresh >= 0) {
+                snprintf(key, sizeof(key), "|id=%d|", fresh);
+                if (find_line(dump, "OBJ|UNIT|JEEP|", key, line, sizeof(line)) && strstr(line, "|limbo=0|") != NULL) {
+                    jeep = fresh;
+                }
+            }
+            free(before);
+            free(dump);
+        }
+        if (jeep < 0) {
+            printf("FAILED: the Jeep fixture did not spawn beside the Service Depot\n");
+            return (0);
+        }
+        printf("  fixtures: a Service Depot of %s (id %d, built up after %d ticks) and a Jeep (id %d), on both\n",
+               owner, fix, built, jeep);
+
+        /* Off the depot it is not for sale: refused, and nothing is queued. */
+        if (A->SellUnit(1ULL, RB_RTTI_UNIT, jeep) || !cross(A, B, event_size, "sell a Jeep off the depot (refused)", 0)) {
+            printf("FAILED: OpenCNC3D_Sell_Unit accepted Jeep %d standing beside the depot\n", jeep);
+            return (0);
+        }
+        /* Onto the depot: select it and command at the depot's centre, on A alone. */
+        if (!A->Select(1ULL, RB_DLL_UNIT, jeep)) {
+            printf("FAILED: Jeep %d could not be selected for seat 0\n  %s\n", jeep, line);
+            return (0);
+        }
+        A->Input(RB_INPUT_COMMAND_AT_POSITION, 0, 1ULL, rpx + 24, rpy + 24, 0, 0);
+        if (!cross(A, B, event_size, "Jeep onto the depot", 1)) {
+            return (0);
+        }
+        snprintf(key, sizeof(key), "|id=%d|", jeep);
+        for (t = 0; t < 600 && docked < 0; t++) {
+            if (!settle(A, B, 1, "while the Jeep drives onto the depot") || !agree(A, B, "reading the Jeep", &dump)) {
+                return (0);
+            }
+            if (find_line(dump, "OBJ|UNIT|JEEP|", key, line, sizeof(line)) && line_field(line, "sellu", 0) == 1) {
+                docked = t + 1;
+            }
+            free(dump);
+        }
+        if (docked < 0) {
+            printf("FAILED: Jeep %d never read sellu=1 on the depot in 600 ticks; its last line:\n  %s\n", jeep, line);
+            return (0);
+        }
+        if (!agree(A, B, "before the vehicle sale", &dump)) {
+            return (0);
+        }
+        if (find_line(dump, hp, NULL, line, sizeof(line))) {
+            c0 = line_field(line, "credits", -1);
+        }
+        free(dump);
+        if (!A->SellUnit(1ULL, RB_RTTI_UNIT, jeep)) {
+            printf("FAILED: OpenCNC3D_Sell_Unit refused Jeep %d on the depot\n", jeep);
+            return (0);
+        }
+        if (!agree(A, B, "after the vehicle sell click and BEFORE the drain: the Jeep left A's world alone", NULL)
+            || !cross(A, B, event_size, "vehicle sell", 1) || !settle(A, B, 5, "after the vehicle sell order executed")
+            || !agree(A, B, "reading the world after the vehicle sale", &dump)) {
+            return (0);
+        }
+        if (find_line(dump, hp, NULL, line, sizeof(line))) {
+            c1 = line_field(line, "credits", -1);
+        }
+        t = find_line(dump, "OBJ|UNIT|JEEP|", key, line, sizeof(line)) && strstr(line, "|limbo=0|") != NULL;
+        free(dump);
+        if (t || c0 < 0 || c1 <= c0) {
+            printf("FAILED: the vehicle sell order executed on both and Jeep %d is %s, credits %d -> %d\n", jeep,
+                   t ? "STILL THERE" : "gone", c0, c1);
+            return (0);
+        }
+        printf("  vehicle sell: on the depot after %d tick(s); the click changed nothing locally, one order crossed,\n"
+               "        and Jeep %d left both worlds, %s credits %d -> %d (+%d)\n",
+               docked, jeep, owner, c0, c1, c1 - c0);
+        printf("RA2B|unitsell|ok=1|refund=%d\n", c1 - c0);
+    }
     printf("RA2B|gestures|ok=1\n");
     return (1);
 }
@@ -1149,6 +1380,11 @@ int main(int argc, char** argv)
     const char* scenario = argv[3];
     const int ticks = (argc > 4) ? atoi(argv[4]) : 1500;
     const int ai = (argc > 5) ? atoi(argv[5]) : 2;
+
+    if (!blank_self_check()) {
+        printf("FAILED: the context-field blanking does not make two contexts' dumps equal, or hides a world difference.\n");
+        return (1);
+    }
 
     Brain A, B;
     memset(&A, 0, sizeof(A));

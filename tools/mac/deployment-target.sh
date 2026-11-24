@@ -16,16 +16,19 @@
 # That sat directly on top of the SDL bundling work: bundling SDL makes a release
 # playable on a Mac that is not this one, and a 26.0 floor made sure it was not.
 #
-# WHY 14.0 AND NOT LOWER. The Homebrew SDL libraries we bundle beside the binaries
-# (tools/bundle-sdl.sh) themselves declare minos 14.0:
+# WHY 14.0 AND NOT LOWER. It was first the floor of the Homebrew SDL bottles we bundled,
+# which declare minos 14.0, and a binary whose floor is below its own dependencies' floor
+# has a floor on paper only. That reason no longer holds: tools/mac/setup-sdl-mac.sh now
+# builds SDL3 and sdl2-compat from source at this same number. What holds 14.0 now is
+# that nothing older has been tested. Lowering it means rebuilding SDL, the brains and
+# the frontend at the new number, compiling with -Wunguarded-availability to find calls
+# newer than it, and running the game on a Mac that old; until then 14.0 is the answer.
 #
-#     otool -l playable/libSDL2-2.0.0.dylib | grep -A3 LC_BUILD_VERSION   ->  minos 14.0
-#     otool -l playable/libSDL3.dylib       | grep -A3 LC_BUILD_VERSION   ->  minos 14.0
-#
-# A binary whose floor is below its own dependencies' floor has a floor on paper only:
-# dyld would accept our Mach-O on macOS 12 and then refuse the SDL beside it. 14.0 is
-# therefore the lowest number reachable without ALSO re-sourcing or rebuilding SDL, which
-# changes what ships and is a project decision rather than a flag.
+# THE MAC PACKAGES AND THE RELEASE NOTES READ THIS LINE TOO (tools/mac/os_floor.py): the
+# installer refuses an older macOS with a sentence naming this number, and the release
+# notes state it. Keep it a plain OPENCNC3D_MACOS_MIN=<version> line, set once; os_floor.py
+# refuses anything else rather than guess. A new major version also needs its release
+# name in os_floor.py NAMES.
 #
 # IT IS ALL THREE BINARIES OR NONE. opencnc3d, cnc_eyes and TiberianDawn.dylib all load in
 # one process; two of them fixed and the third left at 26.0 still refuses to launch and

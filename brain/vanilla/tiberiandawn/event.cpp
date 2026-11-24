@@ -22,6 +22,20 @@
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 //
+// MODIFIED for OpenCNC3D in November 2026. Executes the four Rally race orders
+// (rally.h), and in a Rally match ignores player orders given to a racer's vehicle.
+// Outside a Rally match nothing changes. In a Rally match it DOES change the game
+// simulation.
+//
+// MODIFIED for OpenCNC3D. A player's MEGAMISSION order that
+// gives a soldier a destination clears his path-planning cooldown, so he walks off
+// at once instead of standing still for up to PATH_DELAY frames. Re-plans the
+// engine makes on its own keep the original throttle.
+// It DOES change the game simulation.
+// MODIFIED for OpenCNC3D. A guard-area order given to a unit already
+// on guard area resets that mission's state value, so FootClass::Mission_Guard_Area judges
+// afresh whether it is an attack-move. It DOES change the game simulation.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\event.cpv   2.17   16 Oct 1995 16:50:28   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -54,6 +68,9 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "gun_game_ability.h"
+#include "rally.h"
 
 /***************************************************************************
 ** Table of what data is really used in the EventClass struct for different
@@ -88,6 +105,16 @@ unsigned char EventClass::EventLength[EventClass::LAST_EVENT] = {
     size_of(EventClass, Data.Timing),          // TIMING
     size_of(EventClass, Data.ProcessTime),     // PROCESS_TIME
     size_of(EventClass, Data.Target),          // POWER_SWITCH
+    size_of(EventClass, Data.General),         // GUN_GAME_CHOICE
+    size_of(EventClass, Data.General),         // GUN_GAME_DODGE
+    size_of(EventClass, Data.General),         // GUN_GAME_CHRONO
+    size_of(EventClass, Data.GunAbility),      // GUN_GAME_ABILITY
+    size_of(EventClass, Data.GunCells),        // GUN_GAME_ABILITY_CELL
+    size_of(EventClass, Data.General),         // GUN_GAME_GRANT
+    size_of(EventClass, Data.General),         // RALLY_PICK
+    size_of(EventClass, Data.Rally),           // RALLY_INPUT
+    size_of(EventClass, Data.General),         // RALLY_AUTOPILOT
+    size_of(EventClass, Data.General),         // RALLY_CHOICE
 };
 
 const char* EventClass::EventNames[EventClass::LAST_EVENT] = {
@@ -95,6 +122,9 @@ const char* EventClass::EventNames[EventClass::LAST_EVENT] = {
     "PLACE",         "OPTIONS",       "GAMESPEED",   "PRODUCE", "SUSPEND", "ABANDON",      "PRIMARY",
     "SPECIAL_PLACE", "EXIT",          "ANIMATION",   "REPAIR",  "SELL",    "SPECIAL",      "FRAMESYNC",
     "MESSAGE",       "RESPONSE_TIME", "FRAMEINFO",   "ARCHIVE", "TIMING",  "PROCESS_TIME", "POWER_SWITCH",
+    "GUN_GAME_CHOICE", "GUN_GAME_DODGE", "GUN_GAME_CHRONO", "GUN_GAME_ABILITY", "GUN_GAME_ABILITY_CELL",
+    "GUN_GAME_GRANT",
+    "RALLY_PICK",    "RALLY_INPUT",   "RALLY_AUTOPILOT", "RALLY_CHOICE",
 };
 
 /***********************************************************************************************
@@ -397,7 +427,56 @@ void EventClass::Execute(void)
     }
     //#endif	//(0)
 
+    /*
+    **	OpenCNC3D Rally: a racer's vehicle takes no orders; the race module drives it.
+    */
+    if ((Type == MEGAMISSION || Type == IDLE || Type == SCATTER || Type == ARCHIVE)
+        && Rally_Blocks_Order(As_Techno(Data.Target.Whom))) {
+        return;
+    }
+
     switch (Type) {
+    case GUN_GAME_CHOICE:
+        Gun_Game_Choose(Houses.Raw_Ptr(ID), Data.General.Value);
+        break;
+    case GUN_GAME_DODGE:
+        Gun_Game_Dodge(Houses.Raw_Ptr(ID), Data.General.Value);
+        break;
+    case GUN_GAME_CHRONO:
+        Gun_Game_Chrono(Houses.Raw_Ptr(ID), Data.General.Value);
+        break;
+    case GUN_GAME_ABILITY:
+        Gun_Ability_Activate(Houses.Raw_Ptr(ID),
+                             Data.GunAbility.Ability,
+                             Data.GunAbility.Target,
+                             Data.GunAbility.Count,
+                             Data.GunAbility.Serial,
+                             Data.GunAbility.Life,
+                             Data.GunAbility.Cell);
+        break;
+    case GUN_GAME_ABILITY_CELL:
+        Gun_Ability_Cells(Houses.Raw_Ptr(ID), Data.GunCells.Serial, Data.GunCells.Index, Data.GunCells.Cell);
+        break;
+    case GUN_GAME_GRANT:
+        Gun_Ability_Grant(Houses.Raw_Ptr(ID), Data.General.Value);
+        break;
+
+    case RALLY_PICK:
+        Rally_Event_Pick(Houses.Raw_Ptr(ID), Data.General.Value);
+        break;
+
+    case RALLY_INPUT:
+        Rally_Event_Input(Houses.Raw_Ptr(ID), Data.Rally.Bits, Data.Rally.AimX, Data.Rally.AimY);
+        break;
+
+    case RALLY_AUTOPILOT:
+        Rally_Event_Autopilot(Houses.Raw_Ptr(ID), Data.General.Value);
+        break;
+
+    case RALLY_CHOICE:
+        Rally_Event_Choose(Houses.Raw_Ptr(ID), Data.General.Value);
+        break;
+
     /*
     **	Update the archive target for this building.
     */
@@ -412,6 +491,7 @@ void EventClass::Execute(void)
     **	Make or break alliance.
     */
     case ALLY:
+        if (Gun_Game_Active()) break;
         house = Houses.Raw_Ptr(Data.General.Value);
         if (Houses.Raw_Ptr(ID)->Is_Ally(house)) {
             Houses.Raw_Ptr(ID)->Make_Enemy((HousesType)Data.General.Value);
@@ -633,6 +713,17 @@ void EventClass::Execute(void)
                 techno->ArchiveTarget = Data.MegaMission.Target;
                 techno->Assign_Target(TARGET_NONE);
                 techno->Assign_Destination(Data.MegaMission.Target);
+
+                /*
+                **	OpenCNC3D: FootClass::Mission_Guard_Area decides once, when the mission
+                **	starts, whether a player's guard-area order is an attack-move, and keeps
+                **	that in the mission's state value. Starting the mission resets it; an
+                **	order given to a unit already on guard area starts nothing, so reset it
+                **	here, and a new attack-move or G key is judged afresh.
+                */
+                if (techno->Mission == MISSION_GUARD_AREA) {
+                    techno->Status = 0;
+                }
             } else if (Data.MegaMission.Mission == MISSION_ENTER && object != NULL
                        && object->What_Am_I() == RTTI_BUILDING && *((BuildingClass*)object) == STRUCT_REFINERY) {
                 techno->Transmit_Message(RADIO_HELLO, (BuildingClass*)object);
@@ -640,6 +731,20 @@ void EventClass::Execute(void)
             } else {
                 techno->Assign_Target(Data.MegaMission.Target);
                 techno->Assign_Destination(Data.MegaMission.Destination);
+            }
+
+            /*
+            **	OpenCNC3D: a player's order that gives a soldier somewhere to go is
+            **	acted on at once. Every Basic_Path call starts a PATH_DELAY cooldown
+            **	(about 0.8 seconds) meant to throttle re-planning for a soldier who is
+            **	blocked, but it also held back a fresh order given soon after the
+            **	previous one, so the soldier stood still before walking off. Only this
+            **	order clears it; engine-internal re-plans keep the 1995 throttle.
+            **	MEGAMISSION comes only from player input and runs on every peer on the
+            **	same frame, so lockstep play stays in step.
+            */
+            if (techno->What_Am_I() == RTTI_INFANTRY && Target_Legal(((FootClass*)techno)->NavCom)) {
+                ((FootClass*)techno)->PathDelay = 0;
             }
 
 #ifdef NEVER

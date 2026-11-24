@@ -33,9 +33,12 @@ cartridge .MAP and compares the result against that .MAP byte for byte:
     78 of 78 genuine cartridge maps reproduce EXACTLY. 323584 cells, zero (template,icon)
     pairs missing from the tables.
 
-The 79th, SCG90EA, is our own test map, whose .MAP was authored by hand to open ground its
-.BIN does not describe (game/missions/make_testmap.py). It is excluded by name, not by
-being quietly forgiven, and --selftest says so.
+SCG90EA is the one name that needs care. Its .MAP is the cartridge's, GDI's second N64
+Special Ops mission, but in game/missions that code belongs to the renderer's own Test
+Map (GDI 1's terrain, written by game/missions/make_testmap.py), so the cartridge mission
+is installed as SCG99EA. The selftest compares the cartridge SCG90EA.MAP against
+SCG99EA.BIN, the file that really describes it (INSTALLED_AS below), and says so; it
+reproduces exactly.
 
 WHAT IT REFUSES
 
@@ -213,8 +216,9 @@ def ini_is_mega(text):
                 return False
     return False
 
-# Our own test map: its .MAP is hand-authored and deliberately does not describe its .BIN.
-SYNTHETIC = {"SCG90EA"}
+# A cartridge map installed under another code, because its own code is taken in
+# game/missions: SCG90EA is the renderer's Test Map there.
+INSTALLED_AS = {"SCG90EA": "SCG99EA"}
 
 # The two templates no theater bank carries. Named so a failure report is readable.
 KNOWN_ABSENT = {
@@ -368,12 +372,12 @@ def selftest():
     failures = []
     skipped = []
     for scen in names:
-        if scen in SYNTHETIC:
-            skipped.append(scen)
+        local = INSTALLED_AS.get(scen, scen)
+        if not os.path.exists(os.path.join(MISSIONS, local + ".BIN")):
             continue
-        if not os.path.exists(os.path.join(MISSIONS, scen + ".BIN")):
-            continue
-        got, theater, subs, _width = convert(scen)
+        if local != scen:
+            skipped.append("%s as %s" % (scen, local))
+        got, theater, subs, _width = convert(local)
         ncells = len(got) // 2
         want = open(os.path.join(mapdir, scen + ".MAP"), "rb").read()[: ncells * 2]
         tested += 1
@@ -389,7 +393,7 @@ def selftest():
     print("  reproduced exactly  : %d" % exact)
     print("  cells identical     : %d / %d (%.4f%%)" % (same, cells, 100.0 * same / max(cells, 1)))
     if skipped:
-        print("  excluded (our own hand-authored .MAP, not cartridge data): %s" % ", ".join(skipped))
+        print("  compared under the code they are installed as: %s" % ", ".join(skipped))
     for scen, theater, wrong, subs in failures:
         print("  MISMATCH %s %s: %d cells differ, %d unmapped pairs" % (scen, theater, wrong, subs))
     ok = exact == tested and tested > 0

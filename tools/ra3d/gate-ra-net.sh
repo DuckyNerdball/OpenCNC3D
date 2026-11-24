@@ -21,6 +21,10 @@
 #      for its order wire, and never reaches a match.
 #   D  THE MAP'S BYTES: a Red Alert joiner whose SCM10EA.INI differs by one comment line is
 #      refused for the map's bytes, and never reaches a match.
+#   E  THE RULES' BYTES: a Red Alert joiner whose map is the host's but whose RULES.INI
+#      differs by one comment line is refused the same way. RULES.INI sets every unit's
+#      cost, strength and speed, so two copies that differ build different armies from the
+#      same map; it is counted in the map's fingerprint.
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 install=${1:-"$root/playable"}
@@ -124,4 +128,21 @@ grep -q '^NET|refused|.*reason=map bytes' "$work/d-host.log" || fail "D: the hos
 grep -q '^NET|refused-by-host|reason=map bytes' "$work/d-join.log" || fail "D: the joiner was not told why"
 ! grep -q '^NET|match|seat=1' "$work/d-join.log" || fail "D: the joiner reached a match"
 echo "gate-ra-net: PASS: a Red Alert joiner whose SCM10EA.INI differs by one comment line is refused for the map's bytes and never reaches a match"
-echo "gate-ra-net: all four legs pass ($a_agree reports agreeing over the long match)"
+
+# ---- E ------------------------------------------------------------------------------
+mkdir -p "$work/rules"
+cp ra3d/missions/SCM10EA.INI ra3d/missions/RULES.INI "$work/rules/"
+printf '; these bytes differ and mean the same thing\n' >> "$work/rules/RULES.INI"
+OPENCNC3D_BACKGROUND=1 ./cnc_eyes $RA --scen SCM10EA --pack ra3d/3d/SCM10EA.pack --skirmish --ai 0 \
+    --host 18755 --script "$work/short.txt" > "$work/e-host.log" 2>&1 &
+hp=$!
+sleep 2
+OPENCNC3D_BACKGROUND=1 ./cnc_eyes $RA --dir "$work/rules/" --scen SCM10EA --pack ra3d/3d/SCM10EA.pack \
+    --skirmish --join 127.0.0.1 18755 --script "$work/short.txt" > "$work/e-join.log" 2>&1 || true
+kill -9 $hp 2>/dev/null || true
+wait $hp 2>/dev/null || true
+grep -q '^NET|refused|.*reason=map bytes' "$work/e-host.log" || fail "E: the host did not refuse a joiner holding other RULES.INI bytes"
+grep -q '^NET|refused-by-host|reason=map bytes' "$work/e-join.log" || fail "E: the joiner was not told why"
+! grep -q '^NET|match|seat=1' "$work/e-join.log" || fail "E: the joiner reached a match"
+echo "gate-ra-net: PASS: a Red Alert joiner on the host's map whose RULES.INI differs by one comment line is refused for the map's bytes and never reaches a match"
+echo "gate-ra-net: all five legs pass ($a_agree reports agreeing over the long match)"

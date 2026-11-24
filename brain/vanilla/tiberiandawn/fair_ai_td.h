@@ -4,13 +4,16 @@
 class HouseClass;
 class TechnoClass;
 class FileClass;
+class BuildingTypeClass;
 void TD_Fair_AI_Reset();
 void TD_Fair_AI_Set_Levels(const unsigned char*, int);
 void TD_Fair_AI_Assign(HouseClass*, int);
 void TD_Fair_AI_Tick(HouseClass*);
 bool TD_Fair_AI_Knows(HouseClass const*, TechnoClass const*);
+int TD_Fair_AI_Level(HouseClass const*);
 bool TD_Fair_AI_Save(FileClass&);
 bool TD_Fair_AI_Load(FileClass&);
 unsigned int TD_Fair_AI_Hash();
 int TD_Fair_AI_Diagnostics(char*, int);
+bool TD_Fair_AI_Keeps_Paths(HouseClass const*, BuildingTypeClass const*, int);
 #endif

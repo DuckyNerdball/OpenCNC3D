@@ -10,9 +10,29 @@ static float ambience_zoom_fraction(float value, float near_limit, float far_lim
     return near_limit == far_limit ? 1.0f :
         ambience_clamp((value - far_limit) / (near_limit - far_limit));
 }
+/* Where the zoom sits between the near bed (1) and the far bed (0). Callers turn it
+   into equal-power gains, sin and cos of mix * pi/2, so the sum stays level.
+
+   From 1 to 0.5 it is all near, and from 0.5 to 0.375 a straight line down to 0.5,
+   the crossover where the two beds sit equal. Below the crossover the near bed does
+   NOT stop at 0.25 any more: it keeps fading to the furthest zoom, evenly in decibels.
+   The near and far recordings differ most in their top end (insects, birds and air
+   against a dark wind), so when the line ran on to 0 at 0.25 the near bed fell from
+   -10 dB to -31 dB in the last 100 leptons, one wheel step of the N64 camera, and from
+   -16 dB to silence in one step of the old camera, and its highs went with it: heard
+   as the ambience cutting off at one point while zooming out. Now a wheel step takes
+   it down about 3 to 4 dB on the N64 camera and 6 to 8 on the old one while it is
+   still clearly audible, and it is below -35 dB by the last step before it ends.
+
+   The lower piece is 0.5 * (10^(k u) - 1) / (10^k - 1) with u = zoom / 0.375: 0 at the
+   furthest zoom, 0.5 at the crossover, and with k = 1.2253 its slope there equals the
+   straight line's (4 per unit of zoom), so the curve has no corner. */
 static float ambience_near_mix(float zoom)
 {
-    return ambience_clamp((zoom - 0.25f) / 0.25f);
+    zoom = ambience_clamp(zoom);
+    if (zoom >= 0.375f) return ambience_clamp((zoom - 0.25f) / 0.25f);
+    const float k = 1.2253f;
+    return 0.5f * (powf(10.0f, k * zoom / 0.375f) - 1.0f) / (powf(10.0f, k) - 1.0f);
 }
 static float ambience_river_mix(float zoom)
 {

@@ -230,15 +230,41 @@ static inline void gls_bind_buffer(GLenum t, GLuint b)
 {
     if(t!=GL_ARRAY_BUFFER || !gls_reduce_calls() || !g_glsArrayKnown || g_glsArray!=b)
         (gr_glBindBuffer)(t, b);
+    else if (gls_query_verify()) gls_verify_skip_i("skip array buffer bind", GL_ARRAY_BUFFER_BINDING, (GLint)b);
     if (t == GL_ARRAY_BUFFER) { g_glsArray = b; g_glsArrayKnown = true; }
+    else if (t == GL_ELEMENT_ARRAY_BUFFER) { g_glsElement.i[0] = (GLint)b; g_glsElement.known = true; }
 }
 static inline void gls_delete_buffers(GLsizei n, const GLuint* b)
 {
     (gr_glDeleteBuffers)(n, b);
     g_glsArrayKnown = false;
+    g_glsElement.known = false;
+}
+/* The top of a frame (gl_state_cache.h): both buffer bindings set to none by command.
+   Before the entry points exist nothing can have bound a buffer, so none is bound. */
+static void gls_frame_buffers_zero(void)
+{
+    if (!gr_glBindBuffer) {
+        g_glsArray = 0; g_glsArrayKnown = true;
+        g_glsElement.i[0] = 0; g_glsElement.known = true;
+        return;
+    }
+    if (gls_query_verify()) {
+        GLint a = 0, e = 0;
+        (glGetIntegerv)(GL_ARRAY_BUFFER_BINDING, &a); (glGetIntegerv)(GL_ELEMENT_ARRAY_BUFFER_BINDING, &e);
+        g_glsVerifyChecked += 2;
+        char d[16];
+        if (a) { snprintf(d, sizeof d, "%d", a); gls_verify_report("frame start", GL_ARRAY_BUFFER_BINDING, __FILE__, __LINE__, "0", d); }
+        if (e) { snprintf(d, sizeof d, "%d", e); gls_verify_report("frame start", GL_ELEMENT_ARRAY_BUFFER_BINDING, __FILE__, __LINE__, "0", d); }
+    }
+    (gr_glBindBuffer)(GL_ARRAY_BUFFER, 0);
+    (gr_glBindBuffer)(GL_ELEMENT_ARRAY_BUFFER, 0);
+    g_glsArray = 0; g_glsArrayKnown = true;
+    g_glsElement.i[0] = 0; g_glsElement.known = true;
 }
 #define gr_glBindBuffer(t, b)    gls_bind_buffer((t), (b))
 #define gr_glDeleteBuffers(n, b) gls_delete_buffers((n), (b))
+#define gr_glGetBufferParameteriv(t, p, o) GLS_ASK("glGetBufferParameteriv", gr_glGetBufferParameteriv(t, p, o))
 
 static int  g_grassBufReady = 0;
 static int  g_grassBufTried = 0;

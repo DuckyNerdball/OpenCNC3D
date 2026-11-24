@@ -1,0 +1,75 @@
+# S9 Red Alert, the first Allied mission on temperate ground (SCG05EA; its RA3D|enh|sheet
+# line says TEMPERAT): mottle, grass and the temperate decal set are drawn here. Frames
+# the Soviet base (construction yard and airfields, the dome and factory, the coast) at
+# tick 1 and tick 300, then damages a building of each kind and frames them again.
+game: ra
+scen: SCG05EA
+modes: enh,cls,n64
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger t1
+cam 50 86
+frames 2
+shot {OUT}/t0001_base.png
+cam 23 86
+frames 2
+shot {OUT}/t0001_yard.png
+cam 30 60
+frames 2
+shot {OUT}/t0001_field.png
+tick 299
+frames 2
+memledger t300
+cam 50 86
+frames 2
+shot {OUT}/t0300_base.png
+cam 23 86
+frames 2
+shot {OUT}/t0300_yard.png
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj WEAP:USSR 0
+hurtobj WEAP:USSR 0
+hurtobj WEAP:USSR 0
+hurtobj WEAP:USSR 0
+hurtobj WEAP:USSR 0
+hurtobj WEAP:USSR 0
+hurtobj SILO 0
+hurtobj SILO 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj AFLD 0
+hurtobj AFLD 0
+hurtobj AFLD 0
+hurtobj AFLD 0
+hurtobj KENN 0
+hurtobj KENN 0
+hurtobj KENN 0
+hurtobj KENN 0
+tick 20
+frames 2
+cam 50 86
+frames 2
+shot {OUT}/t0320_base.png
+cam 23 86
+frames 2
+shot {OUT}/t0320_yard.png
+tick 100
+frames 2
+memledger t420
+cam 50 86
+frames 2
+shot {OUT}/t0420_base.png
+quit

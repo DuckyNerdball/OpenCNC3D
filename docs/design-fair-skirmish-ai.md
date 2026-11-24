@@ -1,4 +1,4 @@
-# Fair Skirmish AI — four per-player difficulties
+# Fair Skirmish AI: four per-player difficulties
 
 Implemented 19 October 2026 for Tiberian Dawn, the TD large-map fork and Red Alert.
 This supersedes the old lobby investigation's statement that skirmish difficulty
@@ -49,6 +49,54 @@ more strongly to observed counters and coordinate more groups. These are policy
 budgets; terrain, starting funds, available technology and opposition still
 determine the actual force and timing. A larger force threshold can delay an
 individual attack. The labels do not promise a monotonic victory time on every map.
+
+### Tiberian Dawn base growth
+
+TD's controller builds on the same per-tick installments a human's sidebar uses:
+a factory draws its price a little at a time and pauses while the house is broke, so
+a house with a refinery and a harvester may start an order it cannot yet pay for in
+full. Waiting for the whole price in hand does not work in TD, because a refinery
+stores only 1000 credits; the controller used to stop after its opening five
+buildings for exactly that reason.
+
+The structure goals are tried in order and a goal that cannot start now is skipped
+rather than holding up every goal after it: power when short, the first refinery, a
+barracks, the second refinery (Hard and Expert build it before the war factory), the
+war factory, a silo once the stores are two thirds full, the Comm Center, the third
+and fourth refineries on a game-time schedule, the Repair Bay, one defence, the
+Temple of Nod or Advanced Communications Center and the Helipad, then the rest of the
+defences (Obelisk or Advanced Guard Tower once the Comm Center allows it) and, on Hard
+and Expert, a second war factory. Easy and Normal reach each step later and stop at
+their expansion limit. A building that would black the base out gets its power plant
+first, and a goal whose building has no legal spot in the explored base is skipped.
+
+While a refinery, silo or power plant is in production, new army orders wait unless
+the house holds more than its cash reserve. Harvesters: one per refinery (each
+refinery brings its own), half as many again on Hard and Expert once the army has a
+few vehicles. Infantry is capped by the number of vehicles and refineries, with room
+for one full attack squad above the home reserve; a house that has a war factory but
+no combat vehicle its tech level allows keeps the plain infantry limit.
+
+The home reserve is the cheapest share of the army (a stable sort, so lockstep peers
+agree), so tanks go out with the wave and riflemen stay. A wave launches only when the
+units beyond the reserve reach the minimum attack force, and units that become free
+after the wave's window has closed gather at the rally point for the next wave. The
+rally point lies a few cells outside the base, toward the middle of the map, so idle
+units do not stand where the next building goes.
+
+Two placement rules keep a base able to grow. In the first half minute an MCV closer
+than eight cells to a map edge drives inward before it deploys. And a skirmish
+computer's building placement refuses a spot that would split the passable ground into
+more pieces than before (four-way cell connectivity, pieces of three cells or more),
+which is how a base used to build its airstrip over the one ramp off its plateau and
+strand its harvesters. That test counts a building or tree only on ground the computer
+has explored (the land type is the map itself, which path finding reads for every
+player), and the planner asks it before ordering a building, so a goal whose only free
+spot would wall the base in is skipped rather than built and refunded. As a last resort, a house with a refinery and a war factory but
+no harvester may sell its Construction Yard at the ordinary refund to buy one.
+
+None of this reads hidden enemy state, adds money, or changes the save footer or the
+policy table: saves and the lobby's policy word are unchanged.
 
 Income-chain recovery takes priority over discretionary production. The AI can
 cancel its own paid queue or sell an optional owned building at the ordinary
@@ -126,7 +174,14 @@ regrowth, exact save restoration and subsequent trajectory equality. A hidden-en
 cash perturbation changes the world but must leave the AI state unchanged. The
 baseline and independent repeat must match both world and private AI state.
 
-The matrix counts deployed structures, excluding limbo/pending production. Separate
+The matrix counts deployed structures, excluding limbo/pending production.
+`--only` runs selected jobs by name prefix. Three TD jobs judge base growth on the
+lobby's 5000 credits: `td-growth-nod` and `td-growth-gdi` (Expert against an idle seat
+given a fixed base in SCM01EA's far corner) must reach a second refinery, two
+harvesters, a Comm Center, a vehicle more than 15 cells out from the Construction Yard
+and at least one attack; `td-corner` (SCM04EA, two computers, that fixed base beside
+one computer's corner) must give every computer a refinery and five buildings.
+`game/gates.sh` runs them as G476 and G477. Separate
 two-brain harnesses compare independent engine instances every tick while orders,
 production, combat and mixed levels run. A deliberate one-sided mutation is the
 negative control. Native lobby/network tests cover all eight seats and four wire

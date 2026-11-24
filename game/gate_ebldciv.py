@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """G308's two halves: the scene it stages and the claims it checks.
 
-    python3 gate_ebldciv.py maps DIR        write the two test missions and their scripts
+    python3 gate_ebldciv.py maps DIR        write the test missions and their scripts
     python3 gate_ebldciv.py check LOGS DIR  read the runs' logs (shots/g308*.log) and print
                                             "1 message" or "0 why"
 
@@ -20,6 +20,7 @@ Each script orders the attacks and then dumps the system's state every ten ticks
 with a few shots on the way; the engine prints every stage change as it happens (EBLD|hit,
 damaged, wreck, blast, sink, gone). The run folder must hold missions/SCM01EA and SCM02EA
 and the packs named in gates.sh.
+Each type also has an isolated mission that holds its full collapse in the viewport.
 """
 import json
 import os
@@ -134,17 +135,23 @@ def maps(out, sheet=False):
                 for tx in (target[0] - 1, target[0] + 2):
                     un.append("%03d=GoodGuy,MTNK,256,%d,0,Guard,None" % (len(un), cell(tx, target[1] + 4)))
                 layout[name]["fences"][kind] = dict(cells=cells, target=list(target))
-        text = ["[Basic]", "Player=GoodGuy", "Action=x", "Lose=x", "Win=x", "Brief=x",
+        prefix = ["[Basic]", "Player=GoodGuy", "Action=x", "Lose=x", "Win=x", "Brief=x",
                 "Intro=x", "BuildLevel=98", "Theme=No theme", "Percent=0", "CarryOverCap=-1",
                 "CarryOverMoney=0", "", mapsec, "",
                 "[GoodGuy]", "Allies=GoodGuy,Neutral", "MaxBuilding=150", "MaxUnit=150",
                 "Credits=0", "Edge=South", "", "[Neutral]", "Allies=Neutral,GoodGuy",
                 "MaxBuilding=150", "MaxUnit=150", "Credits=0", "Edge=North", "",
                 "[BadGuy]", "Allies=BadGuy", "MaxBuilding=150", "MaxUnit=150", "Credits=0",
-                "Edge=North", "", "[STRUCTURES]"] + st + ["", "[UNITS]"] + un + \
-            ["", "[INFANTRY]", "", "[OVERLAY]"] + ov + TAIL
-        open(os.path.join(out, name + ".INI"), "w", encoding="latin-1", newline="").write("\r\n".join(text))
-        open(os.path.join(out, name + ".BIN"), "wb").write(b)
+                "Edge=North", "", "[STRUCTURES]"]
+
+        def write_mission(folder, structures, units, overlays):
+            text = prefix + structures + ["", "[UNITS]"] + units + ["", "[INFANTRY]", "", "[OVERLAY]"] + overlays + TAIL
+            with open(os.path.join(folder, name + ".INI"), "w", encoding="latin-1", newline="") as f:
+                f.write("\r\n".join(text))
+            with open(os.path.join(folder, name + ".BIN"), "wb") as f:
+                f.write(b)
+
+        write_mission(out, st, un, ov)
         # THE SCRIPT: first every building whole, shot from close, then the attacks ordered,
         # then a dump every ten ticks. With `sheet` (not the gate's: the pictures checked
         # beside the lab), every building and fence is shot at each stage instead, at the
@@ -160,21 +167,39 @@ def maps(out, sheet=False):
         def fence_look(f):
             tx, ty = f["target"]
             return "cam %.1f %.1f" % (tx + 1.5, ty - 0.2)
+
+        def single(kind, structures, units, overlays, aim, approach, watch):
+            folder = os.path.join(out, "wreck-" + kind)
+            os.makedirs(folder, exist_ok=True)
+            write_mission(folder, structures, units, overlays)
+            attack = "actcell %d %d c" % tuple(aim)
+            commands = ["tick 3", "zoom max", "dist 1500", approach, "tick 1",
+                        "lclickobj MTNK 0", attack, "lclickobj MTNK 1", attack, watch,
+                        "tick %d" % (NDUMP * 10), "quit"]
+            with open(os.path.join(folder, name + ".txt"), "w") as f:
+                f.write("\n".join(commands) + "\n")
         for d in L["types"]:
             s += [look(d), "shot shots/g308_%s_intact.png" % d["type"]]
         for kind, f in sorted(L["fences"].items()):
             s += [fence_look(f), "shot shots/g308_%s_intact.png" % kind]
         s += ["echo g308 whole", "ebldump"]
         n = 0
-        for d in L["types"]:
-            s += ["cam %.1f %.1f" % (d["x"] + d["fw"] / 2.0, d["y"] + d["fh"] + 2.0), "tick 1"]
+        for i, d in enumerate(L["types"]):
+            approach = "cam %.1f %.1f" % (d["x"] + d["fw"] / 2.0, d["y"] + d["fh"] + 2.0)
+            s += [approach, "tick 1"]
+            if not sheet:
+                single(d["type"], [st[i]], un[n:n + 2], [], d["aim"], approach, look(d))
             now += 1
             for j in (0, 1):
                 s += ["lclickobj MTNK %d" % n, "actcell %d %d c" % tuple(d["aim"])]
                 n += 1
         for kind, f in sorted(L["fences"].items()):
             tx, ty = f["target"]
-            s += ["cam %d %d" % (tx + 1, ty + 2), "tick 1"]
+            approach = "cam %d %d" % (tx + 1, ty + 2)
+            s += [approach, "tick 1"]
+            if not sheet:
+                overlays = ["%d=%s" % (cell(cx, cy), kind) for cx, cy in f["cells"]]
+                single(kind, [], un[n:n + 2], overlays, f["target"], approach, fence_look(f))
             now += 1
             for j in (0, 1):
                 s += ["lclickobj MTNK %d" % n, "actcell %d %d c" % (tx, ty)]
@@ -255,6 +280,14 @@ def check(logs, d):
             if on:
                 out.append(l)
         return out
+
+    def wreck_events(kind, key):
+        events = {}
+        for line in rd(os.path.join(logs, "g308-wreck-" + kind + ".log")):
+            match = re.match(r"^EBLD\|(damaged|wreck|sink|gone|blast)\|key=(\d+)\|", line)
+            if match and int(match.group(2)) == key:
+                events.setdefault(match.group(1), []).append(line)
+        return events
     # (fields an ebldump line gained later, the trees' wind=, winddrawn=, ride after blast=)
     ART = r"^EBLDART\|(\w+)\|v=(\d+)\|sets=(\d)\|wall=([01])\|.*\|drawn=(\d+)\|.*\|clipparts=(\d+)\|idle=(\d)\|cutclip=(\d+)\|blast=(-?\d+),(-?\d+)(?:\|.*)?$"
     said = []
@@ -315,12 +348,14 @@ def check(logs, d):
             dm = [int(re.search(r"pieces=(\d+)", l).group(1)) for l in e.get("damaged", [])]
             # (a few break with no loose piece: the lab's cut keeps every piece of them up)
             need(len(dm) == 1, "%s: %s's damaged stages %s, want one" % (name, t, dm))
-            wr = [int(re.search(r"pieces=(\d+)", l).group(1)) for l in e.get("wreck", [])]
+            need("wreck" in e and "gone" in e, "%s: %s never completed its death in the group fight" % (name, t))
+            single = wreck_events(t, 2000000)
+            wr = [int(re.search(r"pieces=(\d+)", l).group(1)) for l in single.get("wreck", [])]
             need(wr == [dest] and dest > 0, "%s: %s's wreck %s, want its %d shards" % (name, t, wr, dest))
-            need("sink" in e and "gone" in e, "%s: %s's wreck never sank and went (%s)" % (name, t, sorted(e)))
+            need("sink" in single and "gone" in single, "%s: %s's wreck never sank and went (%s)" % (name, t, sorted(single)))
             # (4) THE DEATH'S CENTRE: on the blocked cells for the eight that stand on part
             # of their footprint, nowhere else
-            bl = e.get("blast", [])
+            bl = single.get("blast", [])
             if t in AT:
                 x = lay["types"][i]
                 wx, wz = x["x"] + x["fw"] / 2.0 + AT[t][0], x["y"] + x["fh"] / 2.0 - AT[t][1]
@@ -337,11 +372,7 @@ def check(logs, d):
         for kind, f in sorted(lay["fences"].items()):
             tx, ty = f["target"]
             k = 9000000000 + ty * 512 + tx
-            fe = {}
-            for l in L:
-                m = re.match(r"^EBLD\|(hit|damaged|wreck|sink|gone)\|key=(\d+)\|(.*)", l)
-                if m and int(m.group(2)) == k:
-                    fe.setdefault(m.group(1), []).append(l)
+            fe = wreck_events(kind, k)
             wr = [int(re.search(r"pieces=(\d+)", l).group(1)) for l in fe.get("wreck", [])]
             need(len(wr) == 1 and wr[0] > 0, "%s's shot cell: wreck %s, want one with pieces" % (kind, wr))
             need("sink" in fe and "gone" in fe and "damaged" not in fe,
@@ -376,14 +407,23 @@ def check(logs, d):
              "damaged, the pump's loop went %s -> %s from %s/%s" % (qa.group(3), qb.group(3),
                                                                    qa.group(4), qb.group(4)))
         need(na.get("m_crank") != nb.get("m_crank"), "damaged, the pump's crank stood still")
-    # (7) --noebld AND CLASSIC: nothing of it, and the old shatter has the civilians back
+    # (7) --noebld AND CLASSIC: each death reaches the old shatter path, which now
+    # sends off-screen and overflow deaths through effects without spawning shards.
     for nm, L in (("--noebld", N), ("Classic", K)):
         need(L and not any("read at first sight" in l for l in L), "%s: a civilian was read" % nm)
         hh = [l for l in L if l.startswith("EBLD|loaded=")]
         need(hh and all("|on=0|" in l for l in hh), "%s: the system was on" % nm)
         need(not any(re.match(r"^EBLDOBJ\|V\d\d\|", l) for l in L), "%s: a civilian has an entry" % nm)
-        need(sum(1 for l in L if re.match(r"^SHATTER\|V\d\d\|", l)) >= 15,
-             "%s: the old shatter did not take the civilians" % nm)
+        joined = "\n".join(L)
+        decisions = re.findall(r"^DESTRUCTIONCAP\|(admit|effects-only)\|key=(\d+)\|owner=shatter\|[^\n]*\|active=(\d+)\|limit=2",
+                               joined, re.M)
+        spawned = set(map(int, re.findall(r"^SHATTER\|V\d\d\|id=(\d+)\|", joined, re.M)))
+        allowed = {int(key) for decision, key, _ in decisions if decision == "admit"}
+        expected = list(range(len(layout["SCG97EA"]["types"])))
+        need(sorted(int(key) for _, key, _ in decisions) == expected and all(int(active) <= 2 for _, _, active in decisions),
+             "%s: the old shatter must account for each civilian within the two-wreck limit" % nm)
+        need(spawned and spawned == allowed and len(allowed) < len(expected),
+             "%s: the old shatter spawned %s for admitted %s" % (nm, sorted(spawned), sorted(allowed)))
     # (8) TWO RUNS ARE ONE RUN
     ours = ("EBLD", "EBLDOBJ|", "EBLDCLIP|", "EBLDMOVE|", "EBLDEMIT|")
     # Preparation telemetry includes nondeterministic wall-clock durations and has

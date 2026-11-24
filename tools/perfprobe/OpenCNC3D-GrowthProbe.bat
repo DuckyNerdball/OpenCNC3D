@@ -3,7 +3,8 @@ setlocal EnableExtensions DisableDelayedExpansion
 cd /d "%~dp0"
 if not exist cnc_eyes.exe (echo Place this probe beside cnc_eyes.exe. & exit /b 2)
 if not exist opencnc3d-fx.cfg (echo Missing opencnc3d-fx.cfg. & exit /b 2)
-if not exist SCM01EA.pack (echo Missing SCM01EA.pack. & exit /b 2)
+if not exist "SCM01EA.pack" (echo Missing SCM01EA.pack. & exit /b 2)
+if not exist "TiberianDawn.dll" (echo Missing TiberianDawn.dll. & exit /b 2)
 if not exist "performance-growth-results" mkdir "performance-growth-results"
 set OPENCNC3D_BACKGROUND=1
 set OPENCNC3D_FRAMEPROF=1
@@ -1623,7 +1624,7 @@ type nul > "performance-growth-results\script.txt"
 >> "performance-growth-results\script.txt" echo framebench 1
 >> "performance-growth-results\script.txt" echo meshperfdump
 >> "performance-growth-results\script.txt" echo reveal 1
->> "performance-growth-results\script.txt" echo cam 32 32
+>> "performance-growth-results\script.txt" echo look FACT:@me
 >> "performance-growth-results\script.txt" echo dist 4200
 >> "performance-growth-results\script.txt" echo echo STEP^|revealed
 >> "performance-growth-results\script.txt" echo player
@@ -2369,7 +2370,7 @@ type nul > "performance-growth-results\script.txt"
 >> "performance-growth-results\script.txt" echo cheatset invuln 0
 >> "performance-growth-results\script.txt" echo gfxload performance-growth-results/quality.cfg
 >> "performance-growth-results\script.txt" echo quit
-cnc_eyes.exe --scen SCM01EA --pack SCM01EA.pack --skirmish --side gdi --credits 99999 --starts 1,6 --dylib TiberianDawn.dll --dir missions/ --content content/ --nosound --w 1920 --h 1080 --enhanced --gfx opencnc3d-fx.cfg --savedir "performance-growth-results\saves" --script "performance-growth-results\script.txt" >> "%LOG%" 2>&1
+cnc_eyes.exe --scen SCM01EA --pack SCM01EA.pack --skirmish --side gdi --ai 3 --seed 4242 --build 98 --credits 99999 --dylib TiberianDawn.dll --dir missions/ --content content/ --nosound --w 1920 --h 1080 --enhanced --gfx opencnc3d-fx.cfg --gfxsave "performance-growth-results\session.cfg" --visualscfg "performance-growth-results\visuals.cfg" --savedir "performance-growth-results\saves" --script "performance-growth-results\script.txt" >> "%LOG%" 2>&1
 set "RESULT=%ERRORLEVEL%"
 >> "%LOG%" echo exit code %RESULT%
 if not "%RESULT%"=="0" (echo Probe FAILED. Review %LOG% & exit /b %RESULT%)

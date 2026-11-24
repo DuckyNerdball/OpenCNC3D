@@ -435,6 +435,8 @@ struct Ra3dFormInst {
     bool alive;                         /* its anim was in this tick's dump */
     float wx, wz, ylift;
     bool body;                          /* a corpse: a 3D soldier's body lies under it */
+    bool corpseOwnerKnown;
+    long long corpseOwner;
     int said;                           /* the last frame reported */
     int drawn;                          /* parts drawn this frame, both phases */
 };
@@ -599,12 +601,14 @@ static void ra3d_efxm_track(void)
             N.stage = stage; N.stageAt = g_engineFrame; N.stageLen = D.delay;
             N.t = (float)(stage * D.delay); N.rate = 1.0f;
             N.alive = true; N.body = false; N.said = -1; N.drawn = 0;
+            N.corpseOwnerKnown=false;N.corpseOwner=0;
             N.wx = a.wx; N.wz = a.wz; N.ylift = 0.0f;
             g_ra3dForms.push_back(N);
             F = &g_ra3dForms.back();
             g_ra3dFormArmed++;
             printf("RA3DEFXM|armed|%s|id=%d|stage=%d|cell=%.2f,%.2f\n", D.anim, a.id, a.stage, a.wx, a.wz);
         } else if (stage != F->stage) {
+            if(D.kind==RA3D_FORM_CORPSE && stage<F->stage)F->corpseOwnerKnown=false;
             /* a new stage: its length is the one just ended (a loop's jump back counts as a
                new stage like any other) */
             F->stageLen = g_engineFrame - F->stageAt;
@@ -652,16 +656,53 @@ static bool ra3d_efxm_corpse_body(const EfxAnim& a)
     return false;
 }
 
+/* The older RA corpse overlay belongs to the same local corpse family as the
+   retained soldier, including when the camera changes or that family is retired.
+   A dying live actor is allowed until it enters the retained-corpse list. */
+static bool ra3d_corpse_form_view_on() {
+    static const bool on=[](){const char* p=getenv("OPENCNC3D_RA_CORPSE_FORM_VIEW");return !p||strcmp(p,"0");}();return on;
+}
+static bool ra3d_corpse_form_selected(Ra3dFormInst& form) {
+    if(!infdeath_view_enabled())return true;
+    if(!form.corpseOwnerKnown) {
+        const M3Corpse* nearest=NULL;float best=0.25f;
+        for(const M3Corpse& corpse:g_m3Corpses) {
+            const float dx=corpse.o.ex-form.wx,dz=corpse.o.ez-form.wz,d=dx*dx+dz*dz;
+            if(d<best || (nearest && d==best && corpse.a.since>nearest->a.since)) {
+                nearest=&corpse;best=d;
+            }
+        }
+        if(nearest) {
+            form.corpseOwner=ir_key(nearest->o.id,nearest->a.since);form.corpseOwnerKnown=true;
+        } else {
+            for(const SimObject& actor:g_objects) {
+                if(actor.kind!=K_INFANTRY || !actor.dying || m3inf_model_any(actor)<0)continue;
+                const float dx=actor.ex-form.wx,dz=actor.ez-form.wz;
+                if(dx*dx+dz*dz<0.25f)return true;
+            }
+            return false;
+        }
+    }
+    return infdeath_body_shown(form.corpseOwner);
+}
+static size_t g_ra3dCorpseFormOffers=0,g_ra3dCorpseFormAccepted=0,g_ra3dCorpseFormRejected=0;
 /* THE FORMS' DRAW, phase 0 before the particles and phase 1 after them. */
 static long g_ra3dFormDraws = 0;
 static void ra3d_efxm_draw_forms(int phase)
 {
+    if(phase==0)g_ra3dCorpseFormOffers=g_ra3dCorpseFormAccepted=g_ra3dCorpseFormRejected=0;
     if (g_ra3dForms.empty() || !g_efxEnhOn) return;
     ra3d_efxm_begin(false);
     for (size_t b = 0; b < g_ra3dForms.size(); b++) {
         Ra3dFormInst& F = g_ra3dForms[b];
         const Ra3dFormDef& D = RA3D_FORMS[F.def];
+        if(phase==0)F.drawn=0;
         if (D.kind == RA3D_FORM_CORPSE && !F.body) continue;
+        if(D.kind==RA3D_FORM_CORPSE) {
+            const bool selected=!ra3d_corpse_form_view_on() || ra3d_corpse_form_selected(F);
+            if(phase==0){g_ra3dCorpseFormOffers++;if(selected)g_ra3dCorpseFormAccepted++;else g_ra3dCorpseFormRejected++;}
+            if(!selected)continue;
+        }
         if (shroud_cell_hidden((int)floorf(F.wx), (int)floorf(F.wz))) continue;
         Ra3dEfxm& E = g_ra3dForm[F.def];
         int seq[64];
@@ -672,7 +713,6 @@ static void ra3d_efxm_draw_forms(int phase)
         for (int i = 0; i < n; i++)
             ra3d_efxm_draw_part(E, seq[i], F.wx, F.wz, F.ylift, t);
         g_ra3dFormDraws += E.partDraws - before;
-        if (phase == 0) F.drawn = 0;
         F.drawn += (int)(E.partDraws - before);
         /* ONE LINE A FORM A FRAME, from the draw, so a gate reading it knows the parts
            reached draw_mesh rather than that an anim existed */
@@ -693,10 +733,15 @@ static void ra3d_efxm_dump(void)
 {
     printf("RA3DEFXM|dump|forms=%zu|armed=%ld|partdraws=%ld|enh=%d\n", g_ra3dForms.size(),
            g_ra3dFormArmed, g_ra3dFormDraws, g_efxEnhOn ? 1 : 0);
+    printf("RACORPSEFORMVIEW|enabled=%d|offers=%zu|accepted=%zu|rejected=%zu\n",
+        ra3d_corpse_form_view_on()?1:0,g_ra3dCorpseFormOffers,g_ra3dCorpseFormAccepted,g_ra3dCorpseFormRejected);
     /* the anims the last frame's sprite pass still drew as their 1996 cards */
     printf("RA3DEFXM|cards|%s\n", g_ra3dAnimCardNames.c_str());
     for (size_t b = 0; b < g_ra3dForms.size(); b++) {
         const Ra3dFormInst& F = g_ra3dForms[b];
+        if(RA3D_FORMS[F.def].kind==RA3D_FORM_CORPSE)
+            printf("RACORPSEFORMVIEW|id=%d|owner_known=%d|owner=%lld|drawn=%d\n",F.id,
+                F.corpseOwnerKnown?1:0,F.corpseOwner,F.drawn);
         printf("RA3DEFXM|form|%s|id=%d|t=%.2f|alive=%d|body=%d|at=%.2f,%.2f,%.2f\n",
                RA3D_FORMS[F.def].anim, F.id, F.t, F.alive ? 1 : 0, F.body ? 1 : 0, F.wx, F.wz, F.ylift);
     }

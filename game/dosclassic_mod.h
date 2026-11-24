@@ -8,15 +8,18 @@
 struct Dos2DShape {
     char name[16];
     int w, h, frames, cols, tw, th;
+    bool gunRa = false;
     std::vector<unsigned char> zipped;
     std::vector<unsigned char> raw;  /* the palette indices, unpacked on first use by dos2d_shimmer */
-    GLuint tex[144]; /* normal/ghost/flash/shadow/translucent variants with player remaps */
+    GLuint tex[160]; /* normal/ghost/flash/shadow/translucent variants with player remaps
+                        and the Iron Curtain's red (DOS2D_REMAP_IRON) */
     Dos2DShape() : w(0), h(0), frames(0), cols(0), tw(0), th(0) { name[0] = 0; memset(tex,0,sizeof tex); }
 };
 
 static std::vector<Dos2DShape> g_dos2dShapes;
 static int g_dos2dLoad = 0;
 static int g_dos2dMissing = 0;
+static unsigned char g_gunRaBase[16], g_gunRaColours[768];
 
 /* Every aircraft layer the last Classic frame drew (body, shadow, rotor), as the
  * rectangle of its SHP in framebuffer pixels from the top left, with the engine's draw
@@ -44,6 +47,11 @@ struct Dos2DCloakRec {
     float x0, y0, x1, y1;
 };
 static std::vector<Dos2DCloakRec> g_dos2dCloakRecs;
+/* Every control-group digit the last Classic frame drew (Red Alert only, see grp_atlas),
+ * as the rectangle of its PIPS frame in framebuffer pixels from the top left. Script verb
+ * groupdump prints it. */
+struct Dos2DGroupRec { char type[16]; int id, group, digit; float x0, y0, x1, y1; };
+static std::vector<Dos2DGroupRec> g_dos2dGroupRecs;
 static char g_dos2dOmit[16] = "";
 static GLuint g_dos2dShimmerTex = 0;
 static unsigned char g_dos2dRemap[8][16];
@@ -68,22 +76,30 @@ static std::unordered_map<std::string, size_t> g_raTileIndex;
 static unsigned char g_raTilePal[3][768];
 static CNCMapDataStruct g_raStaticMap;
 static std::string g_raStaticScene;
+/* Moves each time a refresh of the map above finds a cell whose template changed (a bridge
+   blown, a load); everything built from the templates is keyed on it (ra3d_ground_ensure). */
+static unsigned g_raMapRev = 0;
 static int g_raTerrainLoad = 0;
 static int g_raStaticReady = 0;
 static int g_raLayersReported = 0;
 
 /* The shared engine ABI has no Interior enum, so the Red Alert brain exports
    that third original theater as NONE. It is unambiguous for RA missions. */
-static int ra2d_pal_index(void)
+static int ra2d_pal_index_of(int theater)
 {
-    return g_raStaticMap.Theater == CNC_THEATER_WINTER ? 0
-         : g_raStaticMap.Theater == CNC_THEATER_NONE ? 2 : 1;
+    return theater == CNC_THEATER_WINTER ? 0
+         : theater == CNC_THEATER_NONE ? 2 : 1;
 }
+static int ra2d_pal_index(void) { return ra2d_pal_index_of((int)g_raStaticMap.Theater); }
 
-static char ra2d_theater_letter(void)
+/* The letter of an engine theater number, the same answer ra2d_theater_letter gives for
+   the map once it is fetched; game_boot asks it of g_theater, read from the same map
+   before any frame. */
+static char ra2d_theater_letter_of(int theater)
 {
-    return ra2d_pal_index() == 0 ? 'S' : ra2d_pal_index() == 2 ? 'I' : 'T';
+    return ra2d_pal_index_of(theater) == 0 ? 'S' : ra2d_pal_index_of(theater) == 2 ? 'I' : 'T';
 }
+static char ra2d_theater_letter(void) { return ra2d_theater_letter_of((int)g_raStaticMap.Theater); }
 
 /* The palette every Classic sprite is decoded through. In 1995 it is GamePalette, which
  * DisplayClass::Init_Theater loads from the theater's own <THEATER>.PAL, and 97 entries
@@ -139,10 +155,41 @@ static bool ra2d_load_terrain(void)
     return true;
 }
 
+/* The engine's map again, after it changed templates under the mission (g_raMapStale):
+   the cells that differ are taken over and g_raMapRev moves only when there are any, so a
+   load that brings back the same map rebuilds nothing. */
+static void ra2d_refresh_map(void)
+{
+    g_raMapStale = false;
+    static CNCMapDataStruct fresh;
+    memset(&fresh, 0, sizeof fresh);
+    if (!BrainGetState(GAME_STATE_STATIC_MAP, 0, (unsigned char*)&fresh, sizeof fresh)
+        || fresh.MapCellX != g_raStaticMap.MapCellX || fresh.MapCellY != g_raStaticMap.MapCellY
+        || fresh.MapCellWidth != g_raStaticMap.MapCellWidth
+        || fresh.MapCellHeight != g_raStaticMap.MapCellHeight) return;
+    int changed = 0;
+    for (int i = 0; i < fresh.MapCellWidth * fresh.MapCellHeight; i++) {
+        CNCStaticCellStruct& had = g_raStaticMap.StaticCells[i];
+        const CNCStaticCellStruct& now = fresh.StaticCells[i];
+        if (had.IconNumber == now.IconNumber
+            && !strncmp(had.TemplateTypeName, now.TemplateTypeName, sizeof had.TemplateTypeName))
+            continue;
+        had = now;
+        changed++;
+    }
+    if (!changed) return;
+    g_raMapRev++;
+    fprintf(stderr, "RA2D|map %s changed|cells=%d|rev=%u\n", g_bootScen, changed, g_raMapRev);
+}
+
 static bool ra2d_fetch_map(void)
 {
-    if (g_raStaticReady && g_raStaticScene == g_bootScen) return true;
+    if (g_raStaticReady && g_raStaticScene == g_bootScen) {
+        if (g_raMapStale && BrainGetState) ra2d_refresh_map();
+        return true;
+    }
     if (!BrainGetState) return false;
+    g_raMapStale = false;
     memset(&g_raStaticMap, 0, sizeof g_raStaticMap);
     if (!BrainGetState(GAME_STATE_STATIC_MAP, 0,
                        (unsigned char*)&g_raStaticMap, sizeof g_raStaticMap)) return false;
@@ -227,9 +274,56 @@ static int dos2d_pow2(int n)
     return v;
 }
 
+#include "dos_shape_index.h"
+static DosShapeIndex g_dosShapeIndex;
+static unsigned long long g_dosShapeLookups=0,g_dosShapeChecks=0,g_dosShapeBad=0,g_dosShapeBuilds=0,g_dosShapeFallbacks=0;
+static void dos_shape_index_report(){fprintf(stderr,"DOSSHAPEINDEX|lookups=%llu|verified=%llu|bad=%llu|builds=%llu|fallbacks=%llu\n",g_dosShapeLookups,g_dosShapeChecks,g_dosShapeBad,g_dosShapeBuilds,g_dosShapeFallbacks);}
+static int dos_shape_index_mode(){static const int mode=[](){const char* p=getenv("OPENCNC3D_SHAPE_INDEX");int m=p&&!strcmp(p,"verify")?2:!p||strcmp(p,"0")?1:0;if(m)atexit(dos_shape_index_report);return m;}();return mode;}
+
+static bool dos2d_read_shape(FILE* f, Dos2DShape& s)
+{
+    uint16_t wh[2];
+    uint32_t frames, bytes;
+    if (fread(s.name, 1, sizeof s.name, f) != sizeof s.name || fread(wh, 2, 2, f) != 2
+        || fread(&frames, 4, 1, f) != 1 || fread(&bytes, 4, 1, f) != 1
+        || !wh[0] || !wh[1] || wh[0] > 1024 || wh[1] > 1024
+        || !frames || frames > 1024 || bytes > 20000000) return false;
+    s.name[15] = 0;
+    s.w = wh[0]; s.h = wh[1]; s.frames = (int)frames;
+    s.zipped.resize(bytes);
+    return fread(s.zipped.data(), 1, bytes, f) == bytes;
+}
+
+static bool dos2d_load_gun_ra()
+{
+    FILE* f = fopen("gunra-sprites.pack", "rb");
+    if (!f) return false;
+    char magic[8];
+    uint32_t count = 0;
+    bool ok = fread(magic, 1, sizeof magic, f) == sizeof magic && !memcmp(magic, "GUNRA001", 8)
+        && fread(&count, 4, 1, f) == 1 && count > 0 && count <= 32
+        && fread(g_gunRaBase, 1, sizeof g_gunRaBase, f) == sizeof g_gunRaBase
+        && fread(g_gunRaColours, 1, sizeof g_gunRaColours, f) == sizeof g_gunRaColours;
+    std::vector<Dos2DShape> shapes;
+    for (uint32_t i = 0; ok && i < count; ++i) {
+        Dos2DShape shape;
+        ok = dos2d_read_shape(f, shape) && gun_ra_name(shape.name);
+        if (ok) {
+            shape.gunRa = true;
+            shapes.push_back(std::move(shape));
+        }
+    }
+    fclose(f);
+    if (!ok) return false;
+    for (auto& shape : shapes) g_dos2dShapes.push_back(std::move(shape));
+    g_dosShapeIndex.clear();
+    return true;
+}
+
 static bool dos2d_load(void)
 {
     if (g_dos2dLoad) return g_dos2dLoad > 0;
+    g_dosShapeIndex.clear();
     g_dos2dLoad = -1;
     const char* path = g_dos2dRa ? "ra3d/dosclassic.pack" : "dosclassic.pack";
     FILE* f = fopen(path, "rb");
@@ -258,18 +352,16 @@ static bool dos2d_load(void)
         for (int i = 0; i < 16; i++) g_dos2dBase[i] = (unsigned char)(176+i);
     for (uint32_t i = 0; i < count; i++) {
         Dos2DShape s;
-        uint16_t wh[2]; uint32_t nf, bytes;
-        if (fread(s.name, 1, 16, f) != 16 || fread(wh, 2, 2, f) != 2
-            || fread(&nf, 4, 1, f) != 1 || fread(&bytes, 4, 1, f) != 1
-            || !wh[0] || !wh[1] || nf > 1024 || bytes > 20000000) break;
-        s.name[15] = 0; s.w = wh[0]; s.h = wh[1]; s.frames = (int)nf;
-        s.zipped.resize(bytes);
-        if (fread(s.zipped.data(), 1, bytes, f) != bytes) break;
-        g_dos2dShapes.push_back(s);
+        if (!dos2d_read_shape(f, s)) break;
+        g_dos2dShapes.push_back(std::move(s));
     }
     fclose(f);
     if (g_dos2dShapes.size() != count) {
         fprintf(stderr, "DOS2D|truncated sprite pack\n"); g_dos2dShapes.clear(); return false;
+    }
+    if (!g_dos2dRa && g_sb.GunPlayers && !dos2d_load_gun_ra()) {
+        g_dos2dShapes.clear();
+        return false;
     }
     g_dos2dLoad = 1;
     /* Tiberian Dawn keeps the line its Classic gates read; Red Alert names itself. */
@@ -278,11 +370,30 @@ static bool dos2d_load(void)
     return true;
 }
 
-static Dos2DShape* dos2d_shape(const char* name)
+static Dos2DShape* dos2d_shape_linear(const char* name)
 {
     for (size_t i = 0; i < g_dos2dShapes.size(); i++)
         if (!strcmp(g_dos2dShapes[i].name, name)) return &g_dos2dShapes[i];
     return NULL;
+}
+
+
+static Dos2DShape* dos2d_shape(const char* name)
+{
+    const int mode=dos_shape_index_mode();
+    if(!mode)return dos2d_shape_linear(name);
+    ++g_dosShapeLookups;
+    if(!g_dosShapeIndex.matches(g_dos2dShapes)){
+        const char* allow=getenv("OPENCNC3D_SHAPE_INDEX_BUILD_OK");
+        if((allow&&!strcmp(allow,"0")) || !g_dosShapeIndex.build(g_dos2dShapes)){
+            ++g_dosShapeFallbacks;return dos2d_shape_linear(name);
+        }
+        ++g_dosShapeBuilds;
+    }
+    const int index=g_dosShapeIndex.find(g_dos2dShapes,name);
+    Dos2DShape* result=index>=0?&g_dos2dShapes[(size_t)index]:NULL;
+    if(mode==2){++g_dosShapeChecks;if(result!=dos2d_shape_linear(name))++g_dosShapeBad;}
+    return result;
 }
 
 static ScreenPoly dos2d_object_screen_poly(const SimObject& o, int fbw, int fbh)
@@ -303,6 +414,10 @@ static ScreenPoly dos2d_object_screen_poly(const SimObject& o, int fbw, int fbh)
                                  o.kind == K_BUILDING ? o.fh*24 : 24) * worldScale;
     float col, row;
     world_to_screen(o.ex, 0.0f, o.ez, fbw, fbh, &col, &row);
+    if (o.kind == K_UNIT && o.alt)
+        row -= (float)(o.alt * 24 / 256) * worldScale;
+    if (g_sb.GunPlayers && !g_dos2dRa && o.kind == K_AIRCRAFT)
+        row -= o.alt * worldScale;
     /* DLL_Draw_Intercept and dos2d_draw_shape both centre the SHP at the
        object's render coordinate. Use that rectangle for click and script aims. */
     dop_add(&poly, col-width*0.5f, row-height*0.5f);
@@ -355,10 +470,69 @@ static int dos2d_magic_alpha(unsigned char ix, bool* shade)
     return ix == 12 ? 200 : ix == 15 ? 40 : ix == 14 ? 80 : ix == 13 ? 140 : 255;
 }
 
+/* THE IRON CURTAIN'S RED, a remap of its own after the eight house colours, numbered
+ * clear of every colour the layer export can carry (anything else past 7 means no remap).
+ * Techno_Draw_Object (redalert/techno.cpp) replaces an object's whole remap table with
+ * DisplayClass::FadingRed while its IronCurtainCountDown runs, so the object loses its house
+ * colour and every pixel of it is drawn faded toward red; the layer export says which
+ * objects with IsIronCurtain. */
+enum { DOS2D_REMAP_IRON = 64 };
+
+/* OPENCNC3D_REMAPDUMP=1: one line per building the first time a sprite path draws it in
+ * its house colour, saying which remap row it was drawn through, so a check can hold the
+ * drawn colour against the engine's own (the remap= of the object dump). `path` names the
+ * drawing path: cls for the flat 2D view, card for Red Alert's sprite cards on 3D ground. */
+static void dos2d_remap_dump(const char* path, const CNCObjectStruct& o, int drawn)
+{
+    static const bool on = getenv("OPENCNC3D_REMAPDUMP") != NULL;
+    static std::set<std::pair<std::string, int> > seen;
+    if (!on || o.Type != BUILDING || o.SubObject) return;
+    if (!seen.insert(std::make_pair(std::string(path), (int)o.ID)).second) return;
+    printf("REMAP2D|%s|%s|id=%d|owner=%d|drawn=%d\n", path, o.AssetName, (int)o.ID,
+           (int)o.Owner, drawn);
+}
+
 static int dos2d_tex_slot(int remap, bool ghost, bool flash, bool shadow, bool trans)
 {
-    return (remap >= 0 && remap < 8 ? remap+1 : 0) + (ghost ? 9 : 0) + (flash ? 18 : 0)
-         + (shadow ? 36 : 0) + (trans ? 72 : 0);
+    return (remap >= 0 && remap < 8 ? remap+1 : remap == DOS2D_REMAP_IRON ? 9 : 0)
+         + (ghost ? 10 : 0) + (flash ? 20 : 0) + (shadow ? 40 : 0) + (trans ? 80 : 0);
+}
+
+/* DisplayClass::FadingRed for the palette given: Build_Fading_Table(GamePalette, FadingRed,
+ * RED, 140) (redalert/display.cpp, common/fading.cpp), every index moved 140/256 of the
+ * way toward palette entry RED (8) and matched to the nearest other entry, ties to the
+ * later one, on the 6-bit palette the engine holds. Index 0 stays transparent. */
+static const unsigned char* dos2d_fading_red(const unsigned char* pal)
+{
+    static const unsigned char* builtFor = NULL;
+    static unsigned char table[256];
+    if (builtFor == pal) return table;
+    unsigned char p6[768];
+    for (int i = 0; i < 768; i++) p6[i] = (unsigned char)(pal[i] >> 2);
+    const int fraction = 140 >> 1;
+    const int tr = p6[8 * 3], tg = p6[8 * 3 + 1], tb = p6[8 * 3 + 2];
+    table[0] = 0;
+    for (int i = 1; i < 256; i++) {
+        /* (the engine's arithmetic: the signed step floored by an arithmetic shift, so
+           each channel's ideal rounds up) */
+        const int ideal[3] = {
+            p6[i * 3]     - (((p6[i * 3]     - tr) * fraction * 2) >> 8),
+            p6[i * 3 + 1] - (((p6[i * 3 + 1] - tg) * fraction * 2) >> 8),
+            p6[i * 3 + 2] - (((p6[i * 3 + 2] - tb) * fraction * 2) >> 8) };
+        unsigned best = 0xFFFFFFFFu;
+        int match = 8;
+        for (int j = 1; j < 256; j++) {
+            if (j == i) continue;
+            const int dr = p6[j * 3] - ideal[0], dg = p6[j * 3 + 1] - ideal[1],
+                      db = p6[j * 3 + 2] - ideal[2];
+            const unsigned v = (unsigned)(dr * dr + dg * dg + db * db);
+            if (v <= best) { best = v; match = j; }
+            if (v == 0) break;
+        }
+        table[i] = (unsigned char)match;
+    }
+    builtFor = pal;
+    return table;
 }
 
 /* Drop every cached sprite texture, so the next draw decodes through the palette and
@@ -379,6 +553,7 @@ static bool dos2d_upload(Dos2DShape* s, int remap, bool ghost, bool flash, bool 
                          bool trans)
 {
     const int slot = remap >= 0 && remap < 8 ? remap+1 : 0;
+    const unsigned char* iron = remap == DOS2D_REMAP_IRON ? dos2d_fading_red(dos2d_palette()) : NULL;
     const int texSlot = dos2d_tex_slot(remap, ghost, flash, shadow, trans);
     if (g_dos2dTexPal != dos2d_palette()
         || strcmp(g_dos2dTexShade, dos2d_shadow_blend().theater)) {
@@ -398,17 +573,22 @@ static bool dos2d_upload(Dos2DShape* s, int remap, bool ghost, bool flash, bool 
     s->tw = dos2d_pow2(s->cols * s->w);
     s->th = dos2d_pow2(((s->frames + s->cols - 1) / s->cols) * s->h);
     std::vector<unsigned char> rgba((size_t)s->tw * s->th * 4, 0);
-    const unsigned char* pal = dos2d_palette();
+    const unsigned char* basePalette = dos2d_palette();
+    const unsigned char* ramp = s->gunRa ? g_gunRaBase : g_dos2dBase;
     for (int fr = 0; fr < s->frames; fr++) {
         const int sx = (fr % s->cols) * s->w, sy = (fr / s->cols) * s->h;
         for (int y = 0; y < s->h; y++)
             for (int x = 0; x < s->w; x++) {
                 const unsigned char ix = indices[((size_t)fr * s->h + y) * s->w + x];
+                const unsigned char* pal = s->gunRa ? g_gunRaColours : basePalette;
                 unsigned char colour = ix;
-                if (slot)
+                if (iron)
+                    colour = iron[ix];
+                else if (slot)
                     for (int band = 0; band < 16; band++)
-                        if (ix == g_dos2dBase[band]) {
+                        if (ix == ramp[band]) {
                             colour = g_dos2dRemap[slot-1][band];
+                            pal = basePalette;
                             break;
                         }
                 unsigned char* p = &rgba[((size_t)(sy+y) * s->tw + sx+x) * 4];
@@ -703,6 +883,39 @@ static void dos2d_selection(const CNCObjectStruct& o, int px, int py,
     dos2d_solid(x0,yb-t,hx,t,15); dos2d_solid(x0,yb-vy,t,vy,15);
     glColor4f(1,1,1,1);
     glEnable(GL_TEXTURE_2D);
+    /* RED ALERT'S CONTROL GROUP, as Draw_It hands Draw_Pips the pip origin (x-lx)+5,
+       y+ly-3 and Draw_Pips centres PIP_NUMBERS+digit two right of it and one up, four
+       further up for a type with a pip row (grp_atlas in cnc_eyes.cpp has the rest).
+       Draw_Pips runs only for a selected object of the player's side; the selected half
+       is this function's own first test. The bottom is the row the bottom strokes above
+       are drawn on, py+ly-1 (Draw_Line's is py+ly), so the digit keeps the place 1996
+       gave it against the stroke: its last row of ink directly above it. */
+    if (g_grpOn && g_dos2dRa && o.ControlGroup < 10 && o.Owner >= 0 && o.Owner < 32
+        && ((1u << o.Owner) & dos2d_player_mask()) && grp_atlas()) {
+        const int digit = grp_digit((int)o.ControlGroup);
+        const int bottom = py + ly - 1;
+        const int gx = px - lx + 5 + 2, gy = bottom - 3 + (o.MaxPips > 0 ? -5 : -1);
+        const float gx0 = ox + (float)(gx - g_grpW/2)*scale;
+        const float gy0 = oy + (float)(gy - g_grpH/2)*scale;
+        const float gx1 = gx0 + (float)(g_grpW*scale), gy1 = gy0 + (float)(g_grpH*scale);
+        glBindTexture(GL_TEXTURE_2D, g_grpTex);
+        glBegin(GL_QUADS);
+        grp_quad(digit, gx0, gy0, gx1, gy1);
+        glEnd();
+        if (g_dos2dGroupRecs.size() < 256) {
+            Dos2DGroupRec r;
+            memset(&r, 0, sizeof r);
+            snprintf(r.type, sizeof r.type, "%s", o.TypeName);
+            r.id = o.ID; r.group = (int)o.ControlGroup; r.digit = digit;
+            r.x0 = gx0; r.y0 = gy0; r.x1 = gx1; r.y1 = gy1;
+            g_dos2dGroupRecs.push_back(r);
+        }
+    }
+    /* RED ALERT: WHAT A SPY SHOWS over a selected building (spyinfo_mod.h), from the same
+       pip origin, (px-lx)+5 and the box's bottom less three, and the building's centre,
+       where Draw_It draws a spied factory's cameo. */
+    if (g_dos2dRa && o.Type == BUILDING)
+        spy_draw_classic((int)o.ID, px - lx + 5, py + ly - 1 - 3, px, py, ox, oy, scale);
 }
 
 /* THE OBELISK'S BEAM, as TechnoClass::Draw_It drew it: the firer's three lines, each in
@@ -859,23 +1072,148 @@ static void dos2d_place_cursor(int viewX, int viewY,
     }
 }
 
+/* The Gap Generator's range ring in Classic (gap_ring_of in cnc_eyes.cpp says what it
+   shows and why): a circle one 1995 pixel wide in the palette's WHITE, the colour of the
+   selection corners, laid on the same pixel grid as the sprites. Drawn after the shroud,
+   as the 3D modes draw it, and inside the tactical view's scissor. */
+static void dos2d_gap_rings(int viewX, int viewY, float ox, float oy, int scale)
+{
+    g_gapRingRecs.clear();
+    if (!g_dos2dRa || g_selected.empty()) return;
+    const unsigned char* pal = dos2d_palette();
+    bool begun = false;
+    for (size_t i = 0; i < g_objects.size(); i++) {
+        const SimObject& o = g_objects[i];
+        float cx, cz, r;
+        if (!gap_ring_of(o, &cx, &cz, &r)) continue;
+        const int pcx = (int)floorf(cx * 24.0f) - viewX, pcy = (int)floorf(cz * 24.0f) - viewY;
+        const int rp = (int)floorf(r * 24.0f + 0.5f);
+        if (!begun) {
+            begun = true;
+            glDisable(GL_TEXTURE_2D);
+            glColor3ub(pal[15 * 3], pal[15 * 3 + 1], pal[15 * 3 + 2]);
+            glBegin(GL_QUADS);
+        }
+        /* the midpoint circle, one octant mirrored eight ways */
+        int x = rp, y = 0, err = 1 - rp;
+        while (x >= y) {
+            const int pts[8][2] = { { x, y }, { y, x }, { -y, x }, { -x, y },
+                                    { -x, -y }, { -y, -x }, { y, -x }, { x, -y } };
+            for (int k = 0; k < 8; k++) {
+                const float x0 = ox + (float)((pcx + pts[k][0]) * scale);
+                const float y0 = oy + (float)((pcy + pts[k][1]) * scale);
+                glVertex2f(x0, y0);                  glVertex2f(x0 + scale, y0);
+                glVertex2f(x0 + scale, y0 + scale);  glVertex2f(x0, y0 + scale);
+            }
+            y++;
+            if (err < 0) err += 2 * y + 1;
+            else { x--; err += 2 * (y - x) + 1; }
+        }
+        float col[16], row[16];
+        for (int k = 0; k < 16; k++) {
+            const float a = 2.0f * (float)M_PI * (float)k / 16.0f;
+            col[k] = ox + ((float)pcx + (float)rp * cosf(a) + 0.5f) * (float)scale;
+            row[k] = oy + ((float)pcy + (float)rp * sinf(a) + 0.5f) * (float)scale;
+        }
+        gap_ring_record(o, true, cx, cz, r, col, row);
+    }
+    if (!begun) return;
+    glEnd();
+    glColor4f(1, 1, 1, 1);
+}
+
+/* The weapon range outlines in Classic (range_ring_of in cnc_eyes.cpp says which objects
+   have one and what they show, and why it is a circle): the same travelling dashes as the
+   3D modes, at the same angle off the same clock, as a circle one 1995 pixel wide in the
+   palette's WHITE, laid on the same pixel grid as the sprites. A dash and its gap together
+   are about 18 of those pixels and the dash a little over half of it, so the ring keeps
+   the weight of a lighter guide than the solid Gap Generator ring and the selection
+   corners. Drawn after the shroud and inside the tactical view's scissor, as that ring is. */
+static void dos2d_range_rings(int viewX, int viewY, float ox, float oy, int scale)
+{
+    g_rangeRingRecs.clear();
+    if (g_selected.empty() || !BrainWeaponRange) return;
+    const unsigned char* pal = dos2d_palette();
+    bool begun = false;
+    for (size_t i = 0; i < g_objects.size() && g_rangeRingRecs.size() < (size_t)RANGE_RING_MAX; i++) {
+        const SimObject& o = g_objects[i];
+        float cx, cz, r;
+        int range, muzzle;
+        if (!range_ring_of(o, &cx, &cz, &r, &range, &muzzle)) continue;
+        const int pcx = (int)floorf(cx * 24.0f) - viewX, pcy = (int)floorf(cz * 24.0f) - viewY;
+        /* the reach in 1995 pixels: 24 to the cell, as the engine's 256 leptons are */
+        const int rp = ((range + muzzle) * 24 + 128) / 256;
+        if (rp <= 0) continue;
+        if (!begun) {
+            begun = true;
+            glDisable(GL_TEXTURE_2D);
+            glColor3ub(pal[15 * 3], pal[15 * 3 + 1], pal[15 * 3 + 2]);
+            glBegin(GL_QUADS);
+        }
+        RangeRingRec q = range_ring_rec(o, true, range, muzzle, cx, cz, r);
+        /* the midpoint circle, each of its pixels lit when its angle falls on a dash */
+        int x = rp, y = 0, err = 1 - rp;
+        while (x >= y) {
+            const int px[8] = { x, y, -y, -x, -x, -y, y, x };
+            const int py[8] = { y, x, x, y, -y, -x, -x, -y };
+            for (int s = 0; s < 8; s++) {
+                if (!range_ring_on(atan2((double)py[s], (double)px[s]), q.phase, q.dashes))
+                    continue;
+                const float x0 = ox + (float)((pcx + px[s]) * scale);
+                const float y0 = oy + (float)((pcy + py[s]) * scale);
+                glVertex2f(x0, y0);                  glVertex2f(x0 + scale, y0);
+                glVertex2f(x0 + scale, y0 + scale);  glVertex2f(x0, y0 + scale);
+                range_ring_measure(&q, (float)px[s] / 24.0f, (float)py[s] / 24.0f);
+            }
+            y++;
+            if (err < 0) err += 2 * y + 1;
+            else { x--; err += 2 * (y - x) + 1; }
+        }
+        for (int k = 0; k < 16; k++) {
+            const int j = k * q.dashes / 16;
+            for (int g = 0; g < 2; g++) {
+                const double a = range_ring_dash_mid(q.phase, q.dashes, j, g != 0);
+                const float dx = (float)rp * (float)cos(a), dz = (float)rp * (float)sin(a);
+                const float sc = ox + ((float)pcx + dx + 0.5f) * (float)scale;
+                const float sr = oy + ((float)pcy + dz + 0.5f) * (float)scale;
+                if (g) { q.gcol[k] = sc; q.grow[k] = sr; }
+                else {
+                    q.col[k] = sc; q.row[k] = sr;
+                    q.wx[k] = cx + r * (float)cos(a); q.wz[k] = cz + r * (float)sin(a);
+                }
+            }
+        }
+        g_rangeRingRecs.push_back(q);
+    }
+    if (!begun) return;
+    glEnd();
+    glColor4f(1, 1, 1, 1);
+}
+
 static void dos2d_scene(int fbw, int fbh)
 {
     g_fbW = fbw; g_fbH = fbh;
     g_laserDrawn = 0;      /* the beams this picture draws, counted by dos2d_draw_lasers */
     sb_layout(fbw, fbh);
     const int scale = g_dos2dRa ? g_ra95WorldScale : g_dbScale;
-    const int viewW = g_dos2dRa ? g_ra95ViewW : 240;
+    const int viewW = g_dos2dRa ? g_ra95ViewW : sb_td_classic_view_w();
     const int viewH = g_dos2dRa ? g_ra95ViewH : 200;
-    const float ox = g_dbX0 - (float)viewW * scale, oy = g_dbY0;
-    const int viewX = (int)floorf(g_camX * 24.0f - viewW * 0.5f);
-    const int viewY = (int)floorf(g_camZ * 24.0f - viewH * 0.5f);
+    /* The map window (winX, winY, the scissor) stays where the bar puts it; the map
+       drawn inside it moves by whole screen pixels between two 1995 pixels
+       (classic_view_origin), so ox and oy sit up to one 1995 pixel up and left of the
+       window and one more column and row are drawn to fill its far edges. */
+    int viewX = 0, viewY = 0;
+    float subX = 0.0f, subY = 0.0f;
+    classic_view_origin(viewW, viewH, scale, &viewX, &viewY, &subX, &subY);
+    const float winX = g_dbX0 - (float)viewW * scale, winY = g_dbY0;
+    const float ox = winX - subX, oy = winY - subY;
+    const int cullW = viewW + 1, cullH = viewH + 1;
     const PackTex& atlas = g_pack.tex[g_pack.terrainTexDos >= 0 ? g_pack.terrainTexDos : g_pack.terrainTex];
     glViewport(0,0,fbw,fbh);
     glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     begin_overlay(fbw,fbh);
     glEnable(GL_SCISSOR_TEST);
-    glScissor((int)ox, fbh - (int)(oy + viewH*scale), viewW*scale, viewH*scale);
+    glScissor((int)winX, fbh - (int)(winY + viewH*scale), viewW*scale, viewH*scale);
     if (g_dos2dRa && g_raStaticReady) {
         /* MapCell includes a one-cell engine sampling collar. Keep terrain,
            objects and fog inside OriginalMapCell, the playable rectangle used
@@ -888,18 +1226,20 @@ static void dos2d_scene(int fbw, int fbh)
                        ? g_raStaticMap.OriginalMapCellWidth : g_raStaticMap.MapCellWidth;
         const int mapH = g_raStaticMap.OriginalMapCellHeight > 0
                        ? g_raStaticMap.OriginalMapCellHeight : g_raStaticMap.MapCellHeight;
-        const int x0 = std::max(0, (mapX*24-viewX)*scale);
-        const int y0 = std::max(0, (mapY*24-viewY)*scale);
+        /* in screen pixels from the window's corner, the map's shift included */
+        const int sx = (int)subX, sy = (int)subY;
+        const int x0 = std::max(0, (mapX*24-viewX)*scale - sx);
+        const int y0 = std::max(0, (mapY*24-viewY)*scale - sy);
         const int x1 = std::min(viewW*scale,
-            ((mapX+mapW)*24-viewX)*scale);
+            ((mapX+mapW)*24-viewX)*scale - sx);
         const int y1 = std::min(viewH*scale,
-            ((mapY+mapH)*24-viewY)*scale);
-        glScissor((int)ox+x0, fbh-(int)oy-y1,
+            ((mapY+mapH)*24-viewY)*scale - sy);
+        glScissor((int)winX+x0, fbh-(int)winY-y1,
                   std::max(0,x1-x0), std::max(0,y1-y0));
     }
     glEnable(GL_TEXTURE_2D);
     if (g_dos2dRa) {
-        ra2d_draw_terrain(viewX, viewY, ox, oy, scale, viewW, viewH);
+        ra2d_draw_terrain(viewX, viewY, ox, oy, scale, cullW, cullH);
     } else {
         glBindTexture(GL_TEXTURE_2D, g_pack.terrainClassicGL ? g_pack.terrainClassicGL : atlas.gl);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -909,7 +1249,7 @@ static void dos2d_scene(int fbw, int fbh)
         for (size_t i = 0; i < g_pack.cell.size(); i++) {
             const PackCell& c = g_pack.cell[i];
             const int px = c.x*24-viewX, py = c.y*24-viewY;
-            if (px < -24 || px >= viewW || py < -24 || py >= viewH || !cell_shown(c.x,c.y)) continue;
+            if (px < -24 || px >= cullW || py < -24 || py >= cullH || !cell_shown(c.x,c.y)) continue;
             dos2d_quad(ox+px*scale, oy+py*scale, ox+(px+24)*scale, oy+(py+24)*scale,
                        c.u0*(float)atlas.uw/atlas.w, c.v0*(float)atlas.uh/atlas.h,
                        c.u1*(float)atlas.uw/atlas.w, c.v1*(float)atlas.uh/atlas.h);
@@ -945,9 +1285,9 @@ static void dos2d_scene(int fbw, int fbh)
                                  (d.DrawFlags & 0x1000) != 0 /* SHAPE_GHOST */);
             }
         }
-        dos2d_place_cursor(viewX,viewY,ox,oy,scale,viewW,viewH);
+        dos2d_place_cursor(viewX,viewY,ox,oy,scale,cullW,cullH);
         g_dos2dAnimRecs.clear();
-        dos2d_draw_anims(true,viewX,viewY,ox,oy,scale,viewW,viewH);
+        dos2d_draw_anims(true,viewX,viewY,ox,oy,scale,cullW,cullH);
         const bool layers_ok = BrainGetState(GAME_STATE_LAYERS, 0, bytes.data(),
                                              (unsigned)bytes.size());
         if (g_dos2dRa && !g_raLayersReported) {
@@ -967,6 +1307,8 @@ static void dos2d_scene(int fbw, int fbh)
             g_raLayersReported = 1;
         }
         g_dos2dAirRecs.clear();
+        g_dos2dGroupRecs.clear();
+        g_spyRecs.clear();
         if (layers_ok) {
             const CNCObjectListStruct* list = (const CNCObjectListStruct*)bytes.data();
             std::vector<int> order;
@@ -993,12 +1335,30 @@ static void dos2d_scene(int fbw, int fbh)
             }
             g_dos2dCloakRecs.clear();
             glEnable(GL_ALPHA_TEST); glAlphaFunc(GL_GREATER, 0.5f);
+            /* A RED ALERT BUILDING'S BOX IS DRAWN AFTER ITS OVERLAYS. The export hands a
+               building's extra layers (the War Factory's door and roof) over as sub-objects
+               after it, but BuildingClass::Draw_It draws them BEFORE TechnoClass::Draw_It's
+               box, health bar and pips and before a spied factory's cameo. So the box of a
+               building waits here until the next object that is not one of its layers. */
+            const CNCObjectStruct* selPend = nullptr;
+            int selPx = 0, selPy = 0;
             for (size_t j = 0; j < order.size(); j++) {
                 const CNCObjectStruct& o = list->Objects[order[j]];
+                if (selPend && o.CNCInternalObjectPointer != selPend->CNCInternalObjectPointer) {
+                    dos2d_selection(*selPend,selPx,selPy,ox,oy,scale);
+                    selPend = nullptr;
+                }
                 if (o.Type == ANIM) continue; /* original EFX|ANIM records above/below */
                 const int wx = o.PositionX + (view[4]*24)/256;
                 const int wy = o.PositionY + (view[5]*24)/256;
-                const int px = wx-viewX, py = wy-viewY;
+                const SimObject* dodge = nullptr;
+                if (g_sb.GunPlayers && (o.Type == UNIT || o.Type == INFANTRY)) {
+                    const ObjKind kind = o.Type == UNIT ? K_UNIT : K_INFANTRY;
+                    for (const SimObject& object : g_objects)
+                        if (object.kind == kind && object.id == o.ID) { dodge = &object; break; }
+                }
+                const int lift = dodge && dodge->kind == K_UNIT ? dodge->alt * 24 / 256 : 0;
+                const int px = wx-viewX, py = wy-viewY-lift;
                 if (px < -192 || px > viewW+192 || py < -192 || py > viewH+192) continue;
                 /* A building or terrain sprite can extend into mapped cells even
                    when its anchor is still shrouded. The fog pass below clips its
@@ -1012,8 +1372,11 @@ static void dos2d_scene(int fbw, int fbh)
                          g_pack.theater[0],o.AssetName);
                 const unsigned int playerMask = dos2d_player_mask();
                 const bool flash = o.IsBlushing && (o.FlashingFlags & playerMask);
-                /* HouseClass::Remap_Table gives single-player Nod structures the
-                 * red table; BadGuy's stored house colour is blue-grey for units. */
+                /* Tiberian Dawn's HouseClass::Remap_Table gives single-player Nod
+                 * (HOUSE_BAD, house 1) structures the red table; BadGuy's stored house
+                 * colour is blue-grey for units. The rule is Tiberian Dawn's only: Red
+                 * Alert's Remap_Table returns the house's own colour for every object,
+                 * and its house 1 is Greece, whose buildings are light blue. */
                 const bool rotor = g_dos2dRa && (!strcmp(o.AssetName,"RROTOR") ||
                                                    !strcmp(o.AssetName,"LROTOR"));
                 /* SHAPE_FADING | SHAPE_PREDATOR is what the engine asks for an aircraft's
@@ -1026,8 +1389,23 @@ static void dos2d_scene(int fbw, int fbh)
                 const bool fadepred = (o.DrawFlags & 0x0300) == 0x0300;
                 const bool shadow = fadepred;
                 const bool shimmer = (o.DrawFlags & 0x0300) == 0x0200;
-                const int remap = flash || rotor || shadow ? -1 : (o.Type == BUILDING && o.Owner == 1
-                                   ? 2 /* REMAP_RED */ : o.RemapColor);
+                /* An Iron Curtain object is drawn through FadingRed in place of its house
+                   colour and its blush (DOS2D_REMAP_IRON); its shadow and rotors are not. */
+                const bool iron = g_dos2dRa && o.IsIronCurtain && !rotor && !shadow;
+                /* Red Alert's remap bands are PALETTE.CPS rows, and its library numbers grey
+                   and blue the other way round (ra_library_colour). */
+                /* A Funpark mission's Multi4 (HOUSE_MULTI4, 7) is drawn through RemapLtBlue,
+                   units and buildings alike (house.cpp Remap_Table), where the export's
+                   RemapColor names Multi4's own RemapBlue. */
+                const int remap = iron ? DOS2D_REMAP_IRON
+                                : flash || rotor || shadow ? -1
+                                : g_dos2dRa ? ra_library_colour(o.RemapColor)
+                                : (o.Type == BUILDING && o.Owner == 1
+                                   ? 2 /* REMAP_RED, Tiberian Dawn's Nod structures */
+                                   : g_funparkMode && o.Owner == 7
+                                   ? 1 /* REMAP_LTBLUE */
+                                   : o.RemapColor);
+                if (remap >= 0 && !iron) dos2d_remap_dump("cls", o, remap);
                 const char* art = o.IsTheaterSpecific && dos2d_shape(key) ? key : o.AssetName;
                 /* A unit the 1995 engine would not draw at all: hidden by its cloak
                    (dos2d_visual), or one the export marks invisible to this player (Red
@@ -1073,18 +1451,32 @@ static void dos2d_scene(int fbw, int fbh)
                     g_dos2dAirRecs.push_back(r);
                 }
                 if (g_dos2dShadowsOff && fadepred) continue;
+                const bool rolling = dodge && dodge->roll;
+                if (rolling) {
+                    const float x = ox + px * scale, y = oy + py * scale;
+                    const float angle = rollfall_angle(dodge->roll) * (180.0f / (float)M_PI);
+                    glPushMatrix();
+                    glTranslatef(x, y, 0);
+                    glRotatef(dodge->face < 128 ? angle : -angle, 0, 0, 1);
+                    glTranslatef(-x, -y, 0);
+                }
                 if (shimmer)
-                    dos2d_shimmer(art,o.ShapeIndex,px,py,ox,oy,scale,viewW,viewH,fbh);
+                    dos2d_shimmer(art,o.ShapeIndex,px,py,ox,oy,scale,cullW,cullH,fbh);
                 else
                     dos2d_draw_shape(art,
                                      o.ShapeIndex,px,py,(o.DrawFlags & 0x0020) != 0,ox,oy,scale,remap,
-                                     (o.DrawFlags & 0x1000) != 0,flash,shadow);
+                                     (o.DrawFlags & 0x1000) != 0,flash && !iron,shadow);
+                if (rolling) glPopMatrix();
                 /* Draw_It draws the lines before the selection box */
                 if (!o.SubObject) dos2d_draw_lasers(o,viewX,viewY,ox,oy,scale);
-                if (!o.SubObject) dos2d_selection(o,px,py,ox,oy,scale);
+                if (!o.SubObject) {
+                    if (g_dos2dRa && o.Type == BUILDING) { selPend = &o; selPx = px; selPy = py; }
+                    else dos2d_selection(o,px,py,ox,oy,scale);
+                }
             }
+            if (selPend) dos2d_selection(*selPend,selPx,selPy,ox,oy,scale);
         }
-        dos2d_draw_anims(false,viewX,viewY,ox,oy,scale,viewW,viewH);
+        dos2d_draw_anims(false,viewX,viewY,ox,oy,scale,cullW,cullH);
         glDisable(GL_ALPHA_TEST);
     }
     /* Deep DOS shroud is opaque black; draw the partial SHADOW.SHP rims after it. */
@@ -1100,7 +1492,7 @@ static void dos2d_scene(int fbw, int fbh)
         const int cy = ra_fog_cells ? g_raStaticMap.MapCellY + (int)(i / g_raStaticMap.MapCellWidth)
                                  : g_pack.cell[i].y;
         const int px = cx*24-viewX, py = cy*24-viewY;
-        if (px < -24 || px >= viewW || py < -24 || py >= viewH || !shroud_cell_hidden(cx,cy)) continue;
+        if (px < -24 || px >= cullW || py < -24 || py >= cullH || !shroud_cell_hidden(cx,cy)) continue;
         const float x0=ox+px*scale,y0=oy+py*scale,x1=x0+24*scale,y1=y0+24*scale;
         glVertex2f(x0,y0); glVertex2f(x1,y0); glVertex2f(x1,y1); glVertex2f(x0,y1);
     }
@@ -1121,27 +1513,52 @@ static void dos2d_scene(int fbw, int fbh)
            limit dropped most edge combinations and left square gaps. */
         if (shadow<0 || shadow>=48) continue;
         const int px=cx*24-viewX, py=cy*24-viewY;
-        if (px<-24 || px>=viewW || py<-24 || py>=viewH) continue;
+        if (px<-24 || px>=cullW || py<-24 || py>=cullH) continue;
         dos2d_draw_shape("SHADOW",shadow,px,py,false,ox,oy,scale);
+    }
+    /* Only transient firing patches use this fade; the original SHADOW.SHP
+       rims, all permanently explored cells and the Classic artwork stay intact. */
+    if(!g_shroudFireFading.empty()) {
+        glDisable(GL_TEXTURE_2D);glDisable(GL_ALPHA_TEST);
+        for(size_t fi=0;fi+1<g_shroudFireFading.size();fi+=2) {
+            const int cx=g_shroudFireFading[fi],cy=g_shroudFireFading[fi+1];
+            const float alpha=shroud_fire_alpha(cx,cy);if(alpha<=0.0f)continue;
+            const int px=cx*24-viewX,py=cy*24-viewY;
+            if(px<-24||px>=cullW||py<-24||py>=cullH)continue;
+            const float x0=ox+px*scale,y0=oy+py*scale,x1=x0+24*scale,y1=y0+24*scale;
+            glColor4f(0,0,0,alpha);glBegin(GL_QUADS);
+            glVertex2f(x0,y0);glVertex2f(x1,y0);glVertex2f(x1,y1);glVertex2f(x0,y1);glEnd();
+        }
+        glEnable(GL_TEXTURE_2D);
     }
     glDisable(GL_BLEND); glDisable(GL_ALPHA_TEST);
     glColor4f(1,1,1,1);
+    dos2d_range_rings(viewX, viewY, ox, oy, scale);
+    dos2d_gap_rings(viewX, viewY, ox, oy, scale);
     if (g_bandOn) {
         /* The rubber band, as DisplayClass::Draw_It lays it over the tactical page in
-           both games: Draw_Rect in WHITE, one 1995 pixel wide, both corners held inside
-           the tactical view (Mouse_Left_Held bounds them), so the box sits on the same
-           pixel grid as the sprites it is drawn round. */
-        const int bx0 = std::max(0, std::min(viewW-1, (int)floorf((std::min(g_bandC0,g_bandC1)-ox)/scale)));
-        const int bx1 = std::max(0, std::min(viewW-1, (int)floorf((std::max(g_bandC0,g_bandC1)-ox)/scale)));
-        const int by0 = std::max(0, std::min(viewH-1, (int)floorf((std::min(g_bandR0,g_bandR1)-oy)/scale)));
-        const int by1 = std::max(0, std::min(viewH-1, (int)floorf((std::max(g_bandR0,g_bandR1)-oy)/scale)));
+           both games: Draw_Rect in WHITE, one 1995 pixel wide, on the same pixel grid as
+           the sprites it is drawn round. The pointer corner is held inside the tactical
+           view (Mouse_Left_Held bounds it); the press corner follows the ground it was
+           pressed on (band_track), so once the map has scrolled under a held band that
+           corner can lie off the page. A side whose line lies off the page is then not
+           drawn, so the box reads as running on past the edge rather than closing on it. */
+        band_track(fbw, fbh);
+        const int ux0 = (int)floorf((std::min(g_bandC0,g_bandC1)-ox)/scale);
+        const int ux1 = (int)floorf((std::max(g_bandC0,g_bandC1)-ox)/scale);
+        const int uy0 = (int)floorf((std::min(g_bandR0,g_bandR1)-oy)/scale);
+        const int uy1 = (int)floorf((std::max(g_bandR0,g_bandR1)-oy)/scale);
+        const int bx0 = std::max(0, std::min(viewW-1, ux0));
+        const int bx1 = std::max(0, std::min(viewW-1, ux1));
+        const int by0 = std::max(0, std::min(viewH-1, uy0));
+        const int by1 = std::max(0, std::min(viewH-1, uy1));
         const float x0 = ox + bx0*scale, y0 = oy + by0*scale;
         const float w = (float)(bx1-bx0+1)*scale, h = (float)(by1-by0+1)*scale;
         glDisable(GL_TEXTURE_2D);
-        dos2d_solid(x0, y0, w, (float)scale, 15);              /* WHITE */
-        dos2d_solid(x0, y0+h-scale, w, (float)scale, 15);
-        dos2d_solid(x0, y0, (float)scale, h, 15);
-        dos2d_solid(x0+w-scale, y0, (float)scale, h, 15);
+        if (uy0 == by0) dos2d_solid(x0, y0, w, (float)scale, 15);          /* WHITE */
+        if (uy1 == by1) dos2d_solid(x0, y0+h-scale, w, (float)scale, 15);
+        if (ux0 == bx0) dos2d_solid(x0, y0, (float)scale, h, 15);
+        if (ux1 == bx1) dos2d_solid(x0+w-scale, y0, (float)scale, h, 15);
         glColor4f(1,1,1,1);
     }
     glDisable(GL_SCISSOR_TEST);
@@ -1179,6 +1596,7 @@ static void dos2d_scene(int fbw, int fbh)
 
 static void dos2d_free(void)
 {
+    g_dosShapeIndex.clear();
     dos2d_flush_textures();
     g_dos2dShapes.clear();
     g_dos2dTdPal = 0;

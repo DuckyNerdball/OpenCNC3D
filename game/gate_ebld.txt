@@ -28,6 +28,11 @@
 # "sink" dump 68 ticks after the kill is taken during it, and the scorch is gone 34 s
 # (510 ticks) after it, so the "end" dump 588 ticks after the kill must find the
 # building's entry erased.
+# LINEAR LIGHT, PINNED OFF. With it on, the dark picture showing through the gaps in the
+# sidebar's frame (the seam under its top bar, the right edge above the build tabs)
+# moves by one level between the Enhanced run and the --noebld one, and claim (7)
+# counts every changed pixel right of column 1120 as drawing on the sidebar.
+gfx linear_on 0
 tick 20
 cam 52 52
 zoom max

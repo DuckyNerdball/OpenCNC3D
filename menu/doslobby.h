@@ -68,17 +68,8 @@
  * ruling: "Dont call them names. Just show squares with colors." So the picker is eight
  * coloured squares and no text: nothing to be wrong about, and nothing to measure.
  *
- * Two controls the engine DOES read are drawn and locked instead of hidden, because the
- * state they show is true and the reason they will not move is worth saying:
- *
- *   Bases          with bases off no house has a building or an MCV, and the early-win
- *                  rule then declares every house dead about a second into the match.
- *                  MPlayerBases and DestroyStructures have to be interlocked first.
- *   Tiberium       CNC_Set_Multiplayer_Data writes Special.IsTGrowth and
- *   Regrows        Special.IsTSpread, MapClass::Logic reads them with no mode guard and
- *                  nothing restores them, so a skirmish with tiberium off would disable
- *                  tiberium growth for every campaign mission afterwards in the same
- *                  process. Measured, not suspected.
+ * Bases stay locked on. With bases off no house has a building or an MCV, and the
+ * early-win rule declares every house dead about a second into the match.
  *
  * The 1995 sources behind the layout: redalert/nulldlg.cpp Com_Scenario_Dialog is the
  * skirmish dialog, tiberiandawn/netdlg.cpp Net_New_Dialog is where the player roster
@@ -116,7 +107,44 @@ typedef struct SK_Map
     /* 1 when this map came out of the editor rather than off the cartridge. It decides
        which tab the map appears under, and nothing else. */
     unsigned char user;
+    /* WHERE THE STARTS ARE, for a lobby that draws its own markers over a picture of the
+     * map (Red Alert's Enhanced lobby). x and y are the playable rectangle's top left
+     * corner in cells, and w and h above are its size. start_x[k], start_y[k] is start k's
+     * cell, in the order the engine numbers starts, which is the number a seat's start
+     * names. start_cells is how many are filled; 0 means none are known and no marker is
+     * drawn. Values, never pointers, and after `user` so a positional initialiser that
+     * stops there leaves them zero. */
+    short x, y;
+    unsigned char start_cells;
+    short start_x[8], start_y[8];
+    /* A RALLY COURSE: the INI carries a [Rally] section, so the map is built for a race and
+       nothing else, and a skirmish or a network match on it is always raced. SK_COURSE_RUN
+       is a point-to-point course (one run whatever the laps say), SK_COURSE_CIRCUIT a
+       circuit (its [Rally] says Loop=1). It decides which game mode lists the map
+       (sk_map_fits_mode) and what Match Rules offers, and nothing else. */
+    unsigned char course;
+    /* AN IMPORTED MAP'S OWN PICTURE (<code>.preview.ppm beside it, written by the importer):
+     * the playable rectangle in RGBA, pic_w x pic_h, owned by the shell for the life of the
+     * list; NULL when the map has none. The lobby fits it to the rectangle its start
+     * markers are fitted to. */
+    const unsigned char *pic;
+    short pic_w, pic_h;
 } SK_Map;
+#define SK_COURSE_NONE 0
+#define SK_COURSE_RUN 1
+#define SK_COURSE_CIRCUIT 2
+
+/* A RALLY'S LAPS, the range the lobby offers: the race's own (game/rally_abi.h,
+   RALLY_LAPS_*), restated because this module includes no game header. */
+#define SK_LAPS_MIN 1
+#define SK_LAPS_MAX 9
+#define SK_LAPS_DEFAULT 3
+
+/* THE ONE TEST OF WHICH MAPS A LOBBY LISTS. A Rally lobby lists courses and nothing else;
+   every other mode hides them, because a course is always raced whatever the mode says.
+   Everything that lists, counts, indexes or defaults a map asks this (sk_map_offered for
+   a screen's own list), so no two places can disagree about it. */
+int sk_map_fits_mode(const SK_Map *m, int rally);
 
 /* ------------------------------------------------------------------------ *
  * What the screen answers: exactly the skirmish block of GameOpts, by value.
@@ -133,9 +161,12 @@ typedef struct SK_Lobby
                          is this plus one in a skirmish. Where they sit is mode[]. */
     int build;        /* tech level, 1..7                                    */
     int credits;      /* starting credits, every house alike                 */
-    int tiberium;     /* 1 = tiberium grows and spreads                      */
+    int tiberium;     /* resource regrowth multiplier, zero disables it    */
     int crates;       /* 1 = bonus crates are scattered                      */
     int aitake;       /* 1 = the computer takes over a player who leaves     */
+    int gun_game;     /* Tiberian Dawn LAN only */
+    int rally_laps;   /* a Rally's laps, SK_LAPS_MIN..MAX; 0 when it is not a Rally */
+    int speed;        /* network match speed, 0 through 6 */
     int shortgame;    /* 1 = losing every non-defensive structure ends it    */
     int superweapons; /* 1 = superweapons may be built                       */
     int bases;        /* 1 = everyone starts with an MCV and builds          */
@@ -405,6 +436,8 @@ int sk_prev_find(const SK_Prev *p, const char *scen);
 #define SK_GAUGE_X 24
 #define SK_GAUGE_PITCH 94
 #define SK_GAUGE_W 44
+#define SK_NET_GAUGE_PITCH 68
+#define SK_NET_GAUGE_W 30
 #define SK_GAUGE_H 7
 #define SK_READ_GAP 4            /* a value starts this far right of its gauge   */
 #define SK_CONTENT_L (SK_DLG_X + 6)
@@ -550,9 +583,10 @@ typedef enum
     SK_I_CHANGEMAP,
     SK_I_BUILD,    /* gauge -- FIRST of the gauges, sk_is_gauge is a range */
     SK_I_CREDITS,  /* gauge */
-    SK_I_UNITS,    /* gauge -- LAST of the gauges, sk_is_gauge is a range */
+    SK_I_UNITS,    /* gauge */
+    SK_I_SPEED,    /* gauge, multiplayer only */
     SK_I_BASES,    /* check box, drawn disabled */
-    SK_I_TIBERIUM, /* check box, drawn disabled */
+    SK_I_TIBERIUM, /* resource regrowth rate, cycles when pressed */
     SK_I_SUPER,    /* check box */
     SK_I_CRATES,   /* check box */
     /* THE TWO RULES ADDED 6 Sep 2026, in the rows the map facts vacated. */
@@ -561,6 +595,7 @@ typedef enum
     /* THE CHAT INPUT, after the boxes and before PLAY so the keyboard walk stays in
      * reading order. Rectangle and focus only in a network room; the range tests above
      * end at SK_I_CRATES and are untouched by it. */
+    SK_I_GUN_GAME, /* after the six standard rules, for TD LAN rooms */
     SK_I_CHAT,
     SK_I_PLAY,     /* PLAY, or START GAME hosting, or READY as a joiner */
     SK_I_CANCEL,
@@ -596,6 +631,10 @@ typedef enum
     SK_I_PICK_LIST,
     SK_I_PICK_OK,
     SK_I_PICK_CANCEL,
+    /* A RALLY'S LAPS, a range drawn only by the Enhanced lobby's Match Rules under Rally.
+     * Last, because the 1995 layout has no rectangle for it and its rect maths and ranges
+     * above stay as they were. */
+    SK_I_LAPS,
     SK_I_COUNT
 } SK_Item;
 
@@ -740,11 +779,34 @@ typedef struct SK_State
     /* WHICH ROW'S DROP DOWN IS OPEN, or -1. There is at most one, it is drawn last and
      * hit-tested first, and any press outside it shuts it. */
     int popup;
+    /* An offline player editor can move another seat's colour/start too. Back
+       restores the complete roster; Done accepts it. Network edits remain live. */
+    int edit_valid, edit_side;
+    int edit_house[SK_ROSTER_ROWS], edit_house_set[SK_ROSTER_ROWS];
+    int edit_country[SK_ROSTER_ROWS], edit_team[SK_ROSTER_ROWS];
+    int edit_colour[SK_ROSTER_ROWS], edit_start[SK_ROSTER_ROWS], edit_mode[SK_ROSTER_ROWS];
+    unsigned char edit_ai_levels[SK_ROSTER_ROWS];
     int build;   /* tech level                              */
     int credits; /* starting credits, snapped to 500        */
+    int tiberium; /* resource regrowth multiplier */
     int super;   /* superweapons                            */
     int crates;  /* bonus crates scattered on the map       */
     int aitake;    /* a player who leaves is taken over by the computer */
+    int gun_game;     /* Tiberian Dawn LAN only */
+    /* THE LOBBY IS A RALLY'S (the Game Mode dropdown's third choice, Tiberian Dawn only): it
+     * lists only courses (sk_map_offered), Match Rules offers the laps and what a race
+     * honours, and a joiner takes it from the host's room. Set through sk_set_mode. */
+    int rally;
+    int laps;         /* SK_LAPS_MIN..SK_LAPS_MAX */
+    int speed;        /* network match speed, 0 through 6 */
+    int net_relayed;
+    /* A network room whose START is being agreed: the room's setup is frozen until the
+     * match begins, so the Game Mode dropdown is too. The shell sets it on every poll. */
+    int net_starting;
+    /* THE COURSE A SKIRMISH LAST RACED, from the remembered settings (-1 none). A lobby
+     * opens in Free for All, which does not list courses, so the remembered course waits
+     * here and is selected when the player chooses Rally (sk_set_mode). */
+    int remembered_course;
     int shortgame; /* a player is finished when their non-defensive structures are gone */
     int units;   /* escort units per house beside the MCV   */
 
@@ -819,6 +881,30 @@ void sk_init(SK_State *st, const SK_Map *maps, int count, const SK_Prev *prev);
 void sk_set_red_alert(SK_State *st);
 /* A seat's country (SK_State::country), or -1 when the seats are sides. */
 int sk_row_country(const SK_State *st, int seat);
+/* Finish the offline player editor: accept=0 cancels all affected seat changes. */
+void sk_seat_edit_finish(SK_State *st, int accept);
+/* Versioned, validated offline settings. Never used by network lobbies. */
+int sk_prefs_read(const char *path, SK_State *st);
+/* A RALLY LOBBY OR NOT: lists courses only, or hides them, and moves the selected map to
+   the first one offered when the one selected is not. Red Alert has no Rally. */
+void sk_set_rally(SK_State *st, int rally);
+/* THE GAME MODE, chosen in the host's lobby with the Game Mode dropdown. A lobby opens in
+ * Free for All. Gun Game and Rally are Tiberian Dawn's; Gun Game is a LAN room's or a
+ * skirmish's, never a relayed room's, and Rally needs a course on the list.
+ * sk_mode reads the lobby's mode; sk_mode_offered says whether a choice can be made here;
+ * sk_mode_locked says whether this lobby may change mode at all (a joiner may not, nor a
+ * room whose start is being agreed); sk_set_mode makes the change and returns 1 when
+ * anything changed. */
+enum { SK_MODE_FFA = 0, SK_MODE_GUN_GAME = 1, SK_MODE_RALLY = 2, SK_MODE_COUNT = 3 };
+int sk_mode(const SK_State *st);
+int sk_mode_offered(const SK_State *st, int mode);
+int sk_mode_locked(const SK_State *st);
+int sk_set_mode(SK_State *st, int mode);
+/* Whether maps[ix] is listed in this lobby (sk_map_fits_mode for its mode). */
+int sk_map_offered(const SK_State *st, int ix);
+/* The first map this lobby lists, absolute index, or -1. */
+int sk_first_offered(const SK_State *st);
+int sk_prefs_write(const char *path, const SK_State *st);
 /* The Enhanced lobby's country list: set a seat's country, and its side with it. */
 void sk_enh_set_country(SK_State *st, int seat, int country);
 const char *sk_level_name(int level);
@@ -875,6 +961,7 @@ int sk_players(const SK_State *st);
 /* The printed label of a control, which is also its name for a script that drives this
  * screen by label rather than by pixel. */
 const char *sk_item_label(const SK_State *st, int item);
+const char *sk_regrowth_rate_name(int rate);
 /* Drawn, never clickable: gadget.cpp:632 guards the whole dispatch on !IsDisabled. */
 int sk_item_disabled(const SK_State *st, int item);
 /* The control's rectangle. Returns 0 for an item that is not drawn. */

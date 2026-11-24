@@ -154,7 +154,9 @@ def normals(A, first, bad):
         for x, y in zip(cols.tolist(), rows.tolist()):
             if not P or min((x - px) ** 2 + (y - py) ** 2 for px, py in P) > 60 * 60:
                 far += 1
-        if n < 1500 or far:
+        # a stray edge pixel or two elsewhere is depth-edge noise (one on the Guard
+        # Tower's corner measured); a leak into the rest of the frame moves hundreds
+        if n < 1500 or far > 2:
             bad.append('normals-picture(%d px changed, %d of them far from a vehicle)' % (n, far))
     # switched off and in Classic, the switch has nothing to take away
     for name in ('n', 'cl'):
@@ -283,7 +285,7 @@ def check():
     A = log('a')
     head = [l for l in A if l.startswith('EVHC|loaded=')]
     # 1. every model loads and attaches, the switch and the picture on
-    if not head or head[0] != 'EVHC|loaded=21|attached=21|on=1|enhanced=1':
+    if not head or head[0] != 'EVHC|loaded=22|attached=22|on=1|enhanced=1':
         bad.append('load(%s)' % (head[0] if head else '-'))
     arts = dumps(A, 'EVHCART|')
     if not arts:
@@ -307,8 +309,11 @@ def check():
             bad.append('nowreck-' + ty)
     if far:
         bad.append('plan(' + ','.join(far) + ')')
-    say.append('21 models load and attach, the 16 placed draw, every plan within 0.16 cells of '
-               'the cartridge model it stands in for')
+    ssml = first.get('MLRS')
+    if not ssml or ssml['hinge'] != '2' or int(ssml['wreck']) <= 0 or int(ssml['smooth']) <= 0:
+        bad.append('SSML rig, wreck or smooth normals missing')
+    say.append('22 models load and attach, the 16 placed draw, the original 21 plans match within '
+               '0.16 cells, and the SSML has both rocket hinges, a wreck and smooth normals')
     objs = [l for l in A if l.startswith('EVHCOBJ|')]
 
     def best(ty, key):

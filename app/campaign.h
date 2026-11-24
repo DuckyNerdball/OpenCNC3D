@@ -81,8 +81,8 @@ typedef struct CampMatch {
     int side;                    /* the local commander's faction: 0 GDI, 1 Nod */
     char map[24];
     /* WHY IT ENDED, when it did not end by somebody winning. Printed on the header in
-       place of the score formula, because on the one screen a player gets after a match
-       that broke, why it broke outranks how the points were added up. At most 32
+       place of the player's own score and place, because on the one screen a player gets
+       after a match that broke, why it broke outranks how it went. At most 32
        characters reach the plate; see MS_HEAD_X. "" for an ordinary finish. */
     char ended[96];
 } CampMatch;
@@ -148,6 +148,13 @@ typedef struct Camp {
                                     screen running now. The HOST pointer is off
                                     for the whole app; these screens draw
                                     MOUSE.SHP into the plate copy themselves.  */
+    void *curpack;               /* DB_Pack* of Red Alert's whole MOUSE.SHP (the
+                                    tactical view's ra3d/cursor-temperat.pack),
+                                    Red Alert only, NULL otherwise             */
+    int curframe, curhx, curhy;  /* Set_Mouse_Cursor: the MOUSE.SHP frame shown
+                                    and its hot spot. 0,0,0 is the plain arrow
+                                    every screen draws; only Red Alert's map
+                                    screen asks for another (mapsel.cpp:200).  */
     /* Keyboard->Get()'s buffer, drained ONLY by the score screen's name entry;
        every other screen keeps using camp_pump's `keyed` flag. camp_pump pushes
        printable bytes from SDL_TEXTINPUT and '\b'/'\r' from SDL_KEYDOWN -- SDL
@@ -206,12 +213,33 @@ int camp_score(Camp *c, const CampScore *s, int side, int scenario);
    tally. Returns 0 on click/key at the end, -1 if the window closed. */
 int camp_match_score(Camp *c, const CampMatch *m, int side);
 
+/* WHERE THE COMMANDER AT THIS MACHINE FINISHED, by the order the match table is drawn in:
+   everyone still standing ahead of everyone beaten, then the higher score ahead. A tie
+   shares a place, so two commanders level at the top both finished first. Answers the
+   index of the local row, or -1 when no row is marked local (the local seat's numbers
+   could not be read); *place is then 0. Red Alert's debrief asks the same question with
+   the same rule, so one place in a match means one thing in both games. */
+int camp_match_standing(const CampMatchRow *rows, int n, int *place);
+
+/* "1ST", "2ND", "3RD", "4TH" ... into buf; lower case suffixes when `upper` is 0. */
+void camp_match_ordinal(int place, int upper, char *buf, int buflen);
+
 /* Map_Selection: globe spin-in, EARTH_E, EUROPE advances, territory blink, click.
    scenario is the one JUST WON (its CountryArray row names the choices for the
    NEXT mission). Fills *dir ('E'/'W') and *var ('A'..'C'). The CURRENT direction
    (1995's ScenDir) is tracked inside Camp because the caller passes a fresh 'E'
    each time. Returns 0 chosen, -1 window closed. */
 int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var);
+
+/* The Tiberian Dawn endings (ending.cpp). camp_nod_target is Nod_Ending's satellite
+   picture after NODFINAL: Kane, then "Select a target", then a click on one of four
+   cities. Returns the selection 1..4 that picks NODEND1..4, or -1 if the window closed.
+   camp_attract is the ATTRACT2.CPS still both endings close on before CC2TEASE: 0, or -1
+   if the window closed. */
+int camp_nod_target(Camp *c);
+int camp_attract(Camp *c);
+/* --flowtarget N: which quadrant camp_nod_target's autopilot clicks (1..4). */
+extern int camp_autopilot_target;
 
 /* Original Red Alert score/map reels and selectable map coordinates. */
 int camp_ra_score(Camp *c, const CampScore *s, int side, int scenario);

@@ -1,5 +1,76 @@
 # Red Alert Enhanced menus v01
 
+<!-- october34-2026-11-04 -->
+
+## October language and player-setup correction — 4 November 2026
+
+Preserve this exact approved kit. Saved German is now applied from the first main
+menu draw, with text measured after translation in the existing native font.
+Back/Escape cancels a Player Setup edit, including colour swaps; Done/Enter
+commits it. Offline defaults contain one AI, and accepted seat/rule choices persist
+across maps and full app restarts. Each game has its own atomic preference file;
+network lobbies do not use it. All eight RA country labels remain coherent.
+
+Actual native Mac/Windows fitting, pointer, restart and first-mission German voice
+checks pass. The private Remaster Lab October gallery contains native captures and
+hashes; this is technical verification, not new artistic approval. The original
+Classic partial cameo row is corrected separately without replacing its artwork.
+Source f4a85e1d6 is installed through the existing Dock route for both games; see
+`docs/verification/2026-11-04-october-reports/README.md` for exact receipts and limits.
+
+<!-- /october34-2026-11-04 -->
+
+## v0.9.1 private development delivery — 26 October 2026
+
+Final verified delivery: private **v0.9.1+d01f248**, runtime source commit
+`d01f24886`. See `docs/verification/2026-10-26-v091-final/README.md` and its
+hash-bound receipts. Actual launcher/menu screenshots verify Mission Disks,
+Counterstrike/Aftermath and the Shift-speaker Ant list. All Ant chapters and
+four private Dawn User Maps launch through their native lists. The four-tab F5
+layout and theater selector are verified on Mac and native Windows; no artistic
+approval is inferred from these technical checks. Both Dock play folders receive
+the clean binaries and engines while preserving their launcher and personal state.
+The original tree mesh class is 0.247 (outside emissive bands); RA fallback cards
+reuse their exact theater-prefixed sprite coverage and painter order. Existing
+Enhanced tree normals retain their original foliage class.
+
+
+RA's title button and mission picker are named **Mission Disks**; Dawn retains
+Special Ops. The existing accepted RA menu kit is reused. Hold Shift and click
+the title backdrop's top-right speaker to open the four Ant missions. Both classic
+and Enhanced layouts use the same native-art hotspot, scaled with the backdrop.
+The original Spain player and Ant rules are enabled; mission 2 inherits the actual
+surviving objects exported by mission 1. Direct selection of chapter 2 seeds the
+original Discovery base rather than losing immediately with an empty player.
+All 38 add-on maps have their own freshly generated, verified height corners.
+
+F5 tabs are Enhanced, Weather, **Lighting**, Experimental. The four 80 px tabs
+fit the existing 348 px panel. Lighting's sticky selector occupies y78–98;
+rows begin at y108 on that tab and y80 elsewhere. Shared layout/hit testing
+splits mixed groups by parameter, keeping geometry and motion on their existing
+tabs. Temperate, Winter, Snow and Desert save independently by named keys.
+Old files seed all four from their existing values. Loading a map chooses its
+theater; the selector previews another profile immediately. Lighting's Defaults
+resets only the selected theater. Classic mode keeps its effect switches off.
+
+Four personal maps named Effects - Temperate/Winter/Snow/Desert are installed in
+Dawn's user_maps through tools/install-effects-lab.py. Snow uses the existing
+Snow renderer with the original engine's Winter rules. Their own flat 65x65
+heightfields accompany clear ground; 51 production effect recipes loop on labeled
+ground stations. These are private tuning maps, gated by private_developer and
+excluded by existing public user_maps package filters. No map changes engine rules.
+
+The fallback tree mesh path now writes its foliage class before the remastered
+normal pass. This connects original trees to the same tree shadow fill/object fill
+and foliage occlusion rules as the Enhanced trees, including cutout coverage.
+Native checks and raw buffer comparisons remain separate from artistic approval.
+
+The earlier delivery reached the canonical `CNC3D/playable` folder. The actual Dock points to
+`CNC3D-latest/playable/OpenCNC3D.app`. Final delivery receipts must identify the
+latter and preserve its launcher, saves, settings, current HUD/fog/art assets.
+All candidates remain private; no public source or binary publication is authorized.
+
+
 Mockups of every screen the Tiberian Dawn Enhanced menu has, in Red Alert's version, plus
 the concepts for the two new 3D faction emblems. `PROPOSAL.md` lists the choices that were
 open; all of them are now settled (below).
@@ -162,3 +233,9 @@ Enhanced title backdrop; the native menu frame and controls remain unchanged. Th
 main-menu footer is also suppressed. The original kit/scans stay preserved here.
 See that version's artwork for derived384×130/192×65wordmarks,640×400/320×200
 backdrops, actual720p/1440p/native-browser evidence and92-image RA gate result.
+
+## 26 October 2026 — v0.9.1 expansion integration
+
+Reused the existing Classic list and approved Enhanced RA menu artwork, fittings, typography and left/right family tabs. No artwork revision or new artistic approval is claimed. The catalog exposes 16 Counterstrike and 18 Aftermath missions under Allied/Soviet headings; rows require their own original INI and baked scene. Launches use RA engine options and clear campaign-route state. Dawn retains its existing Covert/Special Ops list.
+
+Hidden Dock-installation review covered both RA family tabs, first/end rows, four actual expansion launches spanning both sides and families, and the unchanged Dawn list. All 34 RA missions passed engine startup. Evidence and exact delivered executable/catalog hashes are in `docs/verification/2026-10-26-v091-development/`. Mac runtime delivery is complete. Native Windows Enhanced graphics and all four faction build controls passed on the RTX 3070; the new expansion menu still awaits native Windows UI review. Artistic baseline acceptance and functional verification are separate.

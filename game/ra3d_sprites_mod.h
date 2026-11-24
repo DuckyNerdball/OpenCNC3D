@@ -35,9 +35,10 @@ static int  g_ra3dModelRoots = 0, g_ra3dModelSubs = 0, g_ra3dFallbackBuildings =
 /* The vehicle tuning mask replays the exact upright cards the colour frame drew,
    in their painter order. Non-vehicle cards erase any vehicle beneath their opaque
    texels. This separate mask leaves the cards' inherited ground lighting intact. */
-struct Ra3dVehicleMaskCard { GLuint tex; float uv[4], v[4][3]; bool vehicle; };
+struct Ra3dVehicleMaskCard { GLuint tex; float uv[4], v[4][3]; bool vehicle, tree; };
 static std::vector<Ra3dVehicleMaskCard> g_ra3dVehicleMaskCards;
 static bool g_ra3dVehicleMaskCapture = false, g_ra3dVehicleMaskNext = false;
+static bool g_ra3dTreeMaskNext = false;
 static void ra3d_draw_vehicle_mask(void);
 static bool ra3d_vehicle_type(int type)
 {
@@ -251,6 +252,7 @@ static void ra3d_card_at(const char* name, int frame, float cx, float gy, float 
         Ra3dVehicleMaskCard card;
         card.tex = s->tex[dos2d_tex_slot(remap, ghost, flash, shadow, false)];
         card.vehicle = g_ra3dVehicleMaskNext && !shadow;
+        card.tree = g_ra3dTreeMaskNext && !shadow;
         for (int k = 0; k < 4; k++) card.uv[k] = uv[k];
         const float sR[4] = { -1, 1, 1, -1 }, sU[4] = { 1, 1, -1, -1 };
         for (int k = 0; k < 4; k++) {
@@ -367,6 +369,49 @@ static void ra3d_stand(const Dos2DShape* s, int frame, float cx, float cz, float
     c[2] = zf + g_bbUp[2] * d;
 }
 
+/* WHERE A SOLDIER'S CARD PUTS HIM, for picking (object_screen_poly). His card stands on its
+   foot as ra3d_stand stands it, so the man the player aims at has his feet `south` cells
+   south of his coordinate, his middle `side` cells along the card's right from its centre,
+   and is as wide and as tall as the drawn pixels of his frame rather than the frame, which
+   is mostly empty. Measured over the first eight frames, the standing frame of each facing,
+   so the box keeps one shape as he turns; cached by sprite. False when the sprite is not
+   loaded or draws nothing, and the caller keeps its own measure. */
+static bool ra3d_infantry_figure(const char* type, float* south, float* side,
+                                 float* wid, float* hgt)
+{
+    const Dos2DShape* s = type ? dos2d_shape(type) : NULL;
+    if (!s || s->w <= 0 || s->h <= 0 || s->frames <= 0) return false;
+    static std::map<std::string, std::vector<int> > boxes;
+    std::vector<int>& b = boxes[s->name];
+    if (b.empty()) {
+        b.assign(4, -1);
+        const size_t size = (size_t)s->w * s->h * s->frames;
+        std::vector<unsigned char> indices(size);
+        uLongf bytes = (uLongf)size;
+        int x0 = s->w, y0 = s->h, x1 = -1, y1 = -1;
+        if (uncompress(indices.data(), &bytes, s->zipped.data(), (uLong)s->zipped.size()) == Z_OK
+            && bytes == size) {
+            const int n = s->frames < 8 ? s->frames : 8;
+            for (int f = 0; f < n; f++)
+                for (int y = 0; y < s->h; y++)
+                    for (int x = 0; x < s->w; x++)
+                        if (indices[((size_t)f * s->h + y) * s->w + x]) {
+                            if (x < x0) x0 = x;
+                            if (x > x1) x1 = x;
+                            if (y < y0) y0 = y;
+                            if (y > y1) y1 = y;
+                        }
+        }
+        if (x1 >= x0 && y1 >= y0) { b[0] = x0; b[1] = y0; b[2] = x1; b[3] = y1; }
+    }
+    if (b[2] < 0) return false;
+    *south = ((b[3] + 1.0f) - s->h * 0.5f) / 24.0f;            /* centre to foot, as ra3d_stand */
+    *side  = ((b[0] + b[2] + 1) * 0.5f - s->w * 0.5f) / 24.0f;
+    *wid   = (float)(b[2] - b[0] + 1) / 24.0f;
+    *hgt   = (float)(b[3] - b[1] + 1) / 24.0f;
+    return true;
+}
+
 /* THE OLD BUILDING LIFT, kept for `ra3dstand 0`: the foot raised to the ground at the
    sprite's centre, and that lift given to every subobject. */
 static float ra3d_building_lift(const Dos2DShape* s, int frame)
@@ -414,6 +459,26 @@ static const DecalEnhTheater* ra3d_marks_set(void)
 {
     return (g_deOn && g_deHave && g_fx.enabled && g_fx.decal_enh && ra2d_theater_letter() != 'I')
          ? decalenh_set_for(2) : NULL;
+}
+
+/* WHICH DECAL SHEETS A MISSION START PUTS ON THE CARD (decalenh_load's want, boot_art.h):
+   every sheet either of the two passes that draw them can ask for in this mission, read
+   before any frame from the engine's theater number (g_theater, the same map value
+   ra2d_theater_letter reads later). draw_smudges asks for the set of the engine's own
+   theater, body and burn, in either game; ra3d_marks_set above asks Red Alert's outdoor
+   theaters for the temperate set, its body, and its burn on snow or else its plain burn.
+   Neither looks at the graphics mode, and nor does this. The editor, and the switch that
+   restores the old loads, take every sheet. */
+static int ra3d_decal_sheets_wanted(unsigned theaterId)
+{
+    if (g_editOn || boot_art_all_theaters()) return DECALENH_WANT_ALL;
+    int w = 0;
+    if ((int)theaterId == g_theater) w |= DECALENH_WANT_BODY | DECALENH_WANT_SOOT;
+    if (g_raModule && theaterId == 2) {
+        const char th = ra2d_theater_letter_of(g_theater);
+        if (th != 'I') w |= DECALENH_WANT_BODY | (th == 'S' ? DECALENH_WANT_SNOW : DECALENH_WANT_SOOT);
+    }
+    return w;
 }
 static int g_ra3dMarks = 0;   /* the last frame's cells drawn in the remastered art */
 
@@ -463,10 +528,31 @@ static void ra3d_ore_cells_clear(void);
 static void ra3d_ore_cell_add(int x, int y, int kind, int frame);
 static bool ra3d_ore_claims_overlay(const char* name);
 static void ra3d_ore_grass_claims(void);
+/* WHICH WALL KINDS STAND ON THE MAP, as a mask of ra3d_wall_kind's answers, read from the
+   engine's map whatever mode is on screen: Classic collects no wall cells (below), and the
+   remastered walls' files are read ahead of a switch to Enhanced for the kinds it will show
+   (ebld_wall_step). */
+static unsigned ra3d_wall_kinds_on_map(void)
+{
+    if (!g_raModule || !BrainGetState) return 0;
+    static std::vector<unsigned char> buf(sizeof(CNCDynamicMapStruct) + 8192 * sizeof(CNCDynamicMapEntryStruct));
+    if (!BrainGetState(GAME_STATE_DYNAMIC_MAP, 0, buf.data(), (unsigned)buf.size())) return 0;
+    const CNCDynamicMapStruct* dyn = (const CNCDynamicMapStruct*)buf.data();
+    const int count = dyn->Count < 8192 ? dyn->Count : 8192;
+    unsigned kinds = 0;
+    for (int i = 0; i < count; i++) {
+        const CNCDynamicMapEntryStruct& d = dyn->Entries[i];
+        if (!d.IsOverlay) continue;
+        const int wk = ra3d_wall_kind(d.AssetName);
+        if (wk >= 0 && wk < 32) kinds |= 1u << wk;
+    }
+    return kinds;
+}
 static void ra3d_cells_from_map(void)
 {
     g_ra3dCellsCrates = g_ra3dCellsFields = g_ra3dCellsWalls = 0;
     g_ra3dMarkCells.clear();
+    g_crushApronRa.clear();
     g_ra3dPropCells.clear();
     ra3d_ore_cells_clear();
     if (!g_raModule || !BrainGetState) return;
@@ -482,6 +568,18 @@ static void ra3d_cells_from_map(void)
             c.x = d.CellX; c.y = d.CellY;
             c.type = (unsigned char)t; c.data = (unsigned char)d.ShapeIndex;
             g_ra3dMarkCells.push_back(c);
+            continue;
+        }
+        /* A building's apron cell (BIB1..BIB3, SmudgeType 12..14): the grass claims it as
+           it claims the footprint, so no blades stand on the apron's lower row
+           (grass_field.h, crush_apron_rects). */
+        if (d.IsSmudge && !strncmp(d.AssetName, "BIB", 3) && d.AssetName[3] >= '1'
+            && d.AssetName[3] <= '3' && d.AssetName[4] == 0) {
+            SmudgeCell c = {};
+            c.x = d.CellX; c.y = d.CellY;
+            c.type = (unsigned char)(12 + d.AssetName[3] - '1');
+            c.data = (unsigned char)d.ShapeIndex;
+            g_crushApronRa.push_back(c);
             continue;
         }
         /* (the cells below in the 3D modes only: Classic draws Red Alert's whole map from
@@ -587,7 +685,7 @@ static void ra3d_draw_sprites(void)
 {
     g_fxVehicleCards = g_raModule ? ra3d_draw_vehicle_mask : NULL;
     g_ra3dVehicleMaskCards.clear();
-    g_ra3dVehicleMaskCapture = g_ra3dSprites && fx_vehicle_active(&g_fx);
+    g_ra3dVehicleMaskCapture = g_ra3dSprites && (fx_vehicle_active(&g_fx) || fx_unified_lighting());
     g_ra3dVehicleMaskNext = false;
     g_ra3dCards = g_ra3dDecals = g_ra3dZapCards = g_ra3dAnimCards = g_ra3dBulletsLifted = 0;
     g_ra3dOreDecals = g_ra3dMineCards = 0;
@@ -731,6 +829,7 @@ static void ra3d_draw_sprites(void)
     for (size_t i = 0; i < g_efxAnims.size(); i++) {
         const EfxAnim& a = g_efxAnims[i];
         if (!a.ground || a.stages <= 0 || a.stage < 0 || a.stage >= a.stages) continue;
+        if (ant3d::enabled() && !strncmp(a.name,"ANTDIE",6) && ant3d::dead.count(a.id)) continue;
         if (!ra3d_anim_card(a)) continue;
         if (shroud_cell_hidden((int)floorf(a.wx), (int)floorf(a.wz))) continue;
         char key[24];
@@ -793,6 +892,7 @@ static void ra3d_draw_sprites(void)
         for (int pass = 0; pass < 2 && !g_ra3dZapOff; pass++)
             for (int i = 0; i < count; i++) {
                 const CNCObjectStruct& o = list->Objects[i];
+            if (ant3d_card(o)) continue;
                 if (o.BaseObjectType != BUILDING || strcmp(o.AssetName, "LITNING")
                     || !modelObject.count(o.BaseObjectID)) continue;
                 const float px = (o.PositionX + vx) / 24.0f, pz = (o.PositionY + vy) / 24.0f;
@@ -856,6 +956,7 @@ static void ra3d_draw_sprites(void)
         for (size_t bi = 0; bi < g_efxBullets.size(); bi++) flying[g_efxBullets[bi].id] = &g_efxBullets[bi];
         for (int i = 0; i < count; i++) {
             const CNCObjectStruct& o = list->Objects[i];
+            if (ant3d_card(o)) continue;
             if (o.Type == ANIM || o.SubObject) continue;
             if (o.Type == BUILDING && models.count(o.ID)) continue;
             if (g_ra3dStandOff) {
@@ -893,6 +994,7 @@ static void ra3d_draw_sprites(void)
         for (int m = 0; m < 3; m++) { g_ra3dBodyR[m] = g_bbRight[m]; g_ra3dBodyU[m] = g_bbUp[m]; }
         for (size_t j = 0; j < order.size(); j++) {
             const CNCObjectStruct& o = list->Objects[order[j]];
+            if (ant3d_card(o)) continue;
             if (o.Type == ANIM) continue;
             const bool vehicleCard = ra3d_vehicle_type(o.Type)
                 || (o.SubObject && ra3d_vehicle_type(o.BaseObjectType));
@@ -953,8 +1055,15 @@ static void ra3d_draw_sprites(void)
             const bool flash = o.IsBlushing && (o.FlashingFlags & playerMask);
             const bool rotor = !strcmp(o.AssetName, "RROTOR") || !strcmp(o.AssetName, "LROTOR");
             const bool shadow = o.SubObject && (o.DrawFlags & 0x0300) == 0x0300;
-            const int remap = flash || rotor || shadow ? -1
-                            : (o.Type == BUILDING && o.Owner == 1 ? 2 : o.RemapColor);
+            /* the Iron Curtain's red, as Classic draws it (DOS2D_REMAP_IRON) */
+            const bool iron = o.IsIronCurtain && !rotor && !shadow;
+            /* the PALETTE.CPS row of the library's colour, as Classic takes it. Red
+               Alert has no per-house building rule: house 1 is Greece, and its buildings
+               wear the house's own colour like its units do. */
+            const int remap = iron ? DOS2D_REMAP_IRON
+                            : flash || rotor || shadow ? -1
+                            : ra_library_colour(o.RemapColor);
+            if (remap >= 0 && !iron) dos2d_remap_dump("card", o, remap);
             std::string art; const Dos2DShape* drawn; bool topLeft;
             float cx, cz;
             place2d(o, &art, &drawn, &cx, &cz, &topLeft);
@@ -1018,13 +1127,15 @@ static void ra3d_draw_sprites(void)
             const int before = g_ra3dCards;
             if (!o.SubObject && !zap) g_ra3dVisNext = (int)o.Type;
             g_ra3dVehicleMaskNext = vehicleCard && !shadow;
+            const char* treeArt=strrchr(art.c_str(),'/');treeArt=treeArt?treeArt+1:art.c_str();
+            g_ra3dTreeMaskNext = o.Type==TERRAIN && treeArt[0]=='T' && (treeArt[1]=='C'||(treeArt[1]>='0'&&treeArt[1]<='9'));
             GLint gradeWas=0;
             if(zap && fx_gl_ready)glGetIntegerv(GL_CURRENT_PROGRAM,&gradeWas);
             const bool gradedZap=zap && efx_grade_begin(true);
             ra3d_card_at(art.c_str(), o.ShapeIndex, c[0], c[1], c[2], remap,
-                         (o.DrawFlags & 0x1000) != 0, flash, shadow);
+                         (o.DrawFlags & 0x1000) != 0, flash && !iron, shadow);
             if(gradedZap)fx_glUseProgram((GLuint)gradeWas);
-            g_ra3dVehicleMaskNext = false;
+            g_ra3dVehicleMaskNext = false; g_ra3dTreeMaskNext = false;
             g_ra3dCardOut = NULL;
             if (!strcmp(o.AssetName, "LITNING")) g_ra3dZapCards += g_ra3dCards - before;
         }
@@ -1036,6 +1147,7 @@ static void ra3d_draw_sprites(void)
     for (size_t i = 0; i < g_efxAnims.size(); i++) {
         const EfxAnim& a = g_efxAnims[i];
         if (a.ground || a.stages <= 0 || a.stage < 0 || a.stage >= a.stages) continue;
+        if (ant3d::enabled() && !strncmp(a.name,"ANTDIE",6) && ant3d::dead.count(a.id)) continue;
         if (!ra3d_anim_card(a)) continue;
         if (shroud_cell_hidden((int)floorf(a.wx), (int)floorf(a.wz))) continue;
         char key[24];
@@ -1107,6 +1219,44 @@ static void ra3d_draw_vehicle_mask(void)
         const Ra3dVehicleMaskCard& card = g_ra3dVehicleMaskCards[i];
         glBindTexture(GL_TEXTURE_2D, card.tex);
         fx_set1f(prog, "uClass", card.vehicle ? 1.0f : 0.0f);
+        glBegin(GL_QUADS);
+        glTexCoord2f(card.uv[0], card.uv[1]); glVertex3fv(card.v[0]);
+        glTexCoord2f(card.uv[2], card.uv[1]); glVertex3fv(card.v[1]);
+        glTexCoord2f(card.uv[2], card.uv[3]); glVertex3fv(card.v[2]);
+        glTexCoord2f(card.uv[0], card.uv[3]); glVertex3fv(card.v[3]);
+        glEnd();
+    }
+    fx_glUseProgram((GLuint)was);
+    glPopAttrib();
+}
+
+/* Fallback trees use their actual sprite cards, never a different proxy mesh. */
+static void ra3d_tree_card_classes(void)
+{
+    if (!g_ra3dSprites || !fx_unified_lighting() || g_ra3dVehicleMaskCards.empty()) return;
+    const GLuint prog = str_class_prog();
+    if (!prog) return;
+    GLint was = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &was);
+    glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT
+                 | GL_TEXTURE_BIT | GL_CURRENT_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_BLEND);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+    fx_glUseProgram(prog);
+    fx_set1i(prog, "uTex", 0);
+    fx_set1i(prog, "uCut", 1);
+    for (size_t i = 0; i < g_ra3dVehicleMaskCards.size(); i++) {
+        const Ra3dVehicleMaskCard& card = g_ra3dVehicleMaskCards[i];
+        glBindTexture(GL_TEXTURE_2D, card.tex);
+        fx_set1f(prog, "uClass", card.tree ? 0.247f : 0.0f);
         glBegin(GL_QUADS);
         glTexCoord2f(card.uv[0], card.uv[1]); glVertex3fv(card.v[0]);
         glTexCoord2f(card.uv[2], card.uv[1]); glVertex3fv(card.v[1]);

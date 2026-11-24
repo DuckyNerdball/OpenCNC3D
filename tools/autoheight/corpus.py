@@ -135,9 +135,10 @@ def is_slope(t):
     return 13 <= t <= 50          # TEMPLATE_SLOPE1 .. SLOPE38
 
 
-def ini(scen):
+def ini(scen, folder=None):
     d, sec = {}, None
-    for line in open(os.path.join(EX, "INI", scen + ".INI"), errors="ignore"):
+    path = os.path.join(folder, scen + ".INI") if folder else os.path.join(EX, "INI", scen + ".INI")
+    for line in open(path, errors="ignore"):
         s = line.split(";")[0].strip()
         if s.startswith("["):
             sec = s.strip("[]").upper()
@@ -161,9 +162,13 @@ def theater(root):
 
 
 class Map:
-    def __init__(self, scen):
+    def __init__(self, scen, dos=None):
+        """`dos` is a folder holding the scenario as the 1995 MS-DOS game ships it,
+        <SCEN>.INI and <SCEN>.BIN, for a map the cartridge never carried (the Funpark
+        missions). Its BIN already names each cell's (template, icon), which is what the
+        cartridge's tile ids are resolved to below, so only the reading differs."""
         self.id = scen
-        d = ini(scen)
+        d = ini(scen, dos)
         kv = lambda sec: dict(d.get(sec, []))
         mp = kv("MAP")
         self.name = kv("BASIC").get("NAME", scen)
@@ -173,18 +178,28 @@ class Map:
         self.X = int(mp.get("X", 0)); self.Y = int(mp.get("Y", 0))
         self.W = int(mp.get("WIDTH", 64)); self.H = int(mp.get("HEIGHT", 64))
         t = theater(self.root)
-        raw = open(os.path.join(EX, "MAP", scen + ".MAP"), "rb").read()
-        ids = struct.unpack(">4096H", raw[:8192])
         self.n4 = t["n4"]
-        self.tid = np.array(ids, np.int32).reshape(64, 64)
-        tm = np.full(4096, 255, np.uint8)
-        ic = np.zeros(4096, np.uint8)
-        for i, tid in enumerate(ids):
-            if tid < t["n4"]:
-                tm[i] = t["tl4"][2 * tid]; ic[i] = t["tl4"][2 * tid + 1]
-            elif 1024 <= tid < 1024 + t["n8"]:
-                k = tid - 1024
-                tm[i] = t["tl8"][2 * k]; ic[i] = t["tl8"][2 * k + 1]
+        if dos:
+            # {u8 template, u8 icon} per cell; 255 is a clear cell, which the cartridge
+            # path below also leaves at template 255, icon 0 (measured on SCM01EA and
+            # SCG01EA, which both media carry: every cell then reads the same).
+            raw = open(os.path.join(dos, scen + ".BIN"), "rb").read()[:8192]
+            tm = np.frombuffer(raw[0::2], np.uint8).copy()
+            ic = np.frombuffer(raw[1::2], np.uint8).copy()
+            ic[tm == 255] = 0
+            self.tid = np.zeros((64, 64), np.int32)
+        else:
+            raw = open(os.path.join(EX, "MAP", scen + ".MAP"), "rb").read()
+            ids = struct.unpack(">4096H", raw[:8192])
+            self.tid = np.array(ids, np.int32).reshape(64, 64)
+            tm = np.full(4096, 255, np.uint8)
+            ic = np.zeros(4096, np.uint8)
+            for i, tid in enumerate(ids):
+                if tid < t["n4"]:
+                    tm[i] = t["tl4"][2 * tid]; ic[i] = t["tl4"][2 * tid + 1]
+                elif 1024 <= tid < 1024 + t["n8"]:
+                    k = tid - 1024
+                    tm[i] = t["tl8"][2 * k]; ic[i] = t["tl8"][2 * k + 1]
         self.tmpl = tm.reshape(64, 64)
         self.icon = ic.reshape(64, 64)
         self.fam = FAMILY_OF[self.tmpl]
@@ -192,7 +207,7 @@ class Map:
                              np.int8).reshape(64, 64)
         img = os.path.join(EX, "IMG", scen + ".IMG")
         self.h = None
-        if os.path.exists(img):
+        if not dos and os.path.exists(img):
             blob = open(img, "rb").read()
             hdr, _b, w, h = struct.unpack_from(">IIHH", blob, 0)
             assert (hdr, w, h) == (0x10, 65, 65), scen

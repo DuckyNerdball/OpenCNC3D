@@ -63,7 +63,9 @@ int main(int argc,char **argv)
         install(dir,0,argv[3]);notes_equal(dir,expected);owned(dir,0);CHECK(lmod_td_present(dir));
         CHECK(!stat(path,&after)&&same_file(&first,&after));
         CHECK(lz_lock(dir,&lock)==1);CHECK(lmod_remove(dir,1,error,sizeof error));notes_equal(dir,expected);
+        CHECK(lmod_cached(dir,1)); /* a package named from elsewhere left the download folder's alone */
         CHECK(lmod_td_present(dir));CHECK(lmod_install_cached(dir,1,"0.9.0",NULL,NULL,error,sizeof error));
+        CHECK(!lmod_cached(dir,1)); /* and installing from that one removed it */
         owned(dir,1);notes_equal(dir,expected);CHECK(!stat(path,&after)&&same_file(&first,&after));
         CHECK(lmod_remove(dir,0,error,sizeof error));CHECK(lmod_ra_present(dir,NULL,0));notes_equal(dir,expected);
         CHECK(lmod_remove(dir,1,error,sizeof error));notes_equal(dir,expected);

@@ -134,6 +134,7 @@ static int g_sbUiDiv = 1;
 #include "hud_enhanced_catalog.h"
 #include "ra_hud_pixels.h"
 #include "sidebar_build_potential.h"
+#include "hud_compose.h"
 
 /* ---- the engine's cell stride, which is NOT a constant ------------------------------
  *
@@ -221,6 +222,7 @@ struct SbHooks {
        that one is simply never reached on this path -- which is why the new HUD showed
        the faction emblem for ever: not a broken radar, an unwired one. */
     void (*RadarPlotRGBA)(unsigned char* rgba, int w, int h, const DB_Pack* p, int active);
+    int GunPlayers;
     /* THE RADAR'S SECOND FACE: WHO IS PLAYING, AND WHAT THEY HAVE KILLED.
        1995's Map button is a THREE-WAY cycle and only two of its states are a map.
        sidebar.cpp:2626-2650 Zoom_Mode_Control runs zoomed -> unzoomed -> player status
@@ -254,6 +256,11 @@ struct SbHooks {
          Speak:    an index into the VOX table; 33 is SELECT1, VOX_SELECT_TARGET. */
     void (*Unselect)(void);
     void (*Speak)(int vox_index);
+    /* THE PLAYER ASKED FOR A BUILD THE HOUSE CANNOT PAY FOR. Raised by a cameo click (and
+       the repeat-last-build key) that starts or resumes production while the money is
+       short; see sb_funds_short. The renderer owns the speech queue and the clock, so it
+       decides whether and when "Insufficient funds" is said. May be left NULL. */
+    void (*NoFunds)(const char* name, long long money, int owed);
     /* WHAT IS STANDING ON A CELL THE PLAYER CAN SEE NOTHING ON. The placement overlay
        paints a refused cell red straight out of the engine's own GenerallyClear flag,
        and on a temperate map the commonest reason a cell will not take a foundation is
@@ -485,6 +492,10 @@ struct SbState {
     bool valid;
     int credits, creditsCounter, tiberium, maxTiberium;
     int powerProduced, powerDrained;
+    /* CNCSidebarStruct::MissionTimer: Red Alert's Scen.MissionTimer in whole seconds,
+       or -1 while it is not running. Tiberian Dawn has no mission timer and always
+       reports -1. */
+    int missionTimer;
     bool repairEnabled, sellEnabled, radarActive;
     std::vector<SbEntry> entry;
     std::vector<std::string> potential;
@@ -570,12 +581,14 @@ static void sb_set_ui_scale(int div)
     if (div < 1) div = 1;
     if (div > 2) div = 2;
     g_sbUiDiv = div;
+    hud_gen_bump();
 }
 
 static void sb_set_hud_new(int on)
 {
     g_hudNewWish = on ? 1 : 0;
     g_hudNew = sb_hud_active();
+    hud_gen_bump();
 }
 
 /* WHICH SIDEBAR IS ACTUALLY ON SCREEN, as opposed to which one was asked for. The two can
@@ -737,6 +750,7 @@ static float g_h6Scale = 1.5f;
 static unsigned char g_h6Tab[H6_BAR_W * H6_TAB_H * 4];
 static GLuint     g_h6TexBar = 0, g_h6TexCred = 0, g_h6TexOpt = 0, g_h6TexSide = 0;
 static GLuint     g_h6TexDb = 0;   /* the DATABASE plate */
+static GLuint     g_gunClockTex = 0, g_gunRewardTex = 0;
 #define H6_POT_W 512 /* RA selection card is272px; UVs/uploads share this allocation. */
 /* 1024, not 512: a twelve-row bar is 816 tall. The power-of-two upload is one texture
    for every bar height, so the atlas is sized once for the maximum and the quad's v
@@ -760,13 +774,14 @@ static unsigned char g_dbCrop[SB_TEX_W * SB_TEX_H];
 static unsigned char g_dbRGBA[SB_TEX_W * SB_TEX_H * 4];
 static GLuint g_dbTex = 0;
 /* The RA Win95 sidebar is split into 160x200 halves, plus its 160x14 credits
-   tab. Each GL texture stays within the original 256x256 hardware limit. */
+   tab and, while a mission timer runs, the 160x14 timer tab left of it. Each GL
+   texture stays within the original 256x256 hardware limit. */
 #define RA95_MAX_H (400 + 48 * DB_RA95_MAX_EXTRA_ROWS)
 #define RA95_CHUNKS ((RA95_MAX_H + 199) / 200)
 static unsigned char g_ra95Screen[640 * RA95_MAX_H];
 static unsigned char g_ra95Crop[160 * 200];
 static unsigned char g_ra95RGBA[160 * 200 * 4];
-static GLuint g_ra95Tex[RA95_CHUNKS + 1] = {0};
+static GLuint g_ra95Tex[RA95_CHUNKS + 2] = {0};
 static int g_ra95ExtraRows = 0;
 static int g_ra95Pad = 0;
 static int g_ra95Height = 400;
@@ -872,12 +887,53 @@ static int g_sbDrawnDosPower = -2, g_sbDrawnDosIndex = -1;
 static int g_sbDrawnHudPower = -2;
 static int g_sbDrawnHudCount[3] = { 0, 0, 0 };
 
+/* THE MISSION TIMER THE LAST FRAME PUT ON SCREEN, for the `timerdump` verb: the seconds
+   and the text drawn, and whether the plate was the lit one; -1 when the last panel drawn
+   showed no timer, -2 before any panel has been drawn. */
+static int  g_sbDrawnTimer = -2, g_sbDrawnTimerLight = 0;
+static char g_sbDrawnTimerText[24] = "";
+/* The engine time the countdown last passed a spoken reminder, and the reading before
+   this one, so the crossing can be seen. Mission latches: sb_free resets both. */
+static float g_sbTimerFlashAt = -1.0f;
+static int   g_sbTimerLast = -1;
+
+/* THE TEXT AND THE PLATE OF RED ALERT'S MISSION TIMER, or false while none runs.
+   credits.cpp:118-176 prints TXT_TIME_FORMAT_HOURS "Time:%02d:%02d:%02d" when there are
+   hours and TXT_TIME_FORMAT_NO_HOURS "Time:%02d:%02d" otherwise. tab.cpp:154-159 draws
+   the plate LIT while Scen.MissionTimer < TICKS_PER_MINUTE * Rule.TimerWarning
+   (RULES.INI [General] TimerWarning=2, so under two minutes: the brain's whole seconds
+   are its ticks / 15, which makes "under 120 seconds" the same test exactly) or while
+   Map.FlasherTimer runs. logic.cpp:263-296 sets that timer to 7 frames each time a
+   spoken reminder plays, at 40, 30, 20, 10, 5, 4, 3, 2 and 1 minutes left. The brain
+   exports no FlasherTimer, so the crossing is seen here, one tick after the brain saw
+   it, and the plate lights for the same 7 frames on the engine's own clock. */
+static bool sb_mission_timer(char* text, size_t n, bool* light)
+{
+    static const int marks[] = { 1, 2, 3, 4, 5, 10, 20, 30, 40 };
+    const int t = g_sbState.valid ? g_sbState.missionTimer : -1;
+    const float now = g_sb.EffectTime ? g_sb.EffectTime() : 0.0f;
+    if (t < 0) { g_sbTimerLast = -1; return false; }
+    for (size_t k = 0; k < sizeof marks / sizeof marks[0]; k++)
+        if (g_sbTimerLast >= marks[k] * 60 && t < marks[k] * 60)
+            g_sbTimerFlashAt = now;
+    g_sbTimerLast = t;
+    if (t >= 3600)
+        snprintf(text, n, "Time:%02d:%02d:%02d", t / 3600, (t / 60) % 60, t % 60);
+    else
+        snprintf(text, n, "Time:%02d:%02d", (t / 60) % 60, t % 60);
+    *light = t < 2 * 60
+          || (g_sbTimerFlashAt >= 0.0f && now >= g_sbTimerFlashAt
+              && now - g_sbTimerFlashAt < 7.0f / 15.0f);
+    return true;
+}
+
 static void sb_super_settle(void);   /* the armed special, read against this poll */
 
 static void sb_poll(void)
 {
     if (g_sbBuf.size() < (1u << 20)) g_sbBuf.resize(1u << 20);
     g_sbState.valid = false;
+    g_sbState.missionTimer = -1;
     g_sbState.entry.clear();
     g_sbState.potential.clear();
     memset(&g_sbBuf[0], 0, 4096);
@@ -899,6 +955,7 @@ static void sb_poll(void)
     g_sbState.repairEnabled = s->RepairBtnEnabled;
     g_sbState.sellEnabled = s->SellBtnEnabled;
     g_sbState.radarActive = s->RadarMapActive;
+    g_sbState.missionTimer = s->MissionTimer;
     /* A SPECTATOR BUILDS NOTHING. Emptied here rather than at the draw, so the strip, the
        scroll clamp, the hit test and the click path all agree without any of them needing
        to know why: there is simply nothing in the list. */
@@ -1209,7 +1266,7 @@ static void sb_request(SidebarRequestEnum r, int idx, short cx, short cy)
    script's build verb and the queue pump all end at sb_start. A hotkey that repeats the
    last build therefore cannot drift from what the player actually pressed.
 
-   A NAME AND NOT AN INDEX, for the reason the queue map already gives: the strip is
+   A NAME AND NOT AN INDEX, for the reason the build queue already gives: the strip is
    rebuilt from scratch on every poll and entries move and vanish, so a stored index would
    point at whatever slid into that slot. */
 static char g_sbLastBuilt[16] = "";
@@ -1219,6 +1276,59 @@ static void sb_start(int idx)
     if (idx >= 0 && idx < (int)g_sbState.entry.size())
         snprintf(g_sbLastBuilt, sizeof(g_sbLastBuilt), "%s", g_sbState.entry[idx].name);
     sb_request(SIDEBAR_REQUEST_START_CONSTRUCTION, idx, 0, 0);
+}
+
+/* INSUFFICIENT FUNDS, SAID AT THE CLICK. Tiberian Dawn only, and a deliberate addition.
+ *
+ *  Tiberian Dawn never refuses a build for money. Production is paid in instalments
+ *  (factory.cpp: each step costs Cost_Per_Tick, and a step the house cannot pay is simply
+ *  taken back), so a click with an empty wallet starts a build that never moves, and the
+ *  only thing the game says about money is a nag on a two minute timer (house.cpp, the
+ *  SpeakMoneyDelay block). Low power has its own nag armed one tick into the mission, so
+ *  a player who clicks with no money hears "Low power" first and "Insufficient funds"
+ *  minutes later, which reads as EVA answering the wrong question. Red Alert's money nag
+ *  is armed at mission start and already speaks first there, so this is not done in Red
+ *  Alert and its speech is left exactly as it was.
+ *
+ *  SHORT MEANS SHORT BY THE ENGINE'S OWN MEASURE. The engine's nag speaks when
+ *  Available_Money(), credits plus the Tiberium in the silos, is under 100. The click cue
+ *  uses the same threshold, and also asks that the money be under what is still owed on
+ *  the item, so a cheap item the house can pay for in full is never answered with
+ *  "Insufficient funds". Starting with less than the full price but 100 or more is
+ *  normal play under instalments and says nothing.
+ *
+ *  ONLY A CLICK THE ENGINE WILL ACT ON. A start or a resume of this item; not a special,
+ *  not an item already finished, and not an item whose factory is busy with something
+ *  else, since that click is refused for a reason that has nothing to do with money.
+ *  Called BEFORE the request leaves, so it reads the state the player clicked on. Speech
+ *  only: nothing here touches the engine, so a lockstep match cannot drift on it. */
+#define SB_FUNDS_LOW 100     /* house.cpp: Available_Money() < 100 is the engine's own test */
+static bool sb_funds_short(const SbEntry& e, long long* money_out, int* owed_out)
+{
+    if (g_sbRa || !g_sbState.valid || !g_sb.NoFunds) return false;
+    if (e.type == SPECIAL || e.completed || e.constructing) return false;
+    if (e.busy && !e.onHold) return false;
+    const long long money = (long long)g_sbState.credits + (long long)g_sbState.tiberium;
+    float left = e.onHold ? 1.0f - e.progress : 1.0f;
+    if (left < 0.0f) left = 0.0f;
+    const int owed = (int)((float)e.cost * left + 0.5f);
+    if (money_out) *money_out = money;
+    if (owed_out) *owed_out = owed;
+    return owed > 0 && money < owed && money < SB_FUNDS_LOW;
+}
+
+/* A start the player asked for: the cameo click and the repeat-last-build key. The queue
+   pump and the script's build verb call sb_start directly and stay silent. */
+static void sb_start_by_player(int idx)
+{
+    if (idx < 0 || idx >= (int)g_sbState.entry.size()) return;
+    char name[16];
+    snprintf(name, sizeof name, "%s", g_sbState.entry[idx].name);
+    long long money = 0;
+    int owed = 0;
+    const bool short_of_money = sb_funds_short(g_sbState.entry[idx], &money, &owed);
+    sb_start(idx);
+    if (short_of_money) g_sb.NoFunds(name, money, owed);
 }
 
 /* ================================================================================
@@ -1246,13 +1356,73 @@ static void sb_start(int idx)
  *  the moment Who_Can_Build_Me fails, which is what happens when your last barracks dies.
  *  An index-keyed queue would then be pointing at whatever slid into that slot.
  *
- *  THE SECOND CLICK IS FREE TO REPURPOSE. Measured: clicking a cameo that is already
- *  building does nothing today -- no request, no charge, no diagnostic line, because
- *  the arm below is guarded by `else if (!e.constructing)`.
+ *  THE SECOND CLICK IS FREE TO REPURPOSE. Clicking a cameo that is already building did
+ *  nothing in the 1995 game: no request, no charge, no diagnostic line.
+ *
+ *  A MIXED QUEUE, IN CLICK ORDER. The 1995 sidebar refused any click on another cameo of
+ *  a category whose factory was busy (sidebar.cpp, Speak(VOX_NO_FACTORY) and nothing
+ *  else), and the brain still refuses such a start (dllinterface.cpp, fnumber == -1 with
+ *  the category's factory taken). That click is just as free to repurpose as the second
+ *  one, so it is queued too: Medium Tank, Jeep, Medium Tank clicked in that order come
+ *  out in that order. The queue is therefore ONE FIFO PER PRODUCTION CATEGORY (structures,
+ *  infantry, vehicles, aircraft and, in Red Alert, ships: eh_category's numbering), each
+ *  item one element, and a cameo's badge counts that cameo's elements in its FIFO. The
+ *  cap is per unit type, SB_QUEUE_MAX, because that is what one digit on a cameo can say;
+ *  there is no cap on a category as a whole beyond the per-type one.
+ *
+ *  ONLY ENGINE EVENTS LEAVE THIS FILE. Each queued item is started by an ordinary
+ *  START_CONSTRUCTION when its turn comes, exactly as a click would, so a match sees
+ *  nothing but starts and every peer agrees by construction. The queue itself is eyes
+ *  state and is not saved with a game.
  * ============================================================================== */
-static std::map<std::pair<int,int>, int> g_sbQueue;
+#define SB_QCATS 5
+/* One waiting item. `run` names the unbroken run of one unit type it belongs to (ten
+   Minigunners clicked in a row are one run), so the Enhanced strip can give each run its
+   own card and keep that card while the run counts down, whichever item of it is in the
+   factory. */
+struct SbQItem { std::pair<int,int> key; int run; };
+static std::deque<SbQItem> g_sbQ[SB_QCATS];
+/* The run of the item in each category's factory, as far as the queue knows it. */
+struct SbActiveRun { std::pair<int,int> key; int run; };
+static SbActiveRun g_sbActiveRun[SB_QCATS];
+static int g_sbRunSerial = 0;
 static bool g_sbQueueOn = true;            /* --noqueue is the A/B */
-#define SB_QUEUE_MAX 9                     /* one digit is what fits the cameo */
+#define SB_QUEUE_MAX 9                     /* per unit type: one digit is what fits the cameo */
+
+static int eh_category(const SbEntry& e);   /* the category numbering, defined with the HUD */
+static int sb_qcat(const SbEntry& e)
+{
+    const int c = eh_category(e);
+    return c < 0 || c >= SB_QCATS ? 0 : c;
+}
+
+static int sb_qcount(int cat, std::pair<int,int> key)
+{
+    int n = 0;
+    for (size_t i = 0; i < g_sbQ[cat].size(); i++) if (g_sbQ[cat][i].key == key) n++;
+    return n;
+}
+
+static bool sb_queue_empty(void)
+{
+    for (int c = 0; c < SB_QCATS; c++) if (!g_sbQ[c].empty()) return false;
+    return true;
+}
+
+static int sb_queue_total(void)
+{
+    int n = 0;
+    for (int c = 0; c < SB_QCATS; c++) n += (int)g_sbQ[c].size();
+    return n;
+}
+
+static int sb_find_key(std::pair<int,int> key)
+{
+    for (size_t i = 0; i < g_sbState.entry.size(); i++)
+        if (g_sbState.entry[i].btype == key.first && g_sbState.entry[i].bid == key.second)
+            return (int)i;
+    return -1;
+}
 
 /* THE PUMP. Push the next queued item the moment the factory frees itself.
  *
@@ -1271,10 +1441,11 @@ static bool g_sbQueueOn = true;            /* --noqueue is the A/B */
  *  unit heap fills, busy stays 1 and the pump simply does not fire. The brain is already
  *  telling us exactly when it will accept the next one.
  *
- *  ONE START PER ENGINE FRAME, MAXIMUM, and it gives up loudly rather than retrying:
- *  Begin_Production contains no affordability test at all (house.cpp:2311-2400) and every
- *  start calls On_Speech(VOX_BUILDING) (dllinterface.cpp:4858-4870), so a naive
- *  `while (count && !busy) start` would announce "Building" fifteen times a second.
+ *  ONE START PER ENGINE FRAME, MAXIMUM, across every category, and it gives up loudly
+ *  rather than retrying: Begin_Production contains no affordability test at all
+ *  (house.cpp:2311-2400) and every start calls On_Speech(VOX_BUILDING)
+ *  (dllinterface.cpp:4858-4870), so a naive `while (count && !busy) start` would announce
+ *  "Building" fifteen times a second.
  */
 /* A START THE FACTORY HAS NOT YET TAKEN. In a single-player mission a start is an act:
  *  the factory reads busy on the very next frame. In a lockstep match it is an ORDER,
@@ -1286,86 +1457,275 @@ static bool g_sbQueueOn = true;            /* --noqueue is the A/B */
  *  occupied, and the other nine were gone with nothing said. Measured over loopback:
  *  five queued, five pumps in five consecutive frames, two delivered.
  *
- *  So a start is now held open until the factory is SEEN to take it (busy, constructing
- *  or completed for that entry), and only then is the queue counted down; a key with a
- *  start open is not pumped again. A start nobody takes within SB_QUEUE_WAIT frames is
- *  called lost, said so by name, and fired again: the count was never decremented for
- *  it, so nothing the player queued is dropped on the floor. The wait is generous next
- *  to the longest lookahead and short next to the shortest build (a rifleman is 107
+ *  So a start is held open, one per category, until the factory is SEEN to take it, and
+ *  only then is the item popped. TAKEN MEANS THAT ENTRY'S OWN STATE, constructing, on
+ *  hold or completed, and never `busy`: busy is category-wide and would read another
+ *  item's factory as this one's, which would pop the wrong item and lose one with nothing
+ *  said. A category with a start open is occupied, so the pump does not fire into it and
+ *  a click on any of its cameos is queued rather than sent alongside. The player's own
+ *  direct starts are held open the same way, for the same reason: a second click inside
+ *  the lookahead must queue, not race the first. A queued start nobody takes within
+ *  SB_QUEUE_WAIT frames is called lost, said so by name, and fired again: it was never
+ *  popped, so nothing the player queued is dropped on the floor. The wait is generous
+ *  next to the longest lookahead and short next to the shortest build (a rifleman is 107
  *  ticks), so a taken start is always seen before it times out. */
-static std::map<std::pair<int,int>, int> g_sbQueueOpen;   /* key -> pump tick it was sent */
+struct SbOpenStart {
+    bool on;
+    bool queued;                  /* fired by the pump for the FIFO's front, not a click */
+    std::pair<int,int> key;
+    int tick;                     /* the pump tick it was sent on */
+};
+static SbOpenStart g_sbOpen[SB_QCATS];
 static int g_sbPumpTick = 0;                              /* one per pump call, one per engine frame */
 #define SB_QUEUE_WAIT 60
+
+static void sb_queue_clear(void)
+{
+    for (int c = 0; c < SB_QCATS; c++) {
+        g_sbQ[c].clear(); g_sbOpen[c].on = false;
+        g_sbActiveRun[c].key = std::make_pair(-1, -1); g_sbActiveRun[c].run = 0;
+    }
+}
+
+/* Is this category's factory spoken for, as far as a click is concerned? */
+static bool sb_cat_occupied(const SbEntry& e)
+{
+    const int c = sb_qcat(e);
+    return e.busy || !g_sbQ[c].empty() || g_sbOpen[c].on;
+}
 
 static void sb_queue_pump(void)
 {
     g_sbPumpTick++;
-    if (!g_sbQueueOn || g_sbQueue.empty() || !g_sbState.valid) return;
-    for (std::map<std::pair<int,int>, int>::iterator it = g_sbQueue.begin();
-         it != g_sbQueue.end(); ) {
-        if (it->second <= 0) { g_sbQueueOpen.erase(it->first); g_sbQueue.erase(it++); continue; }
-        int idx = -1;
-        for (size_t i = 0; i < g_sbState.entry.size(); i++)
-            if (g_sbState.entry[i].btype == it->first.first &&
-                g_sbState.entry[i].bid   == it->first.second) { idx = (int)i; break; }
-        if (idx < 0) {
-            /* The entry left the strip entirely -- the last building that could make it
-               died. Drop the queue and SAY SO; a silent drop looks like the queue quietly
-               not working. */
-            printf("SBQUEUE|drop|btype=%d|bid=%d|n=%d|reason=gone\n",
-                   it->first.first, it->first.second, it->second);
+    if (!g_sbQueueOn || !g_sbState.valid) return;
+    bool fired = false;
+    for (int c = 0; c < SB_QCATS; c++) {
+        std::deque<SbQItem>& q = g_sbQ[c];
+        SbOpenStart& o = g_sbOpen[c];
+        /* The entry left the strip entirely -- the last building that could make it
+           died. Drop every one of it and SAY SO; a silent drop looks like the queue
+           quietly not working. */
+        for (size_t k = 0; k < q.size(); ) {
+            const std::pair<int,int> key = q[k].key;
+            if (sb_find_key(key) >= 0) { k++; continue; }
+            const int n = sb_qcount(c, key);
+            printf("SBQUEUE|drop|btype=%d|bid=%d|n=%d|reason=gone\n", key.first, key.second, n);
             fflush(stdout);
-            g_sbQueueOpen.erase(it->first);
-            g_sbQueue.erase(it++);
-            continue;
+            for (size_t j = 0; j < q.size(); ) { if (q[j].key == key) q.erase(q.begin() + j); else j++; }
+            if (o.on && o.key == key) o.on = false;
+        }
+        if (o.on) {
+            const int idx = sb_find_key(o.key);
+            if (idx < 0) {
+                o.on = false;
+            } else {
+                const SbEntry& e = g_sbState.entry[idx];
+                if (e.constructing || e.onHold || e.completed) {
+                    /* The factory took it: now it counts. */
+                    o.on = false;
+                    if (o.queued && !q.empty() && q.front().key == o.key) {
+                        g_sbActiveRun[c].key = o.key; g_sbActiveRun[c].run = q.front().run;
+                        q.pop_front();
+                        printf("SBQUEUE|took|%s|btype=%d|bid=%d|left=%d\n",
+                               e.name, e.btype, e.bid, sb_qcount(c, o.key));
+                        fflush(stdout);
+                    }
+                    continue;          /* it is building now, so the category is busy */
+                }
+                if (g_sbPumpTick - o.tick < SB_QUEUE_WAIT) continue;
+                o.on = false;
+                if (o.queued) {
+                    printf("SBQUEUE|lost|%s|btype=%d|bid=%d|after=%d|retrying\n",
+                           e.name, e.btype, e.bid, g_sbPumpTick - o.tick);
+                } else {
+                    printf("SBQUEUE|untaken|%s|btype=%d|bid=%d|after=%d\n",
+                           e.name, e.btype, e.bid, g_sbPumpTick - o.tick);
+                }
+                fflush(stdout);
+            }
+        }
+        if (fired || q.empty()) continue;
+        /* THE FRONT MAY WAIT WITHOUT HOLDING UP THE REST. Busy is category-wide while the
+           factory works, so then nothing in the category is startable and the loop below
+           finds nothing. But one type can be refused on its own while the factory is idle:
+           Red Alert's Yak and MiG read busy while every Airfield already has its plane
+           (HouseClass::Is_Hack_Prevented, which the 1996 sidebar darkened the cameo for).
+           Such an item keeps its place and costs nothing until an Airfield is free; the
+           first startable item behind it goes to the front and is built instead, so a
+           waiting Yak does not stop the helicopters queued after it. */
+        int k = 0, idx = -1;
+        for (; k < (int)q.size(); k++) {
+            const int i = sb_find_key(q[k].key);
+            if (i < 0) continue;
+            const SbEntry& x = g_sbState.entry[i];
+            if (!x.busy && !x.constructing && !x.completed && !x.onHold) { idx = i; break; }
+        }
+        if (idx < 0) continue;
+        if (k > 0) {
+            const SbQItem moved = q[k];
+            const int fi = sb_find_key(q.front().key);
+            printf("SBQUEUE|wait|%s|btype=%d|bid=%d|behind=%s\n",
+                   fi >= 0 ? g_sbState.entry[fi].name : "-", q.front().key.first,
+                   q.front().key.second, g_sbState.entry[idx].name);
+            q.erase(q.begin() + k);
+            q.push_front(moved);
         }
         const SbEntry& e = g_sbState.entry[idx];
-        std::map<std::pair<int,int>, int>::iterator open = g_sbQueueOpen.find(it->first);
-        if (open != g_sbQueueOpen.end()) {
-            if (e.busy || e.constructing || e.completed) {
-                /* The factory took it: now it counts. */
-                g_sbQueueOpen.erase(open);
-                it->second--;
-                printf("SBQUEUE|took|%s|btype=%d|bid=%d|left=%d\n",
-                       e.name, e.btype, e.bid, it->second);
-                fflush(stdout);
-                if (it->second <= 0) { g_sbQueue.erase(it++); continue; }
-                ++it;
-                continue;
-            }
-            if (g_sbPumpTick - open->second < SB_QUEUE_WAIT) { ++it; continue; }
-            printf("SBQUEUE|lost|%s|btype=%d|bid=%d|after=%d|retrying\n",
-                   e.name, e.btype, e.bid, g_sbPumpTick - open->second);
-            fflush(stdout);
-            g_sbQueueOpen.erase(open);
-        }
-        if (!e.busy && !e.constructing && !e.completed && !e.onHold) {
+        {
             sb_start(idx);
-            g_sbQueueOpen[it->first] = g_sbPumpTick;
+            o.on = true; o.queued = true; o.key = q.front().key; o.tick = g_sbPumpTick;
             printf("SBQUEUE|pump|%s|btype=%d|bid=%d|left=%d\n",
-                   e.name, e.btype, e.bid, it->second - 1);
+                   e.name, e.btype, e.bid, sb_qcount(c, o.key) - 1);
             fflush(stdout);
-            return;                  /* one per engine frame, maximum */
+            fired = true;                  /* one per engine frame, maximum */
         }
-        ++it;
     }
 }
 
 static bool sb_queueable(const SbEntry& e)
 {
-    /* v1 is infantry, vehicles and aircraft -- what the requirement asked for. BUILDINGS are
-       excluded on purpose and it is not a dodge: a finished building does not auto-exit
-       its factory (sidebar.cpp:1704-1709 has no PLACE event for RTTI_BUILDING), so it
-       sits completed and busy until a human places it. A building queue needs a "hold the
-       next one until this one is placed" rung and deserves its own decision. */
+    /* Infantry, vehicles, aircraft and Red Alert's ships. BUILDINGS are excluded on
+       purpose and it is not a dodge: a finished building does not auto-exit its factory
+       (sidebar.cpp:1704-1709 has no PLACE event for RTTI_BUILDING), so it sits completed
+       and busy until a human places it. A building queue needs a "hold the next one until
+       this one is placed" rung and deserves its own decision. */
     return e.type == INFANTRY_TYPE || e.type == UNIT_TYPE || e.type == AIRCRAFT_TYPE || (g_sbRa && e.type == VESSEL_TYPE);
 }
 
 static int sb_queued(const SbEntry& e)
 {
-    std::map<std::pair<int,int>, int>::iterator it =
-        g_sbQueue.find(std::make_pair(e.btype, e.bid));
-    return it == g_sbQueue.end() ? 0 : it->second;
+    return sb_qcount(sb_qcat(e), std::make_pair(e.btype, e.bid));
+}
+
+/* The entry in a category's factory: building or held, not yet finished. */
+static int sb_active_index(int cat)
+{
+    for (size_t i = 0; i < g_sbState.entry.size(); i++) {
+        const SbEntry& e = g_sbState.entry[i];
+        if (e.type == SPECIAL || sb_qcat(e) != cat) continue;
+        if ((e.constructing || e.onHold) && !e.completed) return (int)i;
+    }
+    return -1;
+}
+
+/* The run of the item in a category's factory. One started some other way (the script's
+   build verb, a loaded game) gets a run of its own the first time it is asked about. */
+static int sb_active_run(int cat, std::pair<int,int> key)
+{
+    if (g_sbActiveRun[cat].key != key || !g_sbActiveRun[cat].run) {
+        g_sbActiveRun[cat].key = key;
+        g_sbActiveRun[cat].run = ++g_sbRunSerial;
+    }
+    return g_sbActiveRun[cat].run;
+}
+
+/* Add one to the back of the entry's category, unless that unit type already has
+   SB_QUEUE_MAX waiting. Returns how many of it are queued afterwards. */
+static int sb_queue_add(const SbEntry& e)
+{
+    const int c = sb_qcat(e);
+    const std::pair<int,int> key(e.btype, e.bid);
+    int n = sb_qcount(c, key);
+    if (n >= SB_QUEUE_MAX) return n;
+    /* The same type straight after the last item, or after the one in the factory,
+       continues that run; anything else starts a new one. */
+    std::deque<SbQItem>& q = g_sbQ[c];
+    SbQItem it; it.key = key; it.run = 0;
+    if (!q.empty()) {
+        if (q.back().key == key) it.run = q.back().run;
+    } else {
+        const int a = sb_active_index(c);
+        if (a >= 0 && g_sbState.entry[a].btype == key.first && g_sbState.entry[a].bid == key.second)
+            it.run = sb_active_run(c, key);
+        else if (g_sbOpen[c].on && g_sbOpen[c].key == key && g_sbActiveRun[c].key == key)
+            it.run = g_sbActiveRun[c].run;      /* a start not yet taken */
+    }
+    if (!it.run) it.run = ++g_sbRunSerial;
+    q.push_back(it);
+    return n + 1;
+}
+
+/* Take the LAST queued one of this unit type off (the one that would have been built
+   last). Returns how many are left. A start already sent for the front of the queue is
+   in the engine's hands: the item is no longer counted, but the category stays occupied
+   until the factory takes or drops it, so nothing is fired alongside it. */
+static int sb_queue_sub(const SbEntry& e)
+{
+    const int c = sb_qcat(e);
+    const std::pair<int,int> key(e.btype, e.bid);
+    std::deque<SbQItem>& q = g_sbQ[c];
+    for (size_t k = q.size(); k-- > 0; ) {
+        if (q[k].key != key) continue;
+        if (k == 0 && g_sbOpen[c].on && g_sbOpen[c].queued && g_sbOpen[c].key == key)
+            g_sbOpen[c].queued = false;
+        q.erase(q.begin() + k);
+        /* Taking an item out can close a gap between two runs of one type: Medium Tank,
+           Jeep, Medium Tank with the Jeep removed is one unbroken run of tanks again. The
+           later run joins the earlier one, so the strip keeps ONE card for it and that
+           card does not swap for another when the first tank leaves the factory. The
+           earlier run is the item before the gap, or the item in the factory when the gap
+           was at the front. */
+        if (k < q.size()) {
+            int joinRun = 0;
+            if (k > 0) {
+                if (q[k - 1].key == q[k].key) joinRun = q[k - 1].run;
+            } else {
+                const int a = sb_active_index(c);
+                if (a >= 0 && g_sbState.entry[a].btype == q[0].key.first &&
+                    g_sbState.entry[a].bid == q[0].key.second &&
+                    g_sbActiveRun[c].key == q[0].key && g_sbActiveRun[c].run)
+                    joinRun = g_sbActiveRun[c].run;
+            }
+            if (joinRun && joinRun != q[k].run) {
+                const int oldRun = q[k].run;
+                for (size_t j = k; j < q.size() && q[j].run == oldRun; j++) q[j].run = joinRun;
+            }
+        }
+        break;
+    }
+    return sb_qcount(c, key);
+}
+
+/* WHAT A LEFT CLICK ON A BUILDABLE DOES, decided once for the cameo click and the
+   rebuild-last hotkey so the two cannot disagree:
+     held or finished          -> START, as in 1995: the brain resumes a held factory
+     building, or its category
+     already spoken for        -> QUEUE (units only; see sb_cat_occupied)
+     anything else idle        -> START
+     a building under way      -> nothing, as in 1995
+   The order matters. A held unit must resume rather than queue another, and a click on a
+   different cameo of a busy category must queue rather than be refused. */
+enum SbClickBuild { SBCB_NONE, SBCB_START, SBCB_QUEUED };
+static SbClickBuild sb_click_build(int idx)
+{
+    if (idx < 0 || idx >= (int)g_sbState.entry.size()) return SBCB_NONE;
+    const SbEntry& e = g_sbState.entry[idx];
+    const bool qable = g_sbQueueOn && sb_queueable(e);
+    if (e.onHold || e.completed) { sb_start_by_player(idx); return SBCB_START; }
+    if (qable && (e.constructing || sb_cat_occupied(e))) {
+        const int c = sb_qcat(e);
+        if (!e.constructing) {
+            /* Queued behind something else: say what held the category, so a gate can
+               tell a click caught inside a match's order lookahead (open=1, busy=0)
+               from one behind a factory already at work. */
+            printf("SBQUEUE|behind|%s|busy=%d|waiting=%d|open=%d\n", e.name,
+                   e.busy ? 1 : 0, (int)g_sbQ[c].size(), g_sbOpen[c].on ? 1 : 0);
+        }
+        const int n = sb_queue_add(e);
+        printf("SBQUEUE|add|%s|btype=%d|bid=%d|n=%d\n", e.name, e.btype, e.bid, n);
+        fflush(stdout);
+        return SBCB_QUEUED;
+    }
+    if (e.constructing) return SBCB_NONE;
+    sb_start_by_player(idx);
+    if (qable) {
+        const int c = sb_qcat(e);
+        SbOpenStart& o = g_sbOpen[c];
+        o.on = true; o.queued = false; o.key = std::make_pair(e.btype, e.bid);
+        o.tick = g_sbPumpTick;
+        g_sbActiveRun[c].key = o.key; g_sbActiveRun[c].run = ++g_sbRunSerial;
+    }
+    return SBCB_START;
 }
 static void sb_hold(int idx)  { sb_request(SIDEBAR_REQUEST_HOLD_CONSTRUCTION, idx, 0, 0); }
 static void sb_cancel(int idx){ sb_request(SIDEBAR_REQUEST_CANCEL_CONSTRUCTION, idx, 0, 0); }
@@ -1560,6 +1920,30 @@ static float sb_panel_x(int fbw) { return (float)fbw - g_dbW; }
    never put them. Bands top and bottom keep the whole 200-row column intact. */
 static bool eh_enabled(void);
 static int eh_travel(void);
+struct GunHudLayout {
+    int scale, score_w, score_h;
+    int radar_x, radar_w, radar_h, map_x, map_y, map_w, map_h;
+    bool compact;
+};
+
+static GunHudLayout sb_gun_layout(int fbw, int fbh)
+{
+    const int scale = std::max(1, std::min(fbw / 850, fbh / 500));
+    const int width = fbw / scale;
+    const bool compact = width < 570;
+    const int radar_w = compact ? DB_RAD_I_WIDTH + 4 : 184;
+    const int radar_x = fbw - (radar_w + 8) * scale;
+    return {scale, std::max(0, std::min(452, width - radar_w - 24)),
+            36 + 16 * g_sb.GunPlayers, radar_x, radar_w, compact ? DB_RAD_I_HEIGHT + 4 : 187,
+            radar_x + (compact ? 2 : 11) * scale, (compact ? 10 : 21) * scale,
+            compact ? DB_RAD_I_WIDTH : 160, compact ? DB_RAD_I_HEIGHT : 144, compact};
+}
+
+static int sb_td_classic_view_w()
+{
+    return g_sb.GunPlayers ? 320 : 240;
+}
+
 static void sb_layout(int fbw, int fbh)
 {
     /* Scene fallback and mode switching can change Enabled between draws. Never show TD art in RA. */
@@ -1583,9 +1967,29 @@ static void sb_layout(int fbw, int fbh)
        at 1x and centre it. Run the window at a multiple of 480 - 960 is 2x - to fill the
        height AND stay pixel-exact. The launchers do that. */
     if (sb_hud_active()) {
-        int s = fbh / (eh_enabled()?EH_MAX_H:H6_BAR_H);
+        /* ON A RETINA WINDOW the zoom is chosen in window POINTS and then multiplied by the
+           whole pixels per point (g_fxHidpi, 1 on any other window), so the bar stays the
+           physical size it has on a 1x window: chosen straight from the doubled pixel
+           height, the rounding could land one whole step larger. */
+        const int hp = g_fxHidpi > 1 ? g_fxHidpi : 1;
+        int s = (fbh / hp) / (eh_enabled()?EH_MAX_H:H6_BAR_H);
         if (s < 1) s = 1;
-        while (s > 1 && H6_BAR_W * s * 3 > fbw) s--;
+        /* ONE ZOOM UP WHEN THE FULL HOUSING LEAVES A QUARTER OF THE WINDOW EMPTY. The tabbed
+           HUD grows into spare height by adding build rows, so its "largest zoom that
+           fits" need not be the one at which all of its rows fit. Taken literally that
+           rule drew it at 1x, 693 rows tall, on any window between 693 and 1385 rows: a
+           1080-row screen (or a window just short of 1440) showed the bar over the top two
+           thirds or the top half with the rest empty, and since -2x of 1x is still 1x the
+           UI scale row changed nothing either. The next zoom is taken when the 1x housing
+           covers less than three quarters of the height and the next zoom still leaves
+           room for four build rows (TD: 309 + 4 x 48 = 501 native rows; RA's taller rows
+           need only three for the same 501). The width rule below still has the last
+           word. */
+        if (eh_enabled()) {
+            const int pts = fbh / hp;
+            if (EH_MAX_H * s * 4 < pts * 3 && pts / (s + 1) >= 501) s++;
+        }
+        while (s > 1 && H6_BAR_W * s * 3 > fbw / hp) s--;
         /* THE UI SCALE: the largest zoom divided by the player's divisor and
            ROUNDED to a whole number, never below 1. Whole numbers only, for the reason
            the comment above gives: at 1692 rows the largest is 3, so -2x is 3/2 rounded
@@ -1595,6 +1999,7 @@ static void sb_layout(int fbw, int fbh)
             const int t = (s + g_sbUiDiv / 2) / g_sbUiDiv;
             s = t < 1 ? 1 : t;
         }
+        s *= hp;
         g_h6Scale = (float)s;
         g_dbScale = s;                                   /* same scale: the cursor matches */
         /* THE LETTERBOX IS SPENT ON BUILD ROWS INSTEAD OF BLACK. The whole-number zoom
@@ -1607,7 +2012,7 @@ static void sb_layout(int fbw, int fbh)
         g_dbW = (float)H6_BAR_W * g_h6Scale;
         g_dbH = (float)hud640_bar_h(g_h6Rows) * g_h6Scale;
         if(rah_enabled()) {
-            while(s>1 && (216+320)*s>fbw)s--;
+            while(s>hp && (216+320)*s>fbw)s-=hp;
             g_h6Scale=(float)s;g_dbScale=s;g_h6Rows=std::max(2,std::min(6,(fbh/s-309)/64));g_dbW=RAH_W*s;g_dbH=rah_height(g_h6Rows)*s;
         }else if(eh_enabled()) {
             g_h6Rows=(fbh/s-309)/48;
@@ -1652,7 +2057,7 @@ static void sb_layout(int fbw, int fbh)
     }
     g_dbX0 = (float)fbw - g_dbW;
     if (g_fx.dos_classic && !(sb_hud_active()) && !g_sbRa)
-        g_dbX0 = floorf(((float)fbw - 320.0f * g_dbScale) * 0.5f) + 240.0f * g_dbScale;
+        g_dbX0 = floorf(((float)fbw - 320.0f * g_dbScale) * 0.5f) + sb_td_classic_view_w() * g_dbScale;
     /* THE DRAWER OFFSET, applied in exactly ONE place so the hit test, the item rects,
        the minimap hotspot, the wheel and the edge-scroll suppression all follow for free
        -- every one of them reads g_dbX0. Gated on the new HUD: the DOS bar shares g_dbX0
@@ -1664,6 +2069,17 @@ static void sb_layout(int fbw, int fbh)
     g_dbY0 = eh_enabled() ? 0.0f : floorf(((float)fbh - g_dbH) * 0.5f);
     g_dbFbw = fbw;
     g_dbFbh = fbh;
+    /* A new layout starts every composed HUD surface afresh (hud_compose.h). */
+    {
+        static int lastW = -1, lastH = -1, lastRows = -1, lastDbScale = -1;
+        static float lastScale = -1.0f;
+        if (fbw != lastW || fbh != lastH || g_h6Rows != lastRows || g_h6Scale != lastScale
+            || g_dbScale != lastDbScale) {
+            lastW = fbw; lastH = fbh; lastRows = g_h6Rows; lastScale = g_h6Scale;
+            lastDbScale = g_dbScale;
+            hud_gen_bump();
+        }
+    }
 }
 
 static int sb_scale(void) { return g_dbScale; }
@@ -1675,6 +2091,10 @@ static int sb_scale(void) { return g_dbScale; }
    recomputes rather than caching, because the UI scale is a live video setting. */
 static float sb_chrome_bottom(void)
 {
+    if (g_sb.GunPlayers) {
+        const GunHudLayout layout = sb_gun_layout(g_dbFbw, g_dbFbh);
+        return (28 + layout.score_h) * layout.scale;
+    }
     return (sb_hud_active()) ? g_dbY0 + (float)H6_TAB_H * g_h6Scale : 0.0f;
 }
 
@@ -1808,7 +2228,13 @@ static void sb_screen_to_h6(float col, float row, int* hx, int* hy)
    pinned to the window edge while the bar slides out from under them. */
 static SbHit sb_chrome_hit(float col, float row, int fbw, int fbh)
 {
-    if (!g_sbOn || !sb_hud_active()) return SBH_NONE;
+    if (!g_sbOn) return SBH_NONE;
+    if (g_sb.GunPlayers) {
+        const int scale = sb_gun_layout(fbw, fbh).scale;
+        return col >= 0 && col < H6_BAR_W * scale && row >= 0 && row < H6_TAB_H * scale
+            ? SBH_OPTIONS : SBH_NONE;
+    }
+    if (!sb_hud_active()) return SBH_NONE;
     sb_layout(fbw, fbh);
     {
         const float th = (float)H6_TAB_H * g_h6Scale;
@@ -1839,9 +2265,21 @@ static SbHit sb_chrome_hit(float col, float row, int fbw, int fbh)
     return SBH_NONE;
 }
 
+static bool gun_game_reward_over(float col, float row, int fbw, int fbh);
+
 static bool sb_over_panel(float col, float row, int fbw, int fbh)
 {
     if (!g_sbOn) return false;
+    if (g_sb.GunPlayers) {
+        const GunHudLayout layout = sb_gun_layout(fbw, fbh);
+        const int s = layout.scale;
+        return sb_chrome_hit(col, row, fbw, fbh) != SBH_NONE
+            || gun_game_reward_over(col, row, fbw, fbh)
+            || (col >= 8 * s && col < (8 + layout.score_w) * s
+                && row >= 28 * s && row < (28 + layout.score_h) * s)
+            || (col >= layout.radar_x && col < layout.radar_x + layout.radar_w * s
+                && row >= 8 * s && row < (8 + layout.radar_h) * s);
+    }
     sb_layout(fbw, fbh);
     if(rah_enabled()){
         if(sb_chrome_hit(col,row,fbw,fbh)!=SBH_NONE)return true;
@@ -1962,6 +2400,13 @@ static int sb_visible_rows(void)
          ? DB_MAX_VISIBLE + g_ra95ExtraRows : DB_MAX_VISIBLE;
 }
 
+/* Partial RA Win95 rows are visible and clickable, while scroll clamping uses
+   full rows so the last cameo can always be brought completely into view. */
+static int sb_partial_row_pixels(void)
+{
+    return g_sbRa && g_fx.dos_classic && g_ra95Pack ? g_ra95Pad / 2 : 0;
+}
+
 static void sb_clamp_top(void)
 {
     for (int c = 0; c < DB_COLUMNS; c++) {
@@ -2004,7 +2449,7 @@ static bool sb_item_rect(int idx, float* x0, float* y0, float* x1, float* y1)
     }
     sb_clamp_top();
     int rowInCol = idx - sb_col_base(e.column) - g_sbTop[e.column];
-    if (rowInCol < 0 || rowInCol >= sb_visible_rows()) return false;
+    if (rowInCol < 0 || rowInCol >= sb_visible_rows() + (sb_partial_row_pixels() > 0)) return false;
     if (sb_hud_active()) {
         /* the same rectangles sb_hit_h6 tests, so what sbitem reports and what a click
            lands on are one description, not two */
@@ -2016,7 +2461,8 @@ static bool sb_item_rect(int idx, float* x0, float* y0, float* x1, float* y1)
     }
     sb_dos_to_screen(sb_strip_x(e.column), (g_sbRa ? 90 : DB_COLUMN_Y) + rowInCol * DB_OBJECT_HEIGHT, x0, y0);
     *x1 = *x0 + (float)DB_OBJECT_WIDTH * sb_dos_px();
-    *y1 = *y0 + (float)DB_OBJECT_HEIGHT * sb_dos_px();
+    *y1 = *y0 + (float)(rowInCol == sb_visible_rows()
+        ? sb_partial_row_pixels() : DB_OBJECT_HEIGHT) * sb_dos_px();
     return true;
 }
 
@@ -2057,16 +2503,43 @@ static bool sb_item_rect(int idx, float* x0, float* y0, float* x1, float* y1)
  *  the same reason, so the roster matches the bar it sits in rather than standing out.
  * ==================================================================================== */
 
-/* MPlayerTColors (globals.cpp:482-493) resolved through the sixteen-colour GUI ramp
-   (wwstd.h:198-216 ColorType), which is the ramp DB_* names, entry for entry:
-   CC_GDI_COLOR->YELLOW, CC_BLUE_GREY->LTBLUE, CC_NOD_COLOR->RED, CC_GREEN->GREEN,
-   CC_ORANGE->PURPLE, CC_BLUE_GREEN->CYAN, GREY->GREY, CC_TAN->BROWN (defines.h:2922-2928).
-   1995's own collision is left alone rather than papered over: seat colour 6 is GREY and
-   so is the defeated marking, so a grey player who loses looks unchanged. */
-static const unsigned char SB_ROSTER_TCOLOR[8] = {
-    DB_YELLOW, DB_LTBLUE, DB_RED,    DB_GREEN,
-    DB_PURPLE, DB_CYAN,   DB_DKGREY, DB_BROWN
-};
+/* MPlayerTColors (globals.cpp:482-493) AS 1995 PRINTED THEM. They are GUI ramp names
+   (wwstd.h:198-216 ColorType): CC_GDI_COLOR is YELLOW, CC_BLUE_GREY LTBLUE, CC_NOD_COLOR
+   RED, CC_GREEN GREEN, CC_ORANGE PURPLE, CC_BLUE_GREEN CYAN (defines.h:2945-2951). But
+   Draw_Names prints with TPF_USE_GRAD_PAL, and with that flag Fancy_Text_Print does not
+   ink in the colour it is handed: it loads _textfontpal[colour] (dialog.cpp:354-376, 424),
+   a gradient whose body entry, [1] and again [13], is a step of one house's own ramp. So an
+   orange player's name came out in palette entry 26, orange, and never in the GUI ramp's
+   purple, and a light blue player's in 203, the blue-grey that house is painted. The flat
+   text this bar rasterises keeps that body entry as its one ink: YELLOW 157, LTBLUE 203,
+   RED 123, GREEN 159, PURPLE 26, CYAN 135.
+   The two seats past 1995's six never had a roster line. Through the same table GREY
+   would ink in the light blue seat's 203 and BROWN in a gold step, 179, so each takes the
+   step of its own ramp the lobby's square shows instead: 194 and 209. That also parts
+   the grey seat from the defeated marking, which used to be the same DKGREY.
+   RED ALERT inks a name the same way through its own tables: Draw_Names hands
+   Fancy_Text_Print &ColorRemaps[RemapColor] with TPF_USE_GRAD_PAL (redalert/radar.cpp),
+   which loads that remap's FontRemap and then sets entry 1, the class most of the
+   gradient font's glyph pixels carry, to its Color, column 4 of the house's PALETTE.CPS
+   row (redalert/dialog.cpp, init.cpp). The table is those eight entries in the 1996 row
+   order (gold, light blue, red, green, orange, grey, blue, brown), the same index in all
+   three theater palettes. A defeated house prints in GreyScheme, whose Color is column 7
+   of the grey row, and the Name:/Kills: header in the grey row's own Color. The
+   sixteen-colour ramp this replaced printed orange as purple and the blue seat in the
+   defeated grey. */
+static const unsigned char SB_ROSTER_TCOLOR[8] = { 157, 203, 123, 159, 26, 135, 194, 209 };
+static const unsigned char SB_ROSTER_TCOLOR_RA[8] = { 84, 164, 233, 146, 212, 115, 226, 203 };
+static const unsigned char SB_ROSTER_DEFEATED_RA = 118;
+static const unsigned char SB_ROSTER_HEADER_RA = 115;
+static unsigned char sb_roster_ink(int colour)
+{
+    const int ci = (colour >= 0 && colour < 8) ? colour : 0;
+    return g_sbRa ? SB_ROSTER_TCOLOR_RA[ci] : SB_ROSTER_TCOLOR[ci];
+}
+static unsigned char sb_roster_defeated_ink(void)
+{
+    return g_sbRa ? SB_ROSTER_DEFEATED_RA : (unsigned char)DB_DKGREY;
+}
 
 static bool sb_roster_shown(void)
 {
@@ -2097,7 +2570,7 @@ static void sb_roster_draw(DB_Surface* s, const DB_Pack* p, int ox, int oy, int 
     if (!f) return;
     sb_roster_refresh();
 
-    db_font_palette_grad(fp, DB_LTGREY, DB_TBLACK);
+    db_font_palette_grad(fp, g_sbRa ? SB_ROSTER_HEADER_RA : (unsigned char)DB_LTGREY, DB_TBLACK);
     db_print(s, f, "Name:", ox, y, fp, DB_FONT6_XSPACING);
     {
         const char* k = "Kills:";
@@ -2110,8 +2583,7 @@ static void sb_roster_draw(DB_Surface* s, const DB_Pack* p, int ox, int oy, int 
 
     for (i = 0; i < g_sbRosterN && y + 6 <= oy + ih; i++) {
         const SbRosterRow& r = g_sbRosterRow[i];
-        const int ci = (r.colour >= 0 && r.colour < 8) ? r.colour : 0;
-        const unsigned char col = r.defeated ? DB_DKGREY : SB_ROSTER_TCOLOR[ci];
+        const unsigned char col = r.defeated ? sb_roster_defeated_ink() : sb_roster_ink(r.colour);
         char txt[16];
         snprintf(txt, sizeof txt, "%s", r.name);
         if (!txt[0]) continue;           /* radar.cpp:1940: a nameless seat draws nothing */
@@ -2335,6 +2807,19 @@ static void sb_draw_panel_ra95(int fbw, int fbh)
     db_draw_ra_sidebar_win95(&surf, g_ra95Pack, &g_dbState,
                               g_sbState.valid ? g_sbState.creditsCounter : 0,
                               g_ra95ExtraRows, g_ra95Pad);
+    /* THE MISSION TIMER PLATE (tab.cpp:154-159, credits.cpp:153-176), in the arrangement
+       the credits and Sidebar plates above already use, Options.ToggleSidebar's: TABS
+       frame 4 (lit) or 2 at (320 - EVA_WIDTH * 3) * RESFACTOR = 160, directly left of
+       the credits plate, with the time centred on 120 * RESFACTOR = 240 in the credits'
+       own font. It goes up below as a third 160x14 strip, left of the credits strip. */
+    char timerText[24];
+    bool timerLight = false;
+    const bool timer = sb_mission_timer(timerText, sizeof timerText, &timerLight);
+    if (timer)
+        db_draw_ra_timer_tab(&surf, g_ra95Pack, timerText, timerLight ? 4 : 2, 160, 240);
+    g_sbDrawnTimer = timer ? g_sbState.missionTimer : -1;
+    g_sbDrawnTimerLight = timer && timerLight ? 1 : 0;
+    snprintf(g_sbDrawnTimerText, sizeof g_sbDrawnTimerText, "%s", timer ? timerText : "");
 
     /* RadarPlot still writes the engine's indexed map at DOS coordinates. The
        Win95 radar opening is exactly twice the source rectangle in each axis. */
@@ -2364,11 +2849,12 @@ static void sb_draw_panel_ra95(int fbw, int fbh)
     glDisable(GL_BLEND);
     glColor4f(1,1,1,1);
     const int chunks = (ra95Height + 199) / 200;
-    for (int part = 0; part <= chunks; part++) {
+    for (int part = 0; part <= chunks + (timer ? 1 : 0); part++) {
         const bool credit = part == chunks;
-        const int xsrc = credit ? 320 : 480;
-        const int ysrc = credit ? 0 : part * 200;
-        const int height = credit ? 14
+        const bool timerPlate = part == chunks + 1;
+        const int xsrc = timerPlate ? 160 : credit ? 320 : 480;
+        const int ysrc = credit || timerPlate ? 0 : part * 200;
+        const int height = credit || timerPlate ? 14
                          : ra95Height - ysrc < 200 ? ra95Height - ysrc : 200;
         DB_Surface crop;
         for (int y = 0; y < height; y++)
@@ -2376,9 +2862,24 @@ static void sb_draw_panel_ra95(int fbw, int fbh)
                    g_ra95Screen+(ysrc+y)*640+xsrc, 160);
         crop.w = 160; crop.h = height; crop.px = g_ra95Crop;
         db_clip_reset(&crop);
+        /* A part whose indexed pixels and palette are the ones its texture was last
+           converted from keeps the texture as it is (hud_compose.h). */
+        static HudIndexed parts[RA95_CHUNKS + 2];
+        const size_t cropBytes = (size_t)160 * height;
+        if (hud_indexed_fresh(parts[part], g_ra95Tex[part], g_ra95Crop, cropBytes,
+                              g_ra95Pack->pal8)) {
+            g_hudSkipped++;
+            if (hud_compose_verify()) {
+                db_surface_to_rgba(&crop, g_ra95Pack->pal8, g_ra95RGBA, 0);
+                hud_verify_compare("ra95", parts[part].rgba.data(), g_ra95RGBA, cropBytes * 4);
+            }
+            glBindTexture(GL_TEXTURE_2D, g_ra95Tex[part]);
+        } else {
         db_surface_to_rgba(&crop, g_ra95Pack->pal8, g_ra95RGBA, 0);
         if (!g_ra95Tex[part]) {
-            unsigned char zero[256*256*4] = {0};
+            /* static: 256 KB is too much for a stack that commits page by page (a refused
+               page is a stack overflow), and the bytes are the same zeros either way */
+            static unsigned char zero[256*256*4];
             glGenTextures(1, &g_ra95Tex[part]);
             glBindTexture(GL_TEXTURE_2D, g_ra95Tex[part]);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -2391,8 +2892,13 @@ static void sb_draw_panel_ra95(int fbw, int fbh)
         glBindTexture(GL_TEXTURE_2D, g_ra95Tex[part]);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 160, height,
                         GL_RGBA, GL_UNSIGNED_BYTE, g_ra95RGBA);
+        g_hudComposed++;
+        hud_indexed_store(parts[part], g_ra95Tex[part], g_ra95Crop, cropBytes,
+                          g_ra95Pack->pal8, g_ra95RGBA);
+        }
         {
-            const float x0 = credit ? g_dbX0-160*unit : g_dbX0;
+            const float x0 = timerPlate ? g_dbX0-320*unit
+                           : credit ? g_dbX0-160*unit : g_dbX0;
             const float x1 = x0 + 160*unit;
             const float y0 = g_dbY0 + ysrc*unit;
             const float y1 = y0 + height*unit;
@@ -2408,9 +2914,17 @@ static void sb_draw_panel_ra95(int fbw, int fbh)
     glDisable(GL_TEXTURE_2D);
 }
 
+static void sb_draw_gun_hud(int fbw, int fbh);
+
 static void sb_draw_panel(int fbw, int fbh)
 {
     if (!g_sbOn) return;
+    /* Only the Classic Red Alert panel draws the mission timer, and it sets this again
+       itself; any other panel drawn this frame showed none. */
+    g_sbDrawnTimer = -1;
+    g_sbDrawnTimerLight = 0;
+    g_sbDrawnTimerText[0] = 0;
+    if (g_sb.GunPlayers) { sb_draw_gun_hud(fbw, fbh); return; }
     if (sb_hud_active()) { sb_draw_panel_640(fbw, fbh); return; }
     if (g_sbRa && g_ra95Pack && g_fx.dos_classic) {
         sb_draw_panel_ra95(fbw, fbh);
@@ -2436,8 +2950,16 @@ static void sb_draw_panel(int fbw, int fbh)
        and filled its interior black, because sb_fill_dos_state raises radar_active for
        the list -- which is Draw_Names' own unconditional opening pair (radar.cpp:
        1871-1873) -- so the names land on the ground 1995 gave them whether or not this
-       player has a radar. */
-    if (sb_roster_shown())
+       player has a radar.
+       RED ALERT'S HOLE IS ITS OWN: RadY 7, RadOffX 6, RadOffY 7, 73x65 (redalert/radar.cpp),
+       six lines below Tiberian Dawn's, which put the header on the frame's top band. The
+       Windows 95 bar below draws the list into the same rectangle. Its buttons stand in
+       the bottom of that hole and Draw_Names draws them again after the names. */
+    if (sb_roster_shown() && g_sbRa) {
+        sb_roster_draw(&g_dbSurf, g_dbPack, 246, 14, 73, 65);
+        db_draw_ra_buttons(&g_dbSurf, g_dbPack, &g_dbState);
+    }
+    else if (sb_roster_shown())
         sb_roster_draw(&g_dbSurf, g_dbPack,
                        DB_RAD_X + DB_RAD_OFF_X, DB_RAD_Y + DB_RAD_OFF_Y,
                        DB_RAD_I_WIDTH, DB_RAD_I_HEIGHT);
@@ -2469,12 +2991,26 @@ static void sb_draw_panel(int fbw, int fbh)
     for (int y = 0; y < SB_TEX_H; y++)
         memcpy(g_dbCrop + (size_t)y * SB_TEX_W,
                g_dbScreen + (size_t)y * DB_SCREEN_W + SB_TEX_X, SB_TEX_W);
+    /* The crop and the palette are the conversion's whole input, so a crop equal to the
+       one the texture was last converted from needs neither the conversion nor the
+       upload (hud_compose.h). The 8-bit compose above still runs every frame: the power
+       readout just above is read off it. */
+    static HudIndexed dosCrop;
+    const bool cropFresh = hud_indexed_fresh(dosCrop, g_dbTex, g_dbCrop, sizeof g_dbCrop,
+                                             g_dbPack->pal8);
     {
         DB_Surface crop;
         crop.w = SB_TEX_W; crop.h = SB_TEX_H; crop.px = g_dbCrop;
         db_clip_reset(&crop);
-        db_surface_to_rgba(&crop, g_dbPack->pal8, g_dbRGBA, 0);
+        if (!cropFresh || hud_compose_verify())
+            db_surface_to_rgba(&crop, g_dbPack->pal8, g_dbRGBA, 0);
     }
+    if (cropFresh) {
+        g_hudSkipped++;
+        if (hud_compose_verify())
+            hud_verify_compare("dosbar", dosCrop.rgba.data(), g_dbRGBA, sizeof g_dbRGBA);
+        glBindTexture(GL_TEXTURE_2D, g_dbTex);
+    } else {
 
     /* 3. one upload -------------------------------------------------------------- */
     if (!g_dbTex) {
@@ -2492,6 +3028,9 @@ static void sb_draw_panel(int fbw, int fbh)
     glBindTexture(GL_TEXTURE_2D, g_dbTex);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SB_TEX_W, SB_TEX_H,
                     GL_RGBA, GL_UNSIGNED_BYTE, g_dbRGBA);
+    g_hudComposed++;
+    hud_indexed_store(dosCrop, g_dbTex, g_dbCrop, sizeof g_dbCrop, g_dbPack->pal8, g_dbRGBA);
+    }
 
     /* 4. the letterbox, in the DOS screen's own opaque black ---------------------- */
     glDisable(GL_BLEND);
@@ -2546,8 +3085,16 @@ static bool mesh_perf_switch(const char* name);
 struct H6UploadMirror { GLuint name=0; int w=0,h=0; std::vector<unsigned char> pixels; };
 static std::map<GLuint*,H6UploadMirror> g_h6UploadMirror;
 static unsigned long g_h6Uploads=0, g_h6UploadSkips=0, g_h6UploadBytes=0;
+static bool h6_mirror_usable(size_t bytes)
+{
+    return bytes<=4u*1024u*1024u && g_h6UploadMirror.size()<64
+        && mesh_perf_switch("OPENCNC3D_HUD_DIRTY");
+}
 static void h6_upload(GLuint* tex, const unsigned char* rgba, int w, int h)
 {
+    /* Whatever wrote these pixels, a composed surface's key no longer describes them;
+       a path that keeps a key stores it again after this returns (hud_compose.h). */
+    hud_forget_tex(tex);
     const bool fresh=!*tex;
     if (!*tex) {
         std::vector<unsigned char> zero((size_t)H6_POT_W * H6_POT_H * 4, 0);
@@ -2564,8 +3111,7 @@ static void h6_upload(GLuint* tex, const unsigned char* rgba, int w, int h)
     glBindTexture(GL_TEXTURE_2D, *tex);
     int first=0,last=h;
     const size_t row=(size_t)w*4, bytes=row*(size_t)h;
-    if (w>0 && h>0 && bytes<=4u*1024u*1024u && g_h6UploadMirror.size()<64
-        && mesh_perf_switch("OPENCNC3D_HUD_DIRTY")) {
+    if (w>0 && h>0 && h6_mirror_usable(bytes)) {
         H6UploadMirror& m=g_h6UploadMirror[tex];
         if (!fresh && m.name==*tex && m.w==w && m.h==h && m.pixels.size()==bytes) {
             if (!memcmp(m.pixels.data(),rgba,bytes)) { g_h6UploadSkips++; return; }
@@ -2575,6 +3121,37 @@ static void h6_upload(GLuint* tex, const unsigned char* rgba, int w, int h)
         m.name=*tex; m.w=w; m.h=h; m.pixels.assign(rgba,rgba+bytes);
     }
     /* Whole rows remain tightly packed, preserving the original unpack contract. */
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, first, w, last-first, GL_RGBA, GL_UNSIGNED_BYTE,
+                   rgba+(size_t)first*row);
+    g_h6Uploads++; g_h6UploadBytes+=(unsigned long)(row*(size_t)(last-first));
+}
+
+/* THE ROWS y0..y1 OF A SURFACE WHOSE TEXTURE ALREADY HOLDS EVERY OTHER ROW, after a patch
+   that changed only those rows. Only they are compared with the mirror (instead of the
+   whole surface) and only the changed ones among them are sent, and the mirror is kept
+   equal to the texture, so a later h6_upload of the whole surface stays exact. The
+   texture must exist: the caller composes the whole surface through h6_upload when it
+   does not. */
+static void h6_upload_rows(GLuint* tex, const unsigned char* rgba, int w, int h, int y0, int y1)
+{
+    hud_forget_tex(tex);
+    if (y0<0) y0=0;
+    if (y1>h) y1=h;
+    if (!*tex || w<=0 || y0>=y1) return;
+    glBindTexture(GL_TEXTURE_2D, *tex);
+    const size_t row=(size_t)w*4, bytes=row*(size_t)h;
+    int first=y0,last=y1;
+    if (h6_mirror_usable(bytes)) {
+        std::map<GLuint*,H6UploadMirror>::iterator it=g_h6UploadMirror.find(tex);
+        if (it!=g_h6UploadMirror.end() && it->second.name==*tex && it->second.w==w
+            && it->second.h==h && it->second.pixels.size()==bytes) {
+            unsigned char* m=it->second.pixels.data();
+            while (first<last && !memcmp(m+(size_t)first*row,rgba+(size_t)first*row,row)) first++;
+            while (last>first && !memcmp(m+(size_t)(last-1)*row,rgba+(size_t)(last-1)*row,row)) last--;
+            if (first==last) { g_h6UploadSkips++; return; }
+            memcpy(m+(size_t)first*row,rgba+(size_t)first*row,row*(size_t)(last-first));
+        }
+    }
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, first, w, last-first, GL_RGBA, GL_UNSIGNED_BYTE,
                    rgba+(size_t)first*row);
     g_h6Uploads++; g_h6UploadBytes+=(unsigned long)(row*(size_t)(last-first));
@@ -2905,9 +3482,24 @@ static int  g_tipCost = -1;
 static int   g_tipDrawW = 0, g_tipDrawH = 0;
 static float g_tipDrawZoom = 0.0f;
 
+#include "ra_language_names.h"
 static const char* sb_title_for(const char* asset)
 {
+    if (g_sbRa && asset) for (const RA_LanguageName& name : RA_LANGUAGE_NAMES)
+        if (!strcmp(asset,name.asset)) {
+            const char* localized=lang_txt(name.text);
+            if (localized && *localized) return localized;
+            break;
+        }
     if(g_sbRa&&asset)for(size_t k=0;k<sizeof(rah_titles)/sizeof(rah_titles[0]);k++)if(!strcmp(asset,rah_titles[k].id))return rah_titles[k].title;
+    /* A Red Alert type the authored HUD titles do not list (the Aftermath units, civilians,
+       fakes) takes the engine's own English for its string number, so a selected Chrono
+       Tank's card reads "Chrono Tank" and not its type code. */
+    if (g_sbRa && asset) for (const RA_LanguageName& name : RA_LANGUAGE_NAMES)
+        if (!strcmp(asset, name.asset)) {
+            if (name.english && *name.english) return name.english;
+            break;
+        }
     if (!asset || !*asset) return 0;
     for (int i = 0; i < DOSNAMES_COUNT; i++)
         if (!strcmp(DOSNAMES[i].asset, asset)) {
@@ -2944,6 +3536,95 @@ static const char* sb_hover_subject(int* cost)
     return sb_art_name(e.name);
 }
 
+/* ---- WHAT A GREY ITEM'S "Requires:" LINE NAMES ----------------------------------------
+ * The catalog's `required` field is display data written in one side's building names,
+ * and a grey item of the OTHER side's row (the GDI Rocket Launcher on a Nod sidebar in a
+ * match, Tanya on a Soviet one) used to print that side's names: "Weapons Factory,
+ * Advanced Com. Center" to a player who can build neither. The engine itself never asks
+ * for those exact buildings. Before it compares prerequisites it widens what the player
+ * owns, and the tooltip now applies the same widening.
+ *
+ * Tiberian Dawn, house.cpp Can_Build_With_Prerequisites, in EVERY mode (it runs before
+ * the multiplayer branch, so a captured Airstrip counts in the campaign too): Advanced
+ * Power counts as a Power Plant, the Hand of Nod as Barracks, the Obelisk as the Advanced
+ * Guard Tower, the Temple as the Advanced Com. Center, the Airstrip as the Weapons
+ * Factory and the SAM Site as the Helipad. ONE WAY ONLY: a Hand meets a Barracks
+ * requirement, a Barracks never meets a Hand one.
+ *
+ * Red Alert, house.cpp Can_Build: Advanced Power counts as a Power Plant always; either
+ * Tech Center counts as the other only outside the campaign (Session.Type !=
+ * GAME_NORMAL). g_sb.Roster is set exactly for skirmish and matches, so it is the test.
+ * --------------------------------------------------------------------------------------- */
+struct SbPrereqAlias { const char *owned, *meets; };
+static const SbPrereqAlias SB_TD_PREREQ_ALIAS[] = {
+    {"NUK2","NUKE"}, {"HAND","PYLE"}, {"OBLI","ATWR"},
+    {"TMPL","EYE"},  {"AFLD","WEAP"}, {"SAM","HPAD"},
+};
+static bool sb_owns(const char* type) { return g_sb.OwnedBuilding && g_sb.OwnedBuilding(type); }
+static bool sb_prereq_met(const char* req)
+{
+    if (sb_owns(req)) return true;
+    if (!g_sbRa) {
+        for (const SbPrereqAlias& a : SB_TD_PREREQ_ALIAS)
+            if (!strcasecmp(a.meets, req) && sb_owns(a.owned)) return true;
+        return false;
+    }
+    if (!strcasecmp(req, "POWR") && sb_owns("APWR")) return true;
+    if (g_sb.Roster) {
+        if (!strcasecmp(req, "ATEK") && sb_owns("STEK")) return true;
+        if (!strcasecmp(req, "STEK") && sb_owns("ATEK")) return true;
+    }
+    return false;
+}
+/* The building to NAME for a missing requirement: the player's own side's equivalent
+   where the engine accepts one, so a Nod player reads "Airstrip" where the row says
+   WEAP and a Soviet player in a match reads "Soviet Tech Center" where it says ATEK.
+   Only the directions the engine honours: GDI has no building that stands in for an
+   Airstrip, so a GDI player is never told to build a Weapons Factory for one. */
+static const char* sb_prereq_shown(const char* req)
+{
+    if (!g_sbRa) {
+        if (g_sb.nod)
+            for (const SbPrereqAlias& a : SB_TD_PREREQ_ALIAS)
+                if (!strcasecmp(a.meets, req) && strcasecmp(a.owned, "NUK2") && strcasecmp(a.owned, "SAM"))
+                    return a.owned;
+        return req;
+    }
+    if (g_sb.Roster) {
+        if (g_sb.nod && !strcasecmp(req, "ATEK")) return "STEK";
+        if (!g_sb.nod && !strcasecmp(req, "STEK")) return "ATEK";
+    }
+    return req;
+}
+/* WHERE THE ITEM COMES OUT. A category's factory is no part of the catalog's prerequisite
+   text, and Red Alert's rifleman, engineer, medic, walls and landing craft carry none at
+   all, so with no factory standing their grey cameo used to claim "Requires mission
+   unlock". Without one the item stays grey whatever else stands, so a missing factory is
+   always named, first, as the catalog's own rows name it ("WEAP,EYE"): a Soviet Tanya
+   with nothing built reads "Soviet Barracks, Soviet Tech Center", not the Tech Center
+   alone. It is left out only when the requirement list already names the item's own
+   producer (the Kennel trains the dog, the Helipad and the Airfield launch the aircraft). */
+static void sb_factory_need(int category, const char* required, std::string& need)
+{
+    static const char* const tdOwned[4][3] = {
+        {"FACT",0,0}, {"PYLE","HAND",0}, {"WEAP","AFLD",0}, {"HPAD",0,0}};
+    static const char* const raOwned[5][3] = {
+        {"FACT",0,0}, {"TENT","BARR",0}, {"WEAP",0,0}, {"AFLD","HPAD",0}, {"SYRD","SPEN",0}};
+    if (category < 0 || category >= (g_sbRa ? 5 : 4)) return;
+    const char* const* owned = g_sbRa ? raOwned[category] : tdOwned[category];
+    for (int k = 0; k < 3 && owned[k]; k++) if (sb_owns(owned[k])) return;
+    char buf[128]; snprintf(buf, sizeof buf, "%s", required ? required : "");
+    for (char* a = strtok(buf, ","); a; a = strtok(NULL, ",")) {
+        if (!strcasecmp(a, "KENN")) return;
+        for (int k = 0; k < 3 && owned[k]; k++) if (!strcasecmp(a, owned[k])) return;
+    }
+    /* Both sides' factories count as owned above (a captured one trains for its new
+       owner); the one named is the player's own. */
+    const char* name = owned[(g_sb.nod && owned[1]) ? 1 : 0];
+    const char* t = sb_title_for(name);
+    need = std::string(t ? t : name) + (need.empty() ? "" : ", ") + need;
+}
+
 /* Resolve only, no drawing, so the sbtip verb can report the truth right after a cursor
    move with no shot in between -- the same split sbstate already makes at :2549. */
 static bool sb_tip_resolve(void)
@@ -2956,8 +3637,22 @@ static bool sb_tip_resolve(void)
         const char *title=sb_title_for(d->name);snprintf(g_tipName,sizeof g_tipName,"%s",title?title:d->name);
         g_tipCost=d->catalog?d->catalog->cost:-1;
         std::string need;
-        if(d->catalog){char buf[128];snprintf(buf,sizeof buf,"%s",d->catalog->required);char *a=strtok(buf,",");while(a){if(!g_sb.OwnedBuilding||!g_sb.OwnedBuilding(a)){const char *t=sb_title_for(a);if(!need.empty())need+=", ";need+=t?t:a;}a=strtok(NULL,",");}}
-        snprintf(g_tipRequires,sizeof g_tipRequires,"%s%s / tech level %d",need.empty()?"Requires mission unlock":"Requires: ",need.c_str(),d->catalog?d->catalog->level:0);return true;
+        if(d->catalog){
+            char buf[128];snprintf(buf,sizeof buf,"%s",d->catalog->required);
+            for(char *a=strtok(buf,",");a;a=strtok(NULL,",")){
+                if(sb_prereq_met(a))continue;
+                const char *shown=sb_prereq_shown(a),*t=sb_title_for(shown);
+                if(!need.empty())need+=", ";need+=t?t:shown;
+            }
+            sb_factory_need(d->catalog->category,d->catalog->required,need);
+        }
+        const int level=d->catalog?d->catalog->level:0;
+        /* Nothing named is missing. In a match the lobby's tech level is what is left;
+           in the campaign the mission decides, as it always did. */
+        if(!need.empty())snprintf(g_tipRequires,sizeof g_tipRequires,"Requires: %s / tech level %d",need.c_str(),level);
+        else if(g_sb.Roster)snprintf(g_tipRequires,sizeof g_tipRequires,"Requires: tech level %d",level);
+        else snprintf(g_tipRequires,sizeof g_tipRequires,"Requires mission unlock / tech level %d",level);
+        return true;
     }
     if (!g_sbTips) return false;
     int cost = -1;
@@ -2972,6 +3667,7 @@ static bool sb_tip_resolve(void)
 
 static void sb_draw_tooltip(int fbw, int fbh)
 {
+    if (g_sb.GunPlayers) return;
     /* Cleared ahead of the first refusal below, so a frame that draws no plate reads as
        0x0 rather than as whatever the last hover left behind. */
     g_tipDrawW = g_tipDrawH = 0;
@@ -3001,6 +3697,15 @@ static void sb_draw_tooltip(int fbw, int fbh)
     const int h=(price[0]?lh*2:lh)+(int)requirements.size()*lh+2;
     if (w > SBTIP_W || h > SBTIP_H) return;
 
+    /* The plate is a function of its lines, its box and the palette, so the texture is
+       specified again only when one of them changed (hud_compose.h). */
+    static HudPlate tipPlate;
+    static HudKey tipKey;
+    tipKey.clear(); tipKey.p(g_dbPack); tipKey.raw(g_dbPack->pal8, 768); tipKey.s(title);
+    tipKey.s(price); tipKey.i(w); tipKey.i(h);
+    for (size_t k = 0; k < requirements.size(); k++) tipKey.s(requirements[k].c_str());
+    const bool tipFresh = hud_plate_fresh(tipPlate, g_tipTex, tipKey);
+    if (!tipFresh || hud_compose_verify()) {
     DB_Surface surf; surf.w = SBTIP_W; surf.h = SBTIP_H; surf.px = g_tipPx;
     db_clip_reset(&surf);
     memset(g_tipPx, DB_BLACK, sizeof g_tipPx);
@@ -3020,6 +3725,7 @@ static void sb_draw_tooltip(int fbw, int fbh)
         db_clip_reset(&c);
         db_surface_to_rgba(&c, g_dbPack->pal8, g_tipRGBA, 0);
     }
+    }
     if (!g_tipTex) {
         glGenTextures(1, &g_tipTex);
         glBindTexture(GL_TEXTURE_2D, g_tipTex);
@@ -3029,8 +3735,16 @@ static void sb_draw_tooltip(int fbw, int fbh)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
     glBindTexture(GL_TEXTURE_2D, g_tipTex);
+    if (tipFresh) {
+        g_hudSkipped++;
+        if (hud_compose_verify())
+            hud_verify_compare("tooltip", tipPlate.rgba.data(), g_tipRGBA, sizeof g_tipRGBA);
+    } else {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SBTIP_W, SBTIP_H, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, g_tipRGBA);
+    g_hudComposed++;
+    hud_plate_store(tipPlate, g_tipTex, tipKey, g_tipRGBA, sizeof g_tipRGBA);
+    }
 
     /* WHERE IT SITS. Right-aligned flush to the LEFT of the hovered control, top edges
        level, which is help.cpp:315-318's own placement. Clamped on screen after, the way
@@ -3100,9 +3814,10 @@ static float g_qdDrawZoom = 0.0f;
 
 static void sb_draw_queue_digits(int fbw, int fbh)
 {
+    if (g_sb.GunPlayers) return;
     g_qdDrawW = g_qdDrawH = 0;
     g_qdDrawZoom = 0.0f;
-    if (!g_sbQueueOn || g_sbQueue.empty() || !g_dbPack || !g_sbState.valid) return;
+    if (!g_sbQueueOn || sb_queue_empty() || !g_dbPack || !g_sbState.valid) return;
     const DB_Font* f = db_font(g_dbPack, "6POINT");
     if (!f) return;
     if (!g_qdTex) {
@@ -3124,13 +3839,20 @@ static void sb_draw_queue_digits(int fbw, int fbh)
         float x0, y0, x1, y1;
         if (!sb_item_rect((int)i, &x0, &y0, &x1, &y1)) continue;
         char d[4]; snprintf(d, sizeof d, "%d", n > 9 ? 9 : n);
+        const int w = db_string_width(f, d, DB_FONT6_XSPACING) + 3;
+        const int hh = 9;                     /* hug the glyph; 6POINT is 6 tall */
+        /* One texture serves every badge, so it is specified again only when this badge's
+           digit or palette is not the one it holds already (hud_compose.h). */
+        static HudPlate qdPlate;
+        static HudKey qdKey;
+        qdKey.clear(); qdKey.p(g_dbPack); qdKey.raw(g_dbPack->pal8, 768); qdKey.s(d);
+        const bool qdFresh = hud_plate_fresh(qdPlate, g_qdTex, qdKey);
+        if (!qdFresh || hud_compose_verify()) {
         DB_Surface surf; surf.w = SBQD_W; surf.h = SBQD_H; surf.px = g_qdPx;
         db_clip_reset(&surf);
         memset(g_qdPx, DB_BLACK, sizeof g_qdPx);
         unsigned char fp[16];
         db_font_palette(fp, DB_GREEN, DB_TBLACK);
-        const int w = db_string_width(f, d, DB_FONT6_XSPACING) + 3;
-        const int hh = 9;                     /* hug the glyph; 6POINT is 6 tall */
         db_print(&surf, f, d, 2, 1, fp, DB_FONT6_XSPACING);
         db_line_h(&surf, 0, w - 1, 0,      DB_GREEN);
         db_line_h(&surf, 0, w - 1, hh - 1, DB_GREEN);
@@ -3141,9 +3863,18 @@ static void sb_draw_queue_digits(int fbw, int fbh)
             db_clip_reset(&c);
             db_surface_to_rgba(&c, g_dbPack->pal8, g_qdRGBA, 0);
         }
+        }
         glBindTexture(GL_TEXTURE_2D, g_qdTex);
+        if (qdFresh) {
+            g_hudSkipped++;
+            if (hud_compose_verify())
+                hud_verify_compare("queue digit", qdPlate.rgba.data(), g_qdRGBA, sizeof g_qdRGBA);
+        } else {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SBQD_W, SBQD_H, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, g_qdRGBA);
+        g_hudComposed++;
+        hud_plate_store(qdPlate, g_qdTex, qdKey, g_qdRGBA, sizeof g_qdRGBA);
+        }
         /* bottom-right of the cameo, the corner the build clock does not use. Same
            DOS-pixel magnification as the tooltip, and for the same reason: this plate is
            rasterised in DOS pixels too, so the digit has to keep its size relative to the
@@ -3350,6 +4081,13 @@ static void sb_draw_place_tip(int fbw, int fbh)
     const int h = SBPT_H;
     if (w > SBPT_W) return;
 
+    /* The name plate is specified again only when the name or the palette changed, not
+       on every frame of a placement (hud_compose.h). */
+    static HudPlate ptPlate;
+    static HudKey ptKey;
+    ptKey.clear(); ptKey.p(g_dbPack); ptKey.raw(g_dbPack->pal8, 768); ptKey.s(what); ptKey.i(w);
+    const bool ptFresh = hud_plate_fresh(ptPlate, g_ptTex, ptKey);
+    if (!ptFresh || hud_compose_verify()) {
     DB_Surface surf; surf.w = SBPT_W; surf.h = SBPT_H; surf.px = g_ptPx;
     db_clip_reset(&surf);
     memset(g_ptPx, DB_BLACK, sizeof g_ptPx);
@@ -3365,6 +4103,7 @@ static void sb_draw_place_tip(int fbw, int fbh)
         db_clip_reset(&c);
         db_surface_to_rgba(&c, g_dbPack->pal8, g_ptRGBA, 0);
     }
+    }
     if (!g_ptTex) {
         glGenTextures(1, &g_ptTex);
         glBindTexture(GL_TEXTURE_2D, g_ptTex);
@@ -3374,8 +4113,16 @@ static void sb_draw_place_tip(int fbw, int fbh)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
     glBindTexture(GL_TEXTURE_2D, g_ptTex);
+    if (ptFresh) {
+        g_hudSkipped++;
+        if (hud_compose_verify())
+            hud_verify_compare("place tip", ptPlate.rgba.data(), g_ptRGBA, sizeof g_ptRGBA);
+    } else {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SBPT_W, SBPT_H, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, g_ptRGBA);
+    g_hudComposed++;
+    hud_plate_store(ptPlate, g_ptTex, ptKey, g_ptRGBA, sizeof g_ptRGBA);
+    }
 
     /* Right-aligned flush to the LEFT of the pointer, top edges level, then clamped on
        screen: help.cpp:315-331's own placement. Leftward is also away from the panel, so
@@ -3473,13 +4220,19 @@ static bool sb_bsize(const char* name, int* w, int* h)
 
 /* THE WALL LINE (Tiberian Sun and Red Alert 2). A wall piece put down in line with one of
    the player's own walls of the same kind, at most place_wall_reach() cells away along a
-   cell axis, fills the gap with wall at no cost; the brain does it when the piece is
-   placed (OpenCNC3D_Wall_Fill in building.cpp). This is the same walk, so the cursor can show
+   cell axis, fills the gap with wall; the brain does it when the piece is placed
+   (OpenCNC3D_Wall_Fill in building.cpp). This is the same walk, so the cursor can show
    the pieces that will appear before the click: from the origin along N, E, S and W, the
    first wall of the player's own of this kind is the anchor, and every cell before it must
    be on the map and generally clear, or that direction lays nothing. Returns how many cells
    it wrote to `out` (absolute cell numbers). Only from a legal origin, because the brain
-   lays nothing for a piece it refuses. */
+   lays nothing for a piece it refuses.
+   EVERY FILLED PIECE IS PAID FOR, at the price the sidebar shows for one (the brain's
+   Cost_Of times CostBias), and a direction's gap is laid only if the money still in hand
+   pays for all of it, directions taken in the brain's order. The money is the bank plus
+   the silos (the brain's Available_Money), not the animated readout, which lags. In a
+   match the bank can still move between this frame and the placement event's turn; the
+   brain's own check is the one that counts. */
 static int place_wall_reach(void);     /* the host: 0 when the rule is off */
 static int sb_place_wall_kind(void)
 {
@@ -3499,6 +4252,8 @@ static int sb_wall_fill_cells(int* out, int maxn)
     if (kind < 0 || reach <= 0 || !g_sb.OwnWallKind || g_sbHoverX < 0) return 0;
     if (!sb_legal_origin(g_sbHoverX, g_sbHoverY)) return 0;
     static const int DX[4] = { 0, 1, 0, -1 }, DY[4] = { -1, 0, 1, 0 };
+    const int cost = g_sbState.entry[g_sbPlaceIdx].cost;
+    long long money = (long long)g_sbState.credits + (long long)g_sbState.tiberium;
     int n = 0;
     for (int d = 0; d < 4; d++) {
         int gap[16], ng = 0;
@@ -3511,7 +4266,10 @@ static int sb_wall_fill_cells(int* out, int maxn)
             if (gi < 0 || !g_sbPlaceClear[gi]) break;
             gap[ng++] = ay * SB_STRIDE + ax;
         }
-        if (!anchored) continue;
+        if (!anchored || ng == 0) continue;
+        const long long price = (long long)ng * (long long)(cost > 0 ? cost : 0);
+        if (money < price) continue;
+        money -= price;
         for (int i = 0; i < ng && n < maxn; i++) out[n++] = gap[i];
     }
     return n;
@@ -4117,7 +4875,7 @@ static SbHit sb_hit_dos(int dx, int dy, int* column, int* slot)
         }
         /* Cameo buttons use the same native 24-pixel row interval as the art. */
         if (dx >= sx && dx < sx + DB_OBJECT_WIDTH &&
-            dy >= stripy && dy < stripy + sb_visible_rows() * DB_OBJECT_HEIGHT) {
+            dy >= stripy && dy < stripy + sb_visible_rows() * DB_OBJECT_HEIGHT + sb_partial_row_pixels()) {
             *column = c;
             *slot = (dy - stripy) / DB_OBJECT_HEIGHT;
             return SBH_ITEM;
@@ -4315,6 +5073,7 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
         }
     }
 
+    if (g_sb.GunPlayers) return true;
     if (!g_sbState.valid) return false;
 
     int c, slot;
@@ -4415,15 +5174,8 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
                    building is what EA's own surviving comment says their UI did
                    (dllinterface.cpp:3906-3908, "subsequenct right-clicks to decrement
                    that queue count"), so this rung is faithful rather than invented. */
-                int& n = g_sbQueue[std::make_pair(e.btype, e.bid)];
-                if (--n <= 0) {
-                    g_sbQueue.erase(std::make_pair(e.btype, e.bid));
-                    /* A start still open for this key would otherwise be read as lost
-                       and fired again the next time the key is queued. */
-                    g_sbQueueOpen.erase(std::make_pair(e.btype, e.bid));
-                }
-                printf("SBQUEUE|sub|%s|btype=%d|bid=%d|n=%d\n", e.name, e.btype, e.bid,
-                       n > 0 ? n : 0);
+                const int n = sb_queue_sub(e);
+                printf("SBQUEUE|sub|%s|btype=%d|bid=%d|n=%d\n", e.name, e.btype, e.bid, n);
                 fflush(stdout);
             } else if (e.constructing) {
                 sb_hold((int)i);
@@ -4453,16 +5205,12 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
             } else if (e.completed && e.type == BUILDING_TYPE) {
                 sb_start_placement((int)i);
                 printf("SIDEBAR-INPUT|startplace|%s\n", e.name);
-            } else if (!e.constructing) {
-                sb_start((int)i);
-                printf("SIDEBAR-INPUT|build|%s\n", e.name);
-            } else if (g_sbQueueOn && sb_queueable(e)) {
-                /* Already building, and clicking it again is free (see the note by
-                   g_sbQueue): today this arm does not exist and the click is swallowed. */
-                int& n = g_sbQueue[std::make_pair(e.btype, e.bid)];
-                if (n < SB_QUEUE_MAX) n++;
-                printf("SBQUEUE|add|%s|btype=%d|bid=%d|n=%d\n", e.name, e.btype, e.bid, n);
-                fflush(stdout);
+            } else {
+                /* Start, resume or queue: sb_click_build holds the ladder, and prints the
+                   SBQUEUE|add line itself when it queues. */
+                const char* nm = e.name;
+                if (sb_click_build((int)i) == SBCB_START)
+                    printf("SIDEBAR-INPUT|build|%s\n", nm);
             }
         }
     }
@@ -4473,6 +5221,7 @@ static bool sb_click(float col, float row, int fbw, int fbh, bool right)
    scrolls both, which is what a wheel over the frame ought to do. */
 static void sb_scroll_at(float col, float row, int fbw, int fbh, int dir)
 {
+    if (g_sb.GunPlayers) return;
     sb_layout(fbw, fbh);
     if(eh_enabled()){g_ehTop[g_ehCategory]+=dir;eh_refresh();return;}
     int c, slot;
@@ -4496,8 +5245,8 @@ static void sb_set_hover(int cellx, int celly) { g_sbHoverX = cellx; g_sbHoverY 
    nothing for exactly as long as the names are up. */
 static bool sb_radar_shown(void)
 {
-    return g_sbRadarShown && !sb_roster_shown()
-           && (g_sbState.radarActive || g_sbRadarForce);
+    return g_sb.GunPlayers || (g_sbRadarShown && !sb_roster_shown()
+           && (g_sbState.radarActive || g_sbRadarForce));
 }
 /* The M key, --nominimap and the minimapon/minimapoff verbs are ours, not 1995's, and
    they mean "the map, on or off". Dropping the list first keeps that promise: M always
@@ -4536,6 +5285,7 @@ static void sb_report(const char* tag)
  *  interpreter (script_line), so there is ONE script language, not two.
  *
  *    sidebar [TAG]        print the decoded sidebar state (SIDEBAR|/SBITEM| lines)
+ *    timerdump            the mission timer, exported and as last drawn (SBTIMER|)
  *    build NAME           SIDEBAR_REQUEST_START_CONSTRUCTION
  *    hold NAME            SIDEBAR_REQUEST_HOLD_CONSTRUCTION
  *    cancelbuild NAME     SIDEBAR_REQUEST_CANCEL_CONSTRUCTION
@@ -4544,7 +5294,9 @@ static void sb_report(const char* tag)
  *    place X Y            SIDEBAR_REQUEST_PLACE at absolute engine cell X,Y
  *    place auto           ... at the first cell the decoded overlay calls legal
  *    cancelplace          SIDEBAR_CANCEL_PLACE
- *    hover X Y            move the placement cursor, so a screenshot shows it
+ *    hover X Y            move the placement cursor, so a screenshot shows it; with a
+ *                         wall in hand also print the wall line it would lay
+ *                         (WALLFILLPREVIEW|)
  *    sbclick C R          left-click the PANEL at drawable pixel C,R (the real UI path)
  *    sbrclick C R         right-click the panel
  *    sbclickitem NAME     left-click that button at its own drawn centre
@@ -4615,6 +5367,29 @@ static void sb_placemap(void)
         }
         putchar('\n');
     }
+    /* DOES THE OVERLAY TELL THE TRUTH? The grid above paints the brain's per-cell
+       proximity flag; a placement is judged by DisplayClass::Passes_Proximity_Check, the
+       routine OpenCNC3D_Proximity_Ok answers. They are separate code and must agree on
+       every origin: over= counts origins the overlay offers and the engine refuses (a
+       green cell that says no when clicked), under= the reverse. */
+    if (BrainProximityOk && g_sbPlaceIdx >= 0 && g_sbPlaceIdx < (int)g_sbState.entry.size()) {
+        const char* code = g_sbState.entry[g_sbPlaceIdx].name;
+        int over = 0, under = 0, legalover = 0, firstx = -1, firsty = -1;
+        for (int y = 0; y < g_sb.mapH; y++)
+            for (int x = 0; x < g_sb.mapW; x++) {
+                const int cx = g_sb.mapX + x, cy = g_sb.mapY + y;
+                const bool overlay = g_sbPlaceProx[y * g_sb.mapW + x] != 0;
+                const bool engine = BrainProximityOk(0, code, cx, cy);
+                if (overlay && !engine) {
+                    over++;
+                    /* legalover= is the part a player meets: a whole origin offered as
+                       legal, ground and all, that the engine then refuses. */
+                    if (sb_legal_origin(cx, cy) && !legalover++) { firstx = cx; firsty = cy; }
+                } else if (!overlay && engine) under++;
+            }
+        printf("PLACEMAP|engine|%s|over=%d|under=%d|legalover=%d|firstlegalover=%d,%d\n", code,
+               over, under, legalover, firstx, firsty);
+    }
     fflush(stdout);
 }
 
@@ -4644,6 +5419,18 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
     if (!strcasecmp(v, "sidebar")) {
         sb_poll();
         sb_report((a1 && *a1) ? a1 : "script");
+        return true;
+    }
+    if (!strcasecmp(v, "timerdump")) {
+        /* The mission timer as the brain exports it (whole seconds, -1 when none runs)
+           beside what the last drawn frame put on screen; take a `shot` first. */
+        sb_poll();
+        printf("SBTIMER|engine=%d|drawn=%d|light=%d|text=%s|panel=%s\n",
+               g_sbState.valid ? g_sbState.missionTimer : -1, g_sbDrawnTimer,
+               g_sbDrawnTimerLight, g_sbDrawnTimerText[0] ? g_sbDrawnTimerText : "-",
+               sb_hud_active() ? "hud"
+               : (g_sbRa && g_ra95Pack && g_fx.dos_classic) ? "classic95" : "dos");
+        fflush(stdout);
         return true;
     }
     if (!strcasecmp(v, "placemap")) { sb_poll(); sb_placemap(); return true; }
@@ -4678,26 +5465,26 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
             printf("SBQUEUE|refused|%s|type=%d|reason=not-a-unit\n", e.name, e.type);
             fflush(stdout); return true;
         }
-        int& q = g_sbQueue[std::make_pair(e.btype, e.bid)];
-        for (int k = 0; k < n && q < SB_QUEUE_MAX; k++) q++;
+        int q = sb_queued(e);
+        for (int k = 0; k < n && q < SB_QUEUE_MAX; k++) q = sb_queue_add(e);
         printf("SBQUEUE|add|%s|btype=%d|bid=%d|n=%d\n", e.name, e.btype, e.bid, q);
         fflush(stdout);
         return true;
     }
     if (!strcasecmp(v, "queuedump")) {
         sb_poll();
-        printf("SBQUEUEDUMP|entries=%d\n", (int)g_sbQueue.size());
-        for (std::map<std::pair<int,int>, int>::iterator it = g_sbQueue.begin();
-             it != g_sbQueue.end(); ++it) {
-            const char* nm = "-";
-            for (size_t i = 0; i < g_sbState.entry.size(); i++)
-                if (g_sbState.entry[i].btype == it->first.first &&
-                    g_sbState.entry[i].bid   == it->first.second) {
-                    nm = g_sbState.entry[i].name; break;
-                }
-            printf("SBQUEUEITEM|%s|btype=%d|bid=%d|n=%d\n",
-                   nm, it->first.first, it->first.second, it->second);
-        }
+        /* entries= is every item waiting, then one line per item in the order it will
+           be built, category by category: pos= is its place in its own category. */
+        printf("SBQUEUEDUMP|entries=%d\n", sb_queue_total());
+        for (int c = 0; c < SB_QCATS; c++)
+            for (size_t k = 0; k < g_sbQ[c].size(); k++) {
+                const std::pair<int,int> key = g_sbQ[c][k].key;
+                const int i = sb_find_key(key);
+                printf("SBQUEUEITEM|%s|btype=%d|bid=%d|cat=%d|pos=%d|n=%d|run=%d%s\n",
+                       i >= 0 ? g_sbState.entry[i].name : "-", key.first, key.second, c,
+                       (int)k, sb_qcount(c, key), g_sbQ[c][k].run,
+                       (k == 0 && g_sbOpen[c].on && g_sbOpen[c].queued) ? "|open=1" : "");
+            }
         fflush(stdout);
         return true;
     }
@@ -4743,6 +5530,19 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
         return true;
     }
 
+    /* Gate-only: submit a completed placement without trusting the local overlay.
+       Remote PLACE events must be validated by the engine at execution time too. */
+    if (!strcasecmp(v, "gateplace")) {
+        if (!g_sbPlacing || !g_sb.SidebarReq || !a1 || !a2) {
+            printf("SCRIPT|gateplace|FAIL no pending placement or coordinates\n");
+            g_sbFails++; return true;
+        }
+        const int cx = atoi(a1), cy = atoi(a2);
+        sb_request(SIDEBAR_REQUEST_PLACE, g_sbPlaceIdx,
+                   (short)(cx - g_sb.mapX), (short)(cy - g_sb.mapY));
+        printf("GATEPLACE|submitted|cell=%d,%d\n", cx, cy);
+        return true;
+    }
     if (!strcasecmp(v, "place")) {
         sb_poll();
         if (!g_sbPlacing) {
@@ -4787,6 +5587,18 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
             const char* why = sb_place_blocker(g_sbHoverX, g_sbHoverY);
             printf("SCRIPT|hover|%d,%d|legal=%d|blocked=%s\n", g_sbHoverX, g_sbHoverY,
                    sb_legal_origin(g_sbHoverX, g_sbHoverY) ? 1 : 0, why ? why : "-");
+        }
+        if (sb_place_wall_kind() >= 0) {
+            /* The wall line's preview as cells, on its own line: the pieces the ghost
+               stands on here, which the brain must lay and charge for exactly. */
+            int fill[64];
+            const int nfill = sb_wall_fill_cells(fill, 64);
+            printf("WALLFILLPREVIEW|%d,%d|n=%d|cost=%d|money=%d|cells=", g_sbHoverX,
+                   g_sbHoverY, nfill, g_sbState.entry[g_sbPlaceIdx].cost,
+                   g_sbState.credits + g_sbState.tiberium);
+            for (int k = 0; k < nfill; k++)
+                printf("%s%d,%d", k ? ";" : "", fill[k] % SB_STRIDE, fill[k] / SB_STRIDE);
+            printf("\n");
         }
         return true;
     }
@@ -4843,10 +5655,9 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
                sb_radar_shown() ? 1 : 0, g_sbRosterN);
         for (i = 0; i < g_sbRosterN; i++) {
             const SbRosterRow& r = g_sbRosterRow[i];
-            const int ci = (r.colour >= 0 && r.colour < 8) ? r.colour : 0;
             printf("SBROW|%d|name=%s|house=%d|colour=%d|ink=%d|kills=%d|defeated=%d\n",
                    i, r.name, r.house, r.colour,
-                   r.defeated ? DB_DKGREY : (int)SB_ROSTER_TCOLOR[ci],
+                   r.defeated ? (int)sb_roster_defeated_ink() : (int)sb_roster_ink(r.colour),
                    r.kills, r.defeated);
         }
         fflush(stdout);
@@ -5002,6 +5813,7 @@ static bool sb_script_verb(const char* v, const char* a1, const char* a2, const 
 static bool sb_init(const SbHooks& h, const char* cameopack, const char* dospack)
 {
     char err[256];
+    hud_gen_bump();
     g_sb = h;
     /* The N64 cameo pack is still loaded: FONT.SHP out of it is what the camera HUD and
        the debug overlays print with. The SIDEBAR's art now comes entirely from the DOS
@@ -5017,6 +5829,7 @@ static bool sb_init(const SbHooks& h, const char* cameopack, const char* dospack
        and the two sets are separately drawn art rather than one set under two palettes,
        so a side-correct build column would need both. */
     sb_load_cameos(cameopack);
+    if (g_sb.GunPlayers) sb_load_cameos("gunra-cameos.pack");
 
     /* The 640x480 HUD is OPTIONAL and OFF by default: it is signed off on look but not
        yet on behaviour, so the DOS bar stays the one the player gets until it is.
@@ -5110,8 +5923,9 @@ static bool sb_init(const SbHooks& h, const char* cameopack, const char* dospack
    cur_free() must run BEFORE this: the cursor holds pointers into g_dbPack. */
 static void sb_free(void)
 {
+    hud_gen_bump();
     g_h6UploadMirror.clear();
-    g_sbQueue.clear(); g_sbQueueOpen.clear();
+    sb_queue_clear();
     for (size_t i = 0; i < g_sbCameo.size(); i++)
         if (g_sbCameo[i].gl)
             glDeleteTextures(1, &g_sbCameo[i].gl);
@@ -5123,8 +5937,12 @@ static void sb_free(void)
     if (g_dbTex)
         glDeleteTextures(1, &g_dbTex);
     g_dbTex = 0;
-    glDeleteTextures(RA95_CHUNKS + 1, g_ra95Tex);
+    glDeleteTextures(RA95_CHUNKS + 2, g_ra95Tex);
     memset(g_ra95Tex, 0, sizeof g_ra95Tex);
+    if (g_gunClockTex) glDeleteTextures(1, &g_gunClockTex);
+    g_gunClockTex = 0;
+    if (g_gunRewardTex) glDeleteTextures(1, &g_gunRewardTex);
+    g_gunRewardTex = 0;
 
     if (g_dbPack)
         db_pack_free(g_dbPack);
@@ -5171,6 +5989,10 @@ static void sb_free(void)
     g_sbRoster = false;          /* a mission latch like the two above */
     g_sbRosterN = 0;
     g_sbFails = 0;
+    g_sbTimerFlashAt = -1.0f;    /* the timer's reminder flash: mission latches */
+    g_sbTimerLast = -1;
+    g_sbDrawnTimer = -2;
+    g_sbDrawnTimerText[0] = 0;
     /* THE ARMED SPECIAL IS A MISSION LATCH TOO, and it is the one that bites hardest.
        While the latch was an INDEX into g_sbState.entry a leftover was inert: both
        readers bailed on `index >= entry.size()` and the next mission starts with an

@@ -24,8 +24,10 @@ CLAIMS, per scene:
       frame among them), and the rest shot comes after the placement's end;
   (2) every shot matches its reference: the shot's crop round the building (halved for the
       Tiberian Dawn scenes), against
-      the matching tile of gates/g364-<scene>.png, cut from the binary before the
-      placement speed-up. A pixel counts as changed where a channel differs by more than 24 and its
+      the matching tile of gates/g364-<scene>.png (the Temple's cut from the binary before
+      the placement speed-up; the two yards' cut again when the skirmish computer began to
+      drive its MCV off before deploying and the camera began to ride the averaged ground,
+      as gates.sh says). A pixel counts as changed where a channel differs by more than 24 and its
       eight neighbours do too (a part's edge moved by a fraction of a pixel changes a line of
       pixels, which this drops; a face drawn differently changes an area, which it keeps):
       at most CHANGED of them a shot.
@@ -99,10 +101,14 @@ def script(d):
     os.makedirs(d, exist_ok=True)
     sd = os.path.abspath(d)
     deploy = ['tick 5', 'look MCV:@me', 'tick 1', 'lclickobj MCV:@me', 'actclickobj MCV:@me']
-    # (the player's yard goes up on the tick its MCV unfolds: engine frame 29 in the seeded
-    # Tiberian Dawn skirmish, 28 in Red Alert's, as the dumps' start fields say; the check
-    # asserts each shot's moment against them)
-    td = shots('td', deploy + ['tick 23'])
+    # (the player's yard goes up on the tick its MCV unfolds: engine frame 28 in the seeded
+    # Tiberian Dawn skirmish and in Red Alert's, as the dumps' start fields say; the check
+    # asserts each shot's moment against them. Tiberian Dawn's was frame 29 while the
+    # skirmish computer deployed its own MCV where it stood, on frame 22: the engine's object
+    # loop then skips the next object for that frame (one unit out, one building in), and
+    # the player's MCV turned one frame late. The computer now drives its MCV off first, so
+    # the player's yard also takes building slot 0, not 1, which reseeds its dust.)
+    td = shots('td', deploy + ['tick 22'])
     ra = shots('ra', deploy + ['tick 22'])
     cx, cy = temple_mission(d)
     tm = shots('tmpl', ['tick 3', 'cam %.1f %.1f' % (cx, cy), 'dist 1', 'tick 1', 'eplcplay TMPL'])

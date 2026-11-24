@@ -565,6 +565,10 @@ def main():
        generate.py --covert-ops            the thirteen, into data/autoheight
        generate.py --multiplayer           the nine skirmish maps, into data/autoheight
        generate.py --bonus                 the bonus missions and test scenarios, likewise
+       generate.py --dinosaur              the five Funpark missions, which only the 1995
+                                           MS-DOS disc carries: read from game/missions
+                                           and written beside them, where the game's
+                                           re-skin of a borrowed pack finds them
        generate.py --verify                regenerate everything in data/autoheight and
                                            say which committed maps the generator would
                                            now draw differently (it never writes)"""
@@ -591,6 +595,13 @@ def main():
     if "--bonus" in args:
         args = list(C.BONUS + C.TEST)
         out = DATA
+    if "--dinosaur" in args:
+        missions = os.path.join(C.ROOT, "game", "missions")
+        for s in ("SCJ01EA", "SCJ02EA", "SCJ03EA", "SCJ04EA", "SCJ05EA"):
+            # no twins to honour: the cartridge holds none of these maps
+            write_hgt(generate(C.Map(s, dos=missions), model), os.path.join(missions, s + ".HGT"))
+            print(s, "->", os.path.join(missions, s + ".HGT"))
+        return
     if "--multiplayer" in args:
         args = list(C.MULTIPLAYER)
         out = DATA

@@ -421,7 +421,7 @@ static void dm_ra_button(DB_Surface *s, const DB_Font *font,
                          const DM_State *st, int item)
 {
     unsigned char fp[16];
-    const char *label = dm_item_label(item);
+    const char *label = item == DM_SPECIAL ? "Mission Disks" : dm_item_label(item);
     int x, y, w, h, tx, i;
     int pressed = st->pressed == item;
     int on = st->selected == item;

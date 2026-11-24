@@ -67,8 +67,8 @@
  * the moment the wall line's stagger (cnc_eyes.cpp, wall_rise_note_tick) gives it.
  *
  * THE DRAW is fixed function: a draw_mesh call per run of triangles, in the model's own
- * order, and user clip planes (glClipPlane, planes 1 to 5; plane 0 is the water
- * reflection's) for the cuts. A run whose motion is rigid is drawn at rest, kept on the card
+ * order, and user clip planes (glClipPlane, planes 1 to 5; plane 0 is a ship's waterline
+ * cut, evhc_mod.h) for the cuts. A run whose motion is rigid is drawn at rest, kept on the card
  * as a standing building's pieces are, with its motion on the modelview stack
  * (eplc_draw_run below); every other run has its motion applied on the CPU through
  * draw_mesh's 3x4 extra matrix, as ebld_mod.h draws its pieces. A part that grows along a
@@ -981,6 +981,7 @@ static bool eplc_rule_now(void) { return g_eplcOn && ebld_rule_now(); }
 static bool eplc_has_type(const char* type)
 {
     if (!eplc_rule_now()) return false;
+    type = ebld_alias(type);     /* a Red Alert decoy goes up as the building it copies */
     for (size_t i = 0; i < g_eplc.size(); i++)
         if (g_eplc[i].type == type) return true;
     return false;
@@ -988,6 +989,7 @@ static bool eplc_has_type(const char* type)
 static int eplc_model_of(const char* type)
 {
     if (!eplc_rule_now()) return -1;
+    type = ebld_alias(type);
     for (size_t i = 0; i < g_eplc.size(); i++) {
         const EplcModel& P = g_eplc[i];
         if (!P.attached || P.type != type) continue;
@@ -2044,6 +2046,7 @@ static bool eplc_wall_dust(int kind, int icon, int cellKey, float cx, float cz,
    so the placement owns it from its first frame. -1: none for the type. */
 static int eplc_attach_late(const char* type)
 {
+    type = ebld_alias(type);
     bool waiting = false;
     for (size_t i = 0; i < g_eplc.size() && !waiting; i++)
         waiting = !g_eplc[i].attached && g_eplc[i].type == type;
@@ -2077,7 +2080,9 @@ static void eplc_step(int frame)
 {
     if (g_eplc.empty()) return;
     if (frame == g_eplcLastTick) return;
-    if (g_raModule && eplc_rule_now()) eplc_attach_walls_ra();
+    /* (and ahead of a switch to Enhanced, enh_ahead_on: the walls' files are read then too,
+       ebld_wall_step, so the switch's tick has no placement left to attach) */
+    if (g_raModule && (eplc_rule_now() || enh_ahead_on())) eplc_attach_walls_ra();
     if (frame < g_eplcLastTick) g_eplcBld.clear();
     g_eplcLastTick = frame;
     for (std::map<long long, EplcBld>::iterator it = g_eplcBld.begin(); it != g_eplcBld.end(); ++it)
@@ -2153,7 +2158,7 @@ static void eplc_step(int frame)
         if (E.mode == EPS_PLACE && E.mine && !E.cut && !E.jolted && P.jolt > 0.0f
             && t >= P.jolt) {
             E.jolted = true;
-            shake_tap(P.cam[0] * (float)(E.fw > E.fh ? E.fw : E.fh));
+            /* Placement sound/animation remain; the camera stays steady. */
             cinematic_audio_note_as(CIN_PLACE, E.wx, E.wz, (float)(E.fw > E.fh ? E.fw : E.fh),
                                     (P.flags & EPX_SPLASH) != 0);
         }
@@ -2218,7 +2223,7 @@ static bool eplc_force(const SimObject& o)
     E.seen = true;
     g_eplcBld[key] = E;
     if (E.mine && !(g_eplc[(size_t)pm].jolt > 0.0f)) {
-        shake_tap(g_eplc[(size_t)pm].cam[0] * (float)(E.fw > E.fh ? E.fw : E.fh));
+        /* A replay follows the same steady-camera placement path. */
         cinematic_audio_note_as(CIN_PLACE, E.wx, E.wz, (float)(E.fw > E.fh ? E.fw : E.fh),
                                 (g_eplc[(size_t)pm].flags & EPX_SPLASH) != 0);
     }
@@ -2227,39 +2232,9 @@ static bool eplc_force(const SimObject& o)
     return true;
 }
 
-/* THE RUMBLE, added to the camera's jolt (shake_offset): as the main structure of one of
-   the player's own buildings rises through the slab it swells, strongest as the part
-   arrives, and dies away over rumble_out seconds after; a hit cuts it at once. The
-   strongest one of several wins, as the jolts do. Cells. */
-static void eplc_rumble(float* sx, float* sz)
-{
-    *sx = *sz = 0.0f;
-    if (g_eplcBld.empty() || !eplc_rule_now()) return;
-    float best = 0.0f;
-    for (std::map<long long, EplcBld>::const_iterator it = g_eplcBld.begin(); it != g_eplcBld.end(); ++it) {
-        const EplcBld& E = it->second;
-        if (E.mode != EPS_PLACE || !E.mine || E.cut) continue;
-        if (E.model < 0 || E.model >= (int)g_eplc.size()) continue;
-        const EplcModel& P = g_eplc[(size_t)E.model];
-        const EplcRig& R = P.rig[0];
-        if (R.r0 < 0.0f || R.r1 <= R.r0) continue;
-        const float t = (engine_time() - (float)E.start) / 15.0f;
-        const float out = P.cam[2] > 0.0f ? P.cam[2] : 0.35f;
-        float env = 0.0f;
-        if (t < R.r1) {
-            float k = (t - R.r0) / (R.r1 - R.r0);
-            k = k < 0.0f ? 0.0f : k;
-            env = k * k * (3.0f - 2.0f * k);
-        } else {
-            env = fmaxf(0.0f, 1.0f - (t - R.r1) / out);
-        }
-        const float r = P.cam[1] * (float)(E.fw > E.fh ? E.fw : E.fh) * env;
-        if (r <= best) continue;
-        best = r;
-        *sx = r * sinf(2.0f * EBLD_PI * P.cam[3] * t);
-        *sz = r * sinf(2.0f * EBLD_PI * P.cam[4] * t + 1.1f);
-    }
-}
+/* Placement retains the authored moving model, dust and sound, with a steady
+   camera. Explosion and damage jolts remain in their separate paths. */
+static void eplc_rumble(float* sx,float* sz) { *sx=*sz=0.0f; }
 
 /* Mission boundary and shutdown. */
 static void eplc_reset(void)

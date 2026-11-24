@@ -41,7 +41,7 @@ FILESUBTYPE    0x0L
   {
     BLOCK "040904B0"
     {
-      VALUE "CompanyName",     "Slipgate Ironworks"
+      VALUE "CompanyName",     "OpenCNC3D"
       VALUE "FileDescription", "OpenCNC3D"
       VALUE "FileVersion",     "@VER_STRING@"
       VALUE "InternalName",    "OpenCNC3D"

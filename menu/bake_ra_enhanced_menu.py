@@ -42,6 +42,7 @@ RADATA = ROOT / 'data' / 'radata'
 KIT = ROOT / 'art' / 'interface' / 'ra-enhanced-menu-v01' / 'kit'
 TITLE_ART = ROOT / 'menu' / 'art'
 TITLE_CLEANUP = ROOT / 'art' / 'interface' / 'ra3d-title-cleanup-v01'
+MODE_ICONS = ROOT / 'art' / 'interface' / 'game-mode-icons-v01'
 MAGIC = b'ENMENURA'
 
 # ---- the 1996 sources -----------------------------------------------------------------
@@ -267,6 +268,10 @@ def assets():
         w, h = 600, FRAMES['settings-frame'][1] - 234
         a = np.array(im.crop(((640 - w) // 2, (400 - h) // 2, (640 - w) // 2 + w, (400 - h) // 2 + h))).astype(np.float32) * 0.62
         out['paper-' + side] = Image.fromarray(a.astype(np.uint8)).convert('RGBA')
+    # the game mode picker's tiles (Multiplayer and Skirmish), when their art is present
+    for mode in ('ffa', 'gungame', 'rally'):
+        icon = MODE_ICONS / ('ra-mode-%s.png' % mode)
+        if icon.exists(): out['mode-' + mode] = Image.open(icon).convert('RGBA')
     return out
 
 def bake(output):

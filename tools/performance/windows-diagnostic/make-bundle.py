@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Package verified PE32 diagnostic executables and the isolated-copy tester launcher."""
+"""Package verified PE32 diagnostic executables and the isolated-copy tester launcher.
+
+HISTORICAL: pinned to the 32-bit v0.8.4 game. It accepts only i386 PE32 programs and the
+library fingerprints v0.8.4 shipped, so it refuses every 64-bit Windows build. It has not
+been rebaselined; move its architecture check and fingerprints to a 64-bit release first.
+"""
 import argparse
 import hashlib
 import json

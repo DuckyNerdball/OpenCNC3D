@@ -68,6 +68,7 @@
 
 #include "../tiberiandawn/opencnc3d_compat.h"
 #include "function.h"
+#include "../common/fire_visibility.h"
 #include "fair_ai_ra.h"
 #include "lcwpipe.h"
 #include "lcwstraw.h"
@@ -584,6 +585,7 @@ void MapClass::Set_Map_Dimensions(int x, int y, int w, int h)
  *=============================================================================================*/
 void MapClass::Sight_From(CELL cell, int sightrange, HouseClass* house, bool incremental)
 {
+    CncFireSightScope fireSightScope;
     int xx;         // Center cell X coordinate (bounds checking).
     int const* ptr; // Offset pointer.
     int count;      // Counter for number of offsets to process.
@@ -2615,3 +2617,73 @@ void MapClass::Shroud_The_Map(void)
     Flag_To_Redraw(true);
 }
 #endif
+
+/* Firing exposes a short-lived patch. The cells' original exploration bits are
+   captured in Set_Mapped/Set_Visible, before any adjacency propagation. */
+CncFireVisibility g_cncFireVisibility;
+static std::map<CncFireVisibility::Key,std::pair<bool,bool> > cncFireSaved;
+void CncFireReveal(int cell,int range,void* house) {
+    g_cncFireVisibility.nextTemporary=true;
+    Map.Sight_From((CELL)cell,range,(HouseClass*)house,false);
+    g_cncFireVisibility.nextTemporary=false;
+}
+static void cncFireBits(const CncFireVisibility::Key& key,bool mapped,bool visible) {
+    CellClass& cell=Map[(CELL)key.first];
+    cell.Set_Mapped((HousesType)key.second,mapped);
+    cell.Set_Visible((HousesType)key.second,visible);
+    cell.Redraw_Objects();
+}
+void CncFireRevealTick() {
+    g_cncFireVisibility.restoring=true;
+    for(auto it=g_cncFireVisibility.cells.begin();it!=g_cncFireVisibility.cells.end();) {
+        if (Frame+1>=it->second.until) {
+            cncFireBits(it->first,it->second.mapped,it->second.visible);
+            it=g_cncFireVisibility.cells.erase(it);
+        } else ++it;
+    }
+    g_cncFireVisibility.restoring=false;
+}
+void CncFireRevealRestore(bool clear) {
+    cncFireSaved.clear();g_cncFireVisibility.restoring=true;
+    for(const auto& it:g_cncFireVisibility.cells) {
+        CellClass& cell=Map[(CELL)it.first.first];
+        const HousesType house=(HousesType)it.first.second;
+        if (!clear) cncFireSaved[it.first]=std::make_pair(cell.Is_Mapped(house),cell.Is_Visible(house));
+        cncFireBits(it.first,it.second.mapped,it.second.visible);
+    }
+    g_cncFireVisibility.restoring=false;
+    if(clear)g_cncFireVisibility.clear();
+}
+void CncFireRevealResume() {
+    g_cncFireVisibility.restoring=true;
+    for(const auto& it:cncFireSaved)cncFireBits(it.first,it.second.first,it.second.second);
+    g_cncFireVisibility.restoring=false;cncFireSaved.clear();
+}
+
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Fire_Visibility() {
+    printf("FIREVIS|frame=%d|active=%u\n",(int)Frame,(unsigned)g_cncFireVisibility.cells.size());
+    for(const auto& it:g_cncFireVisibility.cells)
+        printf("FIREVIS|cell=%d|house=%d|until=%d|mapped_before=%d|visible_before=%d\n",
+            it.first.first,it.first.second,it.second.until,it.second.mapped,it.second.visible);
+    return (int)g_cncFireVisibility.cells.size();
+}
+
+/* Read-only local presentation: x,y,ticks remaining, original shroud class. */
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Get_Fire_Visibility(int* rows,int capacity) {
+    if (!PlayerPtr || !PlayerPtr->Class) return 0;
+    const int house=(int)PlayerPtr->Class->House;
+    int count=0;
+    for(const auto& it:g_cncFireVisibility.cells) {
+        if(it.first.second!=house)continue;
+        const int left=it.second.until-(int)Frame;
+        if(left<=0)continue;
+        if(rows&&count<capacity) {
+            rows[count*4]=Cell_X((CELL)it.first.first);
+            rows[count*4+1]=Cell_Y((CELL)it.first.first);
+            rows[count*4+2]=left;
+            rows[count*4+3]=it.second.mapped||it.second.visible?1:2;
+        }
+        count++;
+    }
+    return count;
+}

@@ -19,8 +19,9 @@
  * host that parsed that header would be parsing a moving target.
  *
  * So each slot is two files: SAVEGAME.nnn, which is 1995's own 8.3-safe name and is the
- * engine's, and one OPENCNC.IDX holding sixteen fixed 128-byte little-endian records,
- * written with plain fopen/fwrite exactly the way app/campaign.c writes HALLFAME.DAT.
+ * engine's, and one OPENCNC.IDX holding DS_SLOTS fixed 128-byte little-endian records,
+ * record n for SAVEGAME.n, written with plain fopen/fwrite exactly the way
+ * app/campaign.c writes HALLFAME.DAT.
  *
  * A slot is offered to the player only when BOTH its record is valid AND its payload file
  * is on disk. A row you can select and cannot load is worse than a row that is not there.
@@ -33,7 +34,15 @@
 extern "C" {
 #endif
 
-#define DS_SLOTS 16
+/* HOW MANY SLOTS. 1995 sets no limit: loaddlg.cpp:612-680 lists every SAVEGAME.* it finds
+ * and gives the empty slot the lowest number not in use. The index first held sixteen
+ * records, and with all sixteen taken the Save dialog had no empty row left, so a save
+ * went over the newest one without a question. A hundred holds one save for every
+ * mission of either game with room to spare.
+ *
+ * The record is unchanged, so an index written with sixteen records reads as it always
+ * did: ds_read_index stops at the end of the file and the slots past it are empty. */
+#define DS_SLOTS 100
 #define DS_REC 128       /* bytes per index record, fixed for ever */
 #define DS_DESCR 44      /* DESCRIP_MAX, defines.h:2026 */
 
@@ -100,7 +109,7 @@ const char *ds_payload_path(int slot);
 int ds_read_index(DS_Slot out[DS_SLOTS]);
 int ds_write_index(const DS_Slot in[DS_SLOTS]);
 
-/* Lowest unused slot, or -1 when all sixteen are taken. */
+/* Lowest unused slot, or -1 when all DS_SLOTS are taken. */
 int ds_first_free(const DS_Slot t[DS_SLOTS]);
 
 /* Does slot's payload file actually exist? */
@@ -113,6 +122,62 @@ long ds_payload_mtime(int slot);
    index record. Returns 1 when the payload is gone afterwards (a payload that was not
    there counts), 0 when the directory is unset or the file could not be removed. */
 int ds_delete(int slot);
+
+/* WHICH KIND OF BUILD WROTE A PAYLOAD. The engine's save begins with one 32-bit word,
+ * little-endian, at offset 0 of SAVEGAME.nnn: CNC_DLL_API_VERSION (0x102), written before
+ * anything else so that a load can look at it first. A 64-bit Windows build sets a width
+ * tag in bits 16-23 of that word, because its payload holds the engine's objects at that
+ * build's own pointer and long widths, and it refuses a payload whose word does not carry
+ * the tag before it touches the running game. Every other build (the Mac, and every
+ * Windows build before the 64-bit one) writes the bare word and still loads whatever word
+ * it is given, exactly as it always has.
+ *
+ * The 128-byte index record has no spare byte, so the payload's first word is the one
+ * place the width can be read from. The two values are the engine's own,
+ * OPENCNC3D_SAVE_WIDTH_MASK and OPENCNC3D_SAVE_WIDTH_WIN64 in dllinterfaceversion.h; this
+ * file includes no engine header, so they are restated here under a DS_ prefix, and
+ * cnc_eyes.cpp, which sees both, asserts at compile time that the copies agree. */
+#define DS_SAVE_WIDTH_MASK  0x00FF0000u
+#define DS_SAVE_WIDTH_WIN64 0x00640000u
+
+/* Should a host of this kind offer its engine a payload that begins with first_word? win64
+   is 1 for a 64-bit Windows build and 0 for every other. A 64-bit Windows host offers only
+   a tagged word, which is all its engine accepts; any other host offers only an untagged
+   one, which is every word it has ever written. That second half is the host's policy,
+   not the engine's: a Mac or 32-bit engine checks no width and would load a tagged word
+   too. Pure: no file, no state. */
+int ds_word_loadable(unsigned int first_word, int win64);
+
+/* The first four bytes of slot's payload as a little-endian word, into *word. Returns 1, or
+   0 with *word untouched when there is no save directory, no payload, or a payload shorter
+   than four bytes. */
+int ds_payload_word(int slot, unsigned int *word);
+
+/* WHICH KIND OF BUILD THIS IS, the win64 every production caller passes: 1 in a 64-bit
+   Windows build, 0 in every other. A gate passes either value to see both answers. */
+#if defined(_WIN64)
+#define DS_HOST_WIN64 1
+#else
+#define DS_HOST_WIN64 0
+#endif
+
+/* Can a host of this kind load slot's payload? 0 when the payload's first word says the
+   other kind of build wrote it (ds_word_loadable), 1 otherwise. A payload whose word cannot
+   be read is not this test's to refuse: 1, and the engine answers for it as before. Every
+   way a slot is listed or loaded asks this first, so such a payload is never handed to the
+   engine and a running mission is never left for it. Nothing is deleted or rewritten: the
+   slot stays listed, and saving over it is an ordinary save. */
+int ds_slot_loadable(int slot, int win64);
+
+/* What the player is told about such a slot, one definition each, shared by the renderer's
+   slot dialog and the shell. The label stands where the side would in the row's "(...)"
+   prefix; the caption and the sentence make the notice a refused load shows. Each says
+   what is true for the host asking: a 64-bit Windows build cannot load a save without the
+   mark, which a 32-bit Windows build or a Mac made, and any other build cannot load one
+   with it, which only a 64-bit Windows build makes. */
+const char *ds_width_label(int win64);
+const char *ds_width_refusal(int win64);
+#define DS_WIDTH_CAPTION "Unable to load mission"
 
 #ifdef __cplusplus
 }

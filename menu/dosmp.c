@@ -291,10 +291,10 @@ int mp_item_disabled(const MP_State *st, int item)
     }
 }
 
-int mp_item_rect(const MP_State *st, int item, int *x, int *y, int *w, int *h)
+/* The host form still draws behind the name prompt, while only the prompt takes input. */
+static int mp_control_rect(const MP_State *st, int item, int *x, int *y, int *w, int *h)
 {
     int rx = 0, ry = 0, rw = 0, rh = 0;
-    if (!mp_item_visible(st, item)) return 0;
     switch (item) {
     case MP_I_TAB_HOST: rx = MP_TAB0_X; ry = MP_TAB_Y; rw = MP_TAB_W; rh = MP_TAB_H; break;
     case MP_I_TAB_JOIN: rx = MP_TAB1_X; ry = MP_TAB_Y; rw = MP_TAB_W; rh = MP_TAB_H; break;
@@ -342,6 +342,11 @@ int mp_item_rect(const MP_State *st, int item, int *x, int *y, int *w, int *h)
     if (w) *w = rw;
     if (h) *h = rh;
     return 1;
+}
+
+int mp_item_rect(const MP_State *st, int item, int *x, int *y, int *w, int *h)
+{
+    return mp_item_visible(st, item) && mp_control_rect(st, item, x, y, w, h);
 }
 
 static int mp_in(int mx, int my, int x, int y, int w, int h)
@@ -1358,11 +1363,11 @@ void mp_draw(DB_Surface *s, const DB_Pack *p, const MP_State *st)
 
     if (st->page == MP_PAGE_PICK && st->tab == MP_TAB_HOST) {
         db_print(s, f, "GAME NAME", MP_LBL_X, MP_NAME_Y + 2, mp_pal(DM_TEXT_MEDIUM), DB_FONT6_XSPACING);
-        mp_item_rect(st, MP_I_NAME, &x, &y, &w, &h);
+        mp_control_rect(st, MP_I_NAME, &x, &y, &w, &h);
         mp_field(s, f, st->name, x, y, w, h, st->focus == MP_I_NAME, st->caret_on, 0);
 
         db_print(s, f, "PRIVATE GAME", MP_LBL_X, MP_PRIV_Y + 1, mp_pal(DM_TEXT_MEDIUM), DB_FONT6_XSPACING);
-        mp_item_rect(st, MP_I_PRIVATE, &x, &y, &w, &h);
+        mp_control_rect(st, MP_I_PRIVATE, &x, &y, &w, &h);
         db_fill_rect(s, x, y, x + w - 1, y + h - 1, DM_GREEN_SHADOW);
         db_line_h(s, x, x + w - 1, y, DM_DIS_SHADOW);
         db_line_v(s, x, y, y + h - 1, DM_DIS_SHADOW);
@@ -1379,7 +1384,7 @@ void mp_draw(DB_Surface *s, const DB_Pack *p, const MP_State *st)
             const char *cap = "INTERNET GAME";
             db_print(s, f, cap, MP_LBL_X, MP_RELAY_Y + 1,
                      mp_pal(DM_TEXT_MEDIUM), DB_FONT6_XSPACING);
-            mp_item_rect(st, MP_I_RELAY, &x, &y, &w, &h);
+            mp_control_rect(st, MP_I_RELAY, &x, &y, &w, &h);
             db_fill_rect(s, x, y, x + w - 1, y + h - 1, DM_GREEN_SHADOW);
             db_line_h(s, x, x + w - 1, y, DM_DIS_SHADOW);
             db_line_v(s, x, y, y + h - 1, DM_DIS_SHADOW);
@@ -1398,10 +1403,9 @@ void mp_draw(DB_Surface *s, const DB_Pack *p, const MP_State *st)
            Thirteen characters, which is what fits between the label column and the
            checkbox column, and it reads as the third of a set: PRIVATE GAME, INTERNET
            GAME, LIST PUBLICLY. */
-        if (mp_item_visible(st, MP_I_PUBLIC)) {
+        if (mp_item_rect(st, MP_I_PUBLIC, &x, &y, &w, &h)) {
             db_print(s, f, "LIST PUBLICLY", MP_LBL_X, MP_PUBLIC_Y + 1,
                      mp_pal(DM_TEXT_MEDIUM), DB_FONT6_XSPACING);
-            mp_item_rect(st, MP_I_PUBLIC, &x, &y, &w, &h);
             db_fill_rect(s, x, y, x + w - 1, y + h - 1, DM_GREEN_SHADOW);
             db_line_h(s, x, x + w - 1, y, DM_DIS_SHADOW);
             db_line_v(s, x, y, y + h - 1, DM_DIS_SHADOW);
@@ -1414,7 +1418,7 @@ void mp_draw(DB_Surface *s, const DB_Pack *p, const MP_State *st)
         }
 
         db_print(s, f, "PASSCODE", MP_LBL_X, MP_PASS_Y + 2, mp_pal(st->private_game ? DM_TEXT_MEDIUM : DM_TEXT_DISABLED), DB_FONT6_XSPACING);
-        mp_item_rect(st, MP_I_PASS, &x, &y, &w, &h);
+        mp_control_rect(st, MP_I_PASS, &x, &y, &w, &h);
         if (st->private_game) {
             mp_field(s, f, st->pass, x, y, w, h, st->focus == MP_I_PASS, st->caret_on, 0);
             db_print(s, f, "4 DIGITS", x + w + 6, y + 2, mp_pal(DM_TEXT_DISABLED), DB_FONT6_XSPACING);

@@ -28,7 +28,9 @@
  *      plus two 0.05-scaled octagonal rings, almost certainly the selection ring.
  *
  *  The 1995 MOUSE.SHP sprite survives only where the console has no counterpart at all:
- *  our DOS sidebar and the pause dialog. Left open deliberately.
+ *  our DOS sidebar and the pause dialog. Left open deliberately. Under Enhanced the
+ *  remastered pointer is drawn flat over the sidebar in the sprite's place (c3d_overlay);
+ *  dialogs keep the sprite in every mode.
  * ---------------------------------------------------------------------------------- */
 
 /* Cursor STATE table, RAM 0x80099920 / ROM 0x9A520, transcribed byte for byte.
@@ -193,11 +195,16 @@ static int  g_c3dFlipN[14];
    and the pointer keeps working. */
 static int  g_c3dEdgeMesh = -1;
 static bool g_c3dEdgeArrow = true;      /* --noedgearrow for the A/B */
-/* THE FOUR-ARROW PUSH POINTER, set around the ONE c3d_draw call in draw_frame exactly as
+/* THE FOUR-ARROW PUSH POINTER, set around the c3d_draw calls in draw_frame exactly as
    g_c3dEdgeArrow is masked there for the editor. This header is included long before the
    right button's own block is compiled, so the fact travels in a flag rather than in a
    read of the latch. */
 static bool g_c3dPush = false;
+/* THE POINTER'S HOLE IN THE FOG, set only while draw_frame redraws the pointer into the
+   Enhanced fog mask (fx_fog_mask_hole_begin). The body, the no-entry ring and the arrows
+   draw as ever; the ground shadow and the additive glow do not, because both lie on the
+   ground round the pointer, and that ground keeps the fog it has. */
+static bool g_c3dFogHole = false;
 
 /* THE GREEN POINTER. A new model for cursor code 0x00, the plain pointer, from the
    approved art in art/cursor (tools/art/cursor_green.py compiles it into
@@ -731,7 +738,7 @@ static float ecur_rescale(int mi)
    written, so it never hides what is behind it and never cuts the next cursor. */
 static void ecur_glow(int mi, float wx, float wz, int face, float ylift, float animT)
 {
-    if (!ecur_is(mi)) return;
+    if (!ecur_is(mi) || g_c3dFogHole) return;
     /* the caller's state comes back as it was: the on-top cursor has depth writes off */
     GLboolean mask = GL_TRUE;
     GLint src = GL_SRC_ALPHA, dst = GL_ONE_MINUS_SRC_ALPHA;
@@ -1048,7 +1055,7 @@ static float g_c3dShadowOff   = 56.0f;     /* leptons, thrown along the shadow d
 
 static void c3d_draw_shadow(int code, float wx, float wz, int frame)
 {
-    if (!g_c3dShadow) return;
+    if (!g_c3dShadow || g_c3dFogHole) return;
     const int mi = c3d_mesh_for(code, frame);
     if (mi < 0) return;
     /* THE SHADOW ANIMATES WITH THE CURSOR. This used to pass -1 for the animation time
@@ -1284,7 +1291,7 @@ static int c3d_state_now(int mousetype)
      NO_GREPAIR     the gold spanner, still, under the sign
      CHRONO_SELECT  its own green brackets, pulsing          100
      CHRONO_DEST    the move cursor and its closing rings    100
-     RADAR_CURSOR   its own frame, drawn over the radar map (c3d_ra_overlay), never on the
+     RADAR_CURSOR   its own frame, drawn over the radar map (c3d_overlay), never on the
                     ground
 
    The refused cursors are the cartridge's own rule (state rows 14, 15 and 19): the model
@@ -1358,6 +1365,41 @@ static void c3d_row_now(int mousetype, int* code, int* frames, int* noentry)
    PARAMETER: the 0.012f in the edge-arrow call below is ylift, its tenth positional
    argument. glScalef is not an option either, because the yaw is applied per vertex on
    the CPU so the Glide port needs no matrix stack. */
+/* The screen-edge scroll arrow's size against the flat pointer's (draw_cursor_top). */
+#define C3D_EDGE_ARROW_SIZE 1.5f
+
+/* The ground footprint of a mesh in raw mesh units, x east and z south, its body only
+   (the glow is left out). Measured once a mesh and kept. False for a mesh with nothing. */
+static bool c3d_mesh_footprint(int mi, float* x0, float* x1, float* z0, float* z1)
+{
+    /* kept per mesh AND per triangle list, so a pack loaded for the next mission that
+       puts another model at the same index is measured afresh */
+    static int lastMi = -2;
+    static const void* lastTris = NULL;
+    static size_t lastCount = 0;
+    static float fx0, fx1, fz0, fz1;
+    static bool ok = false;
+    if (mi < 0 || mi >= (int)g_pack.mesh.size()) return false;
+    const void* tris = g_pack.mesh[mi].tris.data();
+    const size_t count = g_pack.mesh[mi].tris.size();
+    if (mi != lastMi || tris != lastTris || count != lastCount) {
+        lastMi = mi; lastTris = tris; lastCount = count; ok = false;
+        fx0 = fz0 = 1e30f; fx1 = fz1 = -1e30f;
+        for (const PackTri& t : g_pack.mesh[mi].tris) {
+            if (t.mode == MODE_XLU) continue;
+            for (int k = 0; k < 3; k++) {
+                if (t.v[k].x < fx0) fx0 = t.v[k].x;
+                if (t.v[k].x > fx1) fx1 = t.v[k].x;
+                if (t.v[k].z < fz0) fz0 = t.v[k].z;
+                if (t.v[k].z > fz1) fz1 = t.v[k].z;
+                ok = true;
+            }
+        }
+    }
+    if (!ok) return false;
+    *x0 = fx0; *x1 = fx1; *z0 = fz0; *z1 = fz1;
+    return true;
+}
 #define C3D_PUSH_SPREAD 0.5500f
 #define C3D_PUSH_HALF   0.5f
 #define C3D_PUSH_LIFT   0.012f
@@ -1548,21 +1590,38 @@ static void c3d_draw_body(int mousetype, float wx, float wz)
     glDisable(GL_TEXTURE_2D);
 }
 
-/* RED ALERT'S RADAR FRAME, OVER THE RADAR MAP. The pointer over the sidebar is a sprite
-   everywhere else (the console has no cursor there), and over Red Alert's radar map the
-   1996 game shows its radar cursor, a white frame. Under Enhanced the remastered frame is
-   drawn in its place: the same model, seen from the game camera's own tilt (55 degrees
-   down, from the south) in a pixel-space orthographic view, as large as the 1996 sprite
-   it replaces (pxPerCell is the sprite's 24 pixels a cell times its magnification), its
-   hot spot on the pointer. Depth is off and the body and glow land in the order the bake
-   sorted them, as the world pointer's do on top. Fixed function: two matrices, the
-   ordinary mesh draw and the additive glow. False when there is nothing of Red Alert's to
-   draw, and the caller then draws the sprite. */
-static bool c3d_ra_overlay(int code, float col, float row, float pxPerCell, int fbw, int fbh)
+/* A REMASTERED POINTER DRAWN FLAT ON THE SCREEN, where there is no ground for the world
+   pointer to stand on. The console has no cursor over a sidebar, so the 1995 (or 1996)
+   sprite stands in there; under Enhanced the remastered model of the same state is drawn
+   in its place instead: over the bar and its plates the plain pointer, and over Red
+   Alert's radar map its radar cursor, the white frame the 1996 game shows there. The same
+   model, seen from the game camera's own tilt (55 degrees down, from the south) in a
+   pixel-space orthographic view, pxPerCell pixels to the cell (the caller's size: the
+   radar frame as large as the 1996 sprite it replaces, the pointer as large as the world
+   pointer was where it left the map), its hot spot on the pointer. Depth is off and the
+   body and glow land in the order the bake sorted them, as the world pointer's do on top.
+   Fixed function: two matrices, the ordinary mesh draw and the additive glow. False when
+   the state has no remastered model to draw, and the caller then draws the sprite. */
+static bool c3d_overlay_mesh(int mi, int face, float col, float row, float pxPerCell,
+                             int fbw, int fbh);
+static bool c3d_overlay(int code, float col, float row, float pxPerCell, int fbw, int fbh,
+                        bool cartridge = false)
 {
     if (!c3d_have() || pxPerCell <= 0.0f) return false;
     const int mi = c3d_mesh_for(code, -1);
-    if (mi < 0 || !ecur_ra_is(mi)) return false;
+    /* the remastered set's, or with cartridge set the console's own model of the state */
+    if (mi < 0 || !(ecur_is(mi) || cartridge)) return false;
+    return c3d_overlay_mesh(mi, -1, col, row, pxPerCell, fbw, fbh);
+}
+
+/* The same flat draw for a mesh named directly, turned to a facing in DirType units (0
+   north, 64 east), or -1 for the model's own. The view looks north, so north is up the
+   screen and a facing is a screen direction. The screen-edge scroll arrow is the caller
+   that turns: one model, eight ways. */
+static bool c3d_overlay_mesh(int mi, int face, float col, float row, float pxPerCell,
+                             int fbw, int fbh)
+{
+    if (!c3d_have() || pxPerCell <= 0.0f || mi < 0) return false;
     const float ax = (float)g_mapX + 0.5f, az = (float)g_mapY + 0.5f;
     const float ay = terrain_y(ax, az) + C3D_CURSOR_LIFT;
     const float t = 55.0f * (float)M_PI / 180.0f, c = cosf(t), sn = sinf(t);
@@ -1590,9 +1649,9 @@ static bool c3d_ra_overlay(int code, float col, float row, float pxPerCell, int 
     const bool noShroud = g_meshNoShroud;    /* a sidebar picture: no fog of war on it */
     g_meshNoShroud = true;
     MODEL_SCALE = 1.0f / 1024.0f;
-    draw_mesh(mi, ax, az, -1, MODE_OPAQUE, 0, 0.0f, 0, 1.0f, C3D_CURSOR_LIFT, true,
+    draw_mesh(mi, ax, az, face, MODE_OPAQUE, 0, 0.0f, 0, 1.0f, C3D_CURSOR_LIFT, true,
               WOBBLE_NONE, -1.0f);
-    ecur_glow(mi, ax, az, -1, C3D_CURSOR_LIFT, -1.0f);
+    ecur_glow(mi, ax, az, face, C3D_CURSOR_LIFT, -1.0f);
     MODEL_SCALE = save;
     g_meshNoShroud = noShroud;
     glDepthMask(GL_TRUE);

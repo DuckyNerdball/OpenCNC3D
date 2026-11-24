@@ -15,7 +15,8 @@ Each output line is "<tick> <sha256>", where the hash covers every byte from tha
 tick's "TICK|n" line up to and including the engine's own "OBJDUMP-END" receipt. Nothing
 after it is hashed, and that bound is load bearing too: the host prints its own chatter
 after the first and last dump (a state readout whose buffer size carries the platform's
-pointer width, 4080118 bytes on arm64 against 4014574 on i686), and with the block bounded
+pointer width, 4080118 bytes on arm64 against 4014574 on the 32-bit (i686) Windows
+build), and with the block bounded
 by the next TICK| line those two ticks "differed" on both captures of 3 Sep 2026 while the
 19,998 between them agreed and the engine lines of tick 1 were byte identical by hand. The
 engine's receipt is the end of the engine's state; the host's opinion of itself is not.

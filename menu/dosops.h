@@ -64,6 +64,9 @@ typedef struct DO_Mission
 #define DO_HIT_NONE (-1)
 #define DO_HIT_PLAY (-2)
 #define DO_HIT_CANCEL (-3)
+#define DO_HIT_IMPORT (-4)
+#define DO_IMPORT_X 120
+#define DO_IMPORT_W 80
 
 typedef struct DO_State
 {
@@ -72,6 +75,9 @@ typedef struct DO_State
     int selected; /* index into list, or -1 when the list is empty */
     int top;      /* index of the first visible row                */
     int pressed;  /* a DO_HIT_* id held under the mouse, or DO_HIT_NONE */
+    int user_maps; /* explicit import capability; never enabled for Special Ops */
+    int red_alert; /* RA calls the expansion picker Mission Disks */
+    int ants;     /* dedicated hidden Ant picker; no expansion tabs */
     int grouped;  /* the list carries section headings: rows are indented under
                      them and the GDI/NOD column is dropped, because the heading
                      already says which side the mission is */

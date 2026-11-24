@@ -83,6 +83,7 @@ public:
         FLIGHT_LEVEL = 24
     };
 
+    void Gun_Game_Fly(TARGET destination);
     virtual int Mission_Attack(void);
     virtual int Mission_Unload(void);
     virtual int Mission_Hunt(void);

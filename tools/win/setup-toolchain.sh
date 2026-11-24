@@ -17,17 +17,14 @@
 set -e
 
 SDK="${OPENCNC3D_WINSDK:-$HOME/.opencnc3d-winsdk}"
-# CHANGING SDL2_VER CHANGES SDL2.dll, AND A NEW SDL2.dll DOES NOT REACH EVERY PLAYER.
-# Launchers up to v0.6.11 cannot replace SDL2.dll, because they have it loaded, and they
-# write the install record before they reach it. A release carrying a different SDL2.dll
-# leaves every player who updates with one of those launchers on the old DLL, under a
-# record naming the new version, and if the new binaries need the new DLL, with a game
-# and a launcher that do not start. So tools/release.sh refuses a Windows package whose
-# SDL2.dll is not SDL2_DLL_SHA256 below, the i686 DLL every Windows release from v0.6.3
-# to v0.6.11 shipped. Move the pin only when no such launcher is left to update, or when
-# the release has another way to deliver the DLL, and say which in the commit.
+# SDL2 IS LINKED INTO EVERY WINDOWS PROGRAM, from the static libSDL2.a in the package below,
+# so no SDL2.dll ships and there is no DLL to pin. That is deliberate. A DLL beside the
+# programs has to match their width, and the launchers already on players' machines keep
+# whatever SDL2.dll sits beside them: a game update that replaced it would leave them
+# beside a DLL they cannot load. With SDL inside each program, every program carries the
+# SDL it was built with, and a new SDL2_VER reaches players inside the programs built
+# from it. The archive itself is pinned by content below (SDL2_SHA256).
 SDL2_VER=2.32.8
-SDL2_DLL_SHA256=06fd117e3eebd18940edddf240838f128a12443e1405bf3af0d660ade28c012e
 ZLIB_VER=1.3.1
 
 # Pinned by content, not just by version. A download that silently returns something
@@ -56,15 +53,10 @@ fetch() {   # fetch <url> <file> <expected-sha256>
     fi
 }
 
-# THE WINDOWS BUILD IS 32-BIT, ON PURPOSE. See BUILDING.md for the argument;
-# the short version is that the Remaster DLL casts pointers through `unsigned int` in its
-# save/load path, which is lossless at 32 bits and silently wrong at 64, and that the
-# Tier 1 target this project has promised (Windows 98 on a Voodoo 2) has no 64-bit at
-# all. x86_64 is built too, so the choice stays reversible, but i686 is what ships.
-# Overridable so a machine that only has one of the two can still produce the SDK the
-# shipping build needs. An MSYS2 install may carry the i686 toolchain and no
-# x86_64 one; the default is unchanged, so macOS and CI still build both.
-HOSTS="${OPENCNC3D_WIN_HOSTS:-i686-w64-mingw32 x86_64-w64-mingw32}"
+# THE WINDOWS BUILD IS 64-BIT ONLY (x86_64, PE32+). 32-bit Windows is not supported.
+# OPENCNC3D_WIN_HOSTS=i686-w64-mingw32 still fetches the 32-bit SDK, which only the
+# historical diagnostics under tools/diagnostics/windows-performance read.
+HOSTS="${OPENCNC3D_WIN_HOSTS:-x86_64-w64-mingw32}"
 
 for h in $HOSTS; do
     command -v $h-gcc >/dev/null 2>&1 || {
@@ -77,9 +69,9 @@ mkdir -p "$SDK/src"
 cd "$SDK/src"
 
 # ---- SDL2 -----------------------------------------------------------------------
-# The mingw development package, which ships headers, import libs and SDL2.dll for
-# both architectures. We use the x86_64 half; the i686 half is what a future Win98
-# attempt would want, so it is kept rather than deleted.
+# The mingw development package. Its x86_64-w64-mingw32 half holds the headers and the
+# static libSDL2.a every Windows program links. The package also carries an i686 half and
+# an SDL2.dll for each width; they are unpacked with the rest and no build uses them.
 if [ ! -d "$SDK/SDL2-$SDL2_VER" ]; then
     echo "fetching SDL2 $SDL2_VER (mingw devel)"
     fetch "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VER/SDL2-devel-$SDL2_VER-mingw.tar.gz" \

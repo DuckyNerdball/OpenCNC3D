@@ -4,8 +4,8 @@
  *
  * THE PACKET, byte for byte. Everything is little endian and written a byte at a time
  * rather than by casting a struct over the buffer, because the two builds this has to
- * agree between are a 64 bit Mac and a 32 bit Windows, and a struct's padding is the
- * compiler's business while a wire format is ours.
+ * agree between are the Mac (LP64) and Windows (LLP64, where a long is 32 bits), and a
+ * struct's padding is the compiler's business while a wire format is ours.
  *
  *   offset  size  field
  *   0       4     magic       LS_MAGIC

@@ -358,10 +358,13 @@ def script(d):
         if tag == 't':
             s += [f'hurtunit PT:USSR {nth[("USSR", SHIP)]} 120']
             s += sample(d, tag, m, 'hurt', 2)
-            s += [f'hurtunit PT:USSR {nth[("USSR", SHIP)]} 5000',
-                  f'hurtunit 3TNK:USSR {nth[("USSR", "3TNK")]} 5000',
-                  f'hurtunit V2RL:USSR {nth[("USSR", "V2RL")]} 5000']
-            s += sample(d, tag, m, 'dead', 12)
+            # Keep each wreck in view while sampling it. The regular fight sampler
+            # pans between the shoreline and the rows, which now retires a wreck.
+            for kind, samples in ((SHIP, 12), ('3TNK', 2), ('V2RL', 2)):
+                victim = f'{kind}:USSR {nth[("USSR", kind)]}'
+                s += [f'look {victim}', 'frames 1', 'tick 1', f'hurtunit {victim} 5000']
+                for sample_index in range(samples):
+                    s += ['tick 2', f'shot {d}/{tag}_dead_{kind}_{sample_index:02d}.png', 'evhcdump']
             s += ['gfxmode 0', 'tick 1', 'evhcdump']
         s += ['quit']
         write(f'{d}/{tag}.txt', s)
@@ -467,6 +470,17 @@ def read(path):
         return open(path, errors='replace').read().splitlines()
     except OSError:
         return []
+
+
+# A ship under Enhanced sits down in the sea by its draft and rides the swell's heave
+# (cnc_eyes.cpp ship_ride: 0.03 under the anchor, a heave of at most 0.015 either way), so
+# the lift its probe reports is inside this band, never 0 (on top of the water) and never
+# deep (sunk); and a ship standing still keeps changing it, and its lean, tick to tick.
+AFLOAT = (-0.048, -0.012)
+
+
+def afloat(lift):
+    return AFLOAT[0] <= float(lift) <= AFLOAT[1]
 
 
 def kv(line):
@@ -748,7 +762,7 @@ def check(d):
                 notes.append(f'{scene} {part}: Soviet red, Allied not ({pairs} types compared)')
         # (3) the boat on the sea
         boats = [v for v in on if v['type'] == SHIP and v['model'] == '1']
-        if SHIP in types and (not boats or any(float(v['lift']) != 0.0 or not 0.2 < float(v['height']) < 0.5
+        if SHIP in types and (not boats or any(not afloat(v['lift']) or not 0.2 < float(v['height']) < 0.5
                                                for v in boats)):
             fails.append(f'{scene}: the Gun Boat is not on the sea: {[(v["lift"], v["height"]) for v in boats]}')
         # (4) the motions
@@ -1115,8 +1129,10 @@ def check_ship(d, T, runs, name, tags, fails, notes, extra=None):
             red = [r for v in colours(x, ch, scr).values() for r in v]
             if not red or max(red) > 0.08:
                 bad.append(f'its red share {red}')
-        # (floats)
-        if float(on[0]['lift']) != 0.0 or not 0.55 < float(on[0]['height']) < 0.95:
+        # (floats: drawn at no lift, its top over the sea between a sunk or flattened model
+        # and one raised off the water. The Destroyer's top, its radar mast, stands 0.505
+        # cells over the sea, the Cruiser's 0.780; the Gun Boat's, 0.309, is below the floor)
+        if not afloat(on[0]['lift']) or not 0.40 < float(on[0]['height']) < 0.95:
             bad.append(f'not on the sea: lift {on[0]["lift"]}, height {on[0]["height"]}')
         # the samples after the first: the probe, then the dump of what that frame drew
         seq = []
@@ -1128,6 +1144,30 @@ def check_ship(d, T, runs, name, tags, fails, notes, extra=None):
                 seq.append((k, pv[0], ov[0], foe[0] if foe else None))
         live = [(k, pv, ov, f) for k, pv, ov, f in seq if int(pv['str'].split('/')[0]) > 0
                 and ov['drawn'] == '1']
+        sunk = [pv['lift'] for k, pv, ov, f in live if not afloat(pv['lift'])]
+        if sunk:
+            bad.append(f'out of the sea\'s draft band {AFLOAT}: lift {sunk[:4]}')
+        # (the Gun Boat it fights stands still: it bobs and sways in place, the swell's)
+        boat = [(f, [o for o in sm[k] if o['type'] == SHIP and o.get('id') == f['id']])
+                for k, pv, ov, f in seq if f and f['model'] == '1'
+                and int(f['str'].split('/')[0]) > 0]
+        boat = [(f, o[0]) for f, o in boat if o and o[0].get('drawn') == '1']
+        if boat:
+            at0 = boat[0][0]['at']
+            still = [(float(f['lift']), o.get('wob', '-9,-9')) for f, o in boat if f['at'] == at0]
+            heave = [h for h, w in still]
+            leans = {w for h, w in still}
+            if len(still) < 4 or max(heave) - min(heave) < 0.004 or len(leans) < 3 \
+               or not all(AFLOAT[0] <= h <= AFLOAT[1] for h in heave):
+                bad.append(f'the Gun Boat standing still: {len(still)} samples, heave '
+                           f'{min(heave, default=0):.3f}..{max(heave, default=0):.3f}, '
+                           f'{len(leans)} leans')
+            else:
+                notes.append(f'{name}, {scene}: the Gun Boat standing still at {at0} bobs '
+                             f'{max(heave) - min(heave):.3f} and sways through {len(leans)} '
+                             f'leans in {len(still)} samples')
+        else:
+            bad.append('the Gun Boat it fights is never sampled drawn')
         # (the launcher: exactly the engine's turret facing, through three angles)
         wrong = [(pv['face'], pv['tface'], ov['tur']) for k, pv, ov, f in live
                  if (int(pv['tface']) - int(pv['face'])) & 255 != int(ov['tur'])]
@@ -1197,7 +1237,8 @@ def check_ship(d, T, runs, name, tags, fails, notes, extra=None):
             else:
                 stand, sail = set(wob[:first]), sorted({w[1] for w in wob[first:]})
                 spread = (sail[-1] - sail[0]) if sail else 0.0
-                if len(stand) != 1 or len(sail) < 3 or spread < 0.01 or min(w[0] for w in wob) < -1.0:
+                if (first >= 2 and len(stand) < 2) or len(sail) < 3 or spread < 0.01 \
+                   or min(w[0] for w in wob) < -1.0:
                     bad.append(f'its roll: {sorted(stand)} standing, {len(sail)} values sailing '
                                f'over {spread:.4f}')
                 else:

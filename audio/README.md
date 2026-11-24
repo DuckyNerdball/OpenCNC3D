@@ -94,9 +94,8 @@ The three items this section used to list as unproven are now two.
   The recorded mix is `--audiowav`, and the 1995 placement rule is exercised through the
   real game path: the same fight heard from the west pans hard right at 0.35 gain and
   from the east pans left. See `docs/CHANGELOG.md` for the numbers.
-- **No Win98 backend exists yet.** Still true. `audio_null.c` and `audio_sdl.c` are the
-  only two backends. The core has no platform call in it, which is what makes the third
-  one a new file, but that file is not written. `docs/tier1-gap.md` carries the contract.
+- **There is no Win98 backend.** Windows 98 is no longer a target. `audio_null.c` and
+  `audio_sdl.c` are the only two backends.
 
 ## The pieces
 

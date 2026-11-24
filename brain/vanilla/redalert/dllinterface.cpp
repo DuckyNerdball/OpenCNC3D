@@ -1,3 +1,16 @@
+// MODIFIED for OpenCNC3D. A band selection answers with one voice, the one
+// Select_These would play, and exports OpenCNC3D_Band_Begin.
+// MODIFIED for OpenCNC3D. Exports OpenCNC3D_Weapon_Range, a read-only weapon range
+// and firing point by heap slot, for the renderer's range outline round a selected launcher or defence.
+// MODIFIED for OpenCNC3D. The static map's scenario name stops at the file's extension, not at the first dot in its path.
+// MODIFIED for OpenCNC3D. The object dump carries what a spy shows the player over a
+// spied building (spied=, spyprod=, spymoney=, powpip=) and whether a building is a fake (fake=).
+// MODIFIED for OpenCNC3D. The object dump says whether a unit can be sold (sellu=),
+// and OpenCNC3D_Sell_Unit sells a vehicle standing on the player's Service Depot.
+// MODIFIED for OpenCNC3D. Exports OpenCNC3D_Band_Would_Take, whether a band would take an object.
+// MODIFIED for OpenCNC3D. Exports OpenCNC3D_Gap_Radius, the Gap Generator's jamming radius.
+// MODIFIED for OpenCNC3D. The object dump names the cells a building occupies (occ=).
+// MODIFIED for OpenCNC3D. Exports OpenCNC3D_Band_Done, the end of a band selection.
 // MODIFIED for OpenCNC3D. Assigns per-seat AI skill, exports diagnostics, and persists validated controller state.
 //
 // Copyright 2020 Electronic Arts Inc.
@@ -45,6 +58,13 @@
 // It DOES change the game simulation: in a lockstep match, in a second match
 // played in one process, when a host turns one of the switches on, and for the
 // computer players when a difficulty other than normal is chosen.
+// MODIFIED again: DLLExportClass::Code_Pointers and
+// Decode_Pointers carry the coded building type through intptr_t rather than
+// unsigned int, so the file compiles cleanly for 64-bit Windows; the value stored and
+// read back is unchanged on every platform. A 64-bit Windows build also marks the
+// version word DLLExportClass::Save writes (dllinterfaceversion.h), and its
+// DLLExportClass::Load refuses a save without that mark, written by a 32-bit build,
+// before reading anything into the engine. Other builds save and load as before.
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 
@@ -66,6 +86,7 @@
 #include <set>
 
 #include "function.h"
+#include "../common/fire_visibility.h"
 #include "fair_ai_ra.h"
 #include "../../fair_ai.h"
 #include "keyframe.h"
@@ -975,6 +996,10 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Set_Multiplayer_Data(int scena
     return true;
 }
 
+/* What the band in progress newly took for the player; see Band_Speak below. */
+static ObjectClass* BandTaken[1024];
+static int BandTakenCount = 0;
+
 extern "C" __declspec(dllexport) bool __cdecl CNC_Clear_Object_Selection(uint64 player_id)
 {
     if (!DLLExportClass::Set_Player_Context(player_id)) {
@@ -982,11 +1007,141 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Clear_Object_Selection(uint64 
     }
 
     Unselect_All();
+    BandTakenCount = 0;
     /* One selection response per gesture. CNC_Select_Object latches this false
        after the first object in a batch; the renderer clears once before the
        next click or band, so reset here rather than for every selected unit. */
     AllowVoice = true;
 
+    return true;
+}
+
+/* Renderer screen-space bands must use Select_These's allow_mixed rule.
+   CNC_Select_Object intentionally accepts only the current player's house and
+   cannot gather the mission's neutral civilians/scientists. The renderer has
+   already tested its projected band; retain the original eligibility here. */
+static ObjectClass* Band_Candidate(int object_type_id, int object_to_select_id)
+{
+    ObjectClass* object = NULL;
+    switch (object_type_id) {
+    case INFANTRY:
+        for (int i = 0; i < Infantry.Count(); i++)
+            if (Infantry.Ptr(i) && Infantry.ID(Infantry.Ptr(i)) == object_to_select_id) { object=Infantry.Ptr(i); break; }
+        break;
+    case UNIT:
+        for (int i = 0; i < Units.Count(); i++)
+            if (Units.Ptr(i) && Units.ID(Units.Ptr(i)) == object_to_select_id) { object=Units.Ptr(i); break; }
+        break;
+    case AIRCRAFT:
+        for (int i = 0; i < Aircraft.Count(); i++)
+            if (Aircraft.Ptr(i) && Aircraft.ID(Aircraft.Ptr(i)) == object_to_select_id) { object=Aircraft.Ptr(i); break; }
+        break;
+    case VESSEL:
+        for (int i = 0; i < Vessels.Count(); i++)
+            if (Vessels.Ptr(i) && Vessels.ID(Vessels.Ptr(i)) == object_to_select_id) { object=Vessels.Ptr(i); break; }
+        break;
+    default: return NULL;
+    }
+    if (!object || !object->IsActive || object->IsInLimbo || !object->Class_Of().IsSelectable
+        || ((TechnoClass*)object)->Is_Cloaked(PlayerPtr)) return NULL;
+    if (!Map[Coord_Cell(object->Center_Coord())].Is_Visible(PlayerPtr)) return NULL;
+    return object;
+}
+
+/* ONE ACKNOWLEDGEMENT PER BAND, from the object Select_These would have heard.
+   Select_These (display.cpp) lets the first of the player's own objects it selects speak
+   and latches AllowVoice off for the rest, walking the ground layer in its own order and
+   then the aircraft. The renderer selects a band one object at a time in its own order, so
+   each OpenCNC3D_Select_In_Band selects in silence and notes what it newly took for the
+   player, and OpenCNC3D_Band_Done speaks for the first of those in Select_These's order.
+   Selecting each one with the voice open made every unit in a band answer at once. The
+   voice is presentation only: the responses pick their line with Sim_Random_Pick, which
+   leaves the game's random sequence alone. The list holds pointers only for the length
+   of one band (no engine tick runs inside a band) and is only ever compared, never
+   dereferenced. */
+static bool Band_Was_Taken(ObjectClass const* object)
+{
+    for (int i = 0; i < BandTakenCount; i++)
+        if (BandTaken[i] == object) return true;
+    return false;
+}
+
+static void Band_Speak(void)
+{
+    ObjectClass* first = NULL;
+    for (int i = 0; first == NULL && i < DisplayClass::Layer[LAYER_GROUND].Count(); i++)
+        if (Band_Was_Taken(DisplayClass::Layer[LAYER_GROUND][i])) first = DisplayClass::Layer[LAYER_GROUND][i];
+    for (int i = 0; first == NULL && i < Aircraft.Count(); i++)
+        if (Band_Was_Taken(Aircraft.Ptr(i))) first = Aircraft.Ptr(i);
+    BandTakenCount = 0;
+    if (first != NULL && first->IsActive && first->Is_Techno()
+        && ((TechnoClass*)first)->House->IsPlayerControl) {
+        AllowVoice = true;
+        ((TechnoClass*)first)->Response_Select();
+    }
+}
+
+/* The start of the renderer's band select: forget any band that never reached its end. */
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Band_Begin(uint64 player_id)
+{
+    if (!DLLExportClass::Set_Player_Context(player_id)) return false;
+    BandTakenCount = 0;
+    return true;
+}
+
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Select_In_Band(
+    uint64 player_id, int object_type_id, int object_to_select_id)
+{
+    if (!DLLExportClass::Set_Player_Context(player_id)) return false;
+    ObjectClass* object = Band_Candidate(object_type_id, object_to_select_id);
+    if (!object) return false;
+    if (object->Is_Selected_By_Player()) return true;
+    const bool old_allow_voice = AllowVoice;
+    AllowVoice = false;
+    const bool took = object->Select(true);
+    AllowVoice = old_allow_voice;
+    if (took && ((TechnoClass*)object)->House->IsPlayerControl
+        && BandTakenCount < (int)(sizeof(BandTaken) / sizeof(BandTaken[0]))) {
+        BandTaken[BandTakenCount++] = object;
+    }
+    return took;
+}
+
+/* Would OpenCNC3D_Select_In_Band take this object into a band that cleared the selection
+   first? Answered without selecting anything, so the renderer can leave the selection
+   alone when a fresh band catches nothing. The tests are OpenCNC3D_Select_In_Band's own
+   plus the refusals of ObjectClass::Select and TechnoClass::Select (the only two Select
+   bodies), less "already selected", which the clear would undo. */
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Band_Would_Take(
+    uint64 player_id, int object_type_id, int object_to_select_id)
+{
+    if (!DLLExportClass::Set_Player_Context(player_id)) return false;
+    ObjectClass* object = Band_Candidate(object_type_id, object_to_select_id);
+    if (!object) return false;
+    if (Debug_Map) return true;
+    TechnoClass* techno = (TechnoClass*)object;
+    if (!techno->Is_Discovered_By_Player() && !techno->House->IsPlayerControl && !Debug_Unshroud) return false;
+    if (object->Can_Player_Move() && techno->IsALoaner) return false;
+    const RTTIType rtti = object->What_Am_I();
+    if (object->Height > 0 && (rtti == RTTI_UNIT || rtti == RTTI_VESSEL || rtti == RTTI_INFANTRY)) return false;
+    if (Map.PendingObject) return false;
+    return true;
+}
+
+/* The end of the renderer's band select. The renderer picks a band against the drawn
+   models and selects what it caught one object at a time (OpenCNC3D_Select_In_Band in Red
+   Alert, CNC_Select_Object in Tiberian Dawn), so the engine's own end of a band, the end of
+   DisplayClass::Select_These, has to be asked for: of a mix of the player's units and
+   others only the player's stay, and a box not added to the selection drops harvesters
+   and MCVs unless they are all it caught. */
+extern void Band_Selection_Tidy(bool additive);
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Band_Done(uint64 player_id, int additive)
+{
+    if (!DLLExportClass::Set_Player_Context(player_id)) return false;
+    /* Select_These speaks while it selects, before its tidy, so the voice comes first. */
+    Band_Speak();
+    Band_Selection_Tidy(additive != 0);
+    AllowVoice = true;
     return true;
 }
 
@@ -1124,6 +1279,21 @@ void GlyphX_Assign_Houses(void)
     int random_start_locations[26];
     int num_start_locations = 0;
     int num_random_start_locations = 0;
+
+    /*
+    ** OpenCNC3D: two start waypoints can stand on one cell (Equal Opportunity's fourth and
+    ** fifth do). A start that shares its cell with a chosen start, or with a start already in
+    ** the pool, is left out of the pool, so a random seat is never dealt a base on top of
+    ** another one. The list maps a start index, as the seats count them, to its cell.
+    */
+    CELL opencnc3d_cell[26];
+    int opencnc3d_cells = 0;
+    for (i = 0; i < 26; i++) {
+        if (Scen.Waypoint[i] != -1) {
+            opencnc3d_cell[opencnc3d_cells++] = Scen.Waypoint[i];
+        }
+    }
+
     for (i = 0; i < 26; i++) {
         if (Scen.Waypoint[i] != -1) {
             preassigned = false;
@@ -1133,7 +1303,19 @@ void GlyphX_Assign_Houses(void)
                     UseGlyphXStartLocations = true;
                 }
             }
-            if (!preassigned && i < MAX_PLAYERS) {
+            bool opencnc3d_shared = false;
+            for (j = 0; j < Session.Players.Count(); j++) {
+                if (MPlayerStartLocations[j] >= 0 && MPlayerStartLocations[j] < opencnc3d_cells
+                    && opencnc3d_cell[MPlayerStartLocations[j]] == Scen.Waypoint[i]) {
+                    opencnc3d_shared = true;
+                }
+            }
+            for (j = 0; j < num_random_start_locations; j++) {
+                if (opencnc3d_cell[random_start_locations[j]] == Scen.Waypoint[i]) {
+                    opencnc3d_shared = true;
+                }
+            }
+            if (!preassigned && !opencnc3d_shared && i < MAX_PLAYERS) {
                 random_start_locations[num_random_start_locations] = num_start_locations;
                 num_random_start_locations++;
             }
@@ -1143,7 +1325,10 @@ void GlyphX_Assign_Houses(void)
 
     /*
     ** OpenCNC3D: in the synchronised case, shuffle only when some seat actually asked for a
-    ** random start, so a match whose seats all chose theirs consumes no draw here.
+    ** random start, so a match whose seats all chose theirs consumes no draw here. It also
+    ** waits until some seat chose a start: with no choice made, Create_Units deals every start
+    ** itself and never reads this shuffle, so its draws would only move that deal, and a
+    ** seeded all-random match would no longer start where it always had.
     */
     bool opencnc3d_any_random = !opencnc3d_synced_shuffle;
     for (i = 0; !opencnc3d_any_random && i < Session.Players.Count(); i++) {
@@ -1152,7 +1337,8 @@ void GlyphX_Assign_Houses(void)
         }
     }
 
-    if (opencnc3d_any_random && num_random_start_locations > 1) {
+    if (opencnc3d_any_random && num_random_start_locations > 1
+        && (UseGlyphXStartLocations || !opencnc3d_synced_shuffle)) {
         for (i = 0; i < num_random_start_locations - 1; i++) {
             j = opencnc3d_synced_shuffle ? Random_Pick(i, num_random_start_locations - 1)
                                          : i + rand() / (RAND_MAX / (num_random_start_locations - i) + 1);
@@ -1407,6 +1593,11 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Instance_Variation(int s
     ScenarioDirType scen_dir = (ScenarioDirType)scenario_direction;
     if (stricmp(game_type, "GAME_NORMAL") == 0) {
         GAME_TO_PLAY = GAME_NORMAL;
+        /* A new campaign/custom singleplayer mission must not inherit the last
+           room's base-elimination, shroud, CTF or redeployment rules. */
+        Special.Init();
+        OpenCNC3D_ShortGame = false;
+        MPSuperWeaponDisable = false;
         if (scen_player == SCEN_PLAYER_NONE) {
             return false;
         }
@@ -1431,6 +1622,10 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Instance_Variation(int s
     } else {
         Scen.Set_Scenario_Name(Scen.Scenario, scen_player, scen_dir, (ScenarioVarType)scenario_variation);
     }
+
+#ifdef FIXIT_ANTS
+    AntsEnabled = override_map_name && strnicmp(override_map_name, "SCA0", 4) == 0;
+#endif
 
     HiddenPage.Clear();
     VisiblePage.Clear();
@@ -1655,6 +1850,11 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Custom_Instance(const ch
         GAME_TO_PLAY = GAME_GLYPHX_MULTIPLAYER;
     } else {
         GAME_TO_PLAY = GAME_NORMAL;
+        /* A new campaign/custom singleplayer mission must not inherit the last
+           room's base-elimination, shroud, CTF or redeployment rules. */
+        Special.Init();
+        OpenCNC3D_ShortGame = false;
+        MPSuperWeaponDisable = false;
     }
     scen_player = SCEN_PLAYER_MPLAYER;
 
@@ -1688,6 +1888,10 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Start_Custom_Instance(const ch
     // else {
     //	Scen.Set_Scenario_Name(Scen.Scenario, scen_player, scen_dir, (ScenarioVarType)scenario_variation);
     //}
+
+#ifdef FIXIT_ANTS
+    AntsEnabled = scenario_name && strnicmp(scenario_name, "SCA0", 4) == 0;
+#endif
 
     HiddenPage.Clear();
     VisiblePage.Clear();
@@ -2112,6 +2316,7 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Save_Load(bool save,
                                                             const char* file_path_and_name,
                                                             const char* game_type)
 {
+    CncFireSaveScope fireSaveScope(save);
     bool result = false;
 
     if (save) {
@@ -2214,6 +2419,12 @@ extern "C" __declspec(dllexport) void __cdecl OpenCNC3D_Set_Computer_Difficulty(
  *
  * History: 11/15/2019 - LLL
  **************************************************************************************************/
+/* The frontend retains this original campaign list across engine restarts. */
+extern "C" __declspec(dllexport) void __cdecl OpenCNC3D_Capture_Carryover_Objects(void)
+{
+    DLLExportClass::Store_Carryover_Objects();
+}
+
 extern "C" __declspec(dllexport) void __cdecl CNC_Restore_Carryover_Objects(const CarryoverObjectStruct* objects)
 {
     // Delete the list
@@ -3433,7 +3644,19 @@ extern "C" __declspec(dllexport) bool __cdecl CNC_Get_Game_State(GameStateReques
             break;
         }
 
-        char* dot_ptr = strchr(Scen.ScenarioName, '.');
+        /*
+        ** OpenCNC3D: the name stops at the extension of the file itself. A custom map's
+        ** ScenarioName is its whole path, and stopping at the first dot anywhere in it cut
+        ** the name off inside any folder with a dot in its name (".config", "john.smith"),
+        ** so the map came back named after the part of the path before that folder.
+        */
+        const char* name_start = Scen.ScenarioName;
+        for (const char* p = Scen.ScenarioName; *p != '\0'; ++p) {
+            if (*p == '/' || *p == '\\') {
+                name_start = p + 1;
+            }
+        }
+        const char* dot_ptr = strrchr(name_start, '.');
         const int count = (dot_ptr != nullptr) ? (dot_ptr - Scen.ScenarioName) : sizeof(Scen.ScenarioName);
         memset(map_data->ScenarioName, 0, sizeof(map_data->ScenarioName));
         strncpy(map_data->ScenarioName, Scen.ScenarioName, min(sizeof(map_data->ScenarioName) - 1, count));
@@ -4779,6 +5002,10 @@ bool DLLExportClass::Get_Sidebar_State(uint64 player_id, unsigned char* buffer_i
                 case RTTI_AIRCRAFTTYPE:
                     isbusy = (PlayerPtr->AircraftFactory != -1);
                     isbusy |= Aircraft.Avail() <= 0;
+                    /*	OpenCNC3D: the 1996 sidebar also shows a Yak or MiG busy while every
+                    **	Airfield has its plane (HouseClass::Is_Hack_Prevented, SidebarClass::
+                    **	StripClass::Draw_It), and refuses to start one. */
+                    isbusy |= PlayerPtr->Is_Hack_Prevented(RTTI_AIRCRAFTTYPE, Map.Column[c].Buildables[b].BuildableID);
                     sidebar_entry.Type = AIRCRAFT_TYPE;
                     break;
 
@@ -4940,6 +5167,9 @@ bool DLLExportClass::Get_Sidebar_State(uint64 player_id, unsigned char* buffer_i
                     case RTTI_AIRCRAFTTYPE:
                         isbusy = (PlayerPtr->AircraftFactory != -1);
                         isbusy |= Aircraft.Avail() <= 0;
+                        /*	OpenCNC3D: a Yak or MiG with no free Airfield reads busy, as
+                        **	above. */
+                        isbusy |= PlayerPtr->Is_Hack_Prevented(RTTI_AIRCRAFTTYPE, sidebar_entry.BuildableID);
                         sidebar_entry.Type = AIRCRAFT_TYPE;
                         break;
 
@@ -5373,6 +5603,20 @@ bool DLLExportClass::Passes_Proximity_Check(CELL cell_in,
     const bool anywhere =
         DisplayClass::OpenCNC3D_Build_Anywhere((PlayerPtr != NULL) ? PlayerPtr->Class->House : HOUSE_NONE);
 
+    /*
+    ** OpenCNC3D: a building allowed further than the usual ring from the base (RULES.INI
+    ** Adjacent above 1: the Naval Yard and Sub Pen, Adjacent=8) is judged by a different rule
+    ** in DisplayClass::Passes_Proximity_Check: the distance from the TOP LEFT cell of the
+    ** foundation to the centre of each base building, less half that building's size, must be
+    ** within Adjacent. The square ring of distances below is a different shape and reaches
+    ** further, so the overlay offered water the placement then refused. That routine is the
+    ** one a placement is judged by (HouseClass::Place_Object), so for these buildings the
+    ** overlay asks it directly.
+    */
+    if (placement_type->Adjacent > 1 && PlayerPtr != NULL) {
+        return Map.Passes_Proximity_Check(placement_type, PlayerPtr->Class->House, occupy_list, cell_in);
+    }
+
     while (*occupy_list != REFRESH_EOL) {
 
         CELL center_cell = cell_in + *occupy_list++;
@@ -5590,6 +5834,12 @@ bool DLLExportClass::Construction_Action(SidebarRequestEnum construction_action,
                                         **	normally.
                                         */
                                         if (construction_action == SIDEBAR_REQUEST_START_CONSTRUCTION) {
+                                            /*	OpenCNC3D: SidebarClass::StripClass::SelectClass::Action
+                                            **	refuses a Yak or MiG while every Airfield has its plane,
+                                            **	to resume as well as to start (Is_Hack_Prevented). */
+                                            if (PlayerPtr->Is_Hack_Prevented((RTTIType)buildable_type, buildable_id)) {
+                                                return false;
+                                            }
                                             if ((RTTIType)buildable_type == RTTI_INFANTRYTYPE) {
                                                 On_Speech(PlayerPtr, VOX_TRAINING); // Speak(VOX_TRAINING);
                                             } else {
@@ -5610,6 +5860,11 @@ bool DLLExportClass::Construction_Action(SidebarRequestEnum construction_action,
                                 break;
 
                             default:
+                                /*	OpenCNC3D: no new Yak or MiG while every Airfield has its plane,
+                                **	as the 1996 sidebar refuses it (Is_Hack_Prevented). */
+                                if (PlayerPtr->Is_Hack_Prevented((RTTIType)buildable_type, buildable_id)) {
+                                    return false;
+                                }
                                 /*
                                 **	If this side strip is already busy with production, then ignore the
                                 **	input and announce this fact.
@@ -5801,6 +6056,12 @@ bool DLLExportClass::MP_Construction_Action(SidebarRequestEnum construction_acti
                                         **	normally.
                                         */
                                         if (construction_action == SIDEBAR_REQUEST_START_CONSTRUCTION) {
+                                            /*	OpenCNC3D: SidebarClass::StripClass::SelectClass::Action
+                                            **	refuses a Yak or MiG while every Airfield has its plane,
+                                            **	to resume as well as to start (Is_Hack_Prevented). */
+                                            if (PlayerPtr->Is_Hack_Prevented((RTTIType)buildable_type, buildable_id)) {
+                                                return false;
+                                            }
                                             if ((RTTIType)buildable_type == RTTI_INFANTRYTYPE) {
                                                 On_Speech(PlayerPtr, VOX_TRAINING); // Speak(VOX_TRAINING);
                                             } else {
@@ -5823,6 +6084,11 @@ bool DLLExportClass::MP_Construction_Action(SidebarRequestEnum construction_acti
                                 break;
 
                             default:
+                                /*	OpenCNC3D: no new Yak or MiG while every Airfield has its plane,
+                                **	as the 1996 sidebar refuses it (Is_Hack_Prevented). */
+                                if (PlayerPtr->Is_Hack_Prevented((RTTIType)buildable_type, buildable_id)) {
+                                    return false;
+                                }
                                 /*
                                 **
                                 */
@@ -7819,7 +8085,7 @@ void DLLExportClass::Selected_Stop(uint64 player_id)
             ObjectClass const* tech = CurrentObject[index];
 
             if (tech != NULL
-                && (tech->Can_Player_Move() || (tech->Can_Player_Fire() && tech->What_Am_I() != RTTI_BUILDING))) {
+                && (tech->Can_Player_Move() || tech->Can_Player_Fire())) {
                 OutList.Add(EventClass(EventClass::IDLE, TargetClass(tech)));
             }
         }
@@ -8840,6 +9106,12 @@ bool DLLExportClass::Save(Pipe& pipe)
     ** Version first
     */
     unsigned int version = CNC_DLL_API_VERSION;
+#if defined(_WIN64)
+    /*
+    ** OpenCNC3D: mark the save as written by a 64-bit build (dllinterfaceversion.h).
+    */
+    version |= OPENCNC3D_SAVE_WIDTH_WIN64;
+#endif
     pipe.Put(&version, sizeof(version));
 
     pipe.Put(MultiplayerStartPositions, sizeof(MultiplayerStartPositions));
@@ -8911,6 +9183,15 @@ bool DLLExportClass::Load(Straw& file)
     if (file.Get(&version, sizeof(version)) != sizeof(version)) {
         return false;
     }
+#if defined(_WIN64)
+    /*
+    ** OpenCNC3D: a save written by a 32-bit build is raw 32-bit memory and cannot be read
+    ** here. Refuse it now, before anything in the engine has been touched.
+    */
+    if ((version & OPENCNC3D_SAVE_WIDTH_MASK) != OPENCNC3D_SAVE_WIDTH_WIN64) {
+        return false;
+    }
+#endif
 
     if (file.Get(MultiplayerStartPositions, sizeof(MultiplayerStartPositions)) != sizeof(MultiplayerStartPositions)) {
         return false;
@@ -9011,7 +9292,7 @@ void DLLExportClass::Code_Pointers(void)
         Sidebar_Glyphx_Code_Pointers(&MultiplayerSidebars[i]);
 
         if (PlacementType[i]) {
-            PlacementType[i] = (BuildingTypeClass*)PlacementType[i]->Type;
+            PlacementType[i] = (BuildingTypeClass*)(intptr_t)PlacementType[i]->Type;
         }
     }
 }
@@ -9033,7 +9314,7 @@ void DLLExportClass::Decode_Pointers(void)
         Sidebar_Glyphx_Decode_Pointers(&MultiplayerSidebars[i]);
 
         if (PlacementType[i]) {
-            StructType type = (StructType) reinterpret_cast<unsigned int>(PlacementType[i]);
+            StructType type = (StructType)(intptr_t)PlacementType[i];
             PlacementType[i] = NULL;
             if (type >= STRUCT_FIRST && type < STRUCT_COUNT) {
 
@@ -9129,6 +9410,7 @@ void OpenCNC3D_Note_Fire(TechnoClass* firer, int which, BulletClass* bullet, int
 /* Read-only object state for headless RA3D probes. The first slice uses the
    renderer's text protocol for common identity and placement fields; RA-specific
    presentation states and controls need separate validation. */
+#include "../common/object_dump_buffer.h"
 static int OpenCNC3D_RA_Print_Object(const char* kind, ObjectClass* object, int id)
 {
     if (object == NULL || !object->IsActive) {
@@ -9145,12 +9427,22 @@ static int OpenCNC3D_RA_Print_Object(const char* kind, ObjectClass* object, int 
        Vessel is a FootClass and has its own secondary facing. */
     const RTTIType rtti = object->What_Am_I();
     int fw = 1, fh = 1, tcx = Cell_X(cell), tcy = Cell_Y(cell);
+    unsigned occ = 0;
     int tface = -1, nav = -1, tar = -1, group = -1, alt = 0;
     int selected = 0;
     if (rtti == RTTI_BUILDING) {
         BuildingClass* building = (BuildingClass*)object;
         fw = building->Class->Width();
         fh = building->Class->Height();
+        /* occ=: the cells of the fw x fh box the building occupies, one bit each, row by
+           row (Occupy_List). A box cell outside it (the Iron Curtain's top row) is only
+           overlapped and may be built on. */
+        for (short const* ol = building->Class->Occupy_List(); ol && *ol != REFRESH_EOL; ol++) {
+            const int off = *ol;
+            if (off < 0) continue;
+            const int ody = off / MAP_CELL_W, odx = off % MAP_CELL_W;
+            if (odx < fw && ody < fh && ody * fw + odx < 32) occ |= 1u << (ody * fw + odx);
+        }
         CELL target_cell = Coord_Cell(building->Target_Coord());
         tcx = Cell_X(target_cell);
         tcy = Cell_Y(target_cell);
@@ -9398,12 +9690,88 @@ static int OpenCNC3D_RA_Print_Object(const char* kind, ObjectClass* object, int 
     if (rtti == RTTI_UNIT) {
         harv = ((UnitClass*)object)->IsHarvesting ? 1 : 0;
     }
-    printf("OBJ|%s|%s|%s|newcell=%d|x=%d|y=%d|inicell=%d|centercell=%d|str=%d|max=%d"
+    /*
+    **	OpenCNC3D: CAN THE PLAYER SELL THIS UNIT BACK? 1 for a vehicle that
+    **	FootClass::Can_Demolish accepts (in radio contact with a Service Depot and standing on
+    **	it) AND that stands on a building, because the SELL event's arm (event.cpp) sells a
+    **	vehicle only there. Can_Demolish also answers true for an aircraft parked on an
+    **	Airstrip, but that arm sells no aircraft, so a plane reads 0 rather than promise a sale
+    **	the click cannot make. Ownership is not part of it; the reader adds that. Zero for every
+    **	other kind and for a brain that predates the field. Simulation state, the same on
+    **	every peer of a match.
+    */
+    int sellu = 0;
+    if (rtti == RTTI_UNIT && object->Can_Demolish()
+        && Map[object->Center_Coord()].Cell_Building() != NULL) {
+        sellu = 1;
+    }
+    /*
+    **	OpenCNC3D: WHAT A SPY SHOWS THE PLAYER, and the fake structure's word. Red Alert draws
+    **	these over a SELECTED building and nowhere else, so nothing here decides whether they
+    **	are drawn; the reader adds the selection.
+    **
+    **	  fake      BuildingTypeClass::IsFake: the building is a decoy. TechnoClass::Draw_Pips
+    **	            prints "Decoy" over one that is spied or is the player's own. Simulation
+    **	            state, the same on every peer.
+    **	  spied     a spy of the LOCAL player's house has entered this building
+    **	            (BuildingClass::Spied_By, which spreads a spied refinery or silo to every
+    **	            storage building of its owner).
+    **	  spyprod   for a spied factory, the IniName of the object it is building, found the
+    **	            way BuildingClass::Draw_It finds it (the house's factory for a human
+    **	            house, the building's own for a computer house); - for none. Draw_It
+    **	            shows its cameo over the factory.
+    **	  spymoney  for a spied building with storage (Capacity), the owner's
+    **	            Available_Money, which Draw_Pips prints over it; -1 otherwise.
+    **	  powpip    for a Power Plant or Advanced Power Plant the player does not own but may
+    **	            see the pips of (allied, or spied): the colour of Draw_Pips' five power
+    **	            pips, 0 green (enough power), 1 gold (short), 2 red (drain above twice the
+    **	            output); -1 otherwise.
+    **	spied, spyprod, spymoney and powpip are player-relative like flashme=, so a lockstep
+    **	world hash leaves them out.
+    */
+    int fake = 0, spied = 0, spymoney = -1, powpip = -1;
+    const char* spyprod = "-";
+    if (rtti == RTTI_BUILDING) {
+        BuildingClass* building = (BuildingClass*)object;
+        fake = building->Class->IsFake ? 1 : 0;
+        if (PlayerPtr != NULL && PlayerPtr->Class.Is_Valid() && building->House.Is_Valid()) {
+            const int ph = (int)PlayerPtr->Class->House;
+            if (ph >= 0 && ph < HOUSE_COUNT) {
+                spied = (building->Spied_By() & (1u << ph)) ? 1 : 0;
+            }
+            HouseClass* owner = building->House;
+            if (spied) {
+                FactoryClass* factory = owner->IsHuman ? owner->Fetch_Factory(building->Class->ToBuild)
+                                                       : (FactoryClass*)building->Factory;
+                if (factory != NULL) {
+                    TechnoClass* product = factory->Get_Object();
+                    if (product != NULL) {
+                        spyprod = product->Techno_Type_Class()->IniName;
+                    }
+                }
+                if (building->Class->Capacity) {
+                    spymoney = owner->Available_Money();
+                }
+            }
+            if (owner != PlayerPtr && (spied || owner->Is_Ally(PlayerPtr))
+                && (*building == STRUCT_POWER || *building == STRUCT_ADVANCED_POWER)) {
+                powpip = 0;
+                if (owner->Power_Fraction() < 1) {
+                    powpip = 1;
+                    if (owner->Drain > (owner->Power * 2)) {
+                        powpip = 2;
+                    }
+                }
+            }
+        }
+    }
+    OpenCNC3D_Dump_Printf("OBJ|%s|%s|%s|newcell=%d|x=%d|y=%d|inicell=%d|centercell=%d|str=%d|max=%d"
            "|limbo=%d|down=%d|mission=%s|lx=%d|ly=%d|clx=%d|cly=%d|face=%d|id=%d"
            "|fw=%d|fh=%d|tcx=%d|tcy=%d|tface=%d|sel=%d|nav=%d|tar=%d|group=%d|alt=%d"
            "|doing=%d|dostage=%d|dying=%d|remap=%d|makecnt=%d|door=%d|blush=%d"
            "|dimw=%d|status=%d|flash=%d|pips=%d|maxpips=%d|cloak=%d|cstage=%d|repairing=%d|wrench=%d"
-           "|poweroff=%d|harv=%d|rotating=%d|navset=%d|driving=%d|primary=%d|flashme=%d|ammo=%d|act=%d\n",
+           "|poweroff=%d|harv=%d|rotating=%d|navset=%d|driving=%d|primary=%d|flashme=%d|ammo=%d|sellu=%d|occ=%u"
+           "|fake=%d|spied=%d|spyprod=%s|spymoney=%d|powpip=%d|act=%d\n",
            kind, object->Class_Of().IniName, owner, (int)cell, Cell_X(cell), Cell_Y(cell),
            (int)cell, (int)center, (int)object->Strength, (int)object->Class_Of().MaxStrength,
            (int)object->IsInLimbo, (int)object->IsDown, mission ? mission : "-",
@@ -9411,14 +9779,15 @@ static int OpenCNC3D_RA_Print_Object(const char* kind, ObjectClass* object, int 
            (int)Coord_X(object->Center_Coord()), (int)Coord_Y(object->Center_Coord()), face, id,
            fw, fh, tcx, tcy, tface, selected, nav, tar, group, alt, doing, dostage, dying, remap, makecnt, doorstage, blush,
            dimw, status, flash, pips, maxpips, cloak, cstage, repairing, wrench,
-           poweroff, harv, rotating, navset, driving, primary, flashme, ammo, act);
+           poweroff, harv, rotating, navset, driving, primary, flashme, ammo, sellu, occ,
+           fake, spied, spyprod, spymoney, powpip, act);
     return 1;
 }
 
 extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Objects(void)
 {
     int total = 0;
-    printf("OBJDUMP-BEGIN heaps: Infantry=%d Units=%d Vessels=%d Buildings=%d Terrains=%d Aircraft=%d Houses=%d\n",
+    OpenCNC3D_Dump_Printf("OBJDUMP-BEGIN heaps: Infantry=%d Units=%d Vessels=%d Buildings=%d Terrains=%d Aircraft=%d Houses=%d\n",
            Infantry.Count(), Units.Count(), Vessels.Count(), Buildings.Count(), Terrains.Count(),
            Aircraft.Count(), Houses.Count());
     for (int i = 0; i < Infantry.Count(); ++i) {
@@ -9470,7 +9839,7 @@ extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Objects(void)
                 }
             }
         }
-        printf("EFX|ANIM|id=%d|type=%d|name=%s|lx=%d|ly=%d|stage=%d|start=%d|stages=%d|"
+        OpenCNC3D_Dump_Printf("EFX|ANIM|id=%d|type=%d|name=%s|lx=%d|ly=%d|stage=%d|start=%d|stages=%d|"
                "loops=%d|size=%d|ground=%d|attref=%d|attkind=%d|owner=%d|biggest=%d\n",
                Anims.ID(anim), (int)(AnimType)*anim, type.IniName,
                (int)Coord_X(center), (int)Coord_Y(center), anim->Fetch_Stage(),
@@ -9492,7 +9861,7 @@ extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Objects(void)
     */
     for (int i = 0; i < OpenCNC3D_FireCount; i++) {
         const OpenCNC3DFireRecord& r = OpenCNC3D_Fires[i];
-        printf("EFX|FIRE|id=%d|kind=%d|type=%s|which=%d|second=%d|bullet=%d|btype=%d|bname=%s|lx=%d|ly=%d\n",
+        OpenCNC3D_Dump_Printf("EFX|FIRE|id=%d|kind=%d|type=%s|which=%d|second=%d|bullet=%d|btype=%d|bname=%s|lx=%d|ly=%d\n",
                r.id, r.kind, r.type, r.which, r.second, r.bullet, r.btype, r.bname, r.lx, r.ly);
         total++;
     }
@@ -9503,7 +9872,7 @@ extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Objects(void)
             continue;
         COORDINATE where = b->Center_Coord();
         const COORDINATE fuse = b->Fuse_Target();
-        printf("EFX|BULLET|id=%d|type=%d|name=%s|lx=%d|ly=%d|face=%d|alt=%d|invis=%d|"
+        OpenCNC3D_Dump_Printf("EFX|BULLET|id=%d|type=%d|name=%s|lx=%d|ly=%d|face=%d|alt=%d|invis=%d|"
                "arcing=%d|homing=%d|img=%s|tlx=%d|tly=%d\n",
                Bullets.ID(b), (int)b->Class->Type, b->Class->IniName,
                (int)Coord_X(where), (int)Coord_Y(where),
@@ -9516,16 +9885,33 @@ extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Objects(void)
         HouseClass* house = Houses.Ptr(i);
         if (house == NULL || !house->IsActive)
             continue;
-        printf("HOUSE|%s|credits=%d|human=%d|player=%d|units=%d|buildings=%d|tiberium=%d|capacity=%d\n",
+        OpenCNC3D_Dump_Printf("HOUSE|%s|credits=%d|human=%d|player=%d|units=%d|buildings=%d|tiberium=%d|capacity=%d\n",
                house->Class->IniName, (int)house->Credits, (int)house->IsHuman,
                (int)(house == PlayerPtr), (int)house->CurUnits, (int)house->CurBuildings,
                (int)house->Tiberium, (int)house->Capacity);
     }
-    printf("VIEW|%d|%d\n", Cell_X(Scen.Views[0]), Cell_Y(Scen.Views[0]));
-    printf("OBJDUMP-END count=%d frame=%d\n", total, (int)Frame);
-    fflush(stdout);
+    OpenCNC3D_Dump_Printf("VIEW|%d|%d\n", Cell_X(Scen.Views[0]), Cell_Y(Scen.Views[0]));
+    OpenCNC3D_Dump_Printf("OBJDUMP-END count=%d frame=%d\n", total, (int)Frame);
+    if(!OpenCNC3D_Dump_Output)fflush(stdout);
     return total;
 }
+
+/* Returns required bytes including NUL, or -1 on invalid input/format failure.
+   A short buffer never claims a complete snapshot; callers may grow or fall back. */
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Dump_Objects_Buffer_v1(char* data,int capacity,int consume)
+{
+    if(!data || capacity<=0 || (consume!=0&&consume!=1) || OpenCNC3D_Dump_Output)return -1;
+    const int fires=OpenCNC3D_FireCount;
+    OpenCNC3D_Dump_Buffer output={data,capacity,0,false};
+    OpenCNC3D_Dump_Output=&output;
+    OpenCNC3D_Dump_Objects();
+    OpenCNC3D_Dump_Output=NULL;
+    if(!consume || output.failed || output.used>=capacity) {
+        OpenCNC3D_FireCount=fires;
+    }
+    return output.failed?-1:output.used+1;
+}
+
 
 /* Local effect probes use the same hooks as the TD brain. Normal play never
    calls them; the anim and damage still run through Red Alert's own classes. */
@@ -9534,6 +9920,51 @@ extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Spawn_Anim(int type, int
     if (type < ANIM_FIRST || type >= ANIM_COUNT || x < 0 || y < 0)
         return false;
     return new AnimClass((AnimType)type, XY_Coord(x, y)) != NULL;
+}
+
+/*
+**	OpenCNC3D: HOW FAR ONE OBJECT'S WEAPON REACHES, BY HEAP SLOT. The three numbers
+**	TechnoClass::In_Range tests a target against, for the renderer's range outline round the
+**	player's selected launchers and defences: TechnoClass::Weapon_Range (returned); the offset of
+**	Fire_Data().Center, the point the distance is measured from, from Center_Coord (fire_dx,
+**	fire_dy); and Fire_Data().Distance (muzzle), which In_Range takes off the distance before
+**	comparing, so it adds to the reach. A target is in range when ::Distance(centre, target) -
+**	muzzle <= range, with ::Distance the engine's max + min/2 measure; a building target is
+**	reached (Width + Height) x 64 leptons further.
+**	rtti is RTTI_INFANTRY, RTTI_UNIT, RTTI_VESSEL, RTTI_AIRCRAFT or RTTI_BUILDING, id the slot in
+**	that heap (the dump's id=), which 0 for the primary weapon and 1 for the secondary; the three
+**	out-parameters are optional. Returns leptons (256 to a cell), 0 for no weapon in that slot,
+**	-1 for no live object. Read only: nothing in the game changes, so lockstep, saves and replays
+**	are untouched.
+*/
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Weapon_Range(int rtti, int id, int which,
+                                                                int* fire_dx, int* fire_dy, int* muzzle)
+{
+    TechnoClass const* techno = NULL;
+    if (fire_dx) *fire_dx = 0;
+    if (fire_dy) *fire_dy = 0;
+    if (muzzle) *muzzle = 0;
+    if (id < 0 || which < 0 || which > 1)
+        return -1;
+    if (rtti == RTTI_INFANTRY && id < Infantry.Length()) {
+        techno = Infantry.Raw_Ptr(id);
+    } else if (rtti == RTTI_UNIT && id < Units.Length()) {
+        techno = Units.Raw_Ptr(id);
+    } else if (rtti == RTTI_VESSEL && id < Vessels.Length()) {
+        techno = Vessels.Raw_Ptr(id);
+    } else if (rtti == RTTI_AIRCRAFT && id < Aircraft.Length()) {
+        techno = Aircraft.Raw_Ptr(id);
+    } else if (rtti == RTTI_BUILDING && id < Buildings.Length()) {
+        techno = Buildings.Raw_Ptr(id);
+    }
+    if (techno == NULL || !techno->IsActive)
+        return -1;
+    FireDataType data = techno->Fire_Data(which);
+    COORDINATE center = techno->Center_Coord();
+    if (fire_dx) *fire_dx = (int)Coord_X(data.Center) - (int)Coord_X(center);
+    if (fire_dy) *fire_dy = (int)Coord_Y(data.Center) - (int)Coord_Y(center);
+    if (muzzle) *muzzle = data.Distance;
+    return techno->Weapon_Range(which);
 }
 
 extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Hurt_Object(int rtti, int id, int damage)
@@ -9557,6 +9988,38 @@ extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Hurt_Object(int rtti, in
         return false;
     int dealt = damage;
     victim->Take_Damage(dealt, 0, WARHEAD_HE, 0);
+    return true;
+}
+
+/*
+**	OpenCNC3D: SELLS BACK ONE OF THE PLAYER'S VEHICLES STANDING ON A SERVICE DEPOT. The 1996 game
+**	does it from sell mode: the cursor over such a vehicle is the sell-unit cursor
+**	(ACTION_SELL_UNIT, display.cpp) and the click queues EventClass::SELL on it, whose arm
+**	(event.cpp) calls FootClass::Sell_Back for a vehicle standing on a building. The stock
+**	structure door cannot: DLLExportClass::Sell builds a building target. This is the vehicle's
+**	door and it makes the same tests, so it accepts exactly what the dump's sellu= promises.
+**	Not through the depot: selling the depot with a vehicle on it sells the vehicle only if it is
+**	still there when BuildingClass::Mission_Deconstruction runs, and the depot otherwise.
+**	In a lockstep match the event is queued, as the 1996 click queues it, so every peer sells on
+**	the same frame; otherwise the vehicle is sold here, as DLLExportClass::Sell sells a building.
+**	rtti is RTTI_UNIT (an aircraft on an Airstrip is refused: the event arm sells none); id is
+**	the slot in the Units heap (the dump's id=). Returns true if the sale was made or queued.
+*/
+extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Sell_Unit(uint64 player_id, int rtti, int id)
+{
+    if (!DLLExportClass::Set_Player_Context(player_id) || PlayerPtr == NULL)
+        return false;
+    if (rtti != RTTI_UNIT || id < 0 || id >= Units.Length())
+        return false;
+    UnitClass* unit = Units.Raw_Ptr(id);
+    if (unit == NULL || !unit->IsActive || unit->IsInLimbo || !(unit->House == PlayerPtr)
+        || !unit->Can_Demolish() || Map[unit->Center_Coord()].Cell_Building() == NULL)
+        return false;
+    if (OpenCNC3D_Lockstep) {
+        OutList.Add(EventClass(EventClass::SELL, TargetClass(unit)));
+    } else {
+        unit->Sell_Back(1);
+    }
     return true;
 }
 
@@ -10225,6 +10688,18 @@ extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Get_Wall_Fill(void)
 }
 
 /**************************************************************************************************
+ * OpenCNC3D_Gap_Radius -- the Gap Generator's jamming radius, in cells: Rule.GapShroudRadius,
+ * RULES.INI [General] GapRadius as the scenario's own [General] may override it. A Gap Generator
+ * jams every cell whose centre lies within this many cells of the centre of the cell holding its
+ * Center_Coord (MapClass::Jam_From). The renderer draws its owner's range ring at this radius.
+ * Read only.
+ **************************************************************************************************/
+extern "C" __declspec(dllexport) int __cdecl OpenCNC3D_Gap_Radius(void)
+{
+    return Rule.GapShroudRadius;
+}
+
+/**************************************************************************************************
  * OpenCNC3D_Proximity_Ok -- would this building type pass the proximity check on this cell?
  *
  * A pure query of the routine the placement cursor answers, DisplayClass::Passes_Proximity_Check,
@@ -10296,7 +10771,13 @@ extern "C" __declspec(dllexport) bool __cdecl OpenCNC3D_Grant_Superweapons(uint6
                 changed = true;
                 OpenCNC3D_Add_Special(hptr, _granted[i]);
             }
-            super.Forced_Charge(hptr == PlayerPtr);
+            /* Charged only when not ready already: Forced_Charge has the player's own
+               house announce the weapon ready each time it is called, and this runs every
+               tick, so charging a ready weapon repeated the announcement without end. The
+               announcement now comes once on the grant and once after each strike. */
+            if (!super.Is_Ready()) {
+                super.Forced_Charge(hptr == PlayerPtr);
+            }
         } else {
             changed |= super.Remove(true);
         }

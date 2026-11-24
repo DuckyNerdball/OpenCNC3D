@@ -93,6 +93,50 @@ def stage(module, include_review=False, export_root=None):
     stage_effects(Path(module))
     stage_cursors(Path(module))
     stage_ore(Path(module))
+    stage_interior(Path(module))
+
+
+# Red Alert's indoor walls (game/ra3d_interior_mod.h reads interior/<SCEN>.einw and
+# interior/walls_atlas.rgbz from the module), baked by tools/ra3d/bake-interior.py from the
+# lab's approved walls and committed in game/einw_ra. Staged while the walls' row still records
+# the approval the files were baked under (its remaster_approved stamp) and every file matches
+# its hash; otherwise left out (named), and a copy an earlier run staged is removed, so the
+# indoor missions keep their 1996 walls flat on the floor. A newer round of the walls in review
+# leaves that stamp in place, and the approved round stays in the game until the next is
+# approved and baked.
+def stage_interior(module):
+    src = ROOT / 'game/einw_ra'
+    dest = module / 'interior'
+    why = None
+    man = src / 'manifest.json'
+    files = []
+    if not man.is_file():
+        why = 'no game/einw_ra/manifest.json (run tools/ra3d/bake-interior.py)'
+    else:
+        m = json.loads(man.read_text())
+        at = (m.get('approval') or {}).get('remaster_approved')
+        r = json.loads((ROOT / 'tools/art/remaster/reviews-ra.json').read_text()).get('civil/INT_WALLS') or {}
+        if not at or r.get('remaster_approved') != at:
+            why = f'civil/INT_WALLS no longer records the approval the walls were baked under ({at}): rebake'
+        else:
+            import hashlib
+            want = {f'{scen}.einw': info['sha256'] for scen, info in m.get('missions', {}).items()}
+            want[m['atlas']['file']] = m['atlas']['sha256']
+            for n, h in sorted(want.items()):
+                f = src / n
+                if not f.is_file() or hashlib.sha256(f.read_bytes()).hexdigest() != h:
+                    why = f'{n} is missing or not the file the manifest names: rebake'
+                    break
+                files.append(f)
+    if why:
+        if dest.is_dir():
+            shutil.rmtree(dest)
+        print(f'RA indoor walls not staged: {why}; the indoor missions keep their 1996 walls')
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in files + [man]:
+        shutil.copy2(f, dest / f.name)
+    print(f'RA indoor walls staged: {len(files) - 1} missions and their atlas in {dest}')
 
 
 # Red Alert's ore, gems and ore mine (game/ra3d_ore_mod.h reads ore/ore3d_<TH>.pack from the

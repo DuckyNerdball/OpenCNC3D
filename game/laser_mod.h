@@ -308,6 +308,11 @@ static float laser_enh_strength(float life)
 #define LASER_ENH_FLARE_T  0.34f
 #define LASER_ENH_I        5.0f
 
+static bool laser_tesla(const LaserBeam& beam)
+{
+    return !strcmp(beam.l.type, "TTNK") || !strcmp(beam.l.type, "SHOK");
+}
+
 static void laser_enh_quads(const LaserBeam& b, float I, bool classPass)
 {
     float S[3], T[3], q[4][3];
@@ -316,13 +321,23 @@ static void laser_enh_quads(const LaserBeam& b, float I, bool classPass)
     const GLuint prog = g_laserProg;
     fx_set1i(prog, "uRadial", 0);
     fx_set1f(prog, "uI", I);
-    laser_ribbon(S, T, LASER_ENH_HALF, q);
-    glBegin(GL_QUADS);
-    glTexCoord2f(0.0f, -1.0f); glVertex3fv(q[0]);
-    glTexCoord2f(1.0f, -1.0f); glVertex3fv(q[1]);
-    glTexCoord2f(1.0f,  1.0f); glVertex3fv(q[2]);
-    glTexCoord2f(0.0f,  1.0f); glVertex3fv(q[3]);
-    glEnd();
+    const bool tesla = laser_tesla(b);
+    const int segments = tesla ? 7 : 1;
+    float prev[3] = {S[0], S[1], S[2]};
+    for (int segment = 1; segment <= segments; ++segment) {
+        const float t = (float)segment / segments;
+        const float jag = segment < segments ? ((segment & 1) ? 0.14f : -0.14f) : 0.0f;
+        float next[3];
+        for (int k = 0; k < 3; ++k) next[k] = S[k] + (T[k] - S[k]) * t + g_bbUp[k] * jag;
+        laser_ribbon(prev, next, tesla ? 0.10f : LASER_ENH_HALF, q);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, -1.0f); glVertex3fv(q[0]);
+        glTexCoord2f(1.0f, -1.0f); glVertex3fv(q[1]);
+        glTexCoord2f(1.0f,  1.0f); glVertex3fv(q[2]);
+        glTexCoord2f(0.0f,  1.0f); glVertex3fv(q[3]);
+        glEnd();
+        for (int k = 0; k < 3; ++k) prev[k] = next[k];
+    }
     fx_set1i(prog, "uRadial", 1);
     for (int e = 0; e < 2; e++) {
         const float* c = e ? T : S;
@@ -362,11 +377,12 @@ static void laser_draw_enhanced(void)
     fx_glUseProgram(g_laserProg);
     fx_set1f(g_laserProg, "uClass", 0.0f);
     efx_grade_uniforms(g_laserProg);
-    fx_set3f(g_laserProg, "uCore", 1.0f, 0.86f, 0.80f);
-    fx_set3f(g_laserProg, "uGlow", 1.0f, 0.10f, 0.04f);
     for (size_t i = 0; i < g_lasers.size(); i++) {
         float life;
         if (!laser_live(g_lasers[i], &life)) continue;
+        const bool tesla = laser_tesla(g_lasers[i]);
+        fx_set3f(g_laserProg, "uCore", tesla ? 0.82f : 1.0f, 0.86f, tesla ? 1.0f : 0.80f);
+        fx_set3f(g_laserProg, "uGlow", tesla ? 0.14f : 1.0f, tesla ? 0.45f : 0.10f, tesla ? 1.0f : 0.04f);
         laser_enh_quads(g_lasers[i], LASER_ENH_I * laser_enh_strength(life), false);
         g_laserDrawn++;
     }

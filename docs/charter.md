@@ -38,10 +38,10 @@ The two C&C builds **share data, not code**. So this is a transplant, not a merg
 ## Build / deploy environment
 
 **Windows and macOS**, developed and built on both, from one source tree. The Windows
-binary is produced with a **mingw-w64 i686** toolchain; the macOS one with clang and SDL.
-A native **Windows 98 SE** build over the same sources stays a stretch goal, which is why
-the renderer is held to fixed-function OpenGL 1.1 and the renderer API for that tier
-(Glide vs MiniGL) is still deferred.
+binary is 64-bit only, produced with a **mingw-w64 x86_64** toolchain; the macOS one with
+clang and SDL.
+A native **Windows 98 SE** build over the same sources was once a stretch goal, and it is
+dropped along with every other 32-bit Windows target.
 
 **RE tooling** (this repo's `tools/`) is Python and runs on either machine; it emits
 extracted assets, not shipped code.

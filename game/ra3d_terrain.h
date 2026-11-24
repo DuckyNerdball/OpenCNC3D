@@ -65,6 +65,7 @@
  */
 #ifndef OPENCNC3D_RA3D_TERRAIN_H
 #define OPENCNC3D_RA3D_TERRAIN_H
+#include "ground_mem.h"   /* the build's measured peak, its restore switch, the refused set */
 
 #define RA3D_ENH_MAGIC  "C3DRA144"
 /* GL 1.4's automatic mipmaps, which the Windows headers (GL 1.1) do not name */
@@ -77,6 +78,7 @@ struct Ra3dSlot { int name, icon, var, w, h; };
 struct Ra3dGround {
     bool built = false, ok = false;
     std::string key;                 /* theater, set and scenario the sheet was built for */
+    std::string shape;               /* the key without the map revision                 */
     char theater = 0;                /* 'S' snow, 'T' temperate, 'I' interior          */
     int set = -1;                    /* FX_TEX_ENH or FX_TEX_DOS, as built             */
     GLuint tex = 0, dryTex = 0, drySeamL = 0, drySeamT = 0;
@@ -501,21 +503,34 @@ static void ra3d_coast_feather_sheet(const Ra3dGround& G,
             G.theater,templates,changed,targets-changed);
 }
 
+/* Delete one of the ground's sheets or strip sheets. Each was told to the bilinear
+   toggle (fx_filter_note in ra3d_sheet_upload and ts_sheet), so the toggle forgets it
+   first: a deleted name is handed out again to whatever texture is made next, and the
+   next switch of graphics mode would otherwise set that texture's filters to the
+   ground's. */
+static void ra3d_tex_delete(GLuint* name)
+{
+    if (!*name) return;
+    fx_filter_forget(*name);
+    glDeleteTextures(1, name);
+    *name = 0;
+}
+
 static void ra3d_free(void)
 {
     ra3d_cache_free();
-    if (g_ra3d.tex) glDeleteTextures(1, &g_ra3d.tex);
-    if (g_ra3d.dryTex) glDeleteTextures(1,&g_ra3d.dryTex);
-    if (g_ra3d.drySeamL) glDeleteTextures(1,&g_ra3d.drySeamL);
-    if (g_ra3d.drySeamT) glDeleteTextures(1,&g_ra3d.drySeamT);
+    ra3d_tex_delete(&g_ra3d.tex);
+    ra3d_tex_delete(&g_ra3d.dryTex);
+    ra3d_tex_delete(&g_ra3d.drySeamL);
+    ra3d_tex_delete(&g_ra3d.drySeamT);
     g_ra3d = Ra3dGround();
     /* the sea's source goes with the sheet; its one white texel is kept for the next */
     if (g_waterRa.base) glDeleteTextures(1, &g_waterRa.base);
     const GLuint white = g_waterRa.white;
     g_waterRa = WaterRaSource();
     g_waterRa.white = white;
-    if (g_ra3dSeams.texL) glDeleteTextures(1, &g_ra3dSeams.texL);
-    if (g_ra3dSeams.texT) glDeleteTextures(1, &g_ra3dSeams.texT);
+    ra3d_tex_delete(&g_ra3dSeams.texL);
+    ra3d_tex_delete(&g_ra3dSeams.texT);
     g_ra3dSeams = TerrainSeams();
     g_ra3dSeamsTried = false;
 }
@@ -524,6 +539,9 @@ static void ra3d_free(void)
    otherwise (Red Alert has no cartridge art and no Remastered terrain). */
 static int ra3d_set_wanted(void)
 {
+    /* a mission whose Enhanced ground did not fit in memory draws the 1995 tiles to its
+       end (ra3d_ground_ensure) */
+    if (!g_ra3dRefusedScene.empty() && g_ra3dRefusedScene == g_raStaticScene) return FX_TEX_DOS;
     return (fx_texset_get() == FX_TEX_ENH && ra3d_theater() != 'I' && ra3d_enh_available())
            ? FX_TEX_ENH : FX_TEX_DOS;
 }
@@ -597,11 +615,15 @@ static void ra3d_water_census(char th)
             ra3d_theater_name(th), (int)names.size(), icons, total);
 }
 
+/* The sea's base (ra3d_water_base), read once while the pack's paintings are in memory,
+   for the sheet's still water and for the sea's source. */
+struct Ra3dWaterBase { bool ok = false; std::vector<unsigned char> rgb; int side = 0; const char* what = ""; };
+
 /* THE SEA'S SOURCE (water_mod.h's g_waterRa), filled from the sheet just built: the
    map's cells with their rectangles and holes, the sheet, the base and its grain. The
    cut atlas was laid with the sheet. No sea on Interior, on a map with no water, or on a
    mission drawn flat on the placeholder pack (its grid is not this map's). */
-static void ra3d_water_source(const std::vector<const unsigned char*>& pixels)
+static void ra3d_water_source(const Ra3dWaterBase& wb)
 {
     const Ra3dGround& G = g_ra3d;
     WaterRaSource& WR = g_waterRa;
@@ -639,13 +661,13 @@ static void ra3d_water_source(const std::vector<const unsigned char*>& pixels)
         WR.wetCells += c.holes;
     }
     if (!WR.wetCells) { fprintf(stderr, "WATER|ra|none|%s has no water\n", g_raStaticScene.c_str()); return; }
-    std::vector<unsigned char> base;
-    int side = 0;
-    const char* what = "";
-    if (!ra3d_water_base(pixels, base, &side, &what)) {
+    if (!wb.ok) {
         fprintf(stderr, "WATER|ra|none|no open-water painting in this set\n");
         return;
     }
+    const std::vector<unsigned char>& base = wb.rgb;
+    const int side = wb.side;
+    const char* what = wb.what;
     /* its luminance's mean and spread, as water_grain_measure reads WATER1's */
     double sum = 0.0, sum2 = 0.0;
     const size_t np = (size_t)side * side;
@@ -699,22 +721,101 @@ static void ra3d_water_source(const std::vector<const unsigned char*>& pixels)
             (double)WR.baseRepeats, mean, sd);
 }
 
-/* BUILD THE SHEET for the mission's theater and the set asked for. Once per mission and
-   set: a theater's Enhanced pack is about 95 MB, read and laid out in well under a
-   second. */
-static bool ra3d_ground_ensure(void)
+/* WHAT A REBUILD FOR A CHANGED MAP KEEPS. A bridge blown or a save loaded mid-mission
+   moves g_raMapRev, and the sheet is built again for the same theater, set and scenario.
+   Its size follows from the slot count, which the pack's keys decide, so it is the size
+   it was: the new pictures then go into the textures already there (glTexSubImage2D),
+   the main and dry sheets and the strip sheets, instead of into new ones made while the
+   old ones' memory is still on its way back (a driver returns a deleted texture's memory
+   at a later flush or buffer swap, not at the delete). A size that differs takes new
+   textures, and the old ones are deleted and flushed before the new ones are asked for.
+   Empty outside a rebuild; what the build does not take back, ra3d_keep_drop deletes.
+   OPENCNC3D_RA_SHEET_LEGACY=1 keeps nothing (ground_mem.h). */
+struct Ra3dKeep {
+    GLuint tex = 0, dry = 0;                 /* the main and dry sheets, w x h             */
+    int w = 0, h = 0;
+    GLuint seamL = 0, drySeamL = 0;          /* the left strips and their dry copy, wL x hL */
+    GLuint seamT = 0, drySeamT = 0;          /* the top strips and their dry copy, wT x hT  */
+    int wL = 0, hL = 0, wT = 0, hT = 0;
+};
+static Ra3dKeep g_ra3dKeep;
+
+/* Delete what a rebuild kept and did not take back, flushed. */
+static void ra3d_keep_drop(void)
 {
-    if (!ra2d_load_terrain() || !ra2d_fetch_map()) return false;
-    const char th = ra3d_theater();
-    const int set = ra3d_set_wanted();
-    const std::string key = std::string(1, th) + "/" + std::to_string(set) + "/" + g_raStaticScene;
-    if (g_ra3d.built && g_ra3d.key == key) return g_ra3d.ok;
+    Ra3dKeep& K = g_ra3dKeep;
+    GLuint names[6] = { K.tex, K.dry, K.seamL, K.drySeamL, K.seamT, K.drySeamT };
+    bool any = false;
+    for (int i = 0; i < 6; i++)
+        if (names[i]) { ra3d_tex_delete(&names[i]); any = true; }
+    K = Ra3dKeep();
+    if (any) glFlush();
+}
+
+/* A kept texture for a sheet of w x h: its name to fill in place when it is that size,
+   else 0 (it is deleted and flushed first). The keep gives it up either way. */
+static GLuint ra3d_keep_take(GLuint* kept, int keptW, int keptH, int w, int h)
+{
+    GLuint name = *kept;
+    *kept = 0;
+    if (!name) return 0;
+    if (keptW == w && keptH == h) return name;
+    ra3d_tex_delete(&name);
+    glFlush();
+    return 0;
+}
+
+/* A strip sheet (terrain_seam.h ts_sheet), into the kept texture `*kept` when that is the
+   size these strips are laid out at. */
+static GLuint ra3d_seam_sheet(const std::vector<const unsigned char*>& strips, int sw, int sh,
+                              int* outW, int* outH, int* cols, GLuint* kept, int keptW, int keptH)
+{
+    int w = 0, h = 0, c = 0;
+    ts_sheet_dims(strips.size(), sw, sh, &w, &h, &c);
+    GLuint into = ra3d_keep_take(kept, keptW, keptH, w, h);
+    try {
+        /* the strip sheet's pixels, ts_sheet's one large allocation (a failure injection
+           site: ground_mem.h, memledger.h) */
+        memfail_point("ra3d_seams");
+        const GLuint t = ts_sheet(strips, sw, sh, outW, outH, cols, into);
+        if (into) memledger_add("ra_seams_inplace", 1, MEMLEDGER_COUNT);
+        return t;
+    } catch (...) {
+        /* the kept texture taken above is neither kept nor the strips' any more */
+        ra3d_tex_delete(&into);
+        throw;
+    }
+}
+
+/* One RGBA sheet of the ground's size on the card: into `into` when that is a kept
+   texture of this size (filled in place), else a new texture. The parameters are the
+   ones a new sheet is given either way. True when it was specified anew. */
+static bool ra3d_sheet_upload(GLuint* name, GLuint into, const unsigned char* px)
+{
+    const Ra3dGround& G = g_ra3d;
+    if (into) *name = into;
+    else glGenTextures(1, name);
+    glBindTexture(GL_TEXTURE_2D, *name);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, fx_filter_mode(GL_NEAREST));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, fx_filter_mode(GL_NEAREST));
+    fx_filter_note(*name, GL_NEAREST);   /* the bilinear toggle has to reach it too */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (into) glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, G.w, G.h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    else glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, G.w, G.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return !into;
+}
+
+/* The build itself, for ra3d_ground_ensure, which decides what is kept and catches a
+   build that runs out of memory. */
+static bool ra3d_ground_build(char th, int set, bool swap, const std::string& key,
+                              const std::string& shape)
+{
     const Uint64 t0 = SDL_GetPerformanceCounter();
-    ra3d_free();
+    const bool legacy = ra3d_sheet_legacy();
     g_ra3dSheetGen++;
     Ra3dGround& G = g_ra3d;
-    G.built = true;
-    G.key = key;
     G.theater = th;
     G.set = set;
     G.clearName = ra3d_name_id("CLEAR1");
@@ -728,6 +829,7 @@ static bool ra3d_ground_ensure(void)
     if (set == FX_TEX_ENH) {
         packPath = ra3d_pack_path("OPENCNC3D_RATERRAINENH", "terrainenh", th, pbuf, sizeof pbuf);
         if (packPath) pack = ra3d_read_file(packPath);
+        ground_mem_note();
         bool good = pack.size() >= 20 && !memcmp(&pack[0], RA3D_ENH_MAGIC, 8)
                     && rt_le32(&pack[8]) == 1;
         if (good) {
@@ -764,15 +866,27 @@ static bool ra3d_ground_ensure(void)
     /* the map's cells: each to its first painting's slot, a 1995 tile where the pack has none */
     const int W = g_raStaticMap.MapCellWidth, H = g_raStaticMap.MapCellHeight;
     G.cellBase.assign((size_t)W * H, -1);
+    int swapped = 0, shadowLeft = 0;
     for (int i = 0; i < W * H; i++) {
         const CNCStaticCellStruct& c = g_raStaticMap.StaticCells[i];
         char name[17];
         ra3d_template_name(c.TemplateTypeName, name);
-        const std::string kk = ra3d_key(name, c.IconNumber, 0);
+        int icon = c.IconNumber;
+        /* an indoor mission whose walls stand in 3D draws its shadow floors plain */
+        if (swap) {
+            char was[17];
+            memcpy(was, name, sizeof was);
+            ra3d_interior_floor_swap(name, &icon, g_raStaticMap.MapCellX + i % W,
+                                     g_raStaticMap.MapCellY + i / W);
+            swapped += strcmp(was, name) != 0 || icon != c.IconNumber;
+        }
+        if (th == 'I' && (!strncmp(name, "FLOR000", 7) || !strncmp(name, "GFLR000", 7)) && name[7] != '1')
+            shadowLeft++;
+        const std::string kk = ra3d_key(name, icon, 0);
         std::unordered_map<std::string, int>::const_iterator it = G.slotOf.find(kk);
         if (it == G.slotOf.end()) {
             Ra3dSlot s;
-            s.name = ra3d_name_id(name); s.icon = c.IconNumber; s.var = 0; s.w = s.h = 1;
+            s.name = ra3d_name_id(name); s.icon = icon; s.var = 0; s.w = s.h = 1;
             G.slotOf[kk] = (int)G.slot.size();
             it = G.slotOf.find(kk);
             G.slot.push_back(s);
@@ -783,9 +897,14 @@ static bool ra3d_ground_ensure(void)
            against the map the engine exported */
         if (getenv("OPENCNC3D_RA3DDUMP"))
             fprintf(stderr, "RA3D|cell|%d,%d|%s|%d|%s\n", g_raStaticMap.MapCellX + i % W,
-                    g_raStaticMap.MapCellY + i / W, name, c.IconNumber,
+                    g_raStaticMap.MapCellY + i / W, name, icon,
                     pixels[it->second] ? "pack" : "tile");
     }
+    /* an indoor mission: how many floor cells the walls' swap drew plain, and how many shadow
+       floor pieces are left (none while the walls stand in 3D) */
+    if (th == 'I')
+        fprintf(stderr, "RA3D|interior|floors|scene=%s|swap=%d|swapped=%d|shadow_left=%d\n",
+                g_raStaticScene.c_str(), swap ? 1 : 0, swapped, shadowLeft);
     /* each first painting's variants */
     const int n = (int)G.slot.size();
     G.varHas.assign((size_t)n, 0);
@@ -805,12 +924,26 @@ static bool ra3d_ground_ensure(void)
     if (G.cols < 1) G.cols = 1;
     G.w = G.cols * G.pitch;
     G.h = ((n + G.cols - 1) / G.cols) * G.pitch;
+    /* A rebuild's kept sheets of another size go now, before the new ones are made. */
+    Ra3dKeep& K = g_ra3dKeep;
+    if ((K.tex || K.dry) && (K.w != G.w || K.h != G.h)) {
+        ra3d_keep_take(&K.tex, K.w, K.h, -1, -1);
+        ra3d_keep_take(&K.dry, K.w, K.h, -1, -1);
+    }
     if (maxTex > 0 && (G.w > maxTex || G.h > maxTex)) {
         fprintf(stderr, "RA3D|enh|a %dx%d sheet is over this GL's %d limit; nothing drawn\n",
                 G.w, G.h, (int)maxTex);
+        ra3d_keep_drop();
+        G.built = true;
+        G.key = key;
+        G.shape = shape;
         return false;
     }
+    /* The build's largest single allocation, the one a process under a memory cap was
+       measured failing on (a failure injection site: ground_mem.h, memledger.h). */
+    memfail_point("ra3d_ground");
     std::vector<unsigned char> sheet((size_t)G.w * G.h * 4, 0);
+    ground_mem_note();
     std::vector<unsigned char> rgb((size_t)G.ts * G.ts * 3), tile(24 * 24 * 3);
     std::vector<unsigned char> alpha((size_t)G.ts * G.ts);
     G.avg.assign((size_t)n * 3, 0);
@@ -841,6 +974,7 @@ static bool ra3d_ground_ensure(void)
     unsigned char cut[576];
     std::vector<std::vector<unsigned char> > snowAlpha((size_t)n),snowFeatherRGB((size_t)n);
     if(th=='S' && G.set==FX_TEX_ENH)ra3d_snow_coast_alpha(G,pixels,used,snowAlpha,&snowFeatherRGB);
+    ground_mem_note();
     for (int s = 0; s < n; s++) {
         const Ra3dSlot& sl = G.slot[s];
         const char* name = G.names[sl.name].c_str();
@@ -903,31 +1037,37 @@ static bool ra3d_ground_ensure(void)
         ra3d_mean(&rgb[0], G.ts, &G.avg[(size_t)s * 3]);
         G.fromTiles++;
     }
-    glGenTextures(1, &G.tex);
-    glBindTexture(GL_TEXTURE_2D, G.tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, fx_filter_mode(GL_NEAREST));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, fx_filter_mode(GL_NEAREST));
-    fx_filter_note(G.tex, GL_NEAREST);   /* the bilinear toggle has to reach it too */
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    /* the snow coast's per-slot alpha and feathered colour are in the sheet now */
+    if (!legacy) {
+        std::vector<std::vector<unsigned char> >().swap(snowAlpha);
+        std::vector<std::vector<unsigned char> >().swap(snowFeatherRGB);
+    }
+    /* The sea's base is the last thing read off the pack's paintings (the still water
+       below and the sea's source both take it from here), so the pack goes now. */
+    Ra3dWaterBase wb;
+    wb.ok = ra3d_water_base(pixels, wb.rgb, &wb.side, &wb.what);
+    if (!legacy) { pixels.clear(); std::vector<unsigned char>().swap(pack); }
     /* RGBA: the alpha is the water cut, solid everywhere but the sea's slots. Drawn
        without the sea the alpha is never read and the picture is the RGB it always was. */
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, G.w, G.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, &sheet[0]);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    int specs = ra3d_sheet_upload(&G.tex, ra3d_keep_take(&K.tex, K.w, K.h, G.w, G.h), &sheet[0]) ? 1 : 0;
+    const bool inPlace = specs == 0;
     std::vector<unsigned char> drySheet;
     if(G.set==FX_TEX_ENH) {
         ra3d_cliff_material_sheet(G,sheet);
+        ground_mem_note();
+        /* the dry copy, the build's second sheet-sized allocation, made after the main
+           sheet is on the card (a failure injection site: ground_mem.h, memledger.h) */
+        memfail_point("ra3d_dry");
         drySheet=sheet;
+        ground_mem_note();
         ra3d_coast_feather_sheet(G,used,drySheet);
-        glGenTextures(1,&G.dryTex);glBindTexture(GL_TEXTURE_2D,G.dryTex);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,fx_filter_mode(GL_NEAREST));glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,fx_filter_mode(GL_NEAREST));fx_filter_note(G.dryTex,GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,G.w,G.h,0,GL_RGBA,GL_UNSIGNED_BYTE,drySheet.data());glBindTexture(GL_TEXTURE_2D,0);
+        ground_mem_note();
+        ra3d_sheet_upload(&G.dryTex, ra3d_keep_take(&K.dry, K.w, K.h, G.w, G.h), drySheet.data());
     }
     if(G.set==FX_TEX_ENH && th!='I') {
-        std::vector<unsigned char> base;int side=0;const char* what=NULL;
-        if(ra3d_water_base(pixels,base,&side,&what)) {
-            const auto tile=water_static_tile(base,side,G.ts);int painted=0;
+        if(wb.ok) {
+            const auto tile=water_static_tile(wb.rgb,wb.side,G.ts);int painted=0;
+            ground_mem_note();
             for(int slot=0;slot<n;slot++)if(used[slot]&&G.wet[slot]) {
                 const int x=(slot%G.cols)*G.pitch+G.gutter,y=(slot/G.cols)*G.pitch+G.gutter;
                 unsigned char* rgba=&sheet[((size_t)y*G.w+x)*4];
@@ -935,13 +1075,21 @@ static bool ra3d_ground_ensure(void)
                 water_coast_gutter(sheet,G.w,G.h,x,y,G.ts,G.ts);painted++;
             }
             // The live effect retains the dry source uploaded above. Only the
-            // effects-off atlas receives the coherent, opaque water painting.
-            glBindTexture(GL_TEXTURE_2D,G.tex);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,G.w,G.h,0,GL_RGBA,GL_UNSIGNED_BYTE,sheet.data());glBindTexture(GL_TEXTURE_2D,0);
+            // effects-off atlas receives the coherent, opaque water painting. The
+            // texture is the size and format it was given above, so its texels are
+            // replaced in place (OPENCNC3D_RA_SHEET_LEGACY=1 specifies it again).
+            glBindTexture(GL_TEXTURE_2D,G.tex);
+            if(legacy){glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,G.w,G.h,0,GL_RGBA,GL_UNSIGNED_BYTE,sheet.data());specs++;}
+            else glTexSubImage2D(GL_TEXTURE_2D,0,0,0,G.w,G.h,GL_RGBA,GL_UNSIGNED_BYTE,sheet.data());
+            glBindTexture(GL_TEXTURE_2D,0);
             fprintf(stderr,"WATER|static-material|ra|theater=%c|cells=%d|same-bank=1|land-alpha-unchanged=1\n",th,painted);
         }
     }
+    /* The sheet's last upload is done: nothing after reads its CPU copy (the sea's source
+       takes the base read above, the strips the dry copy). */
+    if (!legacy) std::vector<unsigned char>().swap(sheet);
     G.ok = true;
-    ra3d_water_source(pixels);
+    ra3d_water_source(wb);
     /* coast= the wet slots the map draws, the ones given the soft coast (of wet_slots in
        the sea's source line) */
     fprintf(stderr, "RA3D|enh|sheet|%s|%s|%s|%dx%d|cell=%d|slots=%d|pack=%d|variants=%d|"
@@ -951,7 +1099,105 @@ static bool ra3d_ground_ensure(void)
             G.variants, G.fromTiles, G.missing, G.coast,
             (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency());
     if (G.set == FX_TEX_ENH) ra3d_seams_load(&drySheet);
+    ra3d_keep_drop();
+    G.built = true;
+    G.key = key;
+    G.shape = shape;
+    /* how many times this build specified the main sheet (glTexImage2D), and whether a
+       rebuild refilled the kept sheets */
+    memledger_count("ra_sheet_specs", specs);
+    if (inPlace) memledger_add("ra_sheet_inplace", 1, MEMLEDGER_COUNT);
     return true;
+}
+
+/* BUILD THE SHEET for the mission's theater and the set asked for. Once per mission and
+   set: a theater's Enhanced pack is about 95 MB, read and laid out in well under a
+   second.
+   A BUILD THAT RUNS OUT OF MEMORY (a std::bad_alloc anywhere inside it) frees what it
+   made, says so (MEM|caught|ra3d_ground), and the mission draws the 1995 tiles from then
+   on; the refusal is kept (g_ra3dRefusedScene, ground_mem.h) so the Enhanced build is not
+   tried again every frame. Where the build fits, nothing here changes what it builds. */
+static bool ra3d_ground_ensure(void)
+{
+    if (!ra2d_load_terrain() || !ra2d_fetch_map()) return false;
+    const char th = ra3d_theater();
+    int set = ra3d_set_wanted();
+    /* (and whether the indoor walls stand in 3D: their floor swap is the sheet's) */
+    const bool swap = th == 'I' && ra3d_interior_swapping();
+    std::string shape = std::string(1, th) + "/" + std::to_string(set) + "/" + g_raStaticScene;
+    std::string key = shape + "/" + std::to_string(g_raMapRev) + (swap ? "/walls" : "");
+    if (g_ra3d.built && g_ra3d.key == key) return g_ra3d.ok;
+    shape += swap ? "/walls" : "";
+    memledger_add("ground_build_attempts", 1, MEMLEDGER_COUNT);
+    GroundMemPeak peak("ground_cpu_peak");
+    /* A REBUILD OF THE SAME SHAPE (only the map revision moved) keeps the sheets' and the
+       strips' textures to fill them in place (Ra3dKeep above). */
+    const bool rebuild = g_ra3d.built;
+    Ra3dKeep& K = g_ra3dKeep;
+    ra3d_keep_drop();
+    if (rebuild && g_ra3d.ok && g_ra3d.shape == shape && !ra3d_sheet_legacy()) {
+        K.tex = g_ra3d.tex; K.dry = g_ra3d.dryTex; K.w = g_ra3d.w; K.h = g_ra3d.h;
+        K.seamL = g_ra3dSeams.texL; K.wL = g_ra3dSeams.wL; K.hL = g_ra3dSeams.hL;
+        K.seamT = g_ra3dSeams.texT; K.wT = g_ra3dSeams.wT; K.hT = g_ra3dSeams.hT;
+        K.drySeamL = g_ra3d.drySeamL; K.drySeamT = g_ra3d.drySeamT;
+        g_ra3d.tex = g_ra3d.dryTex = g_ra3d.drySeamL = g_ra3d.drySeamT = 0;
+        g_ra3dSeams.texL = g_ra3dSeams.texT = 0;
+    }
+    ra3d_free();
+    /* what a rebuild let go is returned before the new sheets are asked for */
+    if (rebuild) glFlush();
+    /* A REBUILD FOR A CHANGED MAP (g_raMapRev: a bridge blown, a load) changes which cells
+       hold water, and the sea's plane and field are kept per scene, not per sheet: without
+       this the broken span kept the old field's dry deck and drew its painted water as a
+       dark, hard-edged patch. Forgetting them makes water_field_sync build both again from
+       the cut this build makes. A first build, or one for a new set, leaves them be. */
+    static unsigned builtRev = 0;
+    if (builtRev != g_raMapRev) {
+        builtRev = g_raMapRev;
+        water_plane_forget();
+        g_waterFieldNone.valid = false;
+    }
+    for (int attempt = 0;; attempt++) {
+        try {
+            return ra3d_ground_build(th, set, swap, key, shape);
+        } catch (const std::bad_alloc&) {
+            ra3d_free();
+            ra3d_keep_drop();
+            /* The relief surface (terrain_surface.h) is laid on the Enhanced sheet: its
+               cells carry that sheet's coordinates and it samples that sheet's texture,
+               and it is drawn wherever the Enhanced art is chosen, whatever set the
+               ground holds. One built before this rebuild (a bridge blown, a save loaded,
+               a switch to Enhanced) would cover the 1995 tiles with the old sheet's layout, so it goes, and the
+               mission is left as one refused from its first frame, which never built it.
+               The same holds for what was laid from the Enhanced sheet's water cut and
+               grass masks: the sea's plane and field, and the grass blades. They are
+               built again from the 1995 set's cut (an empty grass mask draws none). */
+            terrain_surface_release_geometry();
+            g_terrainSurfaceAtlas = 0;
+            water_plane_forget();
+            g_waterFieldNone.valid = false;
+            grass_free();
+            glFlush();
+            const bool fallBack = set == FX_TEX_ENH && attempt == 0;
+            if (set == FX_TEX_ENH) g_ra3dRefusedScene = g_raStaticScene;
+            printf("MEM|caught|ra3d_ground|scene=%s|theater=%s|set=%s|then=%s\n",
+                   g_raStaticScene.c_str(), ra3d_theater_name(th),
+                   set == FX_TEX_ENH ? "enhanced" : "1995", fallBack ? "1995" : "nothing");
+            fflush(stdout);
+            if (!fallBack) {
+                /* nothing to fall back to: the mission draws no ground of its own, and is
+                   not asked again */
+                g_ra3d.built = true;
+                g_ra3d.key = key;
+                g_ra3d.shape = shape;
+                return false;
+            }
+            set = ra3d_set_wanted();
+            shape = std::string(1, th) + "/" + std::to_string(set) + "/" + g_raStaticScene;
+            key = shape + "/" + std::to_string(g_raMapRev) + (swap ? "/walls" : "");
+            shape += swap ? "/walls" : "";
+        }
+    }
 }
 
 /* The painting map cell i draws: its first painting, or a variant by placement. */
@@ -990,6 +1236,7 @@ static void ra3d_seams_load(const std::vector<unsigned char>* cleanSheet)
     const char* path = ra3d_pack_path("OPENCNC3D_RATERRAINSEAM", "terrainseam", g_ra3d.theater, buf, sizeof buf);
     if (!path) { fprintf(stderr, "RA3D|seams|no pack for %s\n", ra3d_theater_name(g_ra3d.theater)); return; }
     std::vector<unsigned char> d = ra3d_read_file(path);
+    ground_mem_note();
     if (d.size() < 24 || memcmp(&d[0], RA3D_SEAM_MAGIC, 8) != 0 || rt_le32(&d[8]) != 1) {
         fprintf(stderr, "RA3D|seams|%s is not a version 1 Red Alert seam pack\n", path);
         return;
@@ -1007,6 +1254,7 @@ static void ra3d_seams_load(const std::vector<unsigned char>* cleanSheet)
     S.cliffTmpl.assign(65536, 0);
     std::vector<const unsigned char*> L, T, dryL, dryT;
     std::vector<unsigned char> dry(d);size_t repairedRGB=0;
+    ground_mem_note();
     int unused = 0;
     for (unsigned k = 0; k < cnt; k++) {
         const unsigned char* e = &d[keys + (size_t)k * 24];
@@ -1047,11 +1295,12 @@ static void ra3d_seams_load(const std::vector<unsigned char>* cleanSheet)
         else           { S.slotT[slot] = (int)T.size(); S.featT[slot] = feat; T.push_back(px); dryT.push_back(dryPx); }
     }
     S.cell = (int)C; S.margin = (int)M;
-    if (!L.empty()) S.texL = ts_sheet(L, (int)M, (int)C, &S.wL, &S.hL, &S.colsL);
-    if (!T.empty()) S.texT = ts_sheet(T, (int)C, (int)M, &S.wT, &S.hT, &S.colsT);
+    Ra3dKeep& K = g_ra3dKeep;      /* a rebuild's kept strip sheets, filled in place */
+    if (!L.empty()) S.texL = ra3d_seam_sheet(L, (int)M, (int)C, &S.wL, &S.hL, &S.colsL, &K.seamL, K.wL, K.hL);
+    if (!T.empty()) S.texT = ra3d_seam_sheet(T, (int)C, (int)M, &S.wT, &S.hT, &S.colsT, &K.seamT, K.wT, K.hT);
     if(repairedRGB){int w,h,cols;
-        if(!dryL.empty())g_ra3d.drySeamL=ts_sheet(dryL,(int)M,(int)C,&w,&h,&cols);
-        if(!dryT.empty())g_ra3d.drySeamT=ts_sheet(dryT,(int)C,(int)M,&w,&h,&cols);
+        if(!dryL.empty())g_ra3d.drySeamL=ra3d_seam_sheet(dryL,(int)M,(int)C,&w,&h,&cols,&K.drySeamL,K.wL,K.hL);
+        if(!dryT.empty())g_ra3d.drySeamT=ra3d_seam_sheet(dryT,(int)C,(int)M,&w,&h,&cols,&K.drySeamT,K.wT,K.hT);
         fprintf(stderr,"RA3D|cliff-material|join-repaired-rgb=%zu|alpha-unchanged=1\n",repairedRGB);
     }
     S.ok = S.texL || S.texT;
@@ -1238,10 +1487,10 @@ static void ra3d_cache_put_cell(std::vector<float>& g, int cx, int cy, float u0,
                                 const PackCell* floor = NULL)
 {
     const float x = (float)cx, z = (float)cy;
-    const float y00 = floor ? water_plane_floor_y(*floor, cx, cy) : terrain_corner_y(cx, cy);
-    const float y10 = floor ? water_plane_floor_y(*floor, cx + 1, cy) : terrain_corner_y(cx + 1, cy);
-    const float y11 = floor ? water_plane_floor_y(*floor, cx + 1, cy + 1) : terrain_corner_y(cx + 1, cy + 1);
-    const float y01 = floor ? water_plane_floor_y(*floor, cx, cy + 1) : terrain_corner_y(cx, cy + 1);
+    const float y00 = floor ? water_plane_floor_y(*floor, cx, cy) : terrain_cell_corner_y(cx,cy,cx, cy);
+    const float y10 = floor ? water_plane_floor_y(*floor, cx + 1, cy) : terrain_cell_corner_y(cx,cy,cx + 1, cy);
+    const float y11 = floor ? water_plane_floor_y(*floor, cx + 1, cy + 1) : terrain_cell_corner_y(cx,cy,cx + 1, cy + 1);
+    const float y01 = floor ? water_plane_floor_y(*floor, cx, cy + 1) : terrain_cell_corner_y(cx,cy,cx, cy + 1);
     const float V[30] = { x,        y00, z,        u0, v0,
                           x,        y01, z + 1.0f, u0, v1,
                           x + 1.0f, y10, z,        u1, v0,
@@ -1628,7 +1877,7 @@ static void ra3d_verify_cells(const std::vector<GLint>& first, const std::vector
                     int x = cx + dx[k], z = cy + dz[k];
                     x = x < 0 ? 0 : x > g_gridW ? g_gridW : x;
                     z = z < 0 ? 0 : z > g_gridH ? g_gridH : z;
-                    const unsigned char* n = level ? up : g_normGrid[z * (g_gridW + 1) + x];
+                    const unsigned char* n = level ? up : terrain_cell_normal(cx,cy,x,z);
                     for (int q = 0; q < 3 && !bad; q++)
                         if ((float)n[q] * (1.0f / 255.0f) != col[((size_t)r * 6 + k) * 3 + q]) bad = true;
                 }
@@ -1739,7 +1988,7 @@ static inline void ra3d_run_add(std::vector<GLint>& first, std::vector<GLsizei>&
 static void ra3d_draw_clear_blend(void)
 {
     const Ra3dGround& G = g_ra3d;
-    if (!g_fxActive || !g_fx.enabled || g_fx.dos_classic || !ra3d_own_ground()
+    if ((!g_fxActive && !g_clearBlendPrepareOnly) || !g_fx.enabled || g_fx.dos_classic || !ra3d_own_ground()
         || !G.ok || (G.theater != 'T' && G.theater != 'S') || G.set != FX_TEX_ENH
         || !clear_blend_requested()) return;
     const int W = g_raStaticMap.MapCellWidth, H = g_raStaticMap.MapCellHeight;
@@ -1774,6 +2023,7 @@ static void ra3d_draw_clear_blend(void)
     }
     if (!count || !clear_blend_prepare(g_gridW, g_gridH, eligible,
                                        clear_blend_seed(g_raStaticScene.c_str()), G.theater == 'S' ? 1.0f : g_fx.clear_saturation)) return;
+    if (g_clearBlendPrepareOnly) return;
 
     static std::vector<ClearBlendCell> visible;
     visible.clear();
@@ -1792,10 +2042,10 @@ static void ra3d_draw_clear_blend(void)
             for(int e=0;e<4;e++) if(nx[e]>=0 && nz[e]>=0 && nx[e]<g_gridW && nz[e]<g_gridH)
                 c.groundEdges[e]=(float)(grassMasks[(size_t)nz[e]*g_gridW+nx[e]]+1);
         }
-        c.height[0] = terrain_corner_y(x, z);
-        c.height[1] = terrain_corner_y(x + 1, z);
-        c.height[2] = terrain_corner_y(x + 1, z + 1);
-        c.height[3] = terrain_corner_y(x, z + 1);
+        c.height[0] = terrain_cell_corner_y(x,z,x, z);
+        c.height[1] = terrain_cell_corner_y(x,z,x + 1, z);
+        c.height[2] = terrain_cell_corner_y(x,z,x + 1, z + 1);
+        c.height[3] = terrain_cell_corner_y(x,z,x, z + 1);
         ra3d_cell_light(x, z, c.light);
         visible.push_back(c);
     }
@@ -1807,6 +2057,17 @@ static void ra3d_draw_clear_blend(void)
                 g_raStaticScene.c_str(), G.theater == 'S' ? "RA_SNOW" : "TEMPERAT", count, (unsigned long)visible.size());
         reported = G.key;
     }
+}
+
+static bool ra3d_foundation_material(int x,int z,GLuint* texture,float uv[4])
+{
+    const int W=g_raStaticMap.MapCellWidth,H=g_raStaticMap.MapCellHeight;
+    const int rx=x-g_raStaticMap.MapCellX,rz=z-g_raStaticMap.MapCellY;
+    if(!g_ra3d.ok||rx<0||rz<0||rx>=W||rz>=H)return false;
+    const int slot=ra3d_cell_slot(rz*W+rx,x,z);if(slot<0)return false;
+    ra3d_slot_uv(slot,&uv[0],&uv[1],&uv[2],&uv[3]);
+    *texture=g_ra3d.dryTex?g_ra3d.dryTex:g_ra3d.tex;
+    return *texture!=0;
 }
 
 static int g_ra3dCellsDrawn = 0;
@@ -1835,7 +2096,9 @@ static void ra3d_draw_ground(bool sea, bool deferSnow = false, bool opaqueDepth 
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     if (sea) {
         glEnable(GL_ALPHA_TEST);
-        glAlphaFunc(GL_GREATER, opaqueDepth ? 0.999f : 0.02f);
+        /* A 0.999 GREATER reference rounds to 1 on NVIDIA, rejecting all
+           opaque land. Use the exact endpoint for the opaque-only prepass. */
+        glAlphaFunc(opaqueDepth ? GL_GEQUAL : GL_GREATER, opaqueDepth ? 1.0f : 0.02f);
         glDepthFunc(GL_LEQUAL); // colour must pass the opaque core's equal depth
         glDepthMask(opaqueDepth && writeDepth ? GL_TRUE : GL_FALSE);
         if (opaqueDepth) glDisable(GL_BLEND);
@@ -1877,8 +2140,8 @@ static void ra3d_draw_ground(bool sea, bool deferSnow = false, bool opaqueDepth 
         float L[4];
         ra3d_cell_light(cx, cy, L);
         const float s00 = L[0], s10 = L[1], s11 = L[2], s01 = L[3];
-        const float y00 = terrain_corner_y(cx, cy), y10 = terrain_corner_y(cx + 1, cy);
-        const float y11 = terrain_corner_y(cx + 1, cy + 1), y01 = terrain_corner_y(cx, cy + 1);
+        const float y00 = terrain_cell_corner_y(cx,cy,cx, cy), y10 = terrain_cell_corner_y(cx,cy,cx + 1, cy);
+        const float y11 = terrain_cell_corner_y(cx,cy,cx + 1, cy + 1), y01 = terrain_cell_corner_y(cx,cy,cx, cy + 1);
         glColor3f(s00, s00, s00); glTexCoord2f(u0, v0); glVertex3f(x,        y00, z);
         glColor3f(s01, s01, s01); glTexCoord2f(u0, v1); glVertex3f(x,        y01, z + 1.0f);
         glColor3f(s10, s10, s10); glTexCoord2f(u1, v0); glVertex3f(x + 1.0f, y10, z);
@@ -1901,6 +2164,7 @@ static void ra3d_draw_ground(bool sea, bool deferSnow = false, bool opaqueDepth 
         glDepthFunc((GLenum)priorDepthFunc);
     }
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    foundation_steps_draw(0);
 }
 
 /* THE SEA FLOOR: the holed cells drawn opaque from the same sheet, before the sea, so
@@ -2115,7 +2379,7 @@ static bool ra3d_cache_normals_ready(bool level)
                 int x = cx + dx[j], z = cy + dz[j];
                 x = x < 0 ? 0 : x > g_gridW ? g_gridW : x;
                 z = z < 0 ? 0 : z > g_gridH ? g_gridH : z;
-                n = g_normGrid[z * (g_gridW + 1) + x];
+                n = terrain_cell_normal(cx,cy,x,z);
             }
             float* q = &rgb[((size_t)r * 6 + j) * 3];
             for (int k = 0; k < 3; k++) q[k] = (float)n[k] * (1.0f / 255.0f);
@@ -2180,28 +2444,28 @@ static void ra3d_ground_normals(void)
             ra3d_cache_draw_runs(first, count, true);
             ra3d_verify_cells(first, count, true, level);
         }
-        terrain_surface_draw(1,0);
+        terrain_surface_draw(1,0);foundation_steps_draw(1);
         glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         return;
     }
     glColor3ub(128, 255, 128);
-    auto corner = [&](int cx, int cz) {
+    auto corner = [&](int px,int pz,int cx,int cz) {
         if (!level) {
             const int x = cx < 0 ? 0 : cx > g_gridW ? g_gridW : cx;
             const int z = cz < 0 ? 0 : cz > g_gridH ? g_gridH : cz;
-            glColor3ubv(g_normGrid[z * (g_gridW + 1) + x]);
+            glColor3ubv(terrain_cell_normal(px,pz,x,z));
         }
-        glVertex3f((float)cx, terrain_corner_y(cx, cz), (float)cz);
+        glVertex3f((float)cx, terrain_cell_corner_y(px,pz,cx,cz), (float)cz);
     };
     glBegin(GL_TRIANGLES);
     for (int i = 0; i < W * H; i++) {
         const int cx = g_raStaticMap.MapCellX + i % W, cy = g_raStaticMap.MapCellY + i / W;
         if (!cell_shown(cx, cy) || !cell_in_view(cx, cy)) continue;
-        corner(cx, cy);     corner(cx, cy + 1); corner(cx + 1, cy);
-        corner(cx + 1, cy); corner(cx, cy + 1); corner(cx + 1, cy + 1);
+        corner(cx,cy,cx, cy);     corner(cx,cy,cx, cy + 1); corner(cx,cy,cx + 1, cy);
+        corner(cx,cy,cx + 1, cy); corner(cx,cy,cx, cy + 1); corner(cx,cy,cx + 1, cy + 1);
     }
     glEnd();
-    terrain_surface_draw(1,0);
+    terrain_surface_draw(1,0);foundation_steps_draw(1);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 }
 

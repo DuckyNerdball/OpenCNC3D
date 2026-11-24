@@ -1,6 +1,125 @@
 # Structure and vehicle showcase video recipe
 
+## Vehicle locations and isolated mission behavior — current27 October2026
+
+Use the20 original mission areas shown in Desktop/OpenCNC3D Campaign Locations.
+Select by **base ownership**, retaining each area's actual native theater. The user's
+27 October correction explicitly says **use all 20 original locations**. This
+supersedes the earlier GDI Temperate / Nod Desert restriction: all ten reviewed
+GDI bases and all ten reviewed Nod bases are eligible, with no theater relabeling.
+
+- GDI vehicles open at a random reviewed GDI War Factory and end as Nod at a random reviewed Nod base.
+- Nod vehicles open at a random reviewed Nod Airstrip and end as GDI at a random reviewed GDI base.
+
+Carry shuffle history across batches in `output/vehicle-showcase/location-history.json`.
+Exhaust each faction's ten-location pool before repeating; avoid the previous
+location when a pool refills. A persisted plan reserves its draw once, and a
+technical rerender retains that exact pair and music. Do not reset the shuffle
+for a new batch or limit it to the former five theater-matching bases.
+`tools/video/showcase_locations.py select PLAN SUBJECT:GDI SUBJECT:Nod ...`
+persists the seed, original location metadata, policy snapshot and history.
+The seven Nod ground films draw seven different previously unused Nod openings
+and seven different previously unused GDI endings. Original mission AI isolation
+and native scene/encounter verification remain mandatory for every newly used area.
+
+Keep MS-DOS, N64 and Enhanced on the same selected opening map, factory and
+faction for that film. Reverse the ending faction for Nod subjects; preserve both original theaters.
+Use native production for the opening faction: GDI War Factory doors and a
+straight rollout; Nod Airstrip vehicle delivery. Do not disguise an Airstrip as
+a War Factory. Preserve the approved follow/camera/amber-wipe/music rules.
+Harvester keeps its noncombat harvesting/unloading story and duration exception;
+the new faction/theater ordering applies to newly requested Harvester films too.
+Previously approved exports remain unchanged until a revision is requested.
+
+**Disable the original mission director in a private filming copy before boot.**
+No campaign attack waves, patrols, reinforcements, triggers, production, automatic
+base rebuilding, harvesting armies, cutscenes or victory/defeat transitions may
+interfere. Clear Triggers, CellTriggers, TeamTypes and Teams, clear the Base build
+queue, zero house starting credits and carryover money, and omit the original
+mobile actor placements. Clearing triggers alone does not neutralize placed Guard,
+Hunt or Harvest units. Preserve the selected original base structures, walls,
+foliage, map data and native terrain pack. `tools/video/showcase_locations.py
+prepare LOCATION_ID PRIVATE_DIRECTORY` creates this isolated private copy and
+records original/private hashes; it never edits installed mission files.
+
+Only introduce the film's explicitly recorded hero, supporting actors, designed
+attackers and participating base defenses. Keep original actors omitted unless
+reintroduced deliberately as part of the film; no inherited mission orders.
+Native movement, targeting, turret motion, projectiles, suspension and effects
+remain active for those designed encounters. Create attackers outside the actual
+camera frustum, including their bodies and shadows, then make them approach.
+
+Before recording, run a native idle probe for the entire film plus the production
+prelude with no designed encounters. Require no unplanned actors, reinforcement,
+production, combat, structure/layout/health changes or mission endings. During the
+actual capture verify actor counts, births, targets, firing and permitted base
+defenses against the saved encounter whitelist. A static INI edit or an idle pass
+alone is not proof for a new encounter. Keep logs and source/private hashes in the
+film plan. This is capture-only mission isolation; retain ordinary gameplay AI,
+the Dock installation, the user's CFG and saves.
+
+Current isolation preflight evidence is retained at output/vehicle-showcase/campaign-ai-isolation-v01/summary.json. Prepared copies with reported blockers are not ready to record.
+
+
 Current direction: 19 October 2026. This is the current rule set for new structure and vehicle films and their revised capture tools. The historical implementation and original 22-film plans live in the turntable tools of the earlier film branch (`tools/turntable/`); those old binaries and captures do not establish the current build or visual settings.
+
+### Verified original-mission capture isolation —27 October2026
+
+The revised five GDI ground films are delivered for review at1440p60/40 seconds
+in `~/Desktop/OpenCNC3D Vehicle Films/GDI-Vehicles-Review-v03`.
+Current roots: Humvee `v31-production` (exportv04), Medium Tank `v27-production`,
+APC `v28-production`, Mobile Rocket Launcher `v29-production`, MCV `v30-production`
+(the latter four exportv03). Exact deliveries, hashes, music, source maps and
+retirement totals are in `output/vehicle-showcase/gdi-batch-v03/completion-summary.json`.
+All five native raw sequences have retired after hash-verified delivery; authoring,
+settings, logs, receipts, useful QA and finals remain. Artistic approval is pending;
+previously approved Mammoth and Harvester copies remain unchanged. The first
+Humvee export is preserved under the review folder's Superseded directory.
+
+
+For the MCV, retain the2.5-second driving follow and use native deployment, with
+no fictitious vehicle weapon. In the current original GDI-02 layout it reaches
+cell13,54 after the follow; deploy at11.75 seconds into Enhanced and move the
+final amber theater wipe to31–32 seconds. The total remains40 seconds. The Nod
+section deploys at1.5 seconds. Require the newly created Yard to finish native
+construction and remain alive before cutting; distinguish it from original
+mission Yards by native object identity/cell. Frame the Yard together with the attackers’ approach lane: native attackers can stop at weapon range outside a Yard-centered shot. The current GDI-02 MCV follow lead is3.3 cells east and1 cell south. Verify actual rendered unfolding before the wipe as well as native Guard state.
+A failed early deploy can leave
+an intact MCV rather than a Yard; a successful command or a pre-existing FACT
+alone is not proof. Preserve failed attempt authoring/logs while revising.
+
+
+Clearing INI teams and triggers alone left automatic helipad aircraft and low-power
+building damage active. The private current-main Dawn3D filming engine additionally
+requires all three flags `OPENCNC3D_BACKGROUND=1`, `OPENCNC3D_FILM_ISOLATE=1` and
+`OPENCNC3D_FILM_PRIVATE_MISSION=1`. It disables autonomous base/director decisions,
+free helipad/refinery actors, passive low-power damage and unsolicited superweapons.
+Weapon buildings remain passive unless their exact native cells are listed in
+`OPENCNC3D_FILM_DEFENSES` (semicolon-separated X,Y pairs). Designed mobile attackers
+keep native movement and combat. Never put this engine or these flags in the Dock
+launcher. The renderer, assets and full per-theater CFG come from the actual Dock
+target; the private engine is built from current main. Record both sources and hashes.
+
+All five eligible original locations passed600 native seconds with no unplanned
+actors, shots, structure/health changes or endings; evidence is in
+`output/vehicle-showcase/campaign-ai-isolation-v03/summary.json`. This idle evidence
+must be followed by each film's rollout and encounter check. Production scripts and
+exact location draws for the five revised GDI films are in
+`output/vehicle-showcase/gdi-batch-v03/`. Original structure geometry and ownership,
+INI terrain/overlay/smudges and native BIN/pack remain authoritative. Any scripted
+initial repairs are recorded separately. Do not impose former custom-set wall/cliff
+checks on original campaign layouts or silently alter their geometry.
+
+Use native measured paths for per-sample following. Scripted selection and orders
+may temporarily center the hidden camera on each actor separately between renders;
+restore the analytic film camera before the next shot. Native camera distance clamps
+to4200, so an arbitrarily large distance cannot make distant actors selectable.
+For factories near the edge of an original map, constrain the pullback inward before recording. Check native source exposures for black map-edge corner polygons before delivery; do not extend original terrain or conceal the boundary with invented scenery.
+
+Validate spawns by actual unlimbo/occupied cells: a failed native spawn may leave a
+limbo object at127,127. Check full-body/shadow birth frames, subsequent entry and
+incoming fire. Attackers may begin their offscreen approach during the driving
+introduction, but no incoming fire may interrupt the required2–3 seconds of driving.
 
 ## Camera direction
 
@@ -20,9 +139,24 @@ Review a contiguous full-resolution rotating section, including the mode wipes. 
 
 ## Current build, assets and visual tuning
 
-Use the renderer from the current canonical main checkout and current approved installed assets. Freeze the executable and engine for each capture batch; record executable, engine, model, paired material/specular files and relevant terrain inputs with hashes. Compare the filmed model against current main's asset before filming. Do not reuse an old isolated Mammoth filming build or its footage for a new-build revision.
+Resolve the actual Dock app and its working directory before each capture batch. Use its current native renderer, engine and installed assets, verified against current private main when runtime changes are required. Freeze executable, engine, model, paired material/specular files and relevant terrain inputs with hashes. Do not reuse an old isolated filming build or replace the user's installed assets for a settings-only rerender.
 
-Dump fresh compiled F5 defaults from current main and verify the live Enhanced settings against them. The accepted 19 October tuning and heading interpolation remain required. Camera composition and hiding the HUD are capture controls; do not replace the accepted lighting with old filming defaults. Use native GDI/Nod material mapping rather than multiplayer RED. Film existing approved models without geometry changes.
+For every capture or technical rerender, resolve the actual macOS Dock app and
+its working directory again. Snapshot the newest user-saved Dawn3D CFG from that
+installation, preserving its exact bytes and SHA-256. The user's latest saved
+lighting supersedes earlier film settings and dated compiled defaults. Keep the
+complete global settings, per-mode rows and separate Temperate/Desert profiles.
+Do not flatten one theater over another or reuse an earlier batch's defaults.cfg.
+
+Before full recording and again before delivery, compare the live native loaded
+settings against the exact saved profile selected for each theater. Missing
+fields and unknown CFG keys are failures, not silently ignored comparisons.
+Allow only the documented filming camera, smooth animation, AA and hidden FPS
+controls; never override sun, secondary sun, object/terrain lighting, exposure,
+bloom, effects or colour grading. Keep installed CFGs unchanged and retain the
+previous approved movies. A new lighting export needs its own design-review review.
+
+Use native GDI/Nod material mapping rather than multiplayer RED. Film existing approved models without geometry changes.
 
 ## Music selection
 
@@ -276,3 +410,179 @@ Delivery immediately removed 24.69 GiB of native/exposure source PNGs plus the
 two exports' redundant individual QA frame dumps. No raw sequences or active frame
 dependencies remain. Prior delivered exports are preserved. Contact sheets and
 source/scene/settings/input evidence remain for review and reproducibility.
+
+
+## Vehicle showcase review and approved collection — 26 October 2026
+
+Vehicle showcases are the current scope; structure showcases will be made later.
+The design review explicitly approved Harvester v13 (SHA256
+`65913577c8eb8f65acf468fbf737f50d1d59e2f76cb3dc2164a5653850e5cc58`).
+Its unchanged, hash-verified movie is in Desktop/Approved Showcase Videos/Dawn3D.
+The matching RA3D subfolder is ready for future approved vehicle films. Add only
+the exact approved version; do not infer acceptance of historical structure
+films, trailer source footage or a technically verified Mammoth export.
+
+Mammoth v14 is a new 40-second 2560x1440/native60fps capture and remains pending
+design-review artistic review. SHA256 `056579505acbdedb14c76a43f9a01f0e0c486fd7947cd28b223c72d48ebb1bc6`. It retains real GDI
+War Factory rollouts in DOS, N64 and Enhanced, chimney/right-side starts, amber
+left-to-right wipes, eased follow, native multi-target cannon/Tusk fire and the
+Nod Desert finale. The requested base revision adds two GDI guard towers and two
+Nod gun turrets inside square wall returns at the entrances. Native campaign wall
+placement references are recorded. Each boundary remains one connected open path,
+with no T junctions or isolated walls; full aprons fit inside the perimeter, roads
+use the deliberate gate, and walls stay level and clear of raised cliffs.
+
+Defenses change target acquisition: the GDI attackers now spawn offscreen only
+after the 2.5-second drive follow, then enter through the clear lane. Nod attackers
+use an unobstructed exterior route; its combat framing eases toward the approach
+so all three are visible. Verify actual offscreen model/shadow clearance as well
+as anchors. Matched birth frames show only native headlamp spill at the edge.
+Keep the saved random music selection for this technical rerender.
+
+The batch freezes the current installed renderer/TD engine and verifies current
+model, paired materials and terrain hashes. A concurrent main renderer update
+was checked separately: matched native frames in all four modes are pixel-identical
+on macOS. This does not establish Windows verification. Fresh compiled F5 values
+are used with the previously requested muzzle-only .60/.35/.25 and explosion .30
+controls; global scene bloom is unchanged. Native60fps, four Enhanced shutter
+samples, camera phases/yaw, black ends, complete decode, stereo audio and -1.8dBFS
+encoded true peak pass. Native scenes, settings, exact scripts, hashes, preserved
+runtimes, comparison evidence and QA contacts live in output/vehicle-showcase/
+v14-production and mammoth-v14. The hash-verified review is delivered to the
+existing Desktop/OpenCNC3D Vehicle Films folder; retire its disposable frames
+immediately after delivery, keeping all final media and unique authoring work.
+
+
+### Colour audit correction — 26 October 2026
+
+The user reports Mammoth v14 colours as overblown, especially Desert. The current
+installed renderer/assets are verified. A fresh hidden native Dawn3D comparison
+with the actual current profile reproduces the bright orange Desert and strong
+light halos before video export. The shared tone/desert colour values match the
+current Dawn3D and RA3D profiles. V14 nevertheless carried historical muzzle-only
+overrides (.60/.35/.25) instead of current .30/.15/.08. This is a recording-profile
+mismatch: future recordings must use the actual current profile/defaults and must
+not silently reapply those historical constants. Explicit user tuning supersedes
+these old capture notes. Removing the overrides alone does not resolve the
+overall Desert appearance in matched native frames. Do not claim it does.
+
+RA3D checked separately: a hidden current-engine Temperate mission was rendered
+and inspected; the Desert-specific orange appearance does not reproduce there.
+There is no equivalent native RA Desert theater in that check. Verification is
+macOS native; no Windows native result is inferred. The audit changes no game
+settings or runtime, and v14 remains pending design-review review. Exact current profiles,
+scripts, native before/after images and observations are retained under
+output/vehicle-showcase/colour-audit-20261026.
+
+
+## Actual Dock target and per-theater CFG correction — 26 October 2026
+
+The user's OpenCNC3D Dock icon currently resolves from com.apple.dock.plist to
+the Dock-resolved `playable/OpenCNC3D.app`. V14 used the
+separate CNC3D/playable CFG. Its binaries could match while its personal lighting
+settings did not. The previous colour audit's claim that v14 reproduced this
+user's Dock appearance is superseded and incorrect; its data is retained and
+marked SUPERSEDED_WRONG_INSTALLATION_PROFILE.
+
+Before every film batch, resolve the actual Dock shortcut, freeze that runtime,
+assets and complete saved CFG, then verify the engine's effective live values.
+Do not infer the shortcut's target from an old path convention or a matching
+binary hash. This filming correction does not change canonical-main runtime
+build/delivery authority and does not authorize changing the Dock or game settings.
+The actual CFG contains `lighting.temperate.*` and `lighting.desert.*` records:
+compare the active theater layer as well as top-level values. Temperate sun
+0.66964 / light0.60714 / effects exposure -0.85714 and Desert sun0.64286 /
+light0.21429 / effects brightness0.625 are verified in v15. No historical muzzle
+overrides or added export colour grade are applied. Exact source CFG SHA256:
+`18937f5e865622de80e84bdb84211b013a0109833b3e8e056f3560d8931517b6`.
+
+Mammoth v15 freshly recaptures all four native sections at1440p60/40seconds,
+retaining the revised defenses, square gate returns, camera path, straight native
+rollouts, multi-target cannon/rocket fight, amber wipes, fades and saved random
+music. Native per-theater CFG, scene, movement/arrival, camera/shutter/cadence,
+full decode and audio checks pass. Actual decoded views were reviewed. SHA256:
+`1821094ff0f434ed65732422ab04296092d1a3efbfcf7325b06f645f6e0483de`. Hash-verified Desktop delivery is complete; user
+artistic acceptance remains pending. Harvester v13 stays explicitly approved and
+unchanged in the Dawn3D approved folder. V14 is superseded for colour mismatch.
+
+RA3D was checked separately through the actual Dock app's module/harness route: its
+original SCG05EA mission script completes with zero failures and native saved-file
+inheritance is logged. A whole-harness return-menu comparison fails after the probe
+changes Classic to Enhanced; do not present that harness as a full pass. Evidence
+and this limitation are retained in v15-production/review/actual-dock-ra-check.
+No Windows native result is inferred. Keep source profiles, private native scenes,
+settings/scripts, frozen runtimes, input hashes, final media and useful QA contacts;
+retire disposable v15 frames immediately after verified delivery.
+
+
+## Vehicle action and latest lighting — 27 October 2026, revision 4
+
+Standing design direction: every technical rerender must re-resolve the actual Dock
+installation and snapshot its newest executable, assets and saved lighting CFG.
+Retain the reviewed location draw and approved random track selection for revisions.
+Do not restore an earlier lighting profile or override exposure, bloom, sun or colours.
+
+Suppress only the Construction Complete announcement in private film capture,
+including visual-mode transitions; preserve weapons, impacts and other game audio.
+The original mission director remains disabled. Explicitly allow the participating
+native base defenses: Obelisks must have real power, acquire enemies and fire;
+gun turrets must turn their actual barrels toward targets and fire. An empty defense
+whitelist fails action review. Do not fake firing through effects or static poses.
+
+Humvee: stage infantry as the GDI Enhanced encounter targets. In both Humvee and APC
+ending encounters, enemy Humvees must use the existing native muzzle flashes and spent
+casing effects. Check their positions on the posed gun, not just point-light glows.
+APC: a small friendly infantry squad boards the newly produced vehicle after its
+straight War Factory rollout and before it drives away in the Enhanced opening.
+Use actual native boarding and cargo evidence; allow time for the transport doors
+and loading queue. The Classic/N64 views may establish this same waiting squad.
+Do not fake hidden passengers.
+MCV: peaceful production, driving and deployment. No designed attackers or incoming
+combat; keep the camera centered on the actual MCV and the Construction Yard it
+becomes. Preserve enough time to see native deployment complete.
+
+Verify native actor state, defense target/weapon events, boarding count and final
+visual footage before delivery. Record Dawn3D and RA3D bug results separately.
+Keep approved Mammoth and Harvester unchanged. New films remain review candidates
+until the accepts them. Hash-deliver and retire disposable raw frames after
+each completed film under the existing guarded retention policy.
+
+Verified action-check lessons: let an armed vehicle reach weapon range before
+stopping its approach; stopping behind its defenses can leave all combat to the
+towers. Count hero weapon events by native heap ID and player house, separately
+from identical enemy vehicle types. Use house-qualified script selectors so a
+surviving enemy Humvee cannot be mistaken for the hero after the finale. Validate
+purpose-specific native action in the short preflight before full capture.
+
+
+27 October final review additions: MCV v04 is explicitly approved
+(SHA256 e55b2044011221fc2ed858673e8d970aa8eb8f507f25147198f533353340dc11),
+as is Mobile Rocket Launcher / MLRS v04
+(SHA256 a4c369d0bd7a21a03300209bc54d7abccb7c239d8d859101bf54784ccc5210a6).
+Their hash-verified copies join Mammoth v15 and Harvester v13 in
+Desktop/Approved Showcase Videos/Dawn3D. Other revised vehicles remain pending.
+
+APC is armed: native infantry boarding does not exempt its opening from the
+standing 2.5-second driving follow and subsequent defensive encounter. Allow
+native loading time rather than skipping combat to fit the schedule; the current
+three-soldier production uses a52-second film. Check the owned hero's actual
+weapon event separately from base and enemy weapon events.
+
+Restore filming camera range after every temporary actor-selection/boarding
+interaction, including N64. A boarding command's temporary4200-lepton selection
+range must not become the shot's persistent camera distance. APC v05 exposed
+the original mission map edge because it omitted that reset; v06 restores the
+intended N64 range. Check every cropped N64 source frame for black map corners,
+then inspect decoded final views. Keep raw inputs protected until the final
+visual review and hash-verified Desktop delivery are both complete. Native
+checks do not replace this visual review. Preserve superseded final videos and
+their receipts as history; retire only their declared disposable frames.
+
+
+## Full location rotation and Nod ground batch — 27 October 2026
+
+The design review approved Humvee v06, Medium Tank v05 and APC v07 with the latest Dock CFG, then required all twenty original reviewed locations. Approved copies and SHA-256 receipts are in Desktop/Approved Showcase Videos/Dawn3D and output/vehicle-showcase/gdi-batch-v05/approval-receipt.json; older approved copies remain intact.
+
+Location policy v2 carries history across batches, exhausts all ten bases per faction, retains native theaters and keeps technical revisions on their saved draw. Two selector regressions verify cross-batch exhaustion and no immediate repeat at refill. The seven next films are Buggy, Recon Bike, Light Tank, Artillery, Flame Tank, Stealth Tank and SSM Launcher. Their persisted draws in output/vehicle-showcase/nod-batch-v01/location-selection.json use seven distinct previously unused Nod opening bases and seven distinct previously unused GDI endings. New films remain unapproved review candidates until the accepts each version.
+
+Use native Nod C17 delivery, not a substituted War Factory. Measure each selected Airstrip arrival and start the comparison three seconds before actual vehicle release; confirm the primary Airstrip in bases with multiple production buildings. Run full native idle and encounter preflights for every exact scene. Original Special/Neutral scenery may need capture-only mutual alliances to prevent it becoming an unintended hero target; preserve original ownership, geometry and normal installed gameplay. Invalid native spawn cells and failed preflights are blockers, never evidence of verified isolation. Retain their authoring/logs while correcting paths.

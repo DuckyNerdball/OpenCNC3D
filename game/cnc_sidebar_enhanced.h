@@ -57,9 +57,10 @@ static void eh_cameo(unsigned char *dst,const char *name,const SbEntry *entry)
    corner. Ten Minigunners (one building, nine queued) are one card reading 10.
 
    ORDER. By category in the order of the category buttons (structures, infantry,
-   vehicles, aircraft), so a card never jumps between columns of meaning. Within a
-   category the item the factory is working on comes first, then the queued items in
-   the order the queue pump will start them, which is the queue map's own key order.
+   vehicles, aircraft and, in Red Alert, ships), so a card never jumps between columns of
+   meaning. Within a category the item the factory is working on comes first, then the
+   waiting items in the order the queue pump will start them, which is the order the
+   player clicked, one card per unbroken run of one unit type.
 
    WHERE THE NUMBERS COME FROM. The engine builds one item per category at a time and has
    no queue (see BUILD QUEUEING above), so "in hand" is the engine's constructing or held
@@ -145,43 +146,61 @@ static void ehq_clock_step(void)
    sidebar export, but nothing is being built, so it has no card. */
 static bool ehq_built(const SbEntry& e)
 {
-    return e.type==BUILDING_TYPE||e.type==INFANTRY_TYPE||e.type==UNIT_TYPE||e.type==AIRCRAFT_TYPE;
+    return e.type==BUILDING_TYPE||e.type==INFANTRY_TYPE||e.type==UNIT_TYPE||e.type==AIRCRAFT_TYPE||(g_sbRa&&e.type==VESSEL_TYPE);
 }
 
-/* What should be on the strip this frame, in order. */
+/* What should be on the strip this frame, in order: per category, the item in the
+   factory, then the waiting items in the order they will be built, one card per unbroken
+   run of one unit type. Minigunner, Minigunner, Grenadier, Minigunner reads Minigunner 2,
+   Grenadier 1, Minigunner 1. A card is keyed on its run (ehq_card_key), not on the unit
+   type, so the Minigunner card counts down in place as its run comes out of the barracks
+   and the second Minigunner card is a card of its own. */
+static std::pair<int,int> ehq_card_key(std::pair<int,int> key,int run)
+{
+    return std::make_pair(key.first|(run<<8),key.second);
+}
 static void ehq_wanted(std::vector<EHQ_Item>& out)
 {
     out.clear();
     if(g_sbSpectator||!g_sbState.valid)return;
-    for(int cat=0;cat<4;cat++){
-        int active=-1;std::pair<int,int> activeKey(-1,-1);
+    for(int cat=0;cat<SB_QCATS;cat++){
+        int active=-1;
         for(size_t i=0;i<g_sbState.entry.size();i++){
             const SbEntry& e=g_sbState.entry[i];
             if(!ehq_built(e))continue;
             if(eh_category(e)==cat&&(e.constructing||e.onHold)&&!e.completed){active=(int)i;break;}
         }
+        const std::deque<SbQItem>& q=g_sbQ[cat];
+        const SbOpenStart& o=g_sbOpen[cat];
+        size_t from=0;
+        std::pair<int,int> lastKey(-1,-1);
         if(active>=0){
             const SbEntry& e=g_sbState.entry[active];
-            EHQ_Item it;it.key=activeKey=std::make_pair(e.btype,e.bid);
+            const std::pair<int,int> key(e.btype,e.bid);
+            int run;
+            /* The front item's start, once the factory has it, IS the item in the factory
+               until the pump next runs and pops it: count it once, not twice, and give
+               the factory its run. */
+            if(o.on&&o.queued&&o.key==key&&!q.empty()&&q.front().key==key){
+                run=q.front().run;from=1;
+                g_sbActiveRun[cat].key=key;g_sbActiveRun[cat].run=run;
+            }else run=sb_active_run(cat,key);
+            EHQ_Item it;it.key=ehq_card_key(key,run);
             snprintf(it.name,sizeof it.name,"%s",e.name);
             it.progress=e.progress;
             it.state=e.onHold?EHQ_HOLD:EHQ_BUILDING;
-            int queued=sb_queued(e);
-            if(queued>0&&g_sbQueueOpen.count(it.key))queued--;
-            it.count=1+queued;
-            out.push_back(it);
+            it.count=1;
+            out.push_back(it);lastKey=key;
         }
-        for(std::map<std::pair<int,int>,int>::iterator q=g_sbQueue.begin();q!=g_sbQueue.end();++q){
-            if(q->second<=0)continue;
-            if(q->first==activeKey)continue;
-            for(size_t i=0;i<g_sbState.entry.size();i++){
-                const SbEntry& e=g_sbState.entry[i];
-                if(e.btype!=q->first.first||e.bid!=q->first.second||eh_category(e)!=cat||!ehq_built(e))continue;
-                EHQ_Item it;it.key=q->first;snprintf(it.name,sizeof it.name,"%s",e.name);
-                it.progress=0;it.state=EHQ_WAITING;it.count=q->second;
-                out.push_back(it);
-                break;
-            }
+        for(size_t k=from;k<q.size();k++){
+            const std::pair<int,int> key=q[k].key;
+            if(key==lastKey){out.back().count++;continue;}
+            const int i=sb_find_key(key);
+            if(i<0||!ehq_built(g_sbState.entry[i]))continue;
+            EHQ_Item it;it.key=ehq_card_key(key,q[k].run);
+            snprintf(it.name,sizeof it.name,"%s",g_sbState.entry[i].name);
+            it.progress=0;it.state=EHQ_WAITING;it.count=1;
+            out.push_back(it);lastKey=key;
         }
     }
 }
@@ -220,7 +239,7 @@ static void ehq_update(int fbh)
                otherwise it leaves on its last reading, which in play is the high nineties */
             for(size_t i=0;i<g_sbState.entry.size();i++){
                 const SbEntry& e=g_sbState.entry[i];
-                if(e.btype==k.key.first&&e.bid==k.key.second&&e.completed){k.progress=k.progFrom=1;k.progAt=g_ehqNow-1;}
+                if(e.btype==(k.key.first&255)&&e.bid==k.key.second&&e.completed){k.progress=k.progFrom=1;k.progAt=g_ehqNow-1;}
             }
             k.leaving=true;k.outFrom=ehq_out(k);k.outTo=0;k.outAt=g_ehqNow;k.outDur=EHQ_IN_S;
         }
@@ -265,14 +284,31 @@ static void ehq_update(int fbh)
     g_ehqCards.swap(next);
 }
 
-static void ehq_draw(float barX,float barY,float sc,int fbh)
+/* ---- COMPOSED ONLY ON CHANGE (hud_compose.h) ----------------------------------------
+   The bar, the queue strip and the four header plates each keep the key their texture was
+   last composed from. The radar is compared as pixels, beside the bar's key. */
+static HudSurface g_ehBarSurf,g_ehqSurf,g_ehHeadSurf[4];
+static HudKey g_ehKey,g_ehqKey,g_ehHeadKey;
+static unsigned char g_ehVerify[EH_WIDTH*EH_MAX_H*4];
+static unsigned char g_ehRadarShown[EH_RADAR_W*EH_RADAR_H*4];
+
+/* Exactly what eh_cameo reads for one cameo. The smoothed progress is asked for under the
+   very condition eh_cameo asks for it; eh_smooth_progress gives the same answer to a
+   second question in the same frame, so a compose that follows sees the same value. */
+static void eh_cameo_key(HudKey& key,const char *name,const SbEntry *entry)
 {
-    ehq_update(fbh);
-    char head[96];
-    snprintf(head,sizeof head,"HUDQ|t=%.4f|cap=%d|n=%d",g_ehqNow,ehq_capacity(fbh),(int)g_ehqCards.size());
-    g_ehqLine=head;
-    if(g_ehqCards.empty()){if(g_ehqLog){printf("%s\n",head);fflush(stdout);}return;}
-    const int h=hud_enhanced_height(g_h6Rows);
+    key.s(name);
+    if(!entry){key.i(-1);return;}
+    key.i(entry->completed?1:0);key.i(entry->constructing?1:0);key.i(entry->onHold?1:0);key.i(entry->busy?1:0);
+    if(!entry->completed&&(entry->constructing||entry->onHold||entry->busy)){
+        const float t=g_sb.EffectTime?g_sb.EffectTime():0;
+        key.f(eh_smooth_progress(*entry,t));key.f(t);key.i(g_sb.nod?1:0);
+    }
+}
+
+/* The strip's cards into g_ehqStrip, as the queue lays them out at g_ehqNow. */
+static void ehq_compose(int h)
+{
     memset(g_ehqStrip,0,(size_t)EHQ_STRIP_W*h*4);
     for(size_t c=0;c<g_ehqCards.size();c++){
         const EHQ_Card& k=g_ehqCards[c];
@@ -294,6 +330,28 @@ static void ehq_draw(float barX,float barY,float sc,int fbh)
                 if(q[3])memcpy(g_ehqStrip+((size_t)ty*EHQ_STRIP_W+tx)*4,q,4);
             }
         }
+    }
+}
+
+static void ehq_draw(float barX,float barY,float sc,int fbh)
+{
+    ehq_update(fbh);
+    char head[96];
+    snprintf(head,sizeof head,"HUDQ|t=%.4f|cap=%d|n=%d",g_ehqNow,ehq_capacity(fbh),(int)g_ehqCards.size());
+    g_ehqLine=head;
+    if(g_ehqCards.empty()){if(g_ehqLog){printf("%s\n",head);fflush(stdout);}return;}
+    const int h=hud_enhanced_height(g_h6Rows);
+    /* The key holds every card's place, state, count, name and progress, and the time
+       where a card draws a clock, whose clouds move with it. */
+    HudKey& key=g_ehqKey;key.clear();key.p(g_h6Pack);key.p(g_h6CamPack);key.p(g_dbPack);key.i(h);key.i(g_sb.nod?1:0);
+    const float time=g_sb.EffectTime?g_sb.EffectTime():0;
+    for(size_t c=0;c<g_ehqCards.size();c++){
+        const EHQ_Card& k=g_ehqCards[c];
+        const float out=ehq_out(k),slot=ehq_slot(k);
+        const int cx=EHQ_X+(int)floorf((1-out)*EHQ_HIDE+.5f);
+        const int cy=EHQ_TOP+(int)floorf(slot*EHQ_PITCH+.5f);
+        key.i(cx);key.i(cy);key.i(k.state);key.i(k.count);key.s(k.name);key.f(ehq_progress(k));
+        if(k.state==EHQ_BUILDING||k.state==EHQ_HOLD)key.f(time);
         char one[96];
         const int pct=k.state==EHQ_BUILDING||k.state==EHQ_HOLD?(int)floorf(ehq_progress(k)*100):0;
         snprintf(one,sizeof one,"|%s:%d:%d:%c:x=%d:y=%d:out=%.3f%s",k.name,k.count,pct,"BHWM"[k.state],
@@ -301,8 +359,30 @@ static void ehq_draw(float barX,float barY,float sc,int fbh)
         g_ehqLine+=one;
     }
     if(g_ehqLog){printf("%s\n",g_ehqLine.c_str());fflush(stdout);}
-    h6_upload(&g_ehqTex,g_ehqStrip,EHQ_STRIP_W,h);
+    HudSurface& surf=g_ehqSurf;hud_surface_register(surf,"ehq strip",&g_ehqTex);
+    const size_t n=(size_t)EHQ_STRIP_W*h*4;
+    if(hud_surface_fresh(surf,key)){
+        g_hudSkipped++;
+        if(hud_compose_verify()){
+            memcpy(g_ehVerify,g_ehqStrip,n);ehq_compose(h);
+            hud_verify_compare("ehq strip",g_ehVerify,g_ehqStrip,n);memcpy(g_ehqStrip,g_ehVerify,n);
+        }
+    }else{
+        ehq_compose(h);h6_upload(&g_ehqTex,g_ehqStrip,EHQ_STRIP_W,h);g_hudComposed++;hud_surface_store(surf,key);
+    }
     h6_tex_quad(g_ehqTex,EHQ_STRIP_W,h,barX,barY,barX+EHQ_STRIP_W*sc,barY+h*sc);
+}
+
+/* The cameos of the visible slots, then the bar, into g_ehBar. */
+static void eh_bar_compose(EH_State& state)
+{
+    for(int row=0;row<g_h6Rows;row++)for(int col=0;col<2;col++){
+        int at=2*(g_ehTop[g_ehCategory]+row)+col;if(at>=(int)g_ehItems.size())continue;
+        const EH_Display& d=g_ehItems[at];int slot=row*2+col;
+        const SbEntry *e=d.engine>=0?&g_sbState.entry[d.engine]:0;
+        eh_cameo(g_h6Cameo[slot],d.name,e);
+    }
+    hud_enhanced_bar(g_ehBar,g_h6Pack,&state);
 }
 
 static void eh_draw_panel(const H6_State& original,int fbw,int fbh)
@@ -310,11 +390,15 @@ static void eh_draw_panel(const H6_State& original,int fbw,int fbh)
     EH_State state;memset(&state,0,sizeof state);state.base=original;state.rows=g_h6Rows;
     memset(state.base.slot,0,sizeof state.base.slot);
     eh_refresh();
+    /* The bar's key: every field hud_enhanced_bar reads, each cameo's own inputs and the
+       radar's pixels. The credits and the header plates' frames live in the same struct
+       but are drawn by the plates, so they stay out of it. */
+    HudKey& key=g_ehKey;key.clear();key.p(g_h6Pack);key.p(g_h6CamPack);key.p(g_dbPack);key.i(hud640_cell_frame_on);
     for(int row=0;row<g_h6Rows;row++)for(int col=0;col<2;col++){
         int at=2*(g_ehTop[g_ehCategory]+row)+col;if(at>=(int)g_ehItems.size())continue;
         const EH_Display& d=g_ehItems[at];int slot=row*2+col;
         const SbEntry *e=d.engine>=0?&g_sbState.entry[d.engine]:0;
-        eh_cameo(g_h6Cameo[slot],d.name,e);
+        key.i(slot);eh_cameo_key(key,d.name,e);
         state.base.slot[slot].used=1;state.base.slot[slot].rgba=g_h6Cameo[slot];state.base.slot[slot].progress=-1;
     }
     state.tool_frame[0]=g_sbSpectator?-1:sb_frame_for(SBH_REPAIR,-1,g_sbRepairOn);
@@ -322,8 +406,35 @@ static void eh_draw_panel(const H6_State& original,int fbw,int fbh)
     state.tool_frame[2]=g_sbSpectator?-1:sb_frame_for(SBH_POWER,-1,g_sbPowerOn);
     state.tool_hover[0]=g_sbHover==SBH_REPAIR;state.tool_hover[1]=g_sbHover==SBH_SELL;state.tool_hover[2]=g_sbHover==SBH_POWER;
     for(int i=0;i<4;i++){state.category_frame[i]=sb_frame_for(SBH_CATEGORY,i,g_ehCategory==i);state.category_hover[i]=g_sbHover==SBH_CATEGORY&&g_sbHoverCol==i;}
-    hud_enhanced_bar(g_ehBar,g_h6Pack,&state);
-    int h=hud_enhanced_height(g_h6Rows);h6_upload(&g_h6TexBar,g_ehBar,EH_WIDTH,h);
+    {
+        const H6_State& b=state.base;
+        key.i(state.rows);key.i(b.rows);key.i(b.power_level);key.i(b.power_color);key.i(b.power_drain_level);
+        key.i(b.radar_active);key.i(b.radar_rgba?1:0);key.i(b.nod);key.i(g_sb.nod?1:0);
+        for(int a=0;a<4;a++)key.i(b.arrow_frame[a]);
+        for(int k=0;k<3;k++){key.i(state.tool_frame[k]);key.i(state.tool_hover[k]);}
+        for(int k=0;k<4;k++){key.i(state.category_frame[k]);key.i(state.category_hover[k]);}
+    }
+    const bool radar=state.base.radar_active&&state.base.radar_rgba;
+    int h=hud_enhanced_height(g_h6Rows);
+    HudSurface& surf=g_ehBarSurf;hud_surface_register(surf,"eh bar",&g_h6TexBar);
+    if(hud_surface_fresh(surf,key)){
+        /* Only the radar's pixels can differ now: the minimap rectangle is composed again
+           on its own (hud_enhanced_map_region) and only its rows are sent. */
+        if(radar&&memcmp(g_ehRadarShown,state.base.radar_rgba,sizeof g_ehRadarShown)){
+            hud_enhanced_map_region(g_ehBar,g_h6Pack,&state);
+            memcpy(g_ehRadarShown,state.base.radar_rgba,sizeof g_ehRadarShown);
+            h6_upload_rows(&g_h6TexBar,g_ehBar,EH_WIDTH,h,31,31+EH_RADAR_H);hud_surface_store(surf,key);
+            g_hudRadarPatches++;
+        }
+        g_hudSkipped++;
+        if(hud_compose_verify()){
+            const size_t n=(size_t)EH_WIDTH*h*4;memcpy(g_ehVerify,g_ehBar,n);eh_bar_compose(state);
+            hud_verify_compare("eh bar",g_ehVerify,g_ehBar,n);memcpy(g_ehBar,g_ehVerify,n);
+        }
+    }else{
+        eh_bar_compose(state);h6_upload(&g_h6TexBar,g_ehBar,EH_WIDTH,h);g_hudComposed++;hud_surface_store(surf,key);
+        if(radar)memcpy(g_ehRadarShown,state.base.radar_rgba,sizeof g_ehRadarShown);
+    }
     /* Half-opacity cameos must blend even after a world cutout alpha test. */
     GLboolean alphaTest=glIsEnabled(GL_ALPHA_TEST);glDisable(GL_ALPHA_TEST);
     glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
@@ -343,13 +454,24 @@ static void eh_draw_panel(const H6_State& original,int fbw,int fbh)
     };
     for(int i=0;i<4;i++){
         if(i==2&&!codex_available())continue;
-        Header& t=tabs[i];hud_enhanced_tab(g_ehHeader,g_h6Pack,t.label,t.value,t.frame,t.width==184?1:t.width==148?148:0);
-        h6_upload(t.texture,g_ehHeader,t.width,17);
+        Header& t=tabs[i];
+        const int wide=t.width==184?1:t.width==148?148:0;
+        HudSurface& hs=g_ehHeadSurf[i];hud_surface_register(hs,"eh header",t.texture);
+        HudKey& hk=g_ehHeadKey;hk.clear();hk.p(g_h6Pack);hk.s(t.label);hk.i(t.value);hk.i(t.frame);hk.i(wide);hk.i(t.width);
+        const size_t n=(size_t)t.width*17*4;
+        if(hud_surface_fresh(hs,hk)){
+            g_hudSkipped++;
+            if(hud_compose_verify()){hud_enhanced_tab(g_ehHeader,g_h6Pack,t.label,t.value,t.frame,wide);hud_verify_compare("eh header",hs.pixels.data(),g_ehHeader,n);}
+        }else{
+            hud_enhanced_tab(g_ehHeader,g_h6Pack,t.label,t.value,t.frame,wide);
+            h6_upload(t.texture,g_ehHeader,t.width,17);g_hudComposed++;hud_surface_store(hs,hk,g_ehHeader,n);
+        }
         if(i==3&&g_sbCodexUp)glColor4f(.42f,.42f,.44f,1);
         h6_tex_quad(*t.texture,t.width,17,t.x,y,t.x+t.width*sc,y+17*sc);
         glColor4f(1,1,1,1);
     }
-    /* Retain the meter diagnostics used by the power gates. */
+    /* Retain the meter diagnostics used by the power gates. Read off g_ehBar on every
+       frame, composed this frame or not: an unchanged bar reads the same. */
     int *counts=g_sbDrawnHudCount;counts[0]=counts[1]=counts[2]=0;
     for(int py=275;py<h-30;py++)for(int px=73;px<90;px++){
         const unsigned char *q=g_ehBar+(py*EH_WIDTH+px)*4;if(!q[3])continue;int r=q[0],g=q[1],b=q[2];

@@ -54,7 +54,7 @@ prelude = r'''
 #include "ra_hud_pixels.h"
 static H6_Pack *g_h6Pack=0;
 static DB_Pack *g_ra95Pack=0;
-static bool g_sbRa=false,g_hudNew=false,g_sbOn=true,g_editOn=false;
+static bool g_sbRa=false,g_hudNew=false,g_sbOn=true,g_editOn=false,g_raModule=false;
 static int g_hudNewWish=-1,g_sbUiDiv=1,g_h6Rows=H6_ROWS,g_h6SlideX=0;
 static float g_h6Scale=1,g_dbX0=0,g_dbY0=0,g_dbW=0,g_dbH=0;
 static int g_dbScale=1,g_dbFbw=0,g_dbFbh=0;
@@ -66,6 +66,9 @@ static int g_mapW=128,g_mapH=128,g_radOx=0,g_radOy=0,g_radZoom=1;
 static int g_mmX=0,g_mmY=0,g_mmW=0,g_mmH=0;
 static float g_mmScale=0;
 static void radar_dos_transform(void) {}
+/* sb_layout and sb_set_hud_new tell the composed HUD surfaces (game/hud_compose.h) that
+   the layout changed; there are no surfaces here. */
+static void hud_gen_bump(void) {}
 '''
 
 main = r'''
@@ -75,7 +78,7 @@ int main(int argc,char **argv){
  assert(ra&&rah_pack_ok(ra)&&td&&hud_enhanced_ok(td)&&hud640_card_ok(td));
  const int sizes[3][2]={{640,480},{1280,720},{2560,1440}};
  for(int module=0;module<2;module++)for(int foundation=0;foundation<2;foundation++)for(int want=0;want<2;want++)for(int enabled=0;enabled<2;enabled++)for(int pack=0;pack<3;pack++)for(int size=0;size<3;size++){
-  g_sbRa=module!=0;g_h6Pack=foundation?td:0;g_raHudPack=pack==0?ra:0;g_fx.enabled=enabled;g_fx.dos_classic=!enabled;g_hudNew=false;
+  g_sbRa=g_raModule=module!=0;g_h6Pack=foundation?td:0;g_raHudPack=pack==0?ra:0;g_fx.enabled=enabled;g_fx.dos_classic=!enabled;g_hudNew=false;
   g_h6Rows=H6_ROWS;g_h6Scale=1;g_dbScale=1;g_dbX0=g_dbY0=g_dbW=g_dbH=0;g_ra95UiScale=1;g_ra95Height=400;g_ra95ExtraRows=g_ra95Pad=0;
   if(pack==2){char saved=ra->assets[0].name[0];ra->assets[0].name[0]='!';assert(!rah_pack_ok(ra));g_raHudPack=rah_pack_ok(ra)?ra:0;ra->assets[0].name[0]=saved;assert(rah_pack_ok(ra));}
   sb_set_hud_new(want);const int w=sizes[size][0],h=sizes[size][1];sb_layout(w,h);minimap_layout(w,h);
@@ -111,6 +114,8 @@ for revision in (['baseline'] if args.baseline_ref else []) + ['current']:
     names = (['sb_hud_active'] if revision == 'current' else []) + ['sb_set_hud_new', 'sb_hud_is_new', 'rah_enabled', 'eh_enabled']
     for name in names:
         functions.append(function(sidebar, name))
+    if revision == 'current':
+        functions.append(function(source['codex_mod.h'], 'enhanced_hud_ready'))
     functions.append(function(source['codex_mod.h'], 'codex_available'))
     functions.append(function(source['unitcard_mod.h'], 'uc_available'))
     for name in ['sb_layout', 'sb_scale', 'sb_dos_px', 'sb_dos_to_screen', 'sb_visible_rows', 'sb_chrome_hit']:
@@ -155,8 +160,9 @@ for key, row in outputs['current'].items():
         other['td'] = row['td']
         assert row == other, ('RA still depends on TD', key, row, other)
         if expected:
-            assert row['database'] == row['card'] == '1' and int(row['pixels']) > 0
-            assert row['hits'] == '8,11,10,9', row
+            # Red Alert's strip has no DATABASE plate (codex_available): its slot hits nothing
+            assert row['database'] == '0' and row['card'] == '1' and int(row['pixels']) > 0
+            assert row['hits'] == '8,0,10,9', row
             if args.baseline_ref:
                 assert outputs['baseline'][(module, 0, wish, enabled, pack, size)]['active'] == '0'
         else:
@@ -167,7 +173,7 @@ receipt = dict(scope='Actual-source native CPU A/B; no GL/SDL/game execution', c
                historical_baseline=args.baseline_ref,
                source_sha256=inputs, packs=[dict(path=str(p.resolve()), sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in [args.ra_pack, args.td_pack]],
                assertions=(['All TD cases byte-identical to explicit historical baseline', 'RA with TD foundation byte-identical to explicit historical baseline'] if args.baseline_ref else ['TD availability retains its own-pack requirement']) +
-                          ['RA layout/radar/header hits/Database/card/composed native art independent of TD pack',
+                          ['RA layout/radar/header hits (no Database plate)/card/composed native art independent of TD pack',
                            'Real RA pack missing or corrupted disables RA Enhanced safely', 'Classic/opt-out preserved'],
                limitations=['CPU raster proof composes native housing/map/glass only; full HUD/card pixels and gameplay need the separate reserved hidden GPU matrix.'])
 (out / 'RESULTS.json').write_text(json.dumps(receipt, indent=2) + '\n')

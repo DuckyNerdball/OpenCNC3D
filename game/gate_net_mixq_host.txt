@@ -1,0 +1,36 @@
+# G475. A MIXED QUEUE IN A MATCH, clicked inside the order lookahead. The host places a
+# Power Plant and a Barracks, then clicks Minigunner, Minigunner, Grenadier on three
+# consecutive frames. In a match a start is an order the barracks takes several frames
+# later, so the second and third clicks land while the barracks still reads idle: they
+# must be queued behind the first (SBQUEUE|behind ... open=1), not sent alongside it,
+# where the engine would refuse them. Two Minigunners and a Grenadier must stand in both
+# worlds. The joiner never clicks.
+tick 2
+lclickobj MCV:@me
+actclickobj MCV:@me
+tick 250
+build NUKE
+tick 300
+startplace NUKE
+place auto
+tick 30
+build PYLE
+tick 300
+startplace PYLE
+place auto
+tick 60
+count E1:@me
+count E2:@me
+sbclickitem E1
+sbclickitem E1
+sbclickitem E2
+queuedump
+tick 1200
+queuedump
+count E1:@me
+count E2:@me
+tick 4
+objdump
+tick 60
+objdump
+quit

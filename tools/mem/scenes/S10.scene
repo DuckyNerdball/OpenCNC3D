@@ -1,0 +1,56 @@
+# S10 Red Alert SCG10EA (snow): the Soviet base with its tech centre, the four missile
+# silos and the mine field; framed at tick 1 and tick 300, then the silos and the yard
+# are damaged and framed again.
+game: ra
+scen: SCG10EA
+modes: enh,cls,n64
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger t1
+cam 75 61
+frames 2
+shot {OUT}/t0001_yard.png
+cam 61 57
+frames 2
+shot {OUT}/t0001_silos.png
+cam 70 72
+frames 2
+shot {OUT}/t0001_south.png
+tick 299
+frames 2
+memledger t300
+cam 75 61
+frames 2
+shot {OUT}/t0300_yard.png
+cam 61 57
+frames 2
+shot {OUT}/t0300_silos.png
+hurtobj MSLO 0
+hurtobj MSLO 0
+hurtobj MSLO 0
+hurtobj MSLO 0
+hurtobj MSLO 1
+hurtobj MSLO 1
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj STEK 0
+hurtobj STEK 0
+hurtobj STEK 0
+hurtobj STEK 0
+tick 20
+frames 2
+cam 75 61
+frames 2
+shot {OUT}/t0320_yard.png
+cam 61 57
+frames 2
+shot {OUT}/t0320_silos.png
+quit

@@ -285,6 +285,21 @@ static int snd_drained(const MOV_Audio *a)
     return -1; /* cannot say: caller falls back to played-vs-pushed */
 }
 
+/* Bytes of movie PCM -> milliseconds, which is what the audio clock reads.
+ *
+ * Whole seconds and the remainder are converted apart, so no intermediate needs more
+ * than 32 bits. `long` IS 32 bits on Windows, and the plain bytes * 1000 passed 2^31 at
+ * 2,147,484 bytes, which is 48.7 s of 22050 Hz mono. From there the clock read
+ * negative, no frame was ever due again, the ring stayed full, the decoder stopped
+ * feeding the sound, and every movie longer than that froze on its frame 730 with ESC
+ * the only way out. On macOS, where long is 64 bits, it never showed. */
+static long mov_pcm_ms(long bytes, long bytes_per_sec)
+{
+    if (bytes_per_sec <= 0)
+        return 0;
+    return (bytes / bytes_per_sec) * 1000 + (bytes % bytes_per_sec) * 1000 / bytes_per_sec;
+}
+
 /* --------------------------------------------------------------------------- probing */
 
 int mov_probe(const char *path, int *w, int *h, int *frames, int *fps, int *rate)
@@ -514,7 +529,7 @@ int mov_play(SDL_Window *win, const char *path, const MOV_Opts *opts,
         played = snd_played(audio);
         if (played >= 0 && pushed > 0) {
             use_audio_clock = 1;
-            clock_ms = played * 1000 / ((long)rate * channels * 2);
+            clock_ms = mov_pcm_ms(played, (long)rate * channels * 2);
             csrc = "audio";
         } else {
             clock_ms = (long)(SDL_GetTicks() - wall0);
@@ -643,7 +658,7 @@ done:
     {
         long played = snd_played(audio);
         st.clock_ms = (played >= 0 && pushed > 0)
-                          ? played * 1000 / ((long)rate * channels * 2)
+                          ? mov_pcm_ms(played, (long)rate * channels * 2)
                           : (long)(SDL_GetTicks() - wall0);
     }
     (void)shown;

@@ -76,7 +76,10 @@ static std::string dump(int (*fn)())
             continue;
         }
         std::string row(line);
-        static char const* fields[] = {"|sel=","|player=","|group=","|flashme="};
+        /* What the context's own spies found over a building (Red Alert) is player-relative
+         * too: two contexts read different spied=/spyprod=/spymoney=/powpip= by design. */
+        static char const* fields[] = {"|sel=","|player=","|group=","|flashme=",
+                                       "|spied=","|spyprod=","|spymoney=","|powpip="};
         for (unsigned f = 0; f < sizeof fields / sizeof fields[0]; ++f) {
             size_t at = 0;
             while ((at = row.find(fields[f], at)) != std::string::npos) {
@@ -144,7 +147,8 @@ int main(int argc, char** argv)
     if (set_seed) set_seed(seed);
     CNCMultiplayerOptionsStruct options = {};
     options.MPlayerCount = bots + 1;
-    options.MPlayerBases = 1; options.MPlayerCredits = 10000;
+    /* Starting money; the matrix uses 10000, the growth jobs the lobby's 5000. */
+    options.MPlayerBases = 1; options.MPlayerCredits = getenv("FAIR_AI_CREDITS") ? atoi(getenv("FAIR_AI_CREDITS")) : 10000;
     options.MPlayerTiberium = 1; options.MPlayerGhosts = 1; options.MPlayerSolo = 1;
     options.EnableSuperweapons = true; options.DestroyStructures = true;
     options.MPlayerShadowRegrow = (perturb & 4) != 0;
@@ -190,6 +194,15 @@ int main(int argc, char** argv)
     for (int tick=0; tick < ticks; ++tick) {
         const bool active=advance(context);
         done=tick+1;
+        /* FAIR_AI_SPAWN=TYPE:x:y;... gives the idle seat a fixed base (cells), so a long
+           growth run is not ended early by the computer finding a lone MCV. */
+        if (done == 3 && getenv("FAIR_AI_SPAWN")) {
+            char buf[2048]; strncpy(buf,getenv("FAIR_AI_SPAWN"),sizeof buf-1); buf[sizeof buf-1]=0;
+            for (char* tok=strtok(buf,";"); tok; tok=strtok(NULL,";")) {
+                char name[32]; int cx,cy;
+                if (sscanf(tok,"%31[^:]:%d:%d",name,&cx,&cy)==3) debug(DEBUG_REQUEST_SPAWN_OBJECT,0,name,cx*24+12,cy*24+12,false,false);
+            }
+        }
         if ((perturb & 1) && done == 100) debug(DEBUG_REQUEST_ADD_RESOURCES,0,"1000000",0,0,false,false);
         if (done == save_tick) {
             const unsigned saved_state=state();
@@ -208,7 +221,8 @@ int main(int argc, char** argv)
             fprintf(report,"PROBE|roundtrip=pass|tick=%d|state=%08x\n",done,state());
             game_over=0;
         }
-        if (done % 1500 == 0 || !active || done==ticks) {
+        const int every = getenv("FAIR_AI_EVERY") ? atoi(getenv("FAIR_AI_EVERY")) : 1500;
+        if ((every > 0 && done % every == 0) || !active || done==ticks) {
             std::string world=dump(objects);
             fprintf(report,"PROBE|tick=%d|world=%08x|state=%08x|active=%d\n",done,hash_text(world),state(),active?1:0);
             char diagnostic[16384]={}; diagnostics(diagnostic,sizeof diagnostic);

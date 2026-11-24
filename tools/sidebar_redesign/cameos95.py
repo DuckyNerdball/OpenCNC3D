@@ -53,6 +53,7 @@ import os, struct, sys, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+_ROOT = os.environ.get("OPENCNC3D_ROOT") or ROOT
 
 # data/ is gitignored and lives in the main checkout, not in this worktree, so look in
 # both. Nothing is ever copied out of it - the pack is the only artefact that leaves.

@@ -17,7 +17,9 @@
 #  the parser, or the owned-section rule.
 # ============================================================================
 set -e
-cd "$(dirname "$0")/../playable"
+# The folder to test is the suite's run folder when game/gates.sh calls this (it exports
+# RUNDIR), and the checkout's playable/ when it is run by hand.
+cd "${RUNDIR:-$(dirname "$0")/../playable}"
 
 [ -x ./cnc_eyes ] || { echo "no ./cnc_eyes -- build it first" >&2; exit 1; }
 

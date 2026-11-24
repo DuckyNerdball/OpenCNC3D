@@ -1,0 +1,960 @@
+{
+  "entries": [
+    {
+      "name": "BR1",
+      "tid": 57,
+      "variant": 0,
+      "cells": [
+        1,
+        1
+      ],
+      "have": [
+        0
+      ],
+      "foliage": "BR1_foliage.png",
+      "source": "art/remaster/textures/DESERT/BR1/final_144.png",
+      "source_sha256": "87e2fbfca40a1ee6fdebf9152550aef2d1c4322e5baf82c19a51e37e4d53f066",
+      "instances": {
+        "bushes": 1
+      }
+    },
+    {
+      "name": "BR2",
+      "tid": 58,
+      "variant": 0,
+      "cells": [
+        1,
+        1
+      ],
+      "have": [
+        0
+      ],
+      "foliage": "BR2_foliage.png",
+      "source": "art/remaster/textures/DESERT/BR2/final_144.png",
+      "source_sha256": "7683985a5f54f743b5ab8f2370e3dd956ea27a23416a18eb5f22f1aa462f7dcc",
+      "instances": {
+        "bushes": 1
+      }
+    },
+    {
+      "name": "BR6",
+      "tid": 62,
+      "variant": 0,
+      "cells": [
+        2,
+        2
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "foliage": "BR6_foliage.png",
+      "source": "art/remaster/textures/DESERT/BR6/final_144.png",
+      "source_sha256": "0d20a3ad27b1a0cf487cf60ae1cf8b29ce01a3612045b11660d80bc2498d9cf5",
+      "instances": {
+        "bushes": 2
+      }
+    },
+    {
+      "name": "BR7",
+      "tid": 63,
+      "variant": 0,
+      "cells": [
+        2,
+        2
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "foliage": "BR7_foliage.png",
+      "source": "art/remaster/textures/DESERT/BR7/final_144.png",
+      "source_sha256": "40548a0425aef57e4cb2bae488d94b376c07844e41cc0b744032a2f6f18b7d70",
+      "instances": {
+        "bushes": 1
+      }
+    },
+    {
+      "name": "BR8",
+      "tid": 64,
+      "variant": 0,
+      "cells": [
+        3,
+        2
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "foliage": "BR8_foliage.png",
+      "source": "art/remaster/textures/DESERT/BR8/final_144.png",
+      "source_sha256": "0522510c15dfe200917a1a119962382d00320ce703afed01ac711f529ef61604",
+      "instances": {
+        "bushes": 4
+      }
+    },
+    {
+      "name": "BR9",
+      "tid": 65,
+      "variant": 0,
+      "cells": [
+        3,
+        2
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "foliage": "BR9_foliage.png",
+      "source": "art/remaster/textures/DESERT/BR9/final_144.png",
+      "source_sha256": "83f40dc8c216f76cd57b8f6a86990e703db07e7126df46c8e0e3b1713043ba98",
+      "instances": {
+        "bushes": 7
+      }
+    },
+    {
+      "name": "RV14",
+      "tid": 149,
+      "variant": 0,
+      "cells": [
+        4,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "rock": "RV14_rock.png",
+      "foliage": "RV14_foliage.png",
+      "water": "RV14_water.png",
+      "source": "art/remaster/textures/DESERT/RV14/final_144.png",
+      "source_sha256": "22e3dc6052aefafa89ebf30888375cd5168d7e5e0352573c2b4e94775b554997",
+      "instances": {
+        "bushes": 3
+      }
+    },
+    {
+      "name": "RV15",
+      "tid": 150,
+      "variant": 0,
+      "cells": [
+        4,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "rock": "RV15_rock.png",
+      "foliage": "RV15_foliage.png",
+      "water": "RV15_water.png",
+      "source": "art/remaster/textures/DESERT/RV15/final_144.png",
+      "source_sha256": "e8c871a847305dac620b32f52d9f906aca4eb3aadfe8b8b655cbffd4398174eb",
+      "instances": {
+        "bushes": 1
+      }
+    },
+    {
+      "name": "RV16",
+      "tid": 151,
+      "variant": 0,
+      "cells": [
+        6,
+        4
+      ],
+      "have": [
+        2,
+        3,
+        4,
+        5,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ],
+      "rock": "RV16_rock.png",
+      "foliage": "RV16_foliage.png",
+      "water": "RV16_water.png",
+      "source": "art/remaster/textures/DESERT/RV16/final_144.png",
+      "source_sha256": "679b9a32ca5f1f7568b6477ea24f5b065e7250d1128c4051c544a287c96dc3db",
+      "instances": {
+        "bushes": 6
+      }
+    },
+    {
+      "name": "RV17",
+      "tid": 152,
+      "variant": 0,
+      "cells": [
+        6,
+        5
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        6,
+        7,
+        8,
+        9,
+        10,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        28,
+        29
+      ],
+      "rock": "RV17_rock.png",
+      "foliage": "RV17_foliage.png",
+      "water": "RV17_water.png",
+      "source": "art/remaster/textures/DESERT/RV17/final_144.png",
+      "source_sha256": "70a1c1cf0b88692d7520d70f8df6b42cf0c00a3fbe1bc2dd6723d787e1625322",
+      "instances": {
+        "bushes": 10
+      }
+    },
+    {
+      "name": "RV18",
+      "tid": 153,
+      "variant": 0,
+      "cells": [
+        4,
+        4
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        8,
+        9,
+        10,
+        12,
+        13,
+        14
+      ],
+      "rock": "RV18_rock.png",
+      "foliage": "RV18_foliage.png",
+      "water": "RV18_water.png",
+      "source": "art/remaster/textures/DESERT/RV18/final_144.png",
+      "source_sha256": "cf184d6242b1d57e62a4285a5a646fe988958e03c7a8e253286f02c9564b6e97",
+      "instances": {
+        "bushes": 3
+      }
+    },
+    {
+      "name": "RV19",
+      "tid": 154,
+      "variant": 0,
+      "cells": [
+        4,
+        4
+      ],
+      "have": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "rock": "RV19_rock.png",
+      "foliage": "RV19_foliage.png",
+      "water": "RV19_water.png",
+      "source": "art/remaster/textures/DESERT/RV19/final_144.png",
+      "source_sha256": "5b8669c63f6fb2943e767f6a86c31d9773629a97af8bfb81bccb5a7c5bd2f706",
+      "instances": {
+        "bushes": 3
+      }
+    },
+    {
+      "name": "RV20",
+      "tid": 155,
+      "variant": 0,
+      "cells": [
+        6,
+        8
+      ],
+      "have": [
+        2,
+        3,
+        4,
+        5,
+        7,
+        8,
+        9,
+        10,
+        12,
+        13,
+        14,
+        15,
+        16,
+        18,
+        19,
+        20,
+        21,
+        22,
+        24,
+        25,
+        26,
+        27,
+        28,
+        30,
+        31,
+        32,
+        33,
+        36,
+        37,
+        38,
+        39,
+        42,
+        43,
+        44,
+        45
+      ],
+      "rock": "RV20_rock.png",
+      "foliage": "RV20_foliage.png",
+      "water": "RV20_water.png",
+      "source": "art/remaster/textures/DESERT/RV20/final_144.png",
+      "source_sha256": "42a1dd9ff521a4db8c1657e760d09071dcac39ed3b1b2c0d91bc4f16ff7f70a8",
+      "instances": {
+        "bushes": 5
+      }
+    },
+    {
+      "name": "RV21",
+      "tid": 156,
+      "variant": 0,
+      "cells": [
+        5,
+        8
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        11,
+        12,
+        13,
+        16,
+        17,
+        18,
+        19,
+        21,
+        22,
+        23,
+        24,
+        27,
+        28,
+        29,
+        32,
+        33,
+        34,
+        38,
+        39
+      ],
+      "rock": "RV21_rock.png",
+      "foliage": "RV21_foliage.png",
+      "water": "RV21_water.png",
+      "source": "art/remaster/textures/DESERT/RV21/final_144.png",
+      "source_sha256": "5d98ffa5032e0e0258591b52b4127e1a920165ed342906c082cf75fce205948a",
+      "instances": {
+        "bushes": 7
+      }
+    },
+    {
+      "name": "RV22",
+      "tid": 157,
+      "variant": 0,
+      "cells": [
+        3,
+        3
+      ],
+      "have": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "rock": "RV22_rock.png",
+      "foliage": "RV22_foliage.png",
+      "water": "RV22_water.png",
+      "source": "art/remaster/textures/DESERT/RV22/final_144.png",
+      "source_sha256": "a0d580d6bc5e969c22a3754314d75a3a13f3ee7b77976c20e0472ecc8ccbd54b",
+      "instances": {
+        "bushes": 5
+      }
+    },
+    {
+      "name": "RV23",
+      "tid": 158,
+      "variant": 0,
+      "cells": [
+        3,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "rock": "RV23_rock.png",
+      "foliage": "RV23_foliage.png",
+      "water": "RV23_water.png",
+      "source": "art/remaster/textures/DESERT/RV23/final_144.png",
+      "source_sha256": "2a8c8501946100f74628fe3ff5d2427bfc1960e2b44bcb9f534d79efb7de2c1c",
+      "instances": {
+        "bushes": 2
+      }
+    },
+    {
+      "name": "RV24",
+      "tid": 159,
+      "variant": 0,
+      "cells": [
+        3,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        7,
+        8
+      ],
+      "rock": "RV24_rock.png",
+      "foliage": "RV24_foliage.png",
+      "water": "RV24_water.png",
+      "source": "art/remaster/textures/DESERT/RV24/final_144.png",
+      "source_sha256": "c715e1323d48893c3347940c35a5c6ed50b52bb2c465261ed084e262bb46d3cc",
+      "instances": {
+        "bushes": 3
+      }
+    },
+    {
+      "name": "RV25",
+      "tid": 160,
+      "variant": 0,
+      "cells": [
+        3,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "rock": "RV25_rock.png",
+      "foliage": "RV25_foliage.png",
+      "water": "RV25_water.png",
+      "source": "art/remaster/textures/DESERT/RV25/final_144.png",
+      "source_sha256": "ac2b4ab677b112333d58a1b544a293547a49e9dd27c6c733e7dbf91b739daee9",
+      "instances": {
+        "bushes": 2
+      }
+    },
+    {
+      "name": "FALLS1",
+      "tid": 163,
+      "variant": 0,
+      "cells": [
+        3,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "rock": "FALLS1_rock.png",
+      "foliage": "FALLS1_foliage.png",
+      "water": "FALLS1_water.png",
+      "source": "art/remaster/textures/DESERT/FALLS1/final_144.png",
+      "source_sha256": "33fb8d1aa97f8fbd1781b5a573c853580c1dbab7be543a575ccbc077583d52ff",
+      "instances": {
+        "bushes": 1
+      }
+    },
+    {
+      "name": "FALLS2",
+      "tid": 164,
+      "variant": 0,
+      "cells": [
+        3,
+        2
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rock": "FALLS2_rock.png",
+      "foliage": "FALLS2_foliage.png",
+      "water": "FALLS2_water.png",
+      "source": "art/remaster/textures/DESERT/FALLS2/final_144.png",
+      "source_sha256": "ed3360eec6990d6cb13c3a84c5e876be11ec303188f6051ae34cc9aa9ad60edc",
+      "instances": {
+        "bushes": 0
+      }
+    },
+    {
+      "name": "FORD2",
+      "tid": 162,
+      "variant": 0,
+      "cells": [
+        3,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "rock": "FORD2_rock.png",
+      "foliage": "FORD2_foliage.png",
+      "water": "FORD2_water.png",
+      "source": "art/remaster/textures/DESERT/FORD2/final_144.png",
+      "source_sha256": "c680e10b409e5752f60baeeace53cb7ed260958dedbe5edc9f88506235153724",
+      "instances": {
+        "bushes": 0
+      }
+    },
+    {
+      "name": "BRIDGE3",
+      "tid": 169,
+      "variant": 0,
+      "cells": [
+        6,
+        5
+      ],
+      "have": [
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25
+      ],
+      "rock": "BRIDGE3_rock.png",
+      "foliage": "BRIDGE3_foliage.png",
+      "water": "BRIDGE3_water.png",
+      "source": "art/remaster/textures/DESERT/BRIDGE3/final_144.png",
+      "source_sha256": "14015ca14b3f92685426fcc7f9a80d8cc7a84698394bd481ad1154ba225f0175",
+      "instances": {
+        "bushes": 0
+      }
+    },
+    {
+      "name": "BRIDGE4",
+      "tid": 171,
+      "variant": 0,
+      "cells": [
+        6,
+        4
+      ],
+      "have": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22
+      ],
+      "rock": "BRIDGE4_rock.png",
+      "foliage": "BRIDGE4_foliage.png",
+      "water": "BRIDGE4_water.png",
+      "source": "art/remaster/textures/DESERT/BRIDGE4/final_144.png",
+      "source_sha256": "6ada4709eaae27966c7b1cfe1d6de35c48419c1e7c438fb641efc2773202fc48",
+      "instances": {
+        "bushes": 0
+      }
+    },
+    {
+      "name": "SH31",
+      "tid": 180,
+      "variant": 0,
+      "cells": [
+        3,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "foliage": "SH31_foliage.png",
+      "source": "art/remaster/textures/DESERT/SH31/final_144.png",
+      "source_sha256": "37d8bd6f84c5a7e3a85abee6f2c1824d06fc48220ffceac73cb8a00857d0b33e",
+      "author_outline": [
+        270,
+        280,
+        420,
+        430
+      ],
+      "semantic": "Saved source bush envelope; no runtime colour classification.",
+      "instances": {
+        "bushes": 1
+      }
+    },
+    {
+      "name": "SH42",
+      "tid": 194,
+      "variant": 0,
+      "cells": [
+        1,
+        2
+      ],
+      "have": [
+        0,
+        1
+      ],
+      "foliage": "SH42_foliage.png",
+      "source": "art/remaster/textures/DESERT/SH42/final_144.png",
+      "source_sha256": "1fc32db22cd3bff33b08695f717d0bb106b0324e9fad515e6e2655006e8283ed",
+      "author_outline": [
+        40,
+        2,
+        108,
+        90
+      ],
+      "semantic": "Saved source bush envelope; no runtime colour classification.",
+      "instances": {
+        "bushes": 1
+      }
+    },
+    {
+      "name": "SH51",
+      "tid": 203,
+      "variant": 0,
+      "cells": [
+        4,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        4,
+        5,
+        6,
+        8,
+        9,
+        10,
+        11
+      ],
+      "foliage": "SH51_foliage.png",
+      "source": "art/remaster/textures/DESERT/SH51/final_144.png",
+      "source_sha256": "d481986e7bb788c33ce404f1f63def72b6db48700f48fd62033610c91d32dc35",
+      "author_outline": [
+        80,
+        225,
+        255,
+        425
+      ],
+      "semantic": "Saved source bush envelope; no runtime colour classification.",
+      "instances": {
+        "bushes": 4
+      }
+    },
+    {
+      "name": "SH52",
+      "tid": 204,
+      "variant": 0,
+      "cells": [
+        4,
+        3
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        6,
+        7,
+        10,
+        11
+      ],
+      "foliage": "SH52_foliage.png",
+      "source": "art/remaster/textures/DESERT/SH52/final_144.png",
+      "source_sha256": "66a85cb221199815b8e39bf3f923785fc0d016bfcca90635a2e401d484bf9885",
+      "author_outline": [
+        425,
+        215,
+        525,
+        325
+      ],
+      "semantic": "Saved source bush envelope; no runtime colour classification.",
+      "instances": {
+        "bushes": 1
+      }
+    },
+    {
+      "name": "SH54",
+      "tid": 206,
+      "variant": 0,
+      "cells": [
+        3,
+        2
+      ],
+      "have": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "foliage": "SH54_foliage.png",
+      "source": "art/remaster/textures/DESERT/SH54/final_144.png",
+      "source_sha256": "271bc7bc2ff719a0da3505936fa49b92b056a557d8229c232e404e6afceb6c1d",
+      "author_outline": [
+        135,
+        12,
+        286,
+        90
+      ],
+      "semantic": "Saved source bush envelope; no runtime colour classification.",
+      "instances": {
+        "bushes": 3
+      }
+    }
+  ],
+  "bushes": {
+    "source_sha256": "c28ba93be98c3e814bc0bb79721b9391b041e50f869ad1a23bb048c578df63d1",
+    "geometry_uv_prefix_sha256": "9718cb6ff25fa5a02ab77b8f1e71d090e4b479631f616ffce613b82932cb94a8",
+    "geometry_uv_bytes_unchanged": true,
+    "pairs": [
+      {
+        "albedo": "bush0_albedo.png",
+        "player_colour_mask": "bush0_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush0_bark_albedo.png",
+        "player_colour_mask": "bush0_bark_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush1_albedo.png",
+        "player_colour_mask": "bush1_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush1_bark_albedo.png",
+        "player_colour_mask": "bush1_bark_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush2_albedo.png",
+        "player_colour_mask": "bush2_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush2_bark_albedo.png",
+        "player_colour_mask": "bush2_bark_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush3_albedo.png",
+        "player_colour_mask": "bush3_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush3_bark_albedo.png",
+        "player_colour_mask": "bush3_bark_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush4_albedo.png",
+        "player_colour_mask": "bush4_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush4_bark_albedo.png",
+        "player_colour_mask": "bush4_bark_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush5_albedo.png",
+        "player_colour_mask": "bush5_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush5_bark_albedo.png",
+        "player_colour_mask": "bush5_bark_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush6_albedo.png",
+        "player_colour_mask": "bush6_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush6_bark_albedo.png",
+        "player_colour_mask": "bush6_bark_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush7_albedo.png",
+        "player_colour_mask": "bush7_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush7_bark_albedo.png",
+        "player_colour_mask": "bush7_bark_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush8_albedo.png",
+        "player_colour_mask": "bush8_player_mask.png",
+        "recolourable": false
+      },
+      {
+        "albedo": "bush8_bark_albedo.png",
+        "player_colour_mask": "bush8_bark_player_mask.png",
+        "recolourable": false
+      }
+    ]
+  },
+  "contract": "Existing shipped geometry reused unchanged. Source labels are authored offline. Runtime masks and placements switch together; no baked cast shadows."
+}

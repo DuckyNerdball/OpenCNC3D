@@ -23,9 +23,12 @@ static bool render_capture(const char* prefix) {
     glGetIntegerv(GL_PACK_ALIGNMENT,&align);glPixelStorei(GL_PACK_ALIGNMENT,1);
     bool ok=true;
     ok=render_capture_target(prefix,"scene",g_fxScene,false)&&ok;
+    if(g_fxFogReady)ok=render_capture_target(prefix,"fog",g_fxFogMask,false)&&ok;
+    ok=render_capture_target(prefix,"resolved",g_fxHudRT?g_fxNativeB:g_fxNativeA,false)&&ok;
     ok=render_capture_target(prefix,"depth",g_fxScene,true)&&ok;
     ok=render_capture_target(prefix,"normals",g_fxGNorm,false)&&ok;
     ok=render_capture_target(prefix,"bake",g_fxBake,false)&&ok;
+    ok=render_capture_target(prefix,"specular",g_fxSpec,false)&&ok;
     ok=render_capture_target(prefix,"sun",g_fxShadow,true)&&ok;
     ok=render_capture_target(prefix,"terrain-sun",g_fxTerrainShadow,true)&&ok;
     ok=render_capture_target(prefix,"infantry-sun",g_fxInfShadow,true)&&ok;

@@ -9,9 +9,12 @@ def block(needle):
  return s[start:i]+'\n'
 need=['struct SbHooks {','struct SbEntry {','struct SbState {']
 first=''.join(block(n) for n in need)
+# The adapters now also serve Red Alert and the armed special; this harness runs TD only,
+# so those parts are stubbed with the values a TD process holds.
+first+='static bool g_sbRa=false;\nstatic void sb_super_settle(void){}\nstatic const EH_Catalog rah_catalog[1]={{"",0,0,0,0,""}};\n'
 first+='static SbHooks g_sb;\nstatic SbState g_sbState;\nstatic bool g_sbSpectator=false, g_sbPowerForce=false, g_sbReady=false, g_sbPlacing=false;\nstatic int g_sbPowerForceP=0,g_sbPowerForceD=0,g_sbPlaceIdx=-1,g_sbPlaceBType=-1,g_sbPlaceBId=-1;\nstatic std::vector<unsigned char> g_sbBuf,g_sbPlaceProx,g_sbPlaceClear;\n'
 first+=block('static void sb_poll(void)')
-first+='static int g_ehCategory=0,g_ehTop[4]={0,0,0,0},g_h6Rows=6;\n'+block('struct EH_Display {')+'static std::vector<EH_Display> g_ehItems;\n'
+first+='static int g_ehCategory=0,g_ehTop[5]={0,0,0,0,0},g_h6Rows=6;\n'+block('struct EH_Display {')+'static std::vector<EH_Display> g_ehItems;\n'
 first+=block('static int eh_category(const SbEntry& e)')
 if 'static bool eh_potential(' in s:first+=block('static bool eh_potential(const char* name)')
 first+=block('static void eh_refresh(void)')+block('static const EH_Display* eh_display(int c,int row)')

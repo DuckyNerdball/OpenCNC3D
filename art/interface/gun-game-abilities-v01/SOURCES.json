@@ -1,0 +1,987 @@
+{
+  "what": "Gun Game ability cameos for Dawn3D, 64x48 RGBA, Tiberian Dawn cameo style",
+  "baker": "tools/art/gun_abilities/bake_cameos.py",
+  "cell": "TD PUMPICON.SHP (the empty bevelled sidebar cell), doubled",
+  "scaling": "Scale2x (EPX) on original pixels; no resampling filters",
+  "palette": "every pixel quantised to TD TEMPERAT.PAL widened min(252, v << 2), omitting indices 0, 4 and 32..38",
+  "house_remap": "TD RemapRed from brain/vanilla/tiberiandawn/const.cpp for Nod units",
+  "pack": {
+    "path": "game/gun_abilities.pack",
+    "magic": "GABIL01\\0",
+    "count": 20,
+    "record": "char name[16], u32 w, u32 h, u8 rgba[w*h*4]"
+  },
+  "abilities": [
+    {
+      "id": "GA01",
+      "name": "Stealth Field",
+      "file": "GA01.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD STNK.SHP body 12: the Stealth Tank, dissolving from left to right on an ordered dither inside its own cyan outline",
+        "RA STEALTH2.SHP frame 10: the stealth crate's green field globe, faint, around it"
+      ],
+      "reads": [
+        {
+          "entry": "ra:data/radata/CONQUER.MIX:STEALTH2.SHP",
+          "frames": [
+            10
+          ]
+        },
+        {
+          "entry": "ra:data/radata/LOCAL.MIX:TEMPERAT.PAL"
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:STNK.SHP",
+          "frames": [
+            12
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA02",
+      "name": "Chrono Hop",
+      "file": "GA02.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD LTNK.SHP body 24 + turret 56: the Light Tank facing east, solid where it lands and as a cyan ghost where it left",
+        "RA TWINKLE1.SHP frame 2: the departure spark, in chrono cyan",
+        "drawn: dotted jump arc and head"
+      ],
+      "reads": [
+        {
+          "entry": "ra:data/radata/CONQUER.MIX:TWINKLE1.SHP",
+          "frames": [
+            2
+          ]
+        },
+        {
+          "entry": "ra:data/radata/LOCAL.MIX:TEMPERAT.PAL"
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:LTNK.SHP",
+          "frames": [
+            24,
+            56
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA03",
+      "name": "Chrono Swap",
+      "file": "GA03.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD E1.SHP frame 6: a GDI Minigunner facing east",
+        "TD E1.SHP frame 2, RemapRed: a Nod Minigunner facing west",
+        "drawn: two curved swap arrows in chrono cyan"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:E1.SHP",
+          "frames": [
+            2,
+            6
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA04",
+      "name": "Personal Iron Curtain",
+      "file": "GA04.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD MTNK.SHP body 12 + turret 44: the Medium Tank, recoloured onto the palette's red ramp (120..127) as an Iron Curtain glow, with a red halo around it"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:MTNK.SHP",
+          "frames": [
+            12,
+            44
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA05",
+      "name": "Overdrive",
+      "file": "GA05.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD JEEP.SHP body 24 + turret 56: the Hum-vee facing east",
+        "RA SPEED.SHP frame 2: the speed crate's lightning bolt",
+        "drawn: four motion streaks"
+      ],
+      "reads": [
+        {
+          "entry": "ra:data/radata/CONQUER.MIX:SPEED.SHP",
+          "frames": [
+            2
+          ]
+        },
+        {
+          "entry": "ra:data/radata/LOCAL.MIX:TEMPERAT.PAL"
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:JEEP.SHP",
+          "frames": [
+            24,
+            56
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA06",
+      "name": "Chrono Vortex",
+      "file": "GA06.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD EMPULSE.SHP frame 1: the EMP crate's cracked sphere, recoloured onto the palette's violet-to-cyan entries and twirled about its centre",
+        "drawn: three spiral arms"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:EMPULSE.SHP",
+          "frames": [
+            1
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA07",
+      "name": "Minefield",
+      "file": "GA07.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD MINE.SHP frames 0 and 1: the mine crate's spiked mine, edged in black, one near and two far, each on a dark patch of ground"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:MINE.SHP",
+          "frames": [
+            0,
+            1
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA08",
+      "name": "Hunter's Eye",
+      "file": "GA08.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD MTNK.SHP body 12 + turret 44, RemapRed: a Nod Medium Tank as the quarry",
+        "drawn: a green targeting reticle"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:MTNK.SHP",
+          "frames": [
+            12,
+            44
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA09",
+      "name": "Humiliation Dart",
+      "file": "GA09.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD E1.SHP frame 4, RemapRed: a Nod Minigunner facing the viewer",
+        "TD DEVIATOR.SHP frame 3, turned to fly at him: the deviator crate's dart",
+        "drawn: two red down-rank chevrons over him"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:DEVIATOR.SHP",
+          "frames": [
+            3
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:E1.SHP",
+          "frames": [
+            4
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA10",
+      "name": "Chain Shock",
+      "file": "GA10.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD E1.SHP frames 3, 4, 5, RemapRed: three Nod Minigunners",
+        "RA LITNING.SHP frames 0 and 1: the Tesla Coil's lightning, brightened on the palette's cyan entries, jumping from man to man"
+      ],
+      "reads": [
+        {
+          "entry": "ra:data/radata/CONQUER.MIX:LITNING.SHP",
+          "frames": [
+            0,
+            1
+          ]
+        },
+        {
+          "entry": "ra:data/radata/LOCAL.MIX:TEMPERAT.PAL"
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:E1.SHP",
+          "frames": [
+            3,
+            4,
+            5
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA11",
+      "name": "Extra Life",
+      "file": "GA11.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD E1.SHP frame 4: a GDI Minigunner",
+        "TD HOSPICON.SHP: the red cross on its white disc, lifted off the Hospital cameo's roof",
+        "drawn: a green up arrow"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:E1.SHP",
+          "frames": [
+            4
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:HOSPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA12",
+      "name": "Smoke Screen",
+      "file": "GA12.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD MTNK.SHP body 12 + turret 44: the Medium Tank",
+        "TD ATOMSFX.SHP frame 19: the grey billow of a blast cloud, set on the palette's light greys and thinning towards the top, as a smoke bank the tank shows through"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:ATOMSFX.SHP",
+          "frames": [
+            19
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:MTNK.SHP",
+          "frames": [
+            12,
+            44
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA13",
+      "name": "Decoys",
+      "file": "GA13.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD E2.SHP frame 4: a GDI Grenadier facing the viewer, once solid and twice as faded cyan copies beside him"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:E2.SHP",
+          "frames": [
+            4
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA14",
+      "name": "Giant Mode",
+      "file": "GA14.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD HTNK.SHP body 12 + turret 44: the Mammoth Tank at the cameos' size, breaking out of the frame, beside the same tank at half that size",
+        "drawn: a yellow grow arrow"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:HTNK.SHP",
+          "frames": [
+            12,
+            44
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA15",
+      "name": "Last Laugh",
+      "file": "GA15.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD ATOMSFX.SHP frame 11: the nuclear blast's mushroom cloud",
+        "TD RAPID.SHP frame 2: the rapid-fire crate's grinning red skull, in its stem"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:ATOMSFX.SHP",
+          "frames": [
+            11
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:RAPID.SHP",
+          "frames": [
+            2
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA16",
+      "name": "Hot Potato",
+      "file": "GA16.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD EMPULSE.SHP frame 0: the EMP crate's sphere, recoloured into a black bomb glowing red hot",
+        "RA TWINKLE1.SHP frame 2: the spark at the fuse's end",
+        "drawn: the fuse and three flying sparks"
+      ],
+      "reads": [
+        {
+          "entry": "ra:data/radata/CONQUER.MIX:TWINKLE1.SHP",
+          "frames": [
+            2
+          ]
+        },
+        {
+          "entry": "ra:data/radata/LOCAL.MIX:TEMPERAT.PAL"
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:EMPULSE.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA17",
+      "name": "Booby-Trapped Crate",
+      "file": "GA17.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD WCRATE.SHP: the wooden bonus crate, Scale2x twice",
+        "RA MINV.SHP: the anti-tank mine, red light lit, beside it",
+        "TD FBALL1.SHP frame 8: the fireball bursting out behind it"
+      ],
+      "reads": [
+        {
+          "entry": "ra:data/radata/CONQUER.MIX:MINV.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "ra:data/radata/LOCAL.MIX:TEMPERAT.PAL"
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:FBALL1.SHP",
+          "frames": [
+            8
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:WCRATE.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA18",
+      "name": "Wormhole",
+      "file": "GA18.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD MOVEFLSH.SHP frame 2: the move-order ring, recoloured violet, once at each mouth",
+        "TD LTNK.SHP body 24 + turret 56 at its own size: fading in one ring, out of the other",
+        "drawn: the dotted link between them"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:LTNK.SHP",
+          "frames": [
+            24,
+            56
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:MOVEFLSH.SHP",
+          "frames": [
+            2
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA19",
+      "name": "Dance Off",
+      "file": "GA19.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD E1.SHP frame 449 (GESTURE1, arms up, facing south): a GDI Minigunner",
+        "TD E1.SHP frame 473 (SALUTE1), RemapRed, mirrored: a Nod Minigunner",
+        "drawn: music notes"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:E1.SHP",
+          "frames": [
+            449,
+            473
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    },
+    {
+      "id": "GA20",
+      "name": "Mirror Madness",
+      "file": "GA20.png",
+      "size": [
+        64,
+        48
+      ],
+      "composition": [
+        "TD RMBO.SHP frame 6: the Commando facing east, and his mirror image",
+        "drawn: the dashed mirror line and a two-headed arrow"
+      ],
+      "reads": [
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:PUMPICON.SHP",
+          "frames": [
+            0
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/CONQUER.MIX:RMBO.SHP",
+          "frames": [
+            6
+          ]
+        },
+        {
+          "entry": "td:data/dosdata/LOCAL.MIX:TEMPERAT.PAL"
+        }
+      ]
+    }
+  ],
+  "source_entries": [
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "LITNING.SHP",
+      "bytes": 574,
+      "sha1": "beef0ff99490fc4b414c1f1053fc9020d19904b8",
+      "frames": [
+        0,
+        1
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "MINV.SHP",
+      "bytes": 186,
+      "sha1": "9c27debdc7dac7c04e7e6370f522d9f6b686a1a1",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "SPEED.SHP",
+      "bytes": 1945,
+      "sha1": "f38c9f5ad47071888adb186fd2f99198d6ad27ae",
+      "frames": [
+        2
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "STEALTH2.SHP",
+      "bytes": 2407,
+      "sha1": "9239402adec4a36d0c3635ef2bf1211e406a23a7",
+      "frames": [
+        10
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/CONQUER.MIX",
+      "entry": "TWINKLE1.SHP",
+      "bytes": 189,
+      "sha1": "0d9b113826190242b5a951574951942f54d765a9",
+      "frames": [
+        2
+      ]
+    },
+    {
+      "game": "ra",
+      "archive": "data/radata/LOCAL.MIX",
+      "entry": "TEMPERAT.PAL",
+      "bytes": 768,
+      "sha1": "f33b181b38738ac32164e5585d1a1ee84d38f0e6",
+      "frames": []
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "ATOMSFX.SHP",
+      "bytes": 35249,
+      "sha1": "69e680eba10d0d2082de2fc8666da0af2515c50b",
+      "frames": [
+        11,
+        19
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "DEVIATOR.SHP",
+      "bytes": 757,
+      "sha1": "020720cd6dface0de6d5349bc90eb9f05cb0efcd",
+      "frames": [
+        3
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "E1.SHP",
+      "bytes": 40105,
+      "sha1": "0d33e083a015c148f2868f2ad6ff00a4b4554f77",
+      "frames": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        449,
+        473
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "E2.SHP",
+      "bytes": 46057,
+      "sha1": "059e449c5385100f0190eff504135235c349c815",
+      "frames": [
+        4
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "EMPULSE.SHP",
+      "bytes": 4848,
+      "sha1": "276dc0363db12027ebfaa2962ee3a9a936961013",
+      "frames": [
+        0,
+        1
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "FBALL1.SHP",
+      "bytes": 6187,
+      "sha1": "05ef74c76af180845dbbcc5627f696e72cef4576",
+      "frames": [
+        8
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "HOSPICON.SHP",
+      "bytes": 445,
+      "sha1": "6cc7a84507ccce4b9740849bb255281934175ea3",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "HTNK.SHP",
+      "bytes": 25114,
+      "sha1": "9d2145389c6d3bafcc40c0b8e1bc6dbe993b65b8",
+      "frames": [
+        12,
+        44
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "JEEP.SHP",
+      "bytes": 9388,
+      "sha1": "e3936aa1f9586400ba035eae4de512c08154fae8",
+      "frames": [
+        24,
+        56
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "LTNK.SHP",
+      "bytes": 9934,
+      "sha1": "6465d72d8ed0eeaf119637ff40a523a1ef84b222",
+      "frames": [
+        24,
+        56
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "MINE.SHP",
+      "bytes": 856,
+      "sha1": "663b054fdabbec94c8a736aaf80ab152d9e26c8d",
+      "frames": [
+        0,
+        1
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "MOVEFLSH.SHP",
+      "bytes": 387,
+      "sha1": "2b6fd2b8ca8cfcafab5ed3f5753c74e0c6f66efc",
+      "frames": [
+        2
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "MTNK.SHP",
+      "bytes": 13725,
+      "sha1": "f78763ecf5b5d820df540ee8b44715854a1253db",
+      "frames": [
+        12,
+        44
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "PUMPICON.SHP",
+      "bytes": 73,
+      "sha1": "8da050ed9a6f60cf325278ad814424fa6c22030d",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "RAPID.SHP",
+      "bytes": 7052,
+      "sha1": "b250a651e62066e5fb49d5bb3f3b61d3ca2182e1",
+      "frames": [
+        2
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "RMBO.SHP",
+      "bytes": 36225,
+      "sha1": "73a439655424ef66b8f5e4466f3c7e7cb0ca3279",
+      "frames": [
+        6
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "STNK.SHP",
+      "bytes": 7729,
+      "sha1": "efb20eb826d9270462af0d51832100925cb761c5",
+      "frames": [
+        12
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/CONQUER.MIX",
+      "entry": "WCRATE.SHP",
+      "bytes": 129,
+      "sha1": "51a5452fe6307dc18420b0152697082ce5342ecc",
+      "frames": [
+        0
+      ]
+    },
+    {
+      "game": "td",
+      "archive": "data/dosdata/LOCAL.MIX",
+      "entry": "TEMPERAT.PAL",
+      "bytes": 768,
+      "sha1": "50ed5d4b086ec7d9faf3dfdc021f7b9f3063aab3",
+      "frames": []
+    }
+  ]
+}

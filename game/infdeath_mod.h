@@ -33,6 +33,17 @@
 #include <cstring>
 #include <algorithm>
 
+#include "stable_vector_step.h"
+static bool ir_pool_compact_enabled(){static const bool on=[](){const char* p=getenv("OPENCNC3D_BLOOD_STABLE_COMPACT");
+#ifdef __APPLE__
+return !p||strcmp(p,"0"); // Ordered-pool proof and paired native Mac improvement.
+#else
+return p&&strcmp(p,"0"); // No repeatable Windows FPS benefit: retain its original loop.
+#endif
+}();return on;}
+static unsigned long long g_irPoolVisited=0,g_irPoolMoved=0,g_irPoolRemoved=0;
+template<class T>static void ir_pool_finish(StableVectorStep<T>& step){step.finish();g_irPoolVisited+=step.visited;g_irPoolMoved+=step.moved;g_irPoolRemoved+=step.removed;}
+
 static bool visible(const SimObject& o);
 
 /* ---- the points -------------------------------------------------------------------- */
@@ -639,6 +650,47 @@ static int g_irDrawnBlood = 0, g_irRagLive = 0, g_irPushes = 0;
 
 static long long ir_key(int id, int since) { return ((long long)id << 32) ^ (unsigned)since; }
 
+/* The memory/physics cap stays separate. This cohort only controls what the local
+   player sees, with the same owners reused by colour, shadow, normal and FX passes. */
+static std::set<long long> g_irViewBodies,g_irViewDrawn;
+static bool g_irViewValid=false,g_irEffectsSweep=false;
+static size_t g_irViewCandidates=0,g_irViewGround=0,g_irViewDrops=0;
+static bool infdeath_view_enabled() {return mesh_perf_switch("OPENCNC3D_CORPSE_VIEW_LIMIT");}
+static bool infdeath_body_shown(long long key) {
+    return !infdeath_view_enabled() || !g_irViewValid || g_irViewBodies.count(key)!=0;
+}
+static void infdeath_view_begin() {
+    g_irViewBodies.clear();g_irViewDrawn.clear();g_irViewCandidates=g_irViewGround=g_irViewDrops=0;
+    std::vector<std::pair<int,long long>> candidates;
+    for(const M3Corpse& corpse:g_m3Corpses) {
+        if(!visible(corpse.o))continue;
+        const long long key=ir_key(corpse.o.id,corpse.a.since);
+        const auto found=g_irBody.find(key);
+        float lo[3],hi[3];
+        if(found!=g_irBody.end() && found->second.state!=IRS_ANIM) {
+            const InfRag& body=found->second;
+            const float radius=std::max(0.08f,ir_rig(body.mi).heightU*body.S*0.18f);
+            for(int axis=0;axis<3;axis++) {lo[axis]=1e30f;hi[axis]=-1e30f;}
+            for(int point=0;point<IR_N;point++)for(int axis=0;axis<3;axis++) {
+                lo[axis]=std::min(lo[axis],std::min(body.p[point][axis],body.pp[point][axis])-radius);
+                hi[axis]=std::max(hi[axis],std::max(body.p[point][axis],body.pp[point][axis])+radius);
+            }
+        } else {
+            const float y=terrain_y(corpse.o.wx,corpse.o.wz)+corpse.o.ylift;
+            const float a[3]={corpse.o.wx-0.6f,y-0.1f,corpse.o.wz-0.6f};
+            const float b[3]={corpse.o.wx+0.6f,y+1.5f,corpse.o.wz+0.6f};
+            memcpy(lo,a,sizeof lo);memcpy(hi,b,sizeof hi);
+        }
+        if(local_viewport_box(lo,hi))candidates.emplace_back(corpse.a.since,key);
+    }
+    std::sort(candidates.begin(),candidates.end(),std::greater<std::pair<int,long long>>());
+    g_irViewCandidates=candidates.size();
+    const size_t count=infdeath_view_enabled()?std::min(size_t(20),candidates.size()):candidates.size();
+    for(size_t i=0;i<count;i++)g_irViewBodies.insert(candidates[i].second);
+    g_irViewValid=true;
+}
+
+
 static unsigned ir_hash(unsigned a, unsigned b)
 {
     unsigned h = a * 0x9E3779B1u ^ (b + 0x7F4A7C15u + (a << 6) + (a >> 2));
@@ -1040,10 +1092,17 @@ static void ir_push(InfRag& b, const InfRig& r)
             if (o.id == b.id) continue;
             rad = 0.10f;
         } else continue;
+        if (o.kind == K_UNIT && shover_unseen(o)) continue;
         const long long k = (long long)o.kind * 1000000 + o.id;
         float sx = 0.0f, sz = 0.0f;
         std::map<long long, std::pair<float, float> >::iterator pv = g_irPrevPos.find(k);
         if (pv != g_irPrevPos.end()) { sx = o.ex - pv->second.first; sz = o.ez - pv->second.second; }
+        /* A SHOVER THAT JUMPED gives no step. More than a cell since the last tick is no
+           drive: it is a heap slot taken by a new object somewhere else, or an object
+           that reappears away from where it was last seen, and the whole jump went into
+           the body as one tick's velocity. The rocks refuse the same jump. The body is
+           still pushed out of the hull below. */
+        if (sx * sx + sz * sz > 1.0f) { sx = 0.0f; sz = 0.0f; }
         bool hit = false;
         const unsigned beforeCut=b.cut;
         for (int j = 0; j < IR_N; j++) {
@@ -1153,7 +1212,7 @@ static void infdeath_cap(void)
         size_t old = 0;
         for (size_t i = 1; i < g_m3Corpses.size(); i++)
             if (g_m3Corpses[i].a.since < g_m3Corpses[old].a.since) old = i;
-        g_irBody.erase(ir_key(g_m3Corpses[old].o.id, g_m3Corpses[old].a.since));
+        g_irBody.erase(ir_key(g_m3Corpses[old].o.id, g_m3Corpses[old].a.since));g_irEffectsSweep=true;
         g_m3Corpses.erase(g_m3Corpses.begin() + old);
     }
 }
@@ -1168,7 +1227,7 @@ static void infdeath_cap(void)
    on the ground, and the splats go with the body when the cap takes it. */
 struct IrDrop { float p[3], v[3]; int born; long long body; };
 struct IrSplat { float x, z, size, rot, stretch; int var, born; long long body; };
-struct IrObjSplat { int kind, id; float l[3], d[3]; float size, rot; int var, born; };
+struct IrObjSplat { long long body=0;int kind, id; float l[3], d[3]; float size, rot; int var, born; };
 static std::vector<IrDrop> g_irDrops;
 static std::vector<IrSplat> g_irSplats;
 static std::vector<IrObjSplat> g_irObjSplats;
@@ -1176,6 +1235,20 @@ static int g_irDropsMade = 0, g_irSplatGround = 0, g_irSplatObj = 0;
 static const int IR_SPRAY_TICKS = 45;              /* 3 s at the engine's 15 ticks */
 static const size_t IR_DROP_MAX = 3000, IR_SPLAT_MAX = 12000, IR_OBJSPLAT_MAX = 1500;
 static const int IR_SPLATS_PER_BODY = 90, IR_OBJSPLATS_PER_OBJ = 40;
+static unsigned long long g_irSplatOverwrites=0,g_irSplatRotations=0;
+static bool ir_splat_fifo_enabled() {
+    static const bool on=[]() {
+        const char* value=getenv("OPENCNC3D_BLOOD_SPLAT_FIFO");
+        if(value)return strcmp(value,"0")!=0;
+#ifdef _WIN32
+        return true; // Native Windows benefits; Mac retains its measured original path.
+#else
+        return false;
+#endif
+    }();
+    return on;
+}
+
 /* the point inside each side of a joint the torn end faces away from */
 static const unsigned char IR_SPRAY_IN[IJ_N][2] = {
     { IR_PELVIS, IR_HEAD }, { IR_CHEST, IR_HEADTIP }, { IR_WAIST, IR_KNEE_L }, { IR_WAIST, IR_KNEE_R },
@@ -1254,6 +1327,12 @@ static bool ir_in_object(const SimObject& o, const float* p, float* local)
 static void ir_drops_step(void)
 {
     if (g_irDrops.empty()) return;
+    /* This step has no renderer or other splat reader inside it. At the cap,
+       overwrite retired slots instead of shifting 12,000 records for every
+       landing drop. Restore the identical oldest-first vector once before
+       returning. Ownership, random counters, capacity and the cap stay intact. */
+    const bool fifo=ir_splat_fifo_enabled();
+    size_t splatHead=0;
     const float dt = 1.0f / ((float)M3INF_TICKS_PER_SECOND * 4.0f);
     /* the vehicles and buildings near any drop: a box around all of them, widened */
     float lo[2] = { 1e9f, 1e9f }, hi[2] = { -1e9f, -1e9f };
@@ -1270,6 +1349,7 @@ static void ir_drops_step(void)
         if (o.ex < lo[0] - rr || o.ex > hi[0] + rr || o.ez < lo[1] - rr || o.ez > hi[1] + rr) continue;
         nearby.push_back(i);
     }
+    StableVectorStep<IrDrop> dropStep(g_irDrops,ir_pool_compact_enabled());
     for (size_t i = 0; i < g_irDrops.size(); ) {
         IrDrop& d = g_irDrops[i];
         bool gone = g_engineFrame - d.born > IR_SPRAY_TICKS || g_engineFrame < d.born;
@@ -1286,7 +1366,7 @@ static void ir_drops_step(void)
                     on += g_irObjSplats[q].kind == (int)o.kind && g_irObjSplats[q].id == o.id;
                 if (on >= IR_OBJSPLATS_PER_OBJ) break;
                 IrObjSplat sp;
-                sp.kind = (int)o.kind; sp.id = o.id;
+                sp.body=d.body;sp.kind = (int)o.kind; sp.id = o.id;
                 memcpy(sp.l, loc, sizeof loc);
                 float v[3] = { d.v[0], d.v[1], d.v[2] };
                 ir_norm3(v);
@@ -1323,13 +1403,23 @@ static void ir_drops_step(void)
                 sp.var = (int)((h >> 16) & 3);
                 sp.born = g_engineFrame;
                 sp.body = d.body;
-                if (g_irSplats.size() >= IR_SPLAT_MAX) g_irSplats.erase(g_irSplats.begin());
-                g_irSplats.push_back(sp);
+                if(fifo && g_irSplats.size()>=IR_SPLAT_MAX) {
+                    g_irSplats[splatHead]=sp;
+                    splatHead=(splatHead+1)%g_irSplats.size();
+                    g_irSplatOverwrites++;
+                } else {
+                    if(g_irSplats.size()>=IR_SPLAT_MAX)g_irSplats.erase(g_irSplats.begin());
+                    g_irSplats.push_back(sp);
+                }
                 g_irSplatGround++;
             }
         }
-        if (gone) g_irDrops.erase(g_irDrops.begin() + i);
-        else i++;
+        dropStep.visit(i,!gone);
+    }
+    ir_pool_finish(dropStep);
+    if(splatHead) {
+        std::rotate(g_irSplats.begin(),g_irSplats.begin()+splatHead,g_irSplats.end());
+        g_irSplatRotations++;
     }
 }
 
@@ -1340,12 +1430,13 @@ static void ir_objsplats_sweep(void)
     std::map<long long, int> live;
     for (size_t i = 0; i < g_objects.size(); i++)
         if (!g_objects[i].limbo) live[(long long)g_objects[i].kind * 1000000 + g_objects[i].id] = 1;
+    StableVectorStep<IrObjSplat> step(g_irObjSplats,ir_pool_compact_enabled());
     for (size_t i = 0; i < g_irObjSplats.size(); ) {
         const IrObjSplat& sp = g_irObjSplats[i];
-        if (!live.count((long long)sp.kind * 1000000 + sp.id) || g_engineFrame < sp.born)
-            g_irObjSplats.erase(g_irObjSplats.begin() + i);
-        else i++;
+        const bool keep=g_irBody.count(sp.body) && live.count((long long)sp.kind * 1000000 + sp.id) && g_engineFrame>=sp.born;
+        step.visit(i,keep);
     }
+    ir_pool_finish(step);
 }
 
 /* IS THERE BLOOD UNDER A VEHICLE HERE: a body's point, a torn piece or a pool of blood
@@ -1488,11 +1579,14 @@ static void infdeath_step(void)
             live = ir_key(g_m3Corpses[i].o.id, g_m3Corpses[i].a.since) == it->first;
         if (live) ++it; else { g_irBody.erase(it++); dropped = true; }
     }
-    if (dropped) {
-        for (size_t i = 0; i < g_irSplats.size(); )
-            if (!g_irBody.count(g_irSplats[i].body)) g_irSplats.erase(g_irSplats.begin() + i); else i++;
-        for (size_t i = 0; i < g_irDrops.size(); )
-            if (!g_irBody.count(g_irDrops[i].body)) g_irDrops.erase(g_irDrops.begin() + i); else i++;
+    if (dropped || g_irEffectsSweep) {
+        g_irEffectsSweep=false;
+        StableVectorStep<IrSplat> splats(g_irSplats,ir_pool_compact_enabled());
+        for(size_t i=0;i<g_irSplats.size();)splats.visit(i,g_irBody.count(g_irSplats[i].body)!=0);
+        ir_pool_finish(splats);
+        StableVectorStep<IrDrop> drops(g_irDrops,ir_pool_compact_enabled());
+        for(size_t i=0;i<g_irDrops.size();)drops.visit(i,g_irBody.count(g_irDrops[i].body)!=0);
+        ir_pool_finish(drops);
     }
     ir_drops_step();
     ir_objsplats_sweep();
@@ -1841,10 +1935,11 @@ static void infdeath_shot_tick(const SimObject& o, const AnimState& a)
 static void infdeath_casings_step(void)
 {
     const float dt = 1.0f / ((float)M3INF_TICKS_PER_SECOND * 4.0f);
+    StableVectorStep<IrCasing> step(g_irCasings,ir_pool_compact_enabled());
     for (size_t i = 0; i < g_irCasings.size(); ) {
         IrCasing& c = g_irCasings[i];
         if (g_engineFrame - c.born > IR_CASING_LIFE || g_engineFrame < c.born) {
-            g_irCasings.erase(g_irCasings.begin() + i);
+            step.visit(i,false);
             continue;
         }
         for (int s = 0; s < 4 && !c.rest; s++) {
@@ -1862,8 +1957,9 @@ static void infdeath_casings_step(void)
                 }
             }
         }
-        i++;
+        step.visit(i,true);
     }
+    ir_pool_finish(step);
 }
 
 /* ---- drawing ------------------------------------------------------------------------- */
@@ -1958,7 +2054,7 @@ static void infdeath_draw_blood(void)
     const int N = 5;                                  /* a 5 x 5 grid laid on the ground */
     for (std::map<long long, InfRag>::const_iterator it = g_irBody.begin(); it != g_irBody.end(); ++it) {
         const InfRag& b = it->second;
-        if (b.bloodBorn < 0 || !g_fx.einf_blood) continue;
+        if (b.bloodBorn < 0 || !g_fx.einf_blood || !infdeath_body_shown(it->first)) continue;
         float grow = (now - (float)b.bloodBorn) / 30.0f;
         grow = grow < 0.0f ? 0.0f : (grow > 1.0f ? 1.0f : grow);
         grow = 0.35f + 0.65f * (1.0f - (1.0f - grow) * (1.0f - grow));
@@ -2012,6 +2108,8 @@ static void infdeath_draw_blood(void)
         glBegin(GL_TRIANGLES);
         for (size_t i = 0; i < g_irSplats.size(); i++) {
             const IrSplat& sp = g_irSplats[i];
+            if(!infdeath_body_shown(sp.body))continue;
+            g_irViewGround++;
             if (g_viewValid && (sp.x < g_viewX0 - 1.0f || sp.x > g_viewX1 + 1.0f
                                 || sp.z < g_viewZ0 - 1.0f || sp.z > g_viewZ1 + 1.0f)) continue;
             float grow = (now - (float)sp.born) / 3.0f;
@@ -2109,6 +2207,8 @@ static void ir_draw_drops(void)
     glBegin(GL_LINES);
     for (size_t i = 0; i < g_irDrops.size(); i++) {
         const IrDrop& d = g_irDrops[i];
+        if(!infdeath_body_shown(d.body))continue;
+        g_irViewDrops++;
         const float sh = terrain_shade((int)floorf(d.p[0] + 0.5f), (int)floorf(d.p[2] + 0.5f))
                        * (g_objShroud ? 1.0f - shroud_env_at(d.p[0], d.p[2]) : 1.0f);
         glColor4f(0.50f * sh, 0.03f * sh, 0.03f * sh, 0.9f);
@@ -2225,6 +2325,7 @@ static void ir_draw_objsplats(void)
         at[(long long)g_objects[i].kind * 1000000 + g_objects[i].id] = i;
     for (size_t i = 0; i < g_irObjSplats.size(); i++) {
         const IrObjSplat& sp = g_irObjSplats[i];
+        if(!infdeath_body_shown(sp.body))continue;
         std::map<long long, size_t>::const_iterator f = at.find((long long)sp.kind * 1000000 + sp.id);
         if (f == at.end()) continue;
         const SimObject& o = g_objects[f->second];
@@ -2365,6 +2466,7 @@ static void infdeath_reset(bool closeModels=true)
 {
     g_irBody.clear(); g_irPrevPos.clear(); g_irSeen.clear(); g_irCrushed.clear();
     g_irDrops.clear(); g_irSplats.clear(); g_irObjSplats.clear(); g_irCasings.clear();
+    g_irViewBodies.clear();g_irViewDrawn.clear();g_irViewValid=false;g_irEffectsSweep=false;
     g_irLastStage.clear(); g_irSubSave.clear();
     /* Rig construction extends model geometry; keep its indices across a save
        load of the same pack, and retire them only with the models themselves. */
@@ -2373,6 +2475,8 @@ static void infdeath_reset(bool closeModels=true)
     g_irLastFrame=-1; g_irDrawnBlood=g_irRagLive=g_irPushes=0;
     g_irCuts=g_irBlasts=g_irCrushes=g_irRunOver=g_irTornDraws=0;
     g_irDropsMade=g_irSplatGround=g_irSplatObj=g_irFlashes=g_irCasingsMade=g_irObjDrawn=0;
+    g_irSplatOverwrites=g_irSplatRotations=0;
+    g_irPoolVisited=g_irPoolMoved=g_irPoolRemoved=0;
     if (g_irBloodTex) glDeleteTextures(1,&g_irBloodTex);
     if (g_irDepthTex) glDeleteTextures(1,&g_irDepthTex);
     if (g_irDecalProg && fx_glDeleteProgram) fx_glDeleteProgram(g_irDecalProg);
@@ -2380,8 +2484,48 @@ static void infdeath_reset(bool closeModels=true)
     g_irDepthW=g_irDepthH=g_irDecalTried=0;
 }
 
+/* Explicit fields make native OFF/ON witnesses independent of struct padding.
+   This hash runs only for diagnostics, never in the live update/draw path. */
+static uint64_t ir_effect_state_hash() {
+    uint64_t hash=1469598103934665603ull;
+    const auto add=[&](const void* p,size_t n) {
+        const unsigned char* bytes=(const unsigned char*)p;
+        for(size_t i=0;i<n;i++)hash=(hash^bytes[i])*1099511628211ull;
+    };
+    for(const auto& v:g_irSplats) {
+        add(&v.x,sizeof v.x);add(&v.z,sizeof v.z);add(&v.size,sizeof v.size);
+        add(&v.rot,sizeof v.rot);add(&v.stretch,sizeof v.stretch);
+        add(&v.var,sizeof v.var);add(&v.born,sizeof v.born);add(&v.body,sizeof v.body);
+    }
+    for(const auto& v:g_irDrops) {
+        add(v.p,sizeof v.p);add(v.v,sizeof v.v);add(&v.born,sizeof v.born);add(&v.body,sizeof v.body);
+    }
+    for(const auto& v:g_irObjSplats) {
+        add(&v.body,sizeof v.body);add(&v.kind,sizeof v.kind);add(&v.id,sizeof v.id);
+        add(v.l,sizeof v.l);add(v.d,sizeof v.d);add(&v.size,sizeof v.size);add(&v.rot,sizeof v.rot);
+        add(&v.var,sizeof v.var);add(&v.born,sizeof v.born);
+    }
+    return hash;
+}
+
+static uint64_t ir_pool_state_hash(){
+    uint64_t h=ir_effect_state_hash();
+    const auto add=[&](const void* p,size_t n){const unsigned char* b=(const unsigned char*)p;for(size_t i=0;i<n;i++)h=(h^b[i])*1099511628211ull;};
+    for(const auto& c:g_irCasings){add(c.p,sizeof c.p);add(c.v,sizeof c.v);add(c.a,sizeof c.a);add(c.w,sizeof c.w);add(&c.born,sizeof c.born);add(&c.rest,sizeof c.rest);}
+    for(const auto& b:g_irBody){add(&b.first,sizeof b.first);add(&b.second.splats,sizeof b.second.splats);}
+    add(&g_irDropsMade,sizeof g_irDropsMade);add(&g_irSplatGround,sizeof g_irSplatGround);add(&g_irSplatObj,sizeof g_irSplatObj);add(&g_irCasingsMade,sizeof g_irCasingsMade);
+    return h;
+}
+
 static void infdeath_log(void)
 {
+    printf("IRPOOLSTATE|enabled=%d|visited=%llu|moved=%llu|removed=%llu|state=%016llx|casings=%zu\n",ir_pool_compact_enabled()?1:0,g_irPoolVisited,g_irPoolMoved,g_irPoolRemoved,(unsigned long long)ir_pool_state_hash(),g_irCasings.size());
+    printf("BLOODSPLATFIFO|enabled=%d|overwritten=%llu|rotations=%llu|state=%016llx|splats=%zu|drops=%zu|objects=%zu\n",
+        ir_splat_fifo_enabled()?1:0,g_irSplatOverwrites,g_irSplatRotations,
+        (unsigned long long)ir_effect_state_hash(),g_irSplats.size(),g_irDrops.size(),g_irObjSplats.size());
+    printf("CORPSEVIEW|limit=20|enabled=%d|candidates=%zu|selected=%zu|drawn=%zu|blood=%d|ground_splats=%zu|drops=%zu|object_splats=%d\n",infdeath_view_enabled(),g_irViewCandidates,g_irViewBodies.size(),g_irViewDrawn.size(),g_irDrawnBlood,g_irViewGround,g_irViewDrops,g_irObjDrawn);
+    for(long long key:g_irViewBodies)printf("CORPSEVIEW|owner=%lld\n",key);
+
     int rag = 0, sleep = 0, blood = 0;
     /* the deepest any ragdoll point sits below its own radius off the ground, cells */
     float lowest = 0.0f;

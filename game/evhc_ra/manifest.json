@@ -573,33 +573,549 @@
    "baker": "tools/art/remaster/bake_evhc.py",
    "baker_commit": "b50711c7ab7e46f3db829231d318cf5d00ac0c9f"
   },
+  "CA": {
+   "file": "CA.evhc",
+   "format_version": 2,
+   "bytes": 14191844,
+   "sha256": "2d2dd4e6472d3a50c2d11043acfd75f961ce83371ac7ab7d58ae96bcfbbbdfcd",
+   "export": "build-native/remaster-ra/vehicles-game/CA/viewer",
+   "sources": {
+    "../CA_rm.json": "05cccea2ca3d144d1769a3b3f2f7f1c4e321ff13bc95507f75f6c3b79241c80b",
+    "CA_rm_0.png": "116437cdc1e046cbbe101fe6342165e52a1bed59ad12d177dcaccc6c12278a9b",
+    "CA_rm_1.png": "cbeb115141debf7bc1b2199395f26ef63b9dd6b75466553bdf7981eb4e695851",
+    "CA_rm_broken.png": "4bb275e7d574f58dc85ebe1ddbabae7c8616531027355440299aca5b6b3ab254",
+    "CA_rm_broken_emit.png": "d7d9537e18c2198ca9cbd55ac733c9caa324a09df386bc1e4f09f752dfc18d92",
+    "CA_rm_dmg_0.png": "cd7e51fe64ab31274bbc3266fa11cbadfa3197fe9b6d23e38ddfa0c363bc361c",
+    "CA_rm_dmg_1.png": "faa75e0185d81d7596125f229fb691f477e5e422662f9282d25f29e5b6f8a79c",
+    "CA_rm_dmg_emit_0.png": "6729a3c0ee702222e567c3b2b4dc6cadb773eee0827f1f45f806a9d08d71f63f",
+    "CA_rm_dmg_emit_1.png": "33fc8bb5465f0b56ce79489d2182f8bee58c653a844fdc00c7c557a0951c02a5",
+    "CA_rm_dmg_house_0.png": "289231a804c9951c93868db2c5eb6eb8a9f682246ed8563141ace238c8b096dc",
+    "CA_rm_dmg_house_1.png": "7228793e4e13d5fcb90ed7bb4389d624c5e2b20bdd4e310f38b9ed5aacf54b60",
+    "CA_rm_dmg_nod_0.png": "da87f0ff9252fb2c1a8bfcacabe1ff52dcbb2ce24285286b1f2051433e61b4a7",
+    "CA_rm_dmg_nod_1.png": "ce5cac1360a3f81184e76bf274760e747400dae252a1a93db87cb97fef49e11e",
+    "CA_rm_house_0.png": "677fb92464b36fb9530d885feb68bb7715bbe842b51f338bf522458b4f20609d",
+    "CA_rm_house_1.png": "aa7fd94dce07d16af30dda99e85eb7ec01583f390c358c352ba9e6a4e87f2aa6",
+    "CA_rm_nod_0.png": "299c3cd35fd1a64cc6e28aa0541b27e229782a7adda143646afa62f5efc05c2a",
+    "CA_rm_nod_1.png": "0ff3994a16a1f6d928a27cad65a2698b2606f8f550dc4eaccab5502d006602fd",
+    "destroyed.json": "f6b93e3cefd9d8a38034972299fac4169c4659a3740f2acd9b50c4a5643020d6",
+    "lights.json": "dae2792d29c3af7d1ec51e69f4615de6a58a30d49b9928c57639d4a2bd210702",
+    "remaster.json": "484d4eff22a0b35844982eab1eec29ce38604266f2a1a47433c44f27acf6f76f"
+   },
+   "vehicle_class": "boat",
+   "sets": {
+    "INTACT": {
+     "pieces": [
+      "hull",
+      "turret",
+      "turret_a"
+     ],
+     "triangles": 6522
+    },
+    "DESTROYED": {
+     "pieces": [
+      "afthouse",
+      "anchor_0",
+      "anchor_1",
+      "barbette_0",
+      "barbette_1",
+      "bilge#0",
+      "bilge#1",
+      "bilge#2",
+      "bilge#3",
+      "bilge#4",
+      "boat_0",
+      "boat_1",
+      "bollard_0",
+      "bollard_1",
+      "bollard_2",
+      "bollard_3",
+      "bollard_4",
+      "bollard_5",
+      "bollard_6",
+      "bollard_7",
+      "bollard_8",
+      "bollard_9",
+      "bow#0",
+      "bow#1",
+      "bow#2",
+      "bow#3",
+      "bow#4",
+      "bow#5",
+      "bow#6",
+      "bow#7",
+      "bow#8",
+      "bow#9",
+      "bridge#0",
+      "bridge#1",
+      "bridge#2",
+      "bridge#3",
+      "bridge#4",
+      "bridge#5",
+      "bridge_rail",
+      "capstan_0",
+      "capstan_1",
+      "chain_0",
+      "chain_1",
+      "crane",
+      "director",
+      "funnel_0",
+      "funnel_1",
+      "fwdhouse",
+      "hatch_0",
+      "hatch_1",
+      "jackstaff",
+      "ladder_0",
+      "ladder_1",
+      "ladder_2",
+      "ladder_3",
+      "locker_0",
+      "locker_1",
+      "locker_2",
+      "locker_3",
+      "mast",
+      "midhouse#0",
+      "midhouse#1",
+      "midhouse#2",
+      "midships#0",
+      "midships#1",
+      "midships#10",
+      "midships#11",
+      "midships#2",
+      "midships#3",
+      "midships#4",
+      "midships#5",
+      "midships#6",
+      "midships#7",
+      "midships#8",
+      "midships#9",
+      "mount_0",
+      "mount_1",
+      "mount_2",
+      "mount_3",
+      "mount_4",
+      "rail_pa",
+      "rail_pf",
+      "rail_sa",
+      "rail_sf",
+      "searchlight_0",
+      "searchlight_1",
+      "stern#0",
+      "stern#1",
+      "stern#2",
+      "stern#3",
+      "stern#4",
+      "stern#5",
+      "stern#6",
+      "stern#7",
+      "stern#8",
+      "turret_a",
+      "turret_f",
+      "vent_0",
+      "vent_1",
+      "vent_2",
+      "vent_3"
+     ],
+     "triangles": 10817
+    }
+   },
+   "wreck": "the lab's destroyed.json",
+   "parts": [
+    {
+     "piece": "turret",
+     "kind": "turret",
+     "parent": -1,
+     "driver": "none",
+     "side": 2,
+     "flags": 0,
+     "values": [
+      0.0,
+      207.17368,
+      726.70966,
+      0.0,
+      1.0,
+      -0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "piece": "turret_a",
+     "kind": "turret",
+     "parent": -1,
+     "driver": "none",
+     "side": 2,
+     "flags": 0,
+     "values": [
+      0.0,
+      193.536,
+      -726.70966,
+      0.0,
+      1.0,
+      -0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    }
+   ],
+   "params": {
+    "class": 6.0,
+    "gauge": 0.0,
+    "sink_after": 3.5,
+    "sink_time": 5.0,
+    "sink_depth": 0.35,
+    "wreck_shade": 0.42,
+    "dock_x": 0.0,
+    "dock_z": 0.0,
+    "dock_yaw": 0.0,
+    "deck": 0.0
+   },
+   "textures": [
+    {
+     "index": 0,
+     "name": "CA_rm_0.png",
+     "role": "base",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "CA_rm_nod_0.png",
+     "mask": "CA_rm_house_0.png"
+    },
+    {
+     "index": 1,
+     "name": "CA_rm_1.png",
+     "role": "base",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "CA_rm_nod_1.png",
+     "mask": "CA_rm_house_1.png"
+    },
+    {
+     "index": 2,
+     "name": "CA_rm_dmg_0.png",
+     "role": "damaged",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "CA_rm_dmg_nod_0.png",
+     "mask": "CA_rm_dmg_house_0.png"
+    },
+    {
+     "index": 3,
+     "name": "CA_rm_dmg_emit_0.png",
+     "role": "glow",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1
+    },
+    {
+     "index": 4,
+     "name": "CA_rm_broken.png",
+     "role": "broken",
+     "w": 128,
+     "h": 128,
+     "grid": 1,
+     "frames": 1
+    },
+    {
+     "index": 5,
+     "name": "CA_rm_broken_emit.png",
+     "role": "broken glow",
+     "w": 128,
+     "h": 128,
+     "grid": 1,
+     "frames": 1
+    },
+    {
+     "index": 6,
+     "name": "CA_rm_dmg_1.png",
+     "role": "damaged",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "CA_rm_dmg_nod_1.png",
+     "mask": "CA_rm_dmg_house_1.png"
+    },
+    {
+     "index": 7,
+     "name": "CA_rm_dmg_emit_1.png",
+     "role": "glow",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1
+    }
+   ],
+   "normals": {
+    "DESTROYED": {
+     "smooth_triangles": 10817,
+     "face_triangles": 0
+    },
+    "INTACT": {
+     "smooth_triangles": 6522,
+     "face_triangles": 0
+    }
+   },
+   "lights": [
+    {
+     "name": "light_port",
+     "kind": "head",
+     "piece": "hull",
+     "shadows": true
+    },
+    {
+     "name": "light_stbd",
+     "kind": "head",
+     "piece": "hull",
+     "shadows": true
+    }
+   ],
+   "turned": [],
+   "label_fallback": 360,
+   "notes": [
+    "CA_rm_0.png: its Nod decode differs on 942 texels its mask leaves alone (kept as the lab made it)",
+    "CA_rm_1.png: its Nod decode differs on 36 texels its mask leaves alone (kept as the lab made it)",
+    "CA_rm_dmg_0.png: its Nod decode differs on 5362 texels its mask leaves alone (kept as the lab made it)",
+    "group CA_rm_cut0_k1: 27 corners with a normal of no length, given their face's",
+    "CA_rm_dmg_1.png: its Nod decode differs on 417 texels its mask leaves alone (kept as the lab made it)"
+   ],
+   "baker": "tools/art/remaster/bake_evhc.py",
+   "baker_commit": "3e4130d13cc58553a9c57556bb03ab23bbaf7f2d"
+  },
+  "CTNK": {
+   "file": "CTNK.evhc",
+   "format_version": 2,
+   "bytes": 4847008,
+   "sha256": "4a33d2c0507c089632876c7c743cb3d82dfa77b09f7a3c89cde19e2a7efabc20",
+   "export": "build-native/remaster-ra/vehicles/CTNK/viewer",
+   "sources": {
+    "../CTNK_rm.json": "35e51e8ad95aae746d2166af1416aabb4b9f02a158acb893b9437de9b3eb19aa",
+    "CTNK_rm_0.png": "54324aa5723ac65dfb31f1d9c2020a22e47f18c63c6ef0d9a604158a5e2aa8e7",
+    "CTNK_rm_house_0.png": "c5b2fa7db572bb39ea28dabeff28d5df72f410c05905685de57ad22a82847c67",
+    "CTNK_rm_nod_0.png": "4372852f5287be9a526547000f96fcfa30e4ed9f46082b961eb6ae99be44bd0f",
+    "CTNK_rm_track.png": "c9f9d4d2991dbce5b68d543ff1338f929ce8bacb29230691d8a536ca32c8f82f",
+    "CTNK_rm_wheels.png": "edc14d2194d4480c8dc2f7283d99f5e2548cbd9b44f022ab14149e178765f458",
+    "remaster.json": "2783f055f1a52cd15fe39b005ed9e47467c2d9eef56543a0b43c76e515e9074b"
+   },
+   "vehicle_class": "tracked",
+   "sets": {
+    "INTACT": {
+     "pieces": [
+      "hull",
+      "belt_r",
+      "wflip_r",
+      "belt_l",
+      "wflip_l"
+     ],
+     "triangles": 4976
+    },
+    "DESTROYED": {
+     "pieces": [
+      "track_l",
+      "track_r",
+      "hull0",
+      "hull1",
+      "hull2",
+      "hull3",
+      "hull4",
+      "hull5"
+     ],
+     "triangles": 4976
+    }
+   },
+   "wreck": "derived here (the lab's destroyed.json does not exist yet)",
+   "parts": [
+    {
+     "piece": "belt_r",
+     "kind": "belt",
+     "parent": -1,
+     "driver": "none",
+     "side": 0,
+     "flags": 0,
+     "values": [
+      0.0,
+      0.0,
+      -0.0,
+      0.0,
+      1.0,
+      -0.0,
+      16.8448,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "piece": "wflip_r",
+     "kind": "wflip",
+     "parent": -1,
+     "driver": "none",
+     "side": 0,
+     "flags": 0,
+     "values": [
+      0.0,
+      0.0,
+      -0.0,
+      0.0,
+      1.0,
+      -0.0,
+      40.74864,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "piece": "belt_l",
+     "kind": "belt",
+     "parent": -1,
+     "driver": "none",
+     "side": 1,
+     "flags": 0,
+     "values": [
+      0.0,
+      0.0,
+      -0.0,
+      0.0,
+      1.0,
+      -0.0,
+      16.8448,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    },
+    {
+     "piece": "wflip_l",
+     "kind": "wflip",
+     "parent": -1,
+     "driver": "none",
+     "side": 1,
+     "flags": 0,
+     "values": [
+      0.0,
+      0.0,
+      -0.0,
+      0.0,
+      1.0,
+      -0.0,
+      40.74864,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    }
+   ],
+   "params": {
+    "class": 0.0,
+    "gauge": 0.392927,
+    "sink_after": 3.5,
+    "sink_time": 5.0,
+    "sink_depth": 0.35,
+    "wreck_shade": 0.42,
+    "dock_x": 0.0,
+    "dock_z": 0.0,
+    "dock_yaw": 0.0,
+    "deck": 0.0
+   },
+   "textures": [
+    {
+     "index": 0,
+     "name": "CTNK_rm_0.png",
+     "role": "base",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "CTNK_rm_nod_0.png",
+     "mask": "CTNK_rm_house_0.png"
+    },
+    {
+     "index": 1,
+     "name": "CTNK_rm_track.png",
+     "role": "belt",
+     "w": 64,
+     "h": 8,
+     "grid": 1,
+     "frames": 1
+    },
+    {
+     "index": 2,
+     "name": "CTNK_rm_wheels.png",
+     "role": "anim",
+     "w": 1024,
+     "h": 256,
+     "grid": 3,
+     "frames": 8
+    }
+   ],
+   "normals": {
+    "DESTROYED": {
+     "smooth_triangles": 0,
+     "face_triangles": 0
+    },
+    "INTACT": {
+     "smooth_triangles": 4976,
+     "face_triangles": 0
+    }
+   },
+   "lights": [],
+   "turned": [],
+   "label_fallback": 481,
+   "notes": [
+    "CTNK_rm_wheels.png is 837x141, a 3 x 3 flipbook: resampled to 1024x256"
+   ],
+   "baker": "tools/art/remaster/bake_evhc.py",
+   "baker_commit": "926f7a2c29f8749d020051ef11b883f976fa7a68"
+  },
   "DD": {
    "file": "DD.evhc",
    "format_version": 2,
-   "bytes": 13437620,
-   "sha256": "31943f305de15789a65b62fec53757f8bcfebbda1d622c61625e583e7aaa58ef",
+   "bytes": 11153572,
+   "sha256": "62c60b2b4e6553d411e38f49edfd9b94b5f78575dddffdbaaf57f8c64324b4ba",
    "export": "build-native/remaster-ra/vehicles-game/DD/viewer",
    "sources": {
-    "../DD_rm.json": "e33dbbd7e6c1eeb880961065c25f9bb36bb0aabf940afe147e69155a654bb1a3",
-    "DD_rm_0.png": "3365ebb6c3c7052f113e5096103b60275a09a58d66628a0b9f2f854c0f2ee45f",
-    "DD_rm_1.png": "a0749db3552b1b4d2d0a9a02404392d8a0d9295519eb8db078f7d5a34d813c21",
+    "../DD_rm.json": "dbb1f134d4718003b9ffa05c72b15d4d0ff14091a281e42dec3298973fb6235b",
+    "DD_rm_0.png": "5a2660cf7ef7768dc78e5060a69c80bcd8f3cc2a86505b2945a9687acbc54c2f",
+    "DD_rm_1.png": "36fc7e94cd8953d26848e0a89a7a74c0ba3c4f1970a9b94039a428772fe1a607",
     "DD_rm_broken.png": "4bb275e7d574f58dc85ebe1ddbabae7c8616531027355440299aca5b6b3ab254",
     "DD_rm_broken_emit.png": "41d005de9f3663b4e01c0452931d93ba5a1ef70d2e81b03917f236a7d136f82e",
-    "DD_rm_dmg_0.png": "9459e99e3fa1883f19ba6e79d8c6ab6eef0f96f245fdd7157f955ef064c83e87",
-    "DD_rm_dmg_1.png": "db0726f15dbfb25c8969ebf4e226e4d3ac618c380174cffdf2e6bccc87d5b14a",
-    "DD_rm_dmg_emit_0.png": "01bda9e3490a39d45a5ce173e76d70656889232ddcba8d9ef881ace499f633c3",
-    "DD_rm_dmg_emit_1.png": "fc5636c18a3ce36185cabdcb379a3e02992cace428f46d46d083a534a9e6f201",
-    "DD_rm_dmg_house_0.png": "a99ef1c656a57b0eb7dacd89a62a6b1871020475a5e5c8f7135d027592c8edcd",
-    "DD_rm_dmg_house_1.png": "1a5c447450cf0bfefe73f4c78a742727b5ecc5ae2ac07ebc3b8b8e1e39b24c0d",
-    "DD_rm_dmg_nod_0.png": "2cff145cd6f43a8d2f6702c1d0d117da84ecf7fb6b3dfe7b3f98f22abb7e4ba6",
-    "DD_rm_dmg_nod_1.png": "8b93f21323c61a02810c78d3b1120eac33b32ff9753e5c42495edbca4e56a091",
-    "DD_rm_house_0.png": "b8e1b04cd5f0e334cd5820abe628f6c444311fea0b810ff2304e751c9f8cb3b5",
-    "DD_rm_house_1.png": "a2598adb0228a975a00662441ac3daf7e619f6c6f7fe6e5cf87da5d0aba42399",
-    "DD_rm_nod_0.png": "adcede5580fcc19a6298c68259a69fceb0e725fef6c7b149c9bdb244606c7328",
-    "DD_rm_nod_1.png": "4aa0ddd01456f6d1a2cb73b4135a7d7fd3bbb1d56cb3ffcf4bbd9ac7154d8d04",
-    "destroyed.json": "35abd091d0e56f408e0e3a62b33c27cfe324ce3729e773aa87812b6abe6e47da",
-    "lights.json": "b22d98f33b3e2d2ddf31cee4b3a732c3cf4570a655b0ff2ed704aeccf80ad922",
-    "remaster.json": "172b996b49767537c7741a92cfc607aa34c6021e69fe80ae1f022a32833a12e5"
+    "DD_rm_dmg_0.png": "edfc960649e05442b0239b8d07e4408c7f4edc1b266458920c55cd01f8b7d750",
+    "DD_rm_dmg_1.png": "4ea7e5606c368fc0a7c836392fa6c072c290f3694ed146b7c4ca79ad52bd138f",
+    "DD_rm_dmg_emit_0.png": "b86cc98c865797eb0a00f369c56872217aa3bd22f1c581939967287bfdb86a93",
+    "DD_rm_dmg_emit_1.png": "8121c2b2b89d2b16a6545a2c462c71430f4a003fc9d830cc3e1dd67674dee6a9",
+    "DD_rm_dmg_house_0.png": "e6e80ecbe4922701dcd7208f0b103868f432488934949d1fb87a1124850c31ce",
+    "DD_rm_dmg_house_1.png": "65795a5b91030a2a433dae510d1edf494082a9cfa1153cd94f3797759f68f257",
+    "DD_rm_dmg_nod_0.png": "93e9205b08e4cc21e636a7ef63769e2927d810a71e38205e5d452a3b823c31e6",
+    "DD_rm_dmg_nod_1.png": "4ea7e5606c368fc0a7c836392fa6c072c290f3694ed146b7c4ca79ad52bd138f",
+    "DD_rm_house_0.png": "43aa172419e64a6a73f86e04e851a9b9d7076e544b5d2e8ef1309a37e273d1bf",
+    "DD_rm_house_1.png": "65795a5b91030a2a433dae510d1edf494082a9cfa1153cd94f3797759f68f257",
+    "DD_rm_nod_0.png": "c222639231ec82831526445deac74053dddf4a68325c5683ed2fef0ef4c6a73b",
+    "DD_rm_nod_1.png": "36fc7e94cd8953d26848e0a89a7a74c0ba3c4f1970a9b94039a428772fe1a607",
+    "destroyed.json": "7bb866651491b8896ae769a5378f031d4b919cff2485baf7ecf25d480d6c3f10",
+    "lights.json": "5461322be1b71da85a682469c9a4808132c92050ad94e62205390c6d4e0912d4",
+    "remaster.json": "e1ca0a851440e9be1c73929cf4255d2b9099e4adaf2993c03fb4e9a4514f7450"
    },
    "vehicle_class": "boat",
    "sets": {
@@ -608,12 +1124,10 @@
       "hull",
       "turret"
      ],
-     "triangles": 4256
+     "triangles": 4012
     },
     "DESTROYED": {
      "pieces": [
-      "afthouse#0",
-      "afthouse#1",
       "anchor_0",
       "anchor_1",
       "bilge#0",
@@ -631,20 +1145,13 @@
       "bow#2",
       "bow#3",
       "bow#4",
-      "bow#5",
-      "bow#6",
       "bridge#0",
       "bridge#1",
       "bridge#2",
       "bridge#3",
       "bridge#4",
-      "bridge_rail",
-      "capstan_0",
-      "capstan_1",
-      "chain_0",
-      "chain_1",
-      "funnel",
-      "gun_mount",
+      "gun_0",
+      "gun_1",
       "hatch",
       "ladder_0",
       "ladder_1",
@@ -657,9 +1164,9 @@
       "midhouse#2",
       "midhouse#3",
       "midhouse#4",
+      "midhouse#5",
       "midships#0",
       "midships#1",
-      "midships#10",
       "midships#2",
       "midships#3",
       "midships#4",
@@ -667,9 +1174,9 @@
       "midships#6",
       "midships#7",
       "midships#8",
-      "midships#9",
+      "pole_0",
+      "pole_1",
       "rack_0",
-      "rack_1",
       "raft_0",
       "raft_1",
       "raft_2",
@@ -679,17 +1186,39 @@
       "rail_sa",
       "rail_sf",
       "ring_0",
+      "roof_rail",
       "searchlight_0",
       "searchlight_1",
+      "searchlight_2",
+      "stack",
       "stern#0",
       "stern#1",
       "stern#2",
       "stern#3",
       "stern#4",
       "stern#5",
-      "stern#6"
+      "tower#0",
+      "tower#1",
+      "tower#2",
+      "tower#3",
+      "vent_0",
+      "vent_1",
+      "vent_10",
+      "vent_11",
+      "vent_12",
+      "vent_13",
+      "vent_14",
+      "vent_15",
+      "vent_2",
+      "vent_3",
+      "vent_4",
+      "vent_5",
+      "vent_6",
+      "vent_7",
+      "vent_8",
+      "vent_9"
      ],
-     "triangles": 7894
+     "triangles": 10465
     }
    },
    "wreck": "the lab's destroyed.json",
@@ -703,7 +1232,7 @@
      "flags": 0,
      "values": [
       0.0,
-      187.392,
+      159.744,
       -264.25806,
       0.0,
       1.0,
@@ -748,9 +1277,7 @@
      "w": 512,
      "h": 512,
      "grid": 1,
-     "frames": 1,
-     "nod": "DD_rm_nod_1.png",
-     "mask": "DD_rm_house_1.png"
+     "frames": 1
     },
     {
      "index": 2,
@@ -797,9 +1324,7 @@
      "w": 512,
      "h": 512,
      "grid": 1,
-     "frames": 1,
-     "nod": "DD_rm_dmg_nod_1.png",
-     "mask": "DD_rm_dmg_house_1.png"
+     "frames": 1
     },
     {
      "index": 7,
@@ -813,11 +1338,11 @@
    ],
    "normals": {
     "DESTROYED": {
-     "smooth_triangles": 7894,
+     "smooth_triangles": 10465,
      "face_triangles": 0
     },
     "INTACT": {
-     "smooth_triangles": 4256,
+     "smooth_triangles": 4012,
      "face_triangles": 0
     }
    },
@@ -836,16 +1361,16 @@
     }
    ],
    "turned": [],
-   "label_fallback": 165,
+   "label_fallback": 114,
    "notes": [
-    "DD_rm_0.png: its Nod decode differs on 798 texels its mask leaves alone (kept as the lab made it)",
-    "DD_rm_1.png: its Nod decode differs on 56 texels its mask leaves alone (kept as the lab made it)",
-    "DD_rm_dmg_0.png: its Nod decode differs on 4637 texels its mask leaves alone (kept as the lab made it)",
-    "group DD_rm_cut0_k1: 12 corners with a normal of no length, given their face's",
-    "DD_rm_dmg_1.png: its Nod decode differs on 1237 texels its mask leaves alone (kept as the lab made it)"
+    "DD_rm_0.png: its Nod decode differs on 191 texels its mask leaves alone (kept as the lab made it)",
+    "DD_rm_1.png: its mask DD_rm_house_1.png is zero everywhere, so it has no house paint; no Nod decode or mask stored",
+    "DD_rm_dmg_0.png: its Nod decode differs on 3883 texels its mask leaves alone (kept as the lab made it)",
+    "group DD_rm_cut0_k1: 60 corners with a normal of no length, given their face's",
+    "DD_rm_dmg_1.png: its mask DD_rm_dmg_house_1.png is zero everywhere, so it has no house paint; no Nod decode or mask stored"
    ],
    "baker": "tools/art/remaster/bake_evhc.py",
-   "baker_commit": "ec904d19fd0d1cc065a6e9e4c14fdbc3dbc7d50c"
+   "baker_commit": "926f7a2c29f8749d020051ef11b883f976fa7a68"
   },
   "HARV": {
    "file": "HARV.evhc",
@@ -4101,6 +4626,205 @@
    "baker": "tools/art/remaster/bake_evhc.py",
    "baker_commit": "a9ea214d622fb6f37b18139edc455c18116afd82"
   },
+  "SS": {
+   "file": "SS.evhc",
+   "format_version": 2,
+   "bytes": 13261352,
+   "sha256": "e903a63c5c34375d3d868690f38fbc786b72f286349e3d23894f0068902485a8",
+   "export": "build-native/remaster-ra/vehicles-game/SS/viewer",
+   "sources": {
+    "../SS_rm.json": "d0698817fda952a57ceb2bc039e0b60e9561373b0a2520656d74810c1b25b813",
+    "SS_rm_0.png": "dd53766e91fdfd4c49e9588c26212ab3054922c8e93dcf69f24646d40ca1b89f",
+    "SS_rm_1.png": "7c96b28138176b6f92ae9036a110db647fee98d813ed87540be7d625c2cca944",
+    "SS_rm_broken.png": "4bb275e7d574f58dc85ebe1ddbabae7c8616531027355440299aca5b6b3ab254",
+    "SS_rm_broken_emit.png": "be60f4f79ef2e99fbcb2a8a92f8ad2eddbcc67223bf4802f14dc7efcdffa6f30",
+    "SS_rm_dmg_0.png": "e431a0d05726e64d79d74b584d39eba605bbfc9e78e26505f9d93562199d605b",
+    "SS_rm_dmg_1.png": "a2439261ed2ffbd9e56e6e4fbc76a10db25fa0919d70dcc1c376c055917a6485",
+    "SS_rm_dmg_emit_0.png": "aaa8faabc97181ace91eb96158fbd071383989301cec2337c33e22251f65637a",
+    "SS_rm_dmg_emit_1.png": "8bac37c27c9420cda7bf441fabc9abb7a0ccdd9ad914807a0523b10407bf3480",
+    "SS_rm_dmg_house_0.png": "47094387b261a2abb649d11ee0bcac782c4a6fdaf2fc375e96df9e4a1123a629",
+    "SS_rm_dmg_house_1.png": "cc67bfc497bc60d1eec0b6f1fc461b4e5921fcd320f03fde386da1502e870831",
+    "SS_rm_dmg_nod_0.png": "ab6d530a2ab753e8ab8a825602b69d4c20200ce0885f2cafac1fd8f7c48ace54",
+    "SS_rm_dmg_nod_1.png": "2c43f516a26d0db6928721e78b6577c6dafc90ef2b14543ae6b82736b003213e",
+    "SS_rm_house_0.png": "9232c4f169c5f306b9fe975620c3ec32cd0becaaadef103e39c35ef018a1e4b9",
+    "SS_rm_house_1.png": "3cab765705880cc11240bc36a18b617b3706794784816b3a50d708e83e713db2",
+    "SS_rm_nod_0.png": "89c3c8f9066e84222b220f20dba1bc05a68607f6f6c43467009a67b94267cfbc",
+    "SS_rm_nod_1.png": "7d63d836080067339eb35d40ce09be7ce78102f4eec7431de88b8c793dc27c0e",
+    "destroyed.json": "be39aefaa2b13b6fd8305c0c957959307c1d3c75f2541844b12ceb80ab270416",
+    "remaster.json": "c76cc9c3394e34338a0c12fbb54244947eaf830d9d5c8a61962262707a1e7abd"
+   },
+   "vehicle_class": "boat",
+   "sets": {
+    "INTACT": {
+     "pieces": [
+      "hull"
+     ],
+     "triangles": 2436
+    },
+    "DESTROYED": {
+     "pieces": [
+      "bilge#0",
+      "bilge#1",
+      "bilge#2",
+      "bilge#3",
+      "bilge#4",
+      "bow#0",
+      "bow#1",
+      "bow#2",
+      "bow#3",
+      "bow#4",
+      "hatch_0",
+      "hatch_1",
+      "hatch_2",
+      "hatch_3",
+      "hatch_4",
+      "mast_0",
+      "mast_1",
+      "midships#0",
+      "midships#1",
+      "midships#2",
+      "midships#3",
+      "midships#4",
+      "midships#5",
+      "plane_0",
+      "plane_1",
+      "rudder",
+      "rudder_low",
+      "sail#0",
+      "sail#1",
+      "sail#2",
+      "sail#3",
+      "sail#4",
+      "sail#5",
+      "sail_hatch",
+      "screw",
+      "stern#0",
+      "stern#1",
+      "stern#2",
+      "stern#3",
+      "stern#4",
+      "stern_plane_0"
+     ],
+     "triangles": 8566
+    }
+   },
+   "wreck": "the lab's destroyed.json",
+   "parts": [],
+   "params": {
+    "class": 6.0,
+    "gauge": 0.0,
+    "sink_after": 3.5,
+    "sink_time": 5.0,
+    "sink_depth": 0.35,
+    "wreck_shade": 0.42,
+    "dock_x": 0.0,
+    "dock_z": 0.0,
+    "dock_yaw": 0.0,
+    "deck": 0.0
+   },
+   "textures": [
+    {
+     "index": 0,
+     "name": "SS_rm_0.png",
+     "role": "base",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "SS_rm_nod_0.png",
+     "mask": "SS_rm_house_0.png"
+    },
+    {
+     "index": 1,
+     "name": "SS_rm_1.png",
+     "role": "base",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "SS_rm_nod_1.png",
+     "mask": "SS_rm_house_1.png"
+    },
+    {
+     "index": 2,
+     "name": "SS_rm_dmg_0.png",
+     "role": "damaged",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "SS_rm_dmg_nod_0.png",
+     "mask": "SS_rm_dmg_house_0.png"
+    },
+    {
+     "index": 3,
+     "name": "SS_rm_dmg_emit_0.png",
+     "role": "glow",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1
+    },
+    {
+     "index": 4,
+     "name": "SS_rm_broken.png",
+     "role": "broken",
+     "w": 128,
+     "h": 128,
+     "grid": 1,
+     "frames": 1
+    },
+    {
+     "index": 5,
+     "name": "SS_rm_broken_emit.png",
+     "role": "broken glow",
+     "w": 128,
+     "h": 128,
+     "grid": 1,
+     "frames": 1
+    },
+    {
+     "index": 6,
+     "name": "SS_rm_dmg_1.png",
+     "role": "damaged",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1,
+     "nod": "SS_rm_dmg_nod_1.png",
+     "mask": "SS_rm_dmg_house_1.png"
+    },
+    {
+     "index": 7,
+     "name": "SS_rm_dmg_emit_1.png",
+     "role": "glow",
+     "w": 512,
+     "h": 512,
+     "grid": 1,
+     "frames": 1
+    }
+   ],
+   "normals": {
+    "DESTROYED": {
+     "smooth_triangles": 8566,
+     "face_triangles": 0
+    },
+    "INTACT": {
+     "smooth_triangles": 2436,
+     "face_triangles": 0
+    }
+   },
+   "lights": [],
+   "turned": [],
+   "label_fallback": 366,
+   "notes": [
+    "SS_rm_0.png: its Nod decode differs on 46 texels its mask leaves alone (kept as the lab made it)",
+    "SS_rm_dmg_0.png: its Nod decode differs on 1512 texels its mask leaves alone (kept as the lab made it)",
+    "SS_rm_dmg_1.png: its Nod decode differs on 1388 texels its mask leaves alone (kept as the lab made it)"
+   ],
+   "baker": "tools/art/remaster/bake_evhc.py",
+   "baker_commit": "3e4130d13cc58553a9c57556bb03ab23bbaf7f2d"
+  },
   "TRUK": {
    "file": "TRUK.evhc",
    "format_version": 2,
@@ -5620,527 +6344,6 @@
    ],
    "baker": "tools/art/remaster/bake_evhc.py",
    "baker_commit": "ec904d19fd0d1cc065a6e9e4c14fdbc3dbc7d50c"
-  },
-  "SS": {
-   "file": "SS.evhc",
-   "format_version": 2,
-   "bytes": 13261352,
-   "sha256": "e903a63c5c34375d3d868690f38fbc786b72f286349e3d23894f0068902485a8",
-   "export": "build-native/remaster-ra/vehicles-game/SS/viewer",
-   "sources": {
-    "../SS_rm.json": "d0698817fda952a57ceb2bc039e0b60e9561373b0a2520656d74810c1b25b813",
-    "SS_rm_0.png": "dd53766e91fdfd4c49e9588c26212ab3054922c8e93dcf69f24646d40ca1b89f",
-    "SS_rm_1.png": "7c96b28138176b6f92ae9036a110db647fee98d813ed87540be7d625c2cca944",
-    "SS_rm_broken.png": "4bb275e7d574f58dc85ebe1ddbabae7c8616531027355440299aca5b6b3ab254",
-    "SS_rm_broken_emit.png": "be60f4f79ef2e99fbcb2a8a92f8ad2eddbcc67223bf4802f14dc7efcdffa6f30",
-    "SS_rm_dmg_0.png": "e431a0d05726e64d79d74b584d39eba605bbfc9e78e26505f9d93562199d605b",
-    "SS_rm_dmg_1.png": "a2439261ed2ffbd9e56e6e4fbc76a10db25fa0919d70dcc1c376c055917a6485",
-    "SS_rm_dmg_emit_0.png": "aaa8faabc97181ace91eb96158fbd071383989301cec2337c33e22251f65637a",
-    "SS_rm_dmg_emit_1.png": "8bac37c27c9420cda7bf441fabc9abb7a0ccdd9ad914807a0523b10407bf3480",
-    "SS_rm_dmg_house_0.png": "47094387b261a2abb649d11ee0bcac782c4a6fdaf2fc375e96df9e4a1123a629",
-    "SS_rm_dmg_house_1.png": "cc67bfc497bc60d1eec0b6f1fc461b4e5921fcd320f03fde386da1502e870831",
-    "SS_rm_dmg_nod_0.png": "ab6d530a2ab753e8ab8a825602b69d4c20200ce0885f2cafac1fd8f7c48ace54",
-    "SS_rm_dmg_nod_1.png": "2c43f516a26d0db6928721e78b6577c6dafc90ef2b14543ae6b82736b003213e",
-    "SS_rm_house_0.png": "9232c4f169c5f306b9fe975620c3ec32cd0becaaadef103e39c35ef018a1e4b9",
-    "SS_rm_house_1.png": "3cab765705880cc11240bc36a18b617b3706794784816b3a50d708e83e713db2",
-    "SS_rm_nod_0.png": "89c3c8f9066e84222b220f20dba1bc05a68607f6f6c43467009a67b94267cfbc",
-    "SS_rm_nod_1.png": "7d63d836080067339eb35d40ce09be7ce78102f4eec7431de88b8c793dc27c0e",
-    "destroyed.json": "be39aefaa2b13b6fd8305c0c957959307c1d3c75f2541844b12ceb80ab270416",
-    "remaster.json": "c76cc9c3394e34338a0c12fbb54244947eaf830d9d5c8a61962262707a1e7abd"
-   },
-   "vehicle_class": "boat",
-   "sets": {
-    "INTACT": {
-     "pieces": [
-      "hull"
-     ],
-     "triangles": 2436
-    },
-    "DESTROYED": {
-     "pieces": [
-      "bilge#0",
-      "bilge#1",
-      "bilge#2",
-      "bilge#3",
-      "bilge#4",
-      "bow#0",
-      "bow#1",
-      "bow#2",
-      "bow#3",
-      "bow#4",
-      "hatch_0",
-      "hatch_1",
-      "hatch_2",
-      "hatch_3",
-      "hatch_4",
-      "mast_0",
-      "mast_1",
-      "midships#0",
-      "midships#1",
-      "midships#2",
-      "midships#3",
-      "midships#4",
-      "midships#5",
-      "plane_0",
-      "plane_1",
-      "rudder",
-      "rudder_low",
-      "sail#0",
-      "sail#1",
-      "sail#2",
-      "sail#3",
-      "sail#4",
-      "sail#5",
-      "sail_hatch",
-      "screw",
-      "stern#0",
-      "stern#1",
-      "stern#2",
-      "stern#3",
-      "stern#4",
-      "stern_plane_0"
-     ],
-     "triangles": 8566
-    }
-   },
-   "wreck": "the lab's destroyed.json",
-   "parts": [],
-   "params": {
-    "class": 6.0,
-    "gauge": 0.0,
-    "sink_after": 3.5,
-    "sink_time": 5.0,
-    "sink_depth": 0.35,
-    "wreck_shade": 0.42,
-    "dock_x": 0.0,
-    "dock_z": 0.0,
-    "dock_yaw": 0.0,
-    "deck": 0.0
-   },
-   "textures": [
-    {
-     "index": 0,
-     "name": "SS_rm_0.png",
-     "role": "base",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1,
-     "nod": "SS_rm_nod_0.png",
-     "mask": "SS_rm_house_0.png"
-    },
-    {
-     "index": 1,
-     "name": "SS_rm_1.png",
-     "role": "base",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1,
-     "nod": "SS_rm_nod_1.png",
-     "mask": "SS_rm_house_1.png"
-    },
-    {
-     "index": 2,
-     "name": "SS_rm_dmg_0.png",
-     "role": "damaged",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1,
-     "nod": "SS_rm_dmg_nod_0.png",
-     "mask": "SS_rm_dmg_house_0.png"
-    },
-    {
-     "index": 3,
-     "name": "SS_rm_dmg_emit_0.png",
-     "role": "glow",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1
-    },
-    {
-     "index": 4,
-     "name": "SS_rm_broken.png",
-     "role": "broken",
-     "w": 128,
-     "h": 128,
-     "grid": 1,
-     "frames": 1
-    },
-    {
-     "index": 5,
-     "name": "SS_rm_broken_emit.png",
-     "role": "broken glow",
-     "w": 128,
-     "h": 128,
-     "grid": 1,
-     "frames": 1
-    },
-    {
-     "index": 6,
-     "name": "SS_rm_dmg_1.png",
-     "role": "damaged",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1,
-     "nod": "SS_rm_dmg_nod_1.png",
-     "mask": "SS_rm_dmg_house_1.png"
-    },
-    {
-     "index": 7,
-     "name": "SS_rm_dmg_emit_1.png",
-     "role": "glow",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1
-    }
-   ],
-   "normals": {
-    "DESTROYED": {
-     "smooth_triangles": 8566,
-     "face_triangles": 0
-    },
-    "INTACT": {
-     "smooth_triangles": 2436,
-     "face_triangles": 0
-    }
-   },
-   "lights": [],
-   "turned": [],
-   "label_fallback": 366,
-   "notes": [
-    "SS_rm_0.png: its Nod decode differs on 46 texels its mask leaves alone (kept as the lab made it)",
-    "SS_rm_dmg_0.png: its Nod decode differs on 1512 texels its mask leaves alone (kept as the lab made it)",
-    "SS_rm_dmg_1.png: its Nod decode differs on 1388 texels its mask leaves alone (kept as the lab made it)"
-   ],
-   "baker": "tools/art/remaster/bake_evhc.py",
-   "baker_commit": "3e4130d13cc58553a9c57556bb03ab23bbaf7f2d"
-  },
-  "CA": {
-   "file": "CA.evhc",
-   "format_version": 2,
-   "bytes": 14191844,
-   "sha256": "2d2dd4e6472d3a50c2d11043acfd75f961ce83371ac7ab7d58ae96bcfbbbdfcd",
-   "export": "build-native/remaster-ra/vehicles-game/CA/viewer",
-   "sources": {
-    "../CA_rm.json": "05cccea2ca3d144d1769a3b3f2f7f1c4e321ff13bc95507f75f6c3b79241c80b",
-    "CA_rm_0.png": "116437cdc1e046cbbe101fe6342165e52a1bed59ad12d177dcaccc6c12278a9b",
-    "CA_rm_1.png": "cbeb115141debf7bc1b2199395f26ef63b9dd6b75466553bdf7981eb4e695851",
-    "CA_rm_broken.png": "4bb275e7d574f58dc85ebe1ddbabae7c8616531027355440299aca5b6b3ab254",
-    "CA_rm_broken_emit.png": "d7d9537e18c2198ca9cbd55ac733c9caa324a09df386bc1e4f09f752dfc18d92",
-    "CA_rm_dmg_0.png": "cd7e51fe64ab31274bbc3266fa11cbadfa3197fe9b6d23e38ddfa0c363bc361c",
-    "CA_rm_dmg_1.png": "faa75e0185d81d7596125f229fb691f477e5e422662f9282d25f29e5b6f8a79c",
-    "CA_rm_dmg_emit_0.png": "6729a3c0ee702222e567c3b2b4dc6cadb773eee0827f1f45f806a9d08d71f63f",
-    "CA_rm_dmg_emit_1.png": "33fc8bb5465f0b56ce79489d2182f8bee58c653a844fdc00c7c557a0951c02a5",
-    "CA_rm_dmg_house_0.png": "289231a804c9951c93868db2c5eb6eb8a9f682246ed8563141ace238c8b096dc",
-    "CA_rm_dmg_house_1.png": "7228793e4e13d5fcb90ed7bb4389d624c5e2b20bdd4e310f38b9ed5aacf54b60",
-    "CA_rm_dmg_nod_0.png": "da87f0ff9252fb2c1a8bfcacabe1ff52dcbb2ce24285286b1f2051433e61b4a7",
-    "CA_rm_dmg_nod_1.png": "ce5cac1360a3f81184e76bf274760e747400dae252a1a93db87cb97fef49e11e",
-    "CA_rm_house_0.png": "677fb92464b36fb9530d885feb68bb7715bbe842b51f338bf522458b4f20609d",
-    "CA_rm_house_1.png": "aa7fd94dce07d16af30dda99e85eb7ec01583f390c358c352ba9e6a4e87f2aa6",
-    "CA_rm_nod_0.png": "299c3cd35fd1a64cc6e28aa0541b27e229782a7adda143646afa62f5efc05c2a",
-    "CA_rm_nod_1.png": "0ff3994a16a1f6d928a27cad65a2698b2606f8f550dc4eaccab5502d006602fd",
-    "destroyed.json": "f6b93e3cefd9d8a38034972299fac4169c4659a3740f2acd9b50c4a5643020d6",
-    "lights.json": "dae2792d29c3af7d1ec51e69f4615de6a58a30d49b9928c57639d4a2bd210702",
-    "remaster.json": "484d4eff22a0b35844982eab1eec29ce38604266f2a1a47433c44f27acf6f76f"
-   },
-   "vehicle_class": "boat",
-   "sets": {
-    "INTACT": {
-     "pieces": [
-      "hull",
-      "turret",
-      "turret_a"
-     ],
-     "triangles": 6522
-    },
-    "DESTROYED": {
-     "pieces": [
-      "afthouse",
-      "anchor_0",
-      "anchor_1",
-      "barbette_0",
-      "barbette_1",
-      "bilge#0",
-      "bilge#1",
-      "bilge#2",
-      "bilge#3",
-      "bilge#4",
-      "boat_0",
-      "boat_1",
-      "bollard_0",
-      "bollard_1",
-      "bollard_2",
-      "bollard_3",
-      "bollard_4",
-      "bollard_5",
-      "bollard_6",
-      "bollard_7",
-      "bollard_8",
-      "bollard_9",
-      "bow#0",
-      "bow#1",
-      "bow#2",
-      "bow#3",
-      "bow#4",
-      "bow#5",
-      "bow#6",
-      "bow#7",
-      "bow#8",
-      "bow#9",
-      "bridge#0",
-      "bridge#1",
-      "bridge#2",
-      "bridge#3",
-      "bridge#4",
-      "bridge#5",
-      "bridge_rail",
-      "capstan_0",
-      "capstan_1",
-      "chain_0",
-      "chain_1",
-      "crane",
-      "director",
-      "funnel_0",
-      "funnel_1",
-      "fwdhouse",
-      "hatch_0",
-      "hatch_1",
-      "jackstaff",
-      "ladder_0",
-      "ladder_1",
-      "ladder_2",
-      "ladder_3",
-      "locker_0",
-      "locker_1",
-      "locker_2",
-      "locker_3",
-      "mast",
-      "midhouse#0",
-      "midhouse#1",
-      "midhouse#2",
-      "midships#0",
-      "midships#1",
-      "midships#10",
-      "midships#11",
-      "midships#2",
-      "midships#3",
-      "midships#4",
-      "midships#5",
-      "midships#6",
-      "midships#7",
-      "midships#8",
-      "midships#9",
-      "mount_0",
-      "mount_1",
-      "mount_2",
-      "mount_3",
-      "mount_4",
-      "rail_pa",
-      "rail_pf",
-      "rail_sa",
-      "rail_sf",
-      "searchlight_0",
-      "searchlight_1",
-      "stern#0",
-      "stern#1",
-      "stern#2",
-      "stern#3",
-      "stern#4",
-      "stern#5",
-      "stern#6",
-      "stern#7",
-      "stern#8",
-      "turret_a",
-      "turret_f",
-      "vent_0",
-      "vent_1",
-      "vent_2",
-      "vent_3"
-     ],
-     "triangles": 10817
-    }
-   },
-   "wreck": "the lab's destroyed.json",
-   "parts": [
-    {
-     "piece": "turret",
-     "kind": "turret",
-     "parent": -1,
-     "driver": "none",
-     "side": 2,
-     "flags": 0,
-     "values": [
-      0.0,
-      207.17368,
-      726.70966,
-      0.0,
-      1.0,
-      -0.0,
-      0.0,
-      0.0,
-      0.0,
-      0.0,
-      0.0,
-      0.0
-     ]
-    },
-    {
-     "piece": "turret_a",
-     "kind": "turret",
-     "parent": -1,
-     "driver": "none",
-     "side": 2,
-     "flags": 0,
-     "values": [
-      0.0,
-      193.536,
-      -726.70966,
-      0.0,
-      1.0,
-      -0.0,
-      0.0,
-      0.0,
-      0.0,
-      0.0,
-      0.0,
-      0.0
-     ]
-    }
-   ],
-   "params": {
-    "class": 6.0,
-    "gauge": 0.0,
-    "sink_after": 3.5,
-    "sink_time": 5.0,
-    "sink_depth": 0.35,
-    "wreck_shade": 0.42,
-    "dock_x": 0.0,
-    "dock_z": 0.0,
-    "dock_yaw": 0.0,
-    "deck": 0.0
-   },
-   "textures": [
-    {
-     "index": 0,
-     "name": "CA_rm_0.png",
-     "role": "base",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1,
-     "nod": "CA_rm_nod_0.png",
-     "mask": "CA_rm_house_0.png"
-    },
-    {
-     "index": 1,
-     "name": "CA_rm_1.png",
-     "role": "base",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1,
-     "nod": "CA_rm_nod_1.png",
-     "mask": "CA_rm_house_1.png"
-    },
-    {
-     "index": 2,
-     "name": "CA_rm_dmg_0.png",
-     "role": "damaged",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1,
-     "nod": "CA_rm_dmg_nod_0.png",
-     "mask": "CA_rm_dmg_house_0.png"
-    },
-    {
-     "index": 3,
-     "name": "CA_rm_dmg_emit_0.png",
-     "role": "glow",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1
-    },
-    {
-     "index": 4,
-     "name": "CA_rm_broken.png",
-     "role": "broken",
-     "w": 128,
-     "h": 128,
-     "grid": 1,
-     "frames": 1
-    },
-    {
-     "index": 5,
-     "name": "CA_rm_broken_emit.png",
-     "role": "broken glow",
-     "w": 128,
-     "h": 128,
-     "grid": 1,
-     "frames": 1
-    },
-    {
-     "index": 6,
-     "name": "CA_rm_dmg_1.png",
-     "role": "damaged",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1,
-     "nod": "CA_rm_dmg_nod_1.png",
-     "mask": "CA_rm_dmg_house_1.png"
-    },
-    {
-     "index": 7,
-     "name": "CA_rm_dmg_emit_1.png",
-     "role": "glow",
-     "w": 512,
-     "h": 512,
-     "grid": 1,
-     "frames": 1
-    }
-   ],
-   "normals": {
-    "DESTROYED": {
-     "smooth_triangles": 10817,
-     "face_triangles": 0
-    },
-    "INTACT": {
-     "smooth_triangles": 6522,
-     "face_triangles": 0
-    }
-   },
-   "lights": [
-    {
-     "name": "light_port",
-     "kind": "head",
-     "piece": "hull",
-     "shadows": true
-    },
-    {
-     "name": "light_stbd",
-     "kind": "head",
-     "piece": "hull",
-     "shadows": true
-    }
-   ],
-   "turned": [],
-   "label_fallback": 360,
-   "notes": [
-    "CA_rm_0.png: its Nod decode differs on 942 texels its mask leaves alone (kept as the lab made it)",
-    "CA_rm_1.png: its Nod decode differs on 36 texels its mask leaves alone (kept as the lab made it)",
-    "CA_rm_dmg_0.png: its Nod decode differs on 5362 texels its mask leaves alone (kept as the lab made it)",
-    "group CA_rm_cut0_k1: 27 corners with a normal of no length, given their face's",
-    "CA_rm_dmg_1.png: its Nod decode differs on 417 texels its mask leaves alone (kept as the lab made it)"
-   ],
-   "baker": "tools/art/remaster/bake_evhc.py",
-   "baker_commit": "3e4130d13cc58553a9c57556bb03ab23bbaf7f2d"
   }
  }
 }

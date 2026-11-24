@@ -793,6 +793,28 @@ void lm_sizes(LM_State *m, long long *movies_bytes, long long *music_bytes)
         *music_bytes = sizes[LM_MUSIC];
 }
 
+void lm_missing(LM_State *m, long long *movies_bytes, long long *music_bytes)
+{
+    long long sizes[LM_NCOMP] = {0, 0};
+    int i, inst[LM_MAX_MODULES];
+    if (m) {
+        lm_modules_now(m, inst);
+        for (i = 0; i < m->nfiles; i++) {
+            char path[1600];
+            const LM_File *f = &m->files[i];
+            if (!lm_counts(f, inst))
+                continue;
+            snprintf(path, sizeof path, "%s/%s", m->dir, f->rel);
+            if (ln_file_size(path) != f->size)
+                sizes[f->comp] += f->size;
+        }
+    }
+    if (movies_bytes)
+        *movies_bytes = sizes[LM_MOVIES];
+    if (music_bytes)
+        *music_bytes = sizes[LM_MUSIC];
+}
+
 void lm_game_sizes(LM_State *m,long long *movies,long long *music)
 {
     long long sizes[LM_NCOMP]={0,0};int i;
@@ -1592,6 +1614,19 @@ static int lm_apply_mode(LM_State *m, int want_movies, int want_music, int add_o
         lm_unlock(m);
         return 0;
     }
+    return 1;
+}
+
+int lm_name(LM_State *m, int index, char *rel, int len)
+{
+    if (!m || index < 0 || !rel || len <= 0)
+        return 0;
+    if (index < m->nfiles)
+        snprintf(rel, (size_t)len, "%s", m->files[index].rel);
+    else if (index - m->nfiles < m->nlegacy)
+        snprintf(rel, (size_t)len, "%s", m->legacy[index - m->nfiles].rel);
+    else
+        return 0;
     return 1;
 }
 

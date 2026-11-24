@@ -1,208 +1,132 @@
-OpenCNC3D -- macOS build
-========================
+OpenCNC3D -- macOS
+=================
 
-Command & Conquer with the Nintendo 64's camera and 3D models, running on the
-original 1995 Tiberian Dawn game logic (the GPL source, built here as
-TiberianDawn.dylib) with the original MS-DOS sidebar, infantry and speech, and
-the 1995 movies and music when you choose to download them (see below). The
-build number is printed in the bottom right corner of the main menu dialog.
-That is the first thing to quote in a bug report.
+START HERE
+----------
+Requires macOS 14 (Sonoma) or newer. The same download runs natively on
+Apple Silicon (M-series) and Intel Macs. Apple Silicon does not need Rosetta.
+Both Dawn3D and RA3D are supported.
 
-
-THE FIRST START ASKS ABOUT MOVIES AND MUSIC
--------------------------------------------
-The 1995 cutscenes (428.5 MB) and soundtrack (79.6 MB) are not in this
-download. They are downloaded from the original discs: the movies from the
-Command & Conquer Gold discs, which EA released as freeware in 2007, and the
-music from the Covert Operations disc, the only one that carries the whole
-score. The first time you open OpenCNC3D.app the launcher shows a SETUP screen
-with two boxes, both ticked:
-
-  [x] DOWNLOAD MOVIES        428.5 MB
-  [x] DOWNLOAD MUSIC          79.6 MB
-
-INSTALL downloads what is ticked, with a bar showing the size so far and the
-percent; CANCEL stops it, and the next try carries on from what arrived. Untick
-both and the button reads CONTINUE: the game then has no movies and no music,
-and plays normally without them. QUIT leaves without deciding, and Setup is
-shown again next time.
-
-CHANGING YOUR MIND LATER: the small GEAR button at the right hand end of the
-MODULES heading opens SETTINGS, with the same two boxes showing what you chose
-and what is there. Tick one to download it, untick one to remove it (it asks
-first, naming what goes), then APPLY. A download that did not finish is
-mentioned under the MODULES when the launcher starts, and APPLY in SETTINGS
-finishes it. Updates leave the movies and music alone either way.
-
-The download needs an internet connection. If it fails, the launcher says why
-and offers RETRY, PLAY WITHOUT (start the game as it is) or QUIT.
+Open OpenCNC3D.app to start the launcher. Do not double-click the plain
+opencnc3d, cnc_eyes or opencnc3d-launcher files beside it. Keep the app and all
+its neighboring files together; use a Dock shortcut or Finder alias instead
+of moving the app out of its folder.
 
 
-FIRST LAUNCH: MACOS GETS IN THE WAY ONCE
-----------------------------------------
-Nothing here is signed or notarised, and anything downloaded from GitHub
-arrives with macOS's quarantine flag set. That shows up in one of two ways.
-
-  "cannot be opened because the developer cannot be verified"
-      The plain refusal.
-
-  "Could not find the game."
-      Less obvious, and it is the same cause. macOS runs an unsigned,
-      quarantined app from a hidden temporary copy of the app ALONE, without
-      the files next to it, so the app opens and then cannot see the game.
-
-AS OF v0.5.9 OpenCNC3D HANDLES BOTH ON ITS OWN. If it finds itself running from
-the temporary copy it goes looking for the real folder in the usual places
-(Downloads, Desktop, Applications, your home folder), starts the game from
-there, and clears the quarantine flag so it does not happen again. If it
-cannot find the folder it asks you to point at it, once.
-
-So the expected experience is: double-click OpenCNC3D, approve one prompt if macOS
-shows one, and play. If you would rather clear the flag yourself first, this
-is still the route that works on every version of macOS -- in Terminal type
-the line below, then a SPACE, then drag the folder in from the Finder (which
-types its path for you), then press return:
-
-    xattr -dr com.apple.quarantine
-
-Through the Finder it is instead one approval per file, and recent versions of
-macOS moved where you give it: try right click -> Open first, and if that
-dialog offers no Open button, the approval is waiting in System Settings ->
-Privacy & Security, on a line naming whatever was just blocked.
-
-
-IT NEEDS macOS 14 OR NEWER
---------------------------
-The binaries are built with a deployment target of macOS 14 (Sonoma). That is not a
-preference: the SDL libraries shipped beside them are themselves built for 14, so it
-is the lowest floor this build can have without different SDL binaries. On macOS 13
-or older the system refuses to load it before the game starts, and the message you
-get will not mention the version.
-
-APPLE SILICON AND INTEL
+WHICH DOWNLOAD TO CHOOSE
 -----------------------
-One download runs on both. Every program and library here carries Apple
-Silicon (arm64) and Intel (x86_64) code side by side, and macOS picks the one
-that matches the Mac. Nothing needs installing on either kind; an M-series Mac
-does not need Rosetta 2.
+OpenCNC3D Complete: the launcher with Dawn3D included.
+RA3D Complete: the launcher with Red Alert 3D included.
+OpenCNC3D Installer: the launcher only; choose Add Game after opening it.
+OpenCNC3D Binaries / RA3D Binaries: updates for a matching complete installation.
+A Binaries archive has no game data or artwork and cannot run on its own.
+
+The Complete installers include their game offline. Movies and music are
+optional. The empty Installer downloads no game during installation.
 
 
-HOW TO START IT
----------------
-TWO PROGRAMS SHIP HERE, and which one a launcher runs decides what the picture
-looks like before you touch anything.
+INSTALLING A .PKG
+-----------------
+1. Open the downloaded macOS .pkg and follow Installer.
+2. Complete installers offer optional Movies and Music in Customize.
+3. In Finder choose Go -> Home, then open Applications -> OpenCNC3D.
+4. Open OpenCNC3D.app there.
 
-  opencnc3d  the game: main menu, movies, campaign, score screens. It starts
-             with the ENHANCED picture on.
-  cnc_eyes   the renderer on its own, straight into one mission, no menu. It
-             starts with the CLASSIC picture, the one this project drew before
-             any of the enhancement existed.
-
-Both draw the same world. Either can be switched to the other picture while it
-is running, from the Visuals screen described below.
-
-    THERE IS ONE THING TO RUN
-
-    OpenCNC3D.app         That is the game. START NEW GAME runs the GDI
-                          campaign; TEST MAP is the sandbox with the full
-                          build list. ESC opens Options.
-
-Enhanced Visuals are on, with the 640x480 sidebar HUD. Everything the old
-launchers used to pick for you is a setting inside the game now, under
-Options -> Visuals: CLASSIC for the 1995 presentation, ENHANCED for this one,
-and ADVANCED for the individual switches. Your choices are remembered.
-
-THE THIRTEEN .command LAUNCHERS ARE GONE, and if you have them from an older
-build you can delete them. They existed for one reason and it was a defect
-rather than a feature: two data paths defaulted to folders that exist only in
-the development tree, so nothing could be started without a script passing them
-in. The game now finds its own data and runs with no arguments at all.
-
-The two plain binaries beside the app, opencnc3d and cnc_eyes, are what the app runs
-and what the verification suite drives. Neither is meant to be double-clicked.
-
-Keep the folder together and start the game from inside it. The packs, the
-missions/ folder, content/ and dosdata/ are all found relative to the app's own
-folder, which is why it should stay where it is; put an alias on the Desktop
-rather than moving it.
-Moving one launcher out on its own will not work.
+The destination is ~/Applications/OpenCNC3D, inside YOUR home folder.
+It is separate from the Mac's main Applications folder (/Applications, the
+one in the Finder sidebar), so look in your home folder, or type OpenCNC3D
+into Spotlight. Existing saves,
+settings and custom maps are preserved. Installation does not start a game.
 
 
-THE CONTROLS
-------------
-The mouse works the way the 1995 game's did, which as of v0.5.9 is also the way
-this build does. It is NOT the modern right-click-to-move scheme.
+OPENING A FULL .ZIP DOWNLOAD
+---------------------------
+Extract the whole archive, then open OpenCNC3D.app inside the extracted folder.
+Keep all the extracted files together. A full ZIP does not run Apple's Installer
+and does not automatically put the game in Applications.
 
-  LEFT click        Selects what you click on. With something already selected,
-                    clicking bare ground MOVES there and clicking an enemy
-                    ATTACKS it. Clicking another of your own units selects that
-                    unit instead of ordering the first one to shoot it.
-  LEFT drag         Rubber-band select. SHIFT adds to the selection.
-  RIGHT click       Cancels. It leaves building placement, leaves repair or
-                    sell mode, and otherwise deselects. It never gives orders.
-  CTRL + LEFT       Force fire: attack whatever is under the pointer, including
-                    your own buildings and bare ground.
-  ALT + LEFT        Force move: go there without picking a fight on the way.
-
-The pointer itself always tells you which of these you are about to get: it is
-the game's own order preview, so the arrow, the move circle, the crosshair and
-the select brackets are the answer the engine would actually give.
-
-  S or X            Stop.       G or Z   Guard.      M   Radar on/off.
-  SPACE             Pause.      TAB      Step one frame while paused.
-  C                 Switch between the N64 camera and the flat 1995-style one.
-  ESC               Pause menu / options.
+If the filename says Binaries, it is an update rather than a full download.
+Apply it over a complete installation of the matching game and version;
+choose a Complete installer for a first installation.
 
 
-THE ENHANCED VISUALS
---------------------
-The Tier 2 presentation chain is supersampling, sun and shadows, bloom,
-ambient occlusion, dynamic light from explosions and gunfire, colour grading,
-and an optional CRT pass. Whether it is running when the window opens depends
-on which entry point you used, and the two lists above are that split. Two
-ways to change it:
+CHOOSING A GAME, MOVIES AND MUSIC
+-------------------------------
+The launcher shows installed games. Select Dawn3D or RA3D and use its play
+button. Add Game opens the game browser; choose a game and its optional Movies
+and Music downloads. Either game can be installed independently.
 
-  * VISUALS. On the main menu it is its own button; in a mission, press ESC
-    and it is on the pause dialog. Classic or Enhanced, with a checkbox per
-    element behind Advanced. Live, in either program, either way round -- so
-    a cnc_eyes launcher can be turned Enhanced, and OpenCNC3D.app back to Classic,
-    without restarting.
-
-  * From Terminal, ./opencnc3d --classic starts with the chain off entirely.
-
-WHAT A SAVED opencnc3d-fx.cfg DOES, AND WHAT IT DOES NOT. Only opencnc3d reads it, only
-at startup, only under that exact name, and only from the folder the game was
-launched in. So it reaches the four entry points in the first list and none of
-the ten in the second: a cnc_eyes launcher ignores the file completely, whether
-it is sitting there or not. And it changes WHICH numbers the chain uses, never
-whether the chain runs. opencnc3d is enhanced with or without the file; cnc_eyes is
-classic with or without it. To see which happened, read the Terminal window
-behind the game: opencnc3d prints either "FX|preset|opencnc3d-fx.cfg: 60 applied" or
-"FX|no preset ...; enhanced with the shipped defaults", and cnc_eyes prints no
-FX line at all.
-
-No opencnc3d-fx.cfg is included here on purpose, so this package and the Windows
-package of the same build start from the same numbers.
+The gear manages content for the selected game. It also lets you retry an
+unfinished optional download. The other game's content and your saves/settings
+stay separate. A game can be played without optional movies or music.
 
 
-IF IT DOES NOT START
---------------------
-Open Terminal, drag the folder in after `cd `, press return, then run
+IF macOS BLOCKS THE DOWNLOAD
+---------------------------
+The installers and the app are not signed with an Apple Developer ID and are
+not notarized by Apple yet. The first time you open a download, macOS says it
+could not verify that it is free of malware, and offers only Done and Move to
+Trash. That is the signing, not a fault in the download and not a CPU problem.
+To open it anyway:
 
-    ./opencnc3d
+1. Click Done (not Move to Trash).
+2. Open System Settings -> Privacy & Security and scroll down to Security.
+   It names the file macOS just blocked. Click Open Anyway and confirm with
+   your Mac's password or Touch ID.
+3. Open the file again and click Open Anyway (or Open) in the box that follows.
 
-and send everything it prints. (Running it this way bypasses the app bundle,
-so it also tells you whether the problem is the game or the launcher.) The first few lines are the graphics driver
-answering what it can do, which is the first question worth asking on a machine
-this build has not run on before.
+The Open Anyway button stays for about an hour after the blocked attempt; if
+it is gone, open the file once more and go back. On macOS 14 (Sonoma) you can
+instead Control-click the file in the Finder and choose Open.
+
+Or, in Terminal, clear the download's quarantine mark (use the file's real
+name and folder):
+
+  xattr -d com.apple.quarantine ~/Downloads/OpenCNC3DInstaller-macos-vX.Y.Z.pkg
+
+Apple's explanation: https://support.apple.com/102445
+
+A warning that specifically identifies malware, or says a file is damaged,
+needs investigation. Keep the exact warning and download filename for a report.
 
 
-WHAT IS NOT IN THIS FOLDER
---------------------------
-The movies and music, until you download them: see THE FIRST START ASKS ABOUT
-MOVIES AND MUSIC above. They are kept in dosdata/movies and dosdata/ inside
-this folder once they arrive.
+CONTROLS AND VISUALS
+-------------------
+LEFT click selects. With a selection, clicking ground moves and clicking an
+enemy attacks. LEFT drag selects a group; SHIFT adds to the selection.
+RIGHT click cancels the current action or deselects.
+CTRL + LEFT forces an attack. ALT + LEFT forces movement.
+S stops; X scatters; G or Z guards. M toggles the radar.
+ESC opens the pause/options menu.
 
-The gate suite and its 400-odd proof screenshots. They are how the build is
-verified, they are more than a quarter of a gigabyte, and they are of no use to
-anyone playing the game. They stay in the developer's working copy.
+Use Visuals from the main menu or in-mission options to choose the picture.
+Dawn3D offers Classic, N64 and Enhanced. RA3D offers Classic and Enhanced.
+Your saved settings can change which mode starts. Menus use the current
+Enhanced interface in every mission graphics mode.
+
+
+IF IT STILL DOES NOT START
+-------------------------
+In Apple menu -> About This Mac, check the macOS version. Releases require
+macOS 14 or newer even on an Apple Silicon Mac. Then confirm that you opened
+OpenCNC3D.app, kept its folder together and used a full download for a new install.
+
+Include the download filename/version, Mac model/chip, macOS version and exact
+error text in a bug report. If the launcher opens, also say which game you
+selected. The build number is shown in the game menu. These details distinguish
+installation, signing, missing game data and game-start failures.
+
+
+THE GAME'S LOG
+--------------
+Send the game's log with a bug report. A game started from the Finder or the
+launcher writes it to this folder (Finder -> Go -> Go to Folder):
+
+  ~/Library/Application Support/OpenCNC3D/
+
+opencnc3d-log.txt is the session that is running or ran last. Starting the game
+again does not erase it: the session before is kept as opencnc3d-log-previous.txt,
+and a session that crashed is also kept as opencnc3d-crash-<date>-<time>.txt (the
+newest five). After a crash the game says so on its next start and names the
+file to send. macOS also keeps its own crash report for the game in Console ->
+Crash Reports.

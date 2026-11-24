@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """G354: Red Alert 3D draws its remastered cursors under Enhanced, every mouse state
-(game/cursor3d_mod.h: c3d_ra_row, the ecur_ra_* loader and attach, c3d_ra_overlay, NO_SCROLL
+(game/cursor3d_mod.h: c3d_ra_row, the ecur_ra_* loader and attach, c3d_overlay, NO_SCROLL
 in c3d_draw_body; game/cursors.h: Red Alert's mouse states and cur_mouse_for_action_ra;
 ra3d/ecur/ecur_ra.bin, baked by tools/art/remaster/ra/bake_ecur_ra.py and staged with the
 module by tools/ra3d/stage-structures.py).

@@ -10,9 +10,10 @@ this change (OPENCNC3D_MESH_ALL=0). Two more draw ten frames of it (ticks, a rec
 shroud, the shroud lifted and put back, a zoom) once each way.
 
 Soldiers. The "dead" example map (USER93: tanks and riflemen against twenty Nod soldiers)
-after its fight, with bodies whole and torn on the ground, drawn once as shipped and once
-with every pose drawn from system memory (OPENCNC3D_POSE_GPU=0) and every cached skin
-checked against a fresh one (OPENCNC3D_POSECHECK=1).
+after its fight, with bodies whole and torn on the ground, drawn with every pose skinned on
+the CPU (OPENCNC3D_SKIN_GPU=0) once with the poses sent to the card and once with every
+pose drawn from system memory (OPENCNC3D_POSE_GPU=0) and every cached skin checked against a
+fresh one (OPENCNC3D_POSECHECK=1); and once as shipped, whole bodies skinned on the card.
 
 Claims:
   (1) MODELS ARE NOT SENT A VERTEX AT A TIME: at most a third of the vertices the
@@ -29,6 +30,12 @@ Claims:
       bodies included), and the soldiers drawn from the card are the soldiers drawn from
       system memory, to within 64 pixels each off by at most 12 levels (macOS fetches a
       draw wholly from buffers by another route, which moves a few edge pixels).
+  (5) AS SHIPPED, EVERY WHOLE BODY IS SKINNED ON THE CARD (model3d_mod.h m3_skin_gpu):
+      draws skinned there and their palettes, the poses still skinned on the CPU (the torn
+      bodies) each sent to the card once and every draw of them read from it, and the
+      picture the CPU skin's to within SKIN_PIXELS pixels each off by at most SKIN_LEVELS
+      levels (the card adds its own float roundings, which move edge pixels and a level or
+      two of shade).
 """
 import os
 import re
@@ -38,6 +45,9 @@ import numpy as np
 from PIL import Image
 
 CAM = "47 48"
+# The same allowance as claim (4). Measured on macOS with the anti-aliasing off: 1 pixel,
+# off by 2 levels.
+SKIN_PIXELS, SKIN_LEVELS = 64, 12
 SEQ = ["tick 2", "tick 2", "shrouddarktest", "tick 1", "reveal 1", "reveal 0", "tick 7",
        "zoom max", "tick 3"]
 
@@ -53,9 +63,13 @@ def script(d):
             for i, step in enumerate(SEQ):
                 f.write("%s\nshot %s/%s_%02d.png\n" % (step, d, mode, i + 1))
             f.write("quit\n")
-    for mode in ("gpu", "cpu"):
+    # The temporal anti-aliasing is off for the bodies: with it on, the frame after the
+    # camera step is blended with the frames before it, the two pose paths no longer give
+    # one picture (up to 139 levels apart at the bodies' edges), and the counters see no
+    # skin in that frame. The claims compare the two paths, not the anti-aliasing.
+    for mode in ("gpu", "cpu", "skin"):
         with open(os.path.join(d, "bodies_%s.txt" % mode), "w") as f:
-            f.write("cam 31 30\ntick 300\ncam 31 29\nshot %s/bodies_%s.png\nm3dump\nquit\n" % (d, mode))
+            f.write("gfx aa_mode 0\ncam 31 30\ntick 300\ncam 31 29\nshot %s/bodies_%s.png\nm3dump\nquit\n" % (d, mode))
 
 
 def rows(path, tag):
@@ -132,6 +146,27 @@ def check(d):
         if n > 64 or m > 12:
             bad.append("bodies: %d pixels differ from the system-memory draw, by up to %d levels" % (n, m))
         notes.append("as drawn from system memory to within %d pixels by %d" % (n, m))
+    s = rows(os.path.join(d, "bodies_skin.log"), "M3POSE")
+    if not s or "gpuskin" not in s[-1]:
+        bad.append("bodies on the card: no M3POSE line with gpuskin (an older binary, or the run failed)")
+    else:
+        s = s[-1]
+        skins, hits, up, gd, gs, pal = (int(s[k]) for k in ("skins", "hits", "uploads", "gpudraws",
+                                                             "gpuskin", "palettes"))
+        if gs == 0 or pal == 0 or gd != skins + hits or up != skins:
+            bad.append("bodies on the card: %d draws skinned there from %d palettes, %d CPU skins "
+                       "(+%d hits) with %d draws from the card and %d uploads (want draws and palettes, "
+                       "and every CPU pose sent once and drawn from the card)" % (gs, pal, skins, hits, gd, up))
+        notes.append("as shipped %d draws skinned on the card (%d palettes), %d CPU skins for the torn"
+                     % (gs, pal, skins))
+    pa, pb = os.path.join(d, "bodies_skin.png"), os.path.join(d, "bodies_gpu.png")
+    if not (os.path.exists(pa) and os.path.exists(pb)):
+        bad.append("bodies on the card were not shot")
+    else:
+        n, m = picture(pa, pb)
+        if n > SKIN_PIXELS or m > SKIN_LEVELS:
+            bad.append("bodies on the card: %d pixels differ from the CPU skin, by up to %d levels" % (n, m))
+        notes.append("the CPU skin's picture to within %d pixels by %d" % (n, m))
     return ("0 " + "; ".join(bad)) if bad else ("1 " + "; ".join(notes))
 
 

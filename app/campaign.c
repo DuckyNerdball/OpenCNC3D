@@ -57,6 +57,9 @@ int camp_autopilot = 0;
    be hardwired to the GDI rectangle, so no hands-off run could ever walk the Nod
    campaign -- and until recently there were no Nod mission packs to walk anyway. */
 int camp_autopilot_side = 0;
+/* Which quadrant the Nod ending's autopilot picks, 1..4 in 1995's own numbering (see
+   camp_nod_target). 1, the top right, is also what 1995 picks before any click. */
+int camp_autopilot_target = 1;
 
 /* ------------------------------------------------------------------- the clock
  *
@@ -316,6 +319,21 @@ static void camp_xor(unsigned char *dst, long dlen, const unsigned char *src, lo
 #define TXT_MAP_SELECT 504
 #define TXT_MAP_TO_ATTACK 505
 #define TXT_MAP_CLICK2 576
+/* the country statistics page's strings (conquer.h:355-592). Every run of them is
+   numbered without a gap, so each family is its first index plus the number the
+   1995 name carries: TXT_MAP_P01 is 338 and TXT_MAP_P36 is 373, TXT_MAP_PC00 is 457
+   and TXT_MAP_PC42 is 499, and so on. P is the only family that counts from 1. */
+#define TXT_MAP_P(n) (338 + (n) - 1)          /* population, P01..P36          */
+#define TXT_MAP_A(n) (374 + (n))              /* area, A00..A16                */
+#define TXT_MAP_C(n) (391 + (n))              /* capital, C00..C35             */
+#define TXT_MAP_GDP(n) (427 + (n))            /* GDP and Nod's worth, 00..29   */
+#define TXT_MAP_PC(n) (457 + (n))             /* point of conflict, PC00..PC42 */
+#define TXT_MAP_GDISTAT(n) (506 + (n))        /* "POPULATION:" .. 6            */
+#define TXT_MAP_NODSTAT(n) (513 + (n))        /* "EXPENDABILITY:" .. 4         */
+#define TXT_MAP_COUNTRYNAME(n) (518 + (n))    /* "LATVIA" .. 34 "ESTONIA"      */
+#define TXT_MAP_GOVT(n) (553 + (n))           /* "REPUBLIC" .. 11              */
+#define TXT_MAP_ARMY(n) (565 + (n))           /* "LOCAL MILITIA" .. 5          */
+#define TXT_MAP_MILITARY(n) (571 + (n))       /* "RESPECTABLE" .. 4            */
 
 static int camp_eng_string(const unsigned char *d, long len, int index, char *out, int outlen)
 {
@@ -481,6 +499,17 @@ int camp_open(Camp *c, SDL_Window *win, struct CncAudio *au,
     if (!c->fonts)
         fprintf(stderr, "campaign: %s -- screens run without text\n", err);
 
+    /* Red Alert's map screen points at a target with MOUSE_CAN_ATTACK, frames the menu
+       pack does not carry (it holds the arrow alone). The tactical view's cursor pack
+       holds all 222 frames of the same MOUSE.SHP; the theater only picks its palette,
+       which this plate never reads. Never fatal: without it the arrow stays. */
+    if (c->red_alert) {
+        char cerr[256];
+        c->curpack = db_pack_load("ra3d/cursor-temperat.pack", cerr, (int)sizeof cerr);
+        if (!c->curpack)
+            fprintf(stderr, "campaign: %s -- the map screen keeps the arrow\n", cerr);
+    }
+
     camp_load_strings(c);
 
     glGenTextures(1, &c->tex);
@@ -523,6 +552,8 @@ void camp_close(Camp *c)
     free(c->hi_plate);
     if (c->fonts)
         db_pack_free((DB_Pack *)c->fonts);
+    if (c->curpack)
+        db_pack_free((DB_Pack *)c->curpack);
     if (c->tex)
         glDeleteTextures(1, &c->tex);
     logo3d_close(&c->logo);
@@ -630,12 +661,21 @@ static void camp_draw(Camp *c)
        cur_init uses. db_draw_shape skips index 0 and clips (game/dosbar.c:283). */
     if (c->curon && c->mx >= 0 && c->fonts) {
         const DB_Shape *m = db_shape((DB_Pack *)c->fonts, "MOUSE");
+        int mf = 0, hx = 0, hy = 0;
+        /* Any other frame comes out of the whole shape, drawn with its own hot spot
+           (Set_Mouse_Cursor); without that pack the arrow stands in. */
+        if (c->curframe > 0 && c->curpack) {
+            const DB_Shape *all = db_shape((DB_Pack *)c->curpack, "MOUSE");
+            if (all && c->curframe < all->frames) {
+                m = all; mf = c->curframe; hx = c->curhx; hy = c->curhy;
+            }
+        }
         if (m) {
             DB_Surface s;
             memcpy(comp, c->plate, sizeof comp);
             s.w = 320; s.h = 200; s.px = comp;
             s.cx0 = 0; s.cy0 = 0; s.cx1 = 319; s.cy1 = 199;
-            db_draw_shape(&s, m, 0, c->mx, c->my);
+            db_draw_shape(&s, m, mf, c->mx - hx, c->my - hy);
             src = comp;
         }
     }
@@ -1071,10 +1111,9 @@ static void camp_sfx(Camp *c, const char *name, int vol)
  *
  * We do NOT keep the location. The playable directory is read-only on a packaged
  * build and is shared by concurrent gate runs, so the default is the platform's
- * per-user data directory via SDL_GetPrefPath, which nests org/app: measured on this
- * machine as
- *     ~/Library/Application Support/Slipgate Ironworks/OpenCNC3D/HALLFAME.DAT
- * (%APPDATA%\... on Windows, ~/.local/share/... on Linux). SDL creates the directory
+ * per-user data directory via SDL_GetPrefPath (app/userdir.h names it):
+ *     ~/Library/Application Support/OpenCNC3D/HALLFAME.DAT
+ * (%APPDATA%\OpenCNC3D\ on Windows, ~/.local/share/OpenCNC3D/ on Linux). SDL creates the directory
  * as a side effect and can return NULL on a locked-down system, which degrades to
  * "no persistence" rather than a crash. --famefile overrides the whole thing for
  * anyone who wants the 1995 side-by-side layout. */
@@ -2286,11 +2325,15 @@ closed:
  *  killed against lost is the shape of a match in two figures.
  *
  *  THE SCORE IS A VISIBLE SUM of the three columns beside it: two a kill, five a razing,
- *  and tiberium divided by ten so it sits in the same range instead of swamping them. It
- *  is printed on the screen as a footnote for the same reason it is a simple sum: a total
- *  the player cannot reconstruct from the row it sits in is a number they have to take on
- *  trust. LOST is shown and not scored; it is context, not a penalty, and subtracting it
- *  would let a score go negative and make the bars meaningless.
+ *  and tiberium divided by ten so it sits in the same range instead of swamping them, so a
+ *  player can reconstruct the total from the row it sits in. LOST is shown and not scored;
+ *  it is context, not a penalty, and subtracting it would let a score go negative and make
+ *  the bars meaningless.
+ *
+ *  WHO SEES IT. A finished match ends on the Enhanced debrief (em_match_debrief), the
+ *  multiplayer score layout both games share, which also prints how the score is added up.
+ *  This plate is drawn only when the old menus are asked for, by the gates that drive
+ *  them.
  *
  *  WINNERS FIRST, then by score. The local commander's row is marked, so you find
  *  yourself without reading names.
@@ -2405,6 +2448,38 @@ static void camp_ms_countup(Camp *c, int val, int rx, int y, const unsigned char
 }
 
 
+int camp_match_standing(const CampMatchRow *rows, int n, int *place)
+{
+    int i, me = -1, ahead = 0;
+    if (place) *place = 0;
+    if (!rows) return -1;
+    for (i = 0; i < n; i++)
+        if (rows[i].is_local) { me = i; break; }
+    if (me < 0) return -1;
+    /* The table's own comparison (the sort in camp_match_score), counted rather than
+       sorted: a place is one more than the number of commanders strictly ahead. */
+    for (i = 0; i < n; i++) {
+        const CampMatchRow *a = &rows[i], *b = &rows[me];
+        if (i == me) continue;
+        if ((!a->defeated && b->defeated)
+            || (a->defeated == b->defeated && a->score > b->score))
+            ahead++;
+    }
+    if (place) *place = ahead + 1;
+    return me;
+}
+
+void camp_match_ordinal(int place, int upper, char *buf, int buflen)
+{
+    const int tens = place % 100, ones = place % 10;
+    const char *suf = (tens >= 11 && tens <= 13) ? "th"
+                    : ones == 1 ? "st" : ones == 2 ? "nd" : ones == 3 ? "rd" : "th";
+    char s[3];
+    s[0] = suf[0]; s[1] = suf[1]; s[2] = 0;
+    if (upper) { s[0] = (char)toupper((unsigned char)s[0]); s[1] = (char)toupper((unsigned char)s[1]); }
+    if (buf && buflen > 0) snprintf(buf, (size_t)buflen, "%d%s", place, s);
+}
+
 /* The column right edges, and the row geometry. 320 wide with a seven pixel advance
    leaves 45 characters, so the name is capped at nine and the four figures take the rest. */
 
@@ -2495,17 +2570,45 @@ int camp_match_score(Camp *c, const CampMatch *m, int side)
                  MS_HEAD_X + (311 - MS_HEAD_X - (int)strlen(buf) * 7) / 2, 36,
                  camp_sc_greenpal);
 
-    /* WHY IT ENDED TAKES THIS LINE WHEN THERE IS A WHY. A match that fell over -- the
+    /* THE PLAYER'S OWN RESULT: their score and where it put them, "YOUR SCORE 1062 - 1ST
+       OF 8". This is the one large SCORE on the screen, so it has to be a number: a line
+       that printed how the points are added up here was read as the result itself.
+
+       WHY IT ENDED TAKES THIS LINE WHEN THERE IS A WHY. A match that fell over -- the
        simulations parted, or a machine stopped answering -- used to close the whole
        application, so this screen never saw one of those endings at all. Now it does, and
-       on that screen the reason outranks the arithmetic: a player who has just lost
-       twenty minutes needs to know whether it was their network or their game. The sum
-       comes back on every ordinary finish, which is all of them. */
-    snprintf(buf, sizeof buf, "%s",
-             m->ended[0] ? m->ended : "SCORE = K x2 + R x5 + TIB/10");
-    camp_print16(c, "SCOREFNT", buf,
-                 MS_HEAD_X + (311 - MS_HEAD_X - (int)strlen(buf) * 7) / 2, 48,
-                 camp_sc_greenpal);
+       on that screen the reason outranks the result: a player who has just lost twenty
+       minutes needs to know whether it was their network or their game. And when no row
+       is this machine's (its own numbers could not be read), the line says only what the
+       table is, rather than claiming somebody else's score as yours. */
+    {
+        int place = 0;
+        const int me = camp_match_standing(m->row, m->nrows, &place);
+        if (m->ended[0]) {
+            snprintf(buf, sizeof buf, "%s", m->ended);
+        } else if (me >= 0) {
+            char ord[8];
+            camp_match_ordinal(place, 1, ord, sizeof ord);
+            snprintf(buf, sizeof buf, "YOUR SCORE %d - %s OF %d", m->row[me].score, ord,
+                     m->nrows);
+        } else {
+            snprintf(buf, sizeof buf, "%s", "FINAL STANDINGS");
+        }
+        printf("CAMPAIGN|matchscore|standing=%d|of=%d|local=%d\n", place, m->nrows, me);
+    }
+    /* Centred on the glyphs' own widths: the result line carries spaces and a hyphen,
+       which are narrower than the seven pixels the lines above are centred by, and a
+       line of them centred by character count sits visibly left of the rest. */
+    {
+        const DB_Font *hf = c->fonts ? db_font((DB_Pack *)c->fonts, "SCOREFNT") : NULL;
+        const int hw = hf ? db_string_width(hf, buf, 0) : (int)strlen(buf) * 7;
+        camp_print16(c, "SCOREFNT", buf, MS_HEAD_X + (311 - MS_HEAD_X - hw) / 2, 48,
+                     camp_sc_greenpal);
+    }
+    /* THE LINE AS DRAWN, for a log to read: the player's result, the reason a broken
+       match ended, or the plain title when this machine has no row. */
+    printf("CAMPAIGN|matchscore|header=%s\n", buf);
+    fflush(stdout);
 
     camp_fill(c, MS_X0, 60, 311, 60, 0x18);   /* the rule under the header */
 
@@ -2653,8 +2756,8 @@ closed:
 /* mapsel.cpp's CountryArray, transcribed IN FULL: indexed [scenario][ScenDir], the
    direction chosen the LAST time around (column 0 = EAST, 1 = WEST -- defines.h:728
    SCEN_DIR_EAST is 0). Rows 1..14 are the GDI campaign, 15..26 Nod (row = 14 +
-   scenario; the Nod screens themselves are a registered gap until CD-2's reels are
-   staged, but the table is complete so they cost one bake when that lands).
+   scenario). Nod's own reels (EARTH_A, AFRICA, CLICK_A) are in GENERAL.MIX beside
+   the GDI ones and are baked, so both halves of the table are used.
    dir/var are stored as the letters the scenario namer wants; 0 = no choice. */
 typedef struct MapRow {
     unsigned char choices[2];
@@ -2827,6 +2930,322 @@ static int camp_dissolve(CampCtx *k, const unsigned char *src, int delay, int da
     return 1;
 }
 
+/* ------------------------------------------------ the picked country's statistics
+ *
+ * mapsel.cpp:1065-1123 and Print_Statistics (:1182-1356), transcribed. Once a
+ * territory is picked, 1995 redraws the bare map (EUROPE or AFRICA frame 0, the copy
+ * it took at :778 before any territory advanced), draws the picked country over it
+ * from COUNTRYE.SHP (GDI) or COUNTRYA.SHP (Nod), fades the palette to DARK_E.PAL so
+ * everything but that country and the green ink goes dark, and then types a page
+ * about the country: its name, then seven labelled lines for GDI or nine for Nod,
+ * then CLICK TO CONTINUE, and waits for a click or a key.
+ *
+ * The tables are the 1995 ones, entry for entry. The index into them is the click
+ * map's colour with the top bit off (`color & 0x7F`, :1122), the same value the pick
+ * compared, so the page always describes the territory that was clicked. */
+typedef struct CampGdiStats {
+    short nameindex, pop, area, capital, govt, gdp, conflict, military;
+} CampGdiStats;
+
+/* mapsel.cpp:321-345 GDIStats. Entry 11 (Austria, capital Vienna) names JELGAVA in
+   1995 (TXT_MAP_PC00, Latvia's own point of conflict) where the run of PC numbers says
+   SALZBURG (TXT_MAP_PC09, which nothing else uses). That is the 1995 table's own slip,
+   and it is corrected here, deliberately: Austria's row reads PC(9), SALZBURG, the
+   table's own Austrian entry. Every other row is 1995's. */
+static const CampGdiStats camp_gdistats[22] = {
+    /* Name, Pop, Area, Capital, Government, GDP, Conflict, Military */
+    {0, TXT_MAP_P(1), TXT_MAP_A(0), TXT_MAP_C(0), 0, TXT_MAP_GDP(0), TXT_MAP_PC(0), 0},
+    {1, TXT_MAP_P(2), TXT_MAP_A(1), TXT_MAP_C(1), 1, TXT_MAP_GDP(1), TXT_MAP_PC(1), 3},
+    {1, TXT_MAP_P(2), TXT_MAP_A(1), TXT_MAP_C(1), 1, TXT_MAP_GDP(1), TXT_MAP_PC(2), 3},
+    {2, TXT_MAP_P(3), TXT_MAP_A(2), TXT_MAP_C(2), 0, TXT_MAP_GDP(0), TXT_MAP_PC(3), 1},
+    {3, TXT_MAP_P(4), TXT_MAP_A(3), TXT_MAP_C(3), 3, TXT_MAP_GDP(2), TXT_MAP_PC(4), 1},
+    {3, TXT_MAP_P(4), TXT_MAP_A(3), TXT_MAP_C(3), 3, TXT_MAP_GDP(2), TXT_MAP_PC(4), 1},
+    {4, TXT_MAP_P(5), TXT_MAP_A(4), TXT_MAP_C(4), 2, TXT_MAP_GDP(3), TXT_MAP_PC(5), 5},
+    {4, TXT_MAP_P(5), TXT_MAP_A(4), TXT_MAP_C(4), 2, TXT_MAP_GDP(3), TXT_MAP_PC(6), 5},
+    {5, TXT_MAP_P(6), TXT_MAP_A(5), TXT_MAP_C(5), 0, TXT_MAP_GDP(4), TXT_MAP_PC(7), 2},
+    {5, TXT_MAP_P(6), TXT_MAP_A(5), TXT_MAP_C(5), 0, TXT_MAP_GDP(4), TXT_MAP_PC(7), 2},
+    {6, TXT_MAP_P(7), TXT_MAP_A(6), TXT_MAP_C(6), 0, TXT_MAP_GDP(0), TXT_MAP_PC(8), 0},
+    {7, TXT_MAP_P(8), TXT_MAP_A(7), TXT_MAP_C(7), 4, TXT_MAP_GDP(5), TXT_MAP_PC(9), 2},
+    {8, TXT_MAP_P(9), TXT_MAP_A(8), TXT_MAP_C(8), 4, TXT_MAP_GDP(6), TXT_MAP_PC(10), 2},
+    {9, TXT_MAP_P(10), TXT_MAP_A(9), TXT_MAP_C(9), 0, TXT_MAP_GDP(7), TXT_MAP_PC(11), 1},
+    {10, TXT_MAP_P(11), TXT_MAP_A(10), TXT_MAP_C(10), 0, TXT_MAP_GDP(8), TXT_MAP_PC(12), 2},
+    {11, TXT_MAP_P(12), TXT_MAP_A(11), TXT_MAP_C(11), 5, TXT_MAP_GDP(9), TXT_MAP_PC(13), 3},
+    {12, TXT_MAP_P(13), TXT_MAP_A(12), TXT_MAP_C(12), 6, TXT_MAP_GDP(10), TXT_MAP_PC(14), 2},
+    {13, TXT_MAP_P(14), TXT_MAP_A(13), TXT_MAP_C(13), 0, TXT_MAP_GDP(11), TXT_MAP_PC(15), 2},
+    {14, TXT_MAP_P(15), TXT_MAP_A(14), TXT_MAP_C(14), 0, TXT_MAP_GDP(12), TXT_MAP_PC(16), 3},
+    {14, TXT_MAP_P(15), TXT_MAP_A(14), TXT_MAP_C(14), 0, TXT_MAP_GDP(12), TXT_MAP_PC(17), 3},
+    {15, TXT_MAP_P(16), TXT_MAP_A(15), TXT_MAP_C(15), 7, TXT_MAP_GDP(13), TXT_MAP_PC(18), 4},
+    /* 1995's own note: "Hack in a slot for Estonia" */
+    {34, TXT_MAP_P(17), TXT_MAP_A(16), TXT_MAP_C(16), 0, TXT_MAP_GDP(0), TXT_MAP_PC(19), 0}};
+
+typedef struct CampNodStats {
+    short nameindex, pop, expendable, capital, govt, corruptible, worth, conflict,
+        military, probability;
+} CampNodStats;
+
+/* mapsel.cpp:359-383 NodStats. Expendable, corruptible and probability are plain
+   percentages; the rest are string indices like GDI's. */
+static const CampNodStats camp_nodstats[23] = {
+    /* Name, Pop, Expendable, Capital, Government, Corruptible, Worth, Conflict,
+       Military, Probability */
+    {16, TXT_MAP_P(18), 38, TXT_MAP_C(17), 8, 86, TXT_MAP_GDP(14), TXT_MAP_PC(20), 0, 23},
+    {17, TXT_MAP_P(19), 75, TXT_MAP_C(18), 0, 18, TXT_MAP_GDP(15), TXT_MAP_PC(21), 1, 82},
+    {17, TXT_MAP_P(19), 75, TXT_MAP_C(18), 0, 18, TXT_MAP_GDP(15), TXT_MAP_PC(22), 1, 82},
+    {18, TXT_MAP_P(20), 50, TXT_MAP_C(19), 9, 52, TXT_MAP_GDP(16), TXT_MAP_PC(23), 0, 72},
+    {18, TXT_MAP_P(20), 50, TXT_MAP_C(19), 9, 52, TXT_MAP_GDP(16), TXT_MAP_PC(24), 0, 72},
+    {19, TXT_MAP_P(21), 80, TXT_MAP_C(20), 0, 85, TXT_MAP_GDP(17), TXT_MAP_PC(25), 2, 35},
+    {19, TXT_MAP_P(21), 80, TXT_MAP_C(20), 0, 85, TXT_MAP_GDP(17), TXT_MAP_PC(26), 2, 35},
+    {20, TXT_MAP_P(22), 50, TXT_MAP_C(21), 10, 48, TXT_MAP_GDP(17), TXT_MAP_PC(27), 2, 24},
+    {21, TXT_MAP_P(23), 33, TXT_MAP_C(22), 0, 28, TXT_MAP_GDP(18), TXT_MAP_PC(28), 3, 67},
+    {22, TXT_MAP_P(24), 75, TXT_MAP_C(23), 6, 17, TXT_MAP_GDP(19), TXT_MAP_PC(29), 2, 80},
+    {23, TXT_MAP_P(25), 60, TXT_MAP_C(24), 7, 93, TXT_MAP_GDP(20), TXT_MAP_PC(30), 3, 50},
+    {24, TXT_MAP_P(26), 5, TXT_MAP_C(25), 0, 84, TXT_MAP_GDP(21), TXT_MAP_PC(31), 2, 22},
+    {25, TXT_MAP_P(27), 55, TXT_MAP_C(26), 0, 48, TXT_MAP_GDP(22), TXT_MAP_PC(32), 3, 62},
+    {26, TXT_MAP_P(28), 65, TXT_MAP_C(27), 0, 41, TXT_MAP_GDP(23), TXT_MAP_PC(33), 2, 49},
+    {27, TXT_MAP_P(29), 72, TXT_MAP_C(28), 0, 74, TXT_MAP_GDP(24), TXT_MAP_PC(34), 3, 54},
+    {27, TXT_MAP_P(29), 72, TXT_MAP_C(28), 0, 74, TXT_MAP_GDP(24), TXT_MAP_PC(35), 3, 54},
+    {17, TXT_MAP_P(30), 45, TXT_MAP_C(29), 6, 3, TXT_MAP_GDP(15), TXT_MAP_PC(36), 3, 100},
+    {28, TXT_MAP_P(31), 45, TXT_MAP_C(30), 0, 63, TXT_MAP_GDP(25), TXT_MAP_PC(37), 2, 66},
+    {29, TXT_MAP_P(32), 55, TXT_MAP_C(31), 0, 27, TXT_MAP_GDP(26), TXT_MAP_PC(38), 2, 68},
+    {30, TXT_MAP_P(33), 5, TXT_MAP_C(32), 0, 65, TXT_MAP_GDP(27), TXT_MAP_PC(39), 4, 74},
+    {31, TXT_MAP_P(34), 65, TXT_MAP_C(33), 0, 52, TXT_MAP_GDP(19), TXT_MAP_PC(40), 2, 84},
+    {32, TXT_MAP_P(35), 2, TXT_MAP_C(34), 11, 12, TXT_MAP_GDP(28), TXT_MAP_PC(41), 2, 92},
+    {33, TXT_MAP_P(36), 10, TXT_MAP_C(35), 0, 8, TXT_MAP_GDP(29), TXT_MAP_PC(42), 1, 100}};
+
+/* Map_Selection's _countryx/_countryy (mapsel.cpp:426-497): the centre each country
+   shape is drawn at, and what decides which side of the screen the page goes on.
+   0..17 are COUNTRYE's frames, 18..34 COUNTRYA's. */
+static const short camp_countryx[35] = {
+    195, 217, 115, 167, 244, 97, 130, 142, 171, 170, 139, 158, 180, 207, 177, 213, 201, 198,
+    69, 82, 105, 119, 184, 149, 187, 130, 153, 124, 162, 144, 145, 164, 166, 200, 201};
+static const short camp_countryy[35] = {
+    35, 57, 82, 75, 93, 111, 108, 91, 100, 111, 120, 136, 136, 117, 158, 143, 167, 21,
+    45, 80, 75, 76, 31, 64, 69, 89, 88, 106, 115, 139, 168, 164, 183, 123, 154};
+
+/* Print_Statistics' label lists (mapsel.cpp:1186-1201). Nod's page borrows four of
+   GDI's labels. */
+static const short camp_gdistatnames[7] = {
+    TXT_MAP_GDISTAT(0), TXT_MAP_GDISTAT(1), TXT_MAP_GDISTAT(2), TXT_MAP_GDISTAT(3),
+    TXT_MAP_GDISTAT(4), TXT_MAP_GDISTAT(5), TXT_MAP_GDISTAT(6)};
+static const short camp_nodstatnames[9] = {
+    TXT_MAP_GDISTAT(0), TXT_MAP_NODSTAT(0), TXT_MAP_GDISTAT(2), TXT_MAP_GDISTAT(3),
+    TXT_MAP_NODSTAT(1), TXT_MAP_NODSTAT(2), TXT_MAP_GDISTAT(5), TXT_MAP_NODSTAT(3),
+    TXT_MAP_NODSTAT(4)};
+
+/* Call_Back_Delay(strlen(Text_String(name))) with the string read off the disc */
+static int camp_strlen_delay(CampCtx *k, int txtindex, int mult)
+{
+    char buf[64];
+    int n = camp_string(k->c, txtindex, buf, (int)sizeof buf) ? (int)strlen(buf) : 0;
+    return camp_ctx_delay(k, n * mult);
+}
+
+/* Print_Statistics(country, xpos, ypos): type the page and wait for the player.
+   Returns 0 if the window was closed. The strings are always the English table's,
+   because these screens read the English CONQUER.ENG in every language (a language
+   pack does not reach them), so the English layout is the one used: German moved the
+   page to x 8 on both sides and French moved CLICK TO CONTINUE to x 94. */
+static int camp_print_statistics(CampCtx *k, int side, int country, int xpos, int ypos)
+{
+    Camp *c = k->c;
+    char name[64], val[64];
+    int index, newx, nameindex;
+
+    xpos = (xpos > 128) ? 8 : 136;
+    ypos = (ypos > 100) ? 8 : 104 - 6;
+
+    if (side == 0) {
+        const CampGdiStats *g;
+        if (country < 0 || country >= 22) {
+            fprintf(stderr, "campaign: no GDI statistics entry %d\n", country);
+            return 1;
+        }
+        g = &camp_gdistats[country];
+        nameindex = TXT_MAP_COUNTRYNAME(g->nameindex);
+        camp_string(c, nameindex, name, (int)sizeof name);
+        printf("CAMPAIGN|mapstats|side=0|country=%d|name=%s|x=%d|y=%d\n",
+               country, name, xpos, ypos);
+        fflush(stdout);
+        camp_ctx_type(k, nameindex, xpos, ypos, camp_map_greenpal);
+        if (!camp_strlen_delay(k, nameindex, 3)) return 0;
+        ypos += 16;
+        for (index = 0; index < 7; index++) {
+            const int label = camp_gdistatnames[index];
+            int value = 0;
+            camp_ctx_type(k, label, xpos, ypos, camp_map_greenpal);
+            /* 1995 waits for the length of the string THREE PAST the label
+               (`_gdistatnames[index] + 3`, :1252), not the label's own. Kept: it is
+               the page's rhythm. */
+            if (!camp_strlen_delay(k, label + 3, 1)) return 0;
+            camp_string(c, label, val, (int)sizeof val);
+            newx = xpos + 6 * (int)strlen(val);
+            switch (index) {
+            case 0: value = g->pop; break;
+            case 1: value = g->area; break;
+            case 2: value = g->capital; break;
+            case 3: value = TXT_MAP_GOVT(g->govt); break;
+            case 4: value = g->gdp; break;
+            case 5: value = g->conflict; break;
+            case 6: value = TXT_MAP_ARMY(g->military); break;
+            }
+            camp_ctx_type(k, value, newx, ypos, camp_map_greenpal);
+            ypos += 8;
+        }
+    } else {
+        const CampNodStats *n;
+        const int clicked = country;
+        /* mapsel.cpp:1279-1285, both hacks verbatim: the second Egypt (click colour
+           0xA0) is entry 15, and every colour from 15 up skips it */
+        if (country > 30)
+            country = 15;
+        else if (country >= 15)
+            country++;
+        country++;
+        if (country < 0 || country >= 23) {
+            fprintf(stderr, "campaign: no Nod statistics entry %d\n", country);
+            return 1;
+        }
+        n = &camp_nodstats[country];
+        nameindex = TXT_MAP_COUNTRYNAME(n->nameindex);
+        camp_string(c, nameindex, name, (int)sizeof name);
+        printf("CAMPAIGN|mapstats|side=1|country=%d|clicked=%d|name=%s|x=%d|y=%d\n",
+               country, clicked, name, xpos, ypos);
+        fflush(stdout);
+        camp_ctx_type(k, nameindex, xpos, ypos, camp_map_greenpal);
+        if (!camp_strlen_delay(k, nameindex, 3)) return 0;
+        ypos += 16;
+        for (index = 0; index < 9; index++) {
+            const int label = camp_nodstatnames[index];
+            camp_ctx_type(k, label, xpos, ypos, camp_map_greenpal);
+            if (!camp_strlen_delay(k, label + 3, 1)) return 0; /* :1292, as GDI's */
+            camp_string(c, label, val, (int)sizeof val);
+            newx = xpos + 6 * (int)strlen(val);
+            switch (index) {
+            case 0: camp_ctx_type(k, n->pop, newx, ypos, camp_map_greenpal); break;
+            case 1:
+                snprintf(val, sizeof val, "%d%%", n->expendable);
+                camp_ctx_type_str(k, val, newx, ypos, camp_map_greenpal);
+                break;
+            case 2: camp_ctx_type(k, n->capital, newx, ypos, camp_map_greenpal); break;
+            case 3:
+                camp_ctx_type(k, TXT_MAP_GOVT(n->govt), newx, ypos, camp_map_greenpal);
+                break;
+            case 4:
+                snprintf(val, sizeof val, "%d%%", n->corruptible);
+                camp_ctx_type_str(k, val, newx, ypos, camp_map_greenpal);
+                break;
+            case 5: camp_ctx_type(k, n->worth, newx, ypos, camp_map_greenpal); break;
+            case 6: camp_ctx_type(k, n->conflict, newx, ypos, camp_map_greenpal); break;
+            case 7:
+                camp_ctx_type(k, TXT_MAP_MILITARY(n->military), newx, ypos,
+                              camp_map_greenpal);
+                break;
+            case 8:
+                snprintf(val, sizeof val, "%d%%", n->probability);
+                camp_ctx_type_str(k, val, newx, ypos, camp_map_greenpal);
+                break;
+            }
+            ypos += 8;
+        }
+    }
+
+    camp_ctx_type(k, TXT_MAP_CLICK2, 160 - (17 * 3), 193 - 6, camp_map_greenpal);
+
+    /* :1335-1341, every typed line finishes */
+    while (camp_ctx_typing(k))
+        if (!camp_ctx_tick(k)) return 0;
+    {
+        static int stats_once = 0;
+        camp_shot(c, "flow_mapstats.png", &stats_once);
+    }
+
+    /* :1342-1350. Keyboard->Clear first, so a click made while the page was typing
+       cannot dismiss it unread; then any click or key. The hands-off flow reads the
+       page for one second and goes on. */
+    k->clickx = -1;
+    k->keyed = 0;
+    camp_key_clear(c);
+    {
+        int waited = 0;
+        for (;;) {
+            if (!camp_ctx_tick(k)) return 0;
+            if (k->keyed || k->clickx >= 0)
+                break;
+            if (camp_autopilot && ++waited >= 60)
+                break;
+        }
+    }
+    k->clickx = -1;
+    k->keyed = 0;
+    camp_key_clear(c);
+    printf("CAMPAIGN|mapstats|done\n");
+    fflush(stdout);
+    return 1;
+}
+
+/* mapsel.cpp:1065-1122 for every map screen but the last: the picked country lit on
+   the bare map, the rest faded to DARK_E, then the statistics page. Returns 0 if the
+   window was closed. Nothing here is skipped silently: a missing shape or palette
+   is said on stderr by camp_entry and the page still types. */
+static int camp_map_country(CampCtx *k, int side, int shape, int colour,
+                            const CampEntry *map)
+{
+    Camp *c = k->c;
+    const CampEntry *cshape = camp_entry(c, side ? "COUNTRYA" : "COUNTRYE");
+    /* 1995 loads DARK_E.PAL for both houses (:1111); there is no DARK_A */
+    const CampEntry *dark = camp_entry(c, "DARK_E");
+    const int xyindex = shape + (side ? 18 : 0);
+    unsigned char keep[768], from[768];
+    int cx = 0, cy = 0, t, i;
+
+    if (xyindex < 0 || xyindex >= 35) {
+        fprintf(stderr, "campaign: no country position %d\n", xyindex);
+        return 1;
+    }
+    cx = camp_countryx[xyindex];
+    cy = camp_countryy[xyindex];
+
+    /* erase SELECT TERRITORY / TO ATTACK (:1078) */
+    camp_fill(c, 0, 160, 17 * 6, 178, DB_BLACK);
+
+    /* europe->Blit(SysMemPage) (:1092): the bare map, frame 0 of the reel. A blit
+       does not touch the palette, so the one on screen is kept. */
+    memcpy(keep, c->palbuf, sizeof keep);
+    camp_blit(c, map, 0);
+    memcpy(c->palbuf, keep, sizeof keep);
+    c->pal = c->palbuf;
+
+    /* CC_Draw_Shape(..., SHAPE_CENTER) (:1096): the frame centred on the point */
+    if (cshape)
+        camp_shape(c, cshape, shape, cx - cshape->w / 2, cy - cshape->h / 2);
+    printf("CAMPAIGN|mapcountry|side=%d|shape=%d|at=%d,%d|w=%d|h=%d\n", side, shape,
+           cx, cy, cshape ? cshape->w : 0, cshape ? cshape->h : 0);
+    fflush(stdout);
+    if (!camp_ctx_delay(k, 0)) return 0;
+    {
+        static int hilite_once = 0;
+        camp_shot(c, "flow_mapcountry.png", &hilite_once);
+    }
+
+    /* Fade_Palette_To(DARK_E, FADE_PALETTE_MEDIUM) (:1119): 15 ticks, straight from
+       the palette on screen to DARK_E. 1995 also brightened DARK_E by 30 percent
+       (Increase_Palette_Luminance, :1115), but it brightened every map palette
+       before it the same way and this port draws all of those at their stored
+       values, so the stored DARK_E is what keeps the lit country at the brightness
+       it had a moment before. */
+    if (dark) {
+        memcpy(from, c->palbuf, sizeof from);
+        for (t = 1; t <= 15; t++) {
+            for (i = 0; i < 768; i++)
+                c->palbuf[i] = (unsigned char)(from[i] + ((int)dark->pal[i] - from[i]) * t / 15);
+            c->pal = c->palbuf;
+            if (!camp_ctx_tick(k)) return 0;
+        }
+    }
+
+    return camp_print_statistics(k, side, colour & 0x7F, cx, cy);
+}
+
 int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
 {
     c->logo_side = -1;          /* no logo on the globe */
@@ -2836,7 +3255,7 @@ int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
     const CampEntry *europe = camp_entry(c, side ? "AFRICA" : "EUROPE");
     const CampEntry *click = camp_entry(c, side ? "CLICK_A" : "CLICK_E");
     CampCtx k;
-    int d, f, q, startframe, contframe, sel = -1, appick = 0;
+    int d, f, q, startframe, contframe, sel = -1, appick = 0, pickcolour = 0;
     /* mapsel.cpp:516-520 ends GDI at 14 and Nod at 12; :514 offsets Nod's row
        by 14, and all 27 rows are already transcribed in camp_country. */
     const int lastscen = side ? 12 : 14;
@@ -2949,22 +3368,32 @@ int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
 
     /* --- first advance of territories: GDI PROGRESSION types, COUNTRY1, dissolve
        (mapsel.cpp:796-822) */
+    /* THE FIRST ADVANCE IS THE PLAYER'S OWN SIDE, and its label says so: mapsel.cpp:796-830
+       prints GDI PROGRESSION then NOD PROGRESSION at the left for GDI, and for Nod the other
+       way round at x 204, the right of the plate. Frame startframe+1 of the reel is always
+       the player's own advance, so a fixed GDI-then-Nod order labelled Nod's territory
+       "GDI PROGRESSION" on every Nod map screen. */
+    const int labx = side ? 204 : 0;
     camp_sfx(c, "TEXT2.AUD", 90);
-    camp_ctx_type(&k, TXT_MAP_GDI, 0, 2, camp_map_greenpal);
+    camp_ctx_type(&k, side ? TXT_MAP_NOD : TXT_MAP_GDI, labx, 2, camp_map_greenpal);
     if (!camp_ctx_delay(&k, 60)) goto closed;
+    {
+        static int label_once = 0;
+        camp_shot(c, "flow_maplabel.png", &label_once);
+    }
     camp_sfx(c, "COUNTRY1.AUD", 90);
     if (!camp_dissolve(&k, camp_frame(c, europe, startframe + 1), 1, 1)) goto closed;
     if (!camp_ctx_delay(&k, 85)) goto closed;
-    camp_fill(c, 0, 0, 96, 8, DB_BLACK);
+    camp_fill(c, labx, 0, labx + 96, 8, DB_BLACK);
 
-    /* --- second advance: NOD PROGRESSION (mapsel.cpp:823-847) */
+    /* --- second advance: the other side's (mapsel.cpp:823-847) */
     camp_sfx(c, "TEXT2.AUD", 90);
-    camp_ctx_type(&k, TXT_MAP_NOD, 0, 12, camp_map_greenpal);
+    camp_ctx_type(&k, side ? TXT_MAP_GDI : TXT_MAP_NOD, labx, 12, camp_map_greenpal);
     if (!camp_ctx_delay(&k, 65)) goto closed;
     camp_sfx(c, "COUNTRY1.AUD", 90);
     if (!camp_dissolve(&k, camp_frame(c, europe, startframe + 2), 1, 1)) goto closed;
     if (!camp_ctx_delay(&k, 85)) goto closed;
-    camp_fill(c, 0, 12, 96, 20, DB_BLACK);
+    camp_fill(c, labx, 12, labx + 96, 20, DB_BLACK);
 
     /* --- the crosshair reel at ContAnim (mapsel.cpp:850-990): LOCATING
        COORDINATES / OF NEXT MISSION type while 13 frames run at Call_Back_Delay(6),
@@ -3013,11 +3442,16 @@ int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
         if (camp_autopilot && !camp_ctx_typing(&k) && ++appick > 40 && k.clickx < 0) {
             /* hands-off: click the first pixel of choice 0's territory */
             const unsigned char *cm = camp_frame(c, click, 0);
+            const int want0 = row->colour[d][0];
             int i;
             static int shot_once = 0;
             camp_shot(c, "flow_map.png", &shot_once);
+            /* Egypt the second time through (Nod row 8) is colour 0xA0, which CLICK_A
+               does not hold: a click lands on 0x80 or 0x81 and the hack below turns it
+               into 0xA0. The hands-off click looks for what a hand would click, or it
+               searched for ever and the Nod flow stopped at that map. */
             for (i = 0; i < 320 * 200; i++)
-                if (cm[i] == row->colour[d][0]) {
+                if (cm[i] == want0 || (want0 == 0xA0 && (cm[i] == 0x80 || cm[i] == 0x81))) {
                     k.clickx = i % 320;
                     k.clicky = i / 320;
                     break;
@@ -3035,6 +3469,7 @@ int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
                 if (want == v) {
                     camp_sfx(c, "WORLD2.AUD", 90);
                     sel = s2;
+                    pickcolour = v; /* 1995's `color`, Egypt hack applied */
                     camp_show_mouse(c, 0); /* mapsel.cpp:1133 Hide_Mouse on the pick */
                     break;
                 }
@@ -3053,10 +3488,12 @@ int camp_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
     printf("CAMPAIGN|mapsel|picked=%d|dir=%c|var=%c\n", sel, *dir, *var);
     fflush(stdout);
 
-    /* The post-click country highlight (COUNTRYE.SHP + DARK_E.PAL fade) and
-       Print_Statistics country page are a registered gap this wave -- the art and
-       palette are already in the pack (COUNTRYE, DARK_E) for when they land.
-       Fade to black MEDIUM and hand the flow on (mapsel.cpp:1158-1166). */
+    /* the picked country lit on the bare map and its statistics page
+       (mapsel.cpp:1065-1122); the last scenario returned before this point */
+    if (!camp_map_country(&k, side, row->shape[d][sel], pickcolour, europe))
+        goto closed;
+
+    /* Fade to black MEDIUM and hand the flow on (mapsel.cpp:1158-1166). */
     k.fade_step = -(256 / 15 + 1);
     if (!camp_ctx_delay(&k, 15)) goto closed;
     if (c->au)
@@ -3436,11 +3873,50 @@ int camp_ra_score(Camp *c, const CampScore *s, int side, int scenario)
     return 0;
 }
 
+/* Mouse_Over_Spot (redalert/mapsel.cpp:277-292): which of this scenario's target
+   rectangles holds the plate point, or -1. The pointer and the click both ask it, so the
+   pointer cannot offer a target the click would refuse. */
+static int camp_ra_spot(int side, int scenario, int x, int y)
+{
+    int i;
+    for (i = 0; i < 3 && ra_map_spots[side][scenario][i][0] != -1; i++) {
+        const int sx = ra_map_spots[side][scenario][i][0];
+        const int sy = ra_map_spots[side][scenario][i][1];
+        if (x >= sx && y >= sy && x <= sx + 11 && y <= sy + 9)
+            return i;
+    }
+    return -1;
+}
+
+/* The map screen's pointer, mapsel.cpp:200-215 with Set_Mouse at :334-352: over a target,
+   MOUSE_CAN_ATTACK (frames 21..28, one every 4 ticks, hot spot 14,11), and the plain
+   arrow elsewhere. As in that loop, the frame only changes when the timer has run out,
+   and it steps before it is shown, so the first attack frame is 22 and the arrow can
+   return up to four ticks after the pointer leaves a target. The caller counts the timer
+   down once a tick. */
+static void camp_ra_map_pointer(Camp *c, int spot, int *timer, int *frame)
+{
+    const int over = spot >= 0;
+    const int start = over ? 21 : 0, count = over ? 8 : 1, delay = over ? 4 : 0;
+    if (*timer > 0)
+        return;
+    *frame = (*frame + 1) % count;
+    *timer = delay;
+    if ((c->curframe != 0) != over) {
+        printf("CAMPAIGN|ra-map|pointer=%s|spot=%d\n", over ? "attack" : "arrow", spot);
+        fflush(stdout);
+    }
+    c->curframe = start + *frame;
+    c->curhx = over ? 14 : 0;
+    c->curhy = over ? 11 : 0;
+}
+
 int camp_ra_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
 {
     char tag[16];
     CampCtx k;
-    int f, pick = -1, wait = 0, shot_once = 0;
+    int f, pick = -1, wait = 0, shot_once = 0, attack_shot_once = 0;
+    int ptimer = 0, pframe = 0, parkx = -1, parky = -1;
     if (scenario < 1 || scenario > 13) return -1;
     snprintf(tag, sizeof tag, "MS%c%c", side ? 'S' : 'A', 'A' + scenario);
     const CampEntry *reel = camp_entry(c, tag);
@@ -3462,27 +3938,212 @@ int camp_ra_mapsel(Camp *c, int side, int scenario, char *dir, char *var)
     camp_shot(c, "flow_ra_map.png", &shot_once);
     k.clickx = -1; k.keyed = 0;
     while (pick < 0) {
-        if (!camp_ctx_tick(&k)) return -1;
+        camp_ra_map_pointer(c, camp_ra_spot(side, scenario, c->mx, c->my), &ptimer, &pframe);
+        if (!camp_ctx_tick(&k)) {
+            c->curframe = c->curhx = c->curhy = 0;
+            return -1;
+        }
+        if (ptimer > 0)
+            ptimer--;
+        if (camp_autopilot) {
+            /* hands-off: the parked pointer moves onto the target the autopilot is
+               about to take, so a flow run photographs the pointer over it; it goes
+               back to its parking place once the pick is made */
+            if (wait == 20) {
+                parkx = c->mx; parky = c->my;
+                c->mx = ra_map_spots[side][scenario][0][0] + 5;
+                c->my = ra_map_spots[side][scenario][0][1] + 4;
+            } else if (wait == 30) {
+                camp_shot(c, "flow_ra_map_attack.png", &attack_shot_once);
+                printf("CAMPAIGN|ra-map|shot=flow_ra_map_attack.png|at=%d,%d|frame=%d"
+                       "|hotspot=%d,%d\n", c->mx, c->my, c->curframe, c->curhx, c->curhy);
+                fflush(stdout);
+            }
+        }
         if (camp_autopilot && ++wait >= 45) {
             pick = 0;
         } else if (k.clickx >= 0) {
-            int i;
-            for (i = 0; i < 3; i++) {
-                const int x = ra_map_spots[side][scenario][i][0];
-                const int y = ra_map_spots[side][scenario][i][1];
-                if (x >= 0 && k.clickx >= x && k.clickx <= x + 11 &&
-                    k.clicky >= y && k.clicky <= y + 9) {
-                    pick = i;
-                    break;
-                }
-            }
+            pick = camp_ra_spot(side, scenario, k.clickx, k.clicky);
             k.clickx = -1;
         }
     }
+    /* mapsel.cpp:229-235: Hide_Mouse, and the arrow put back before leaving */
+    c->curframe = c->curhx = c->curhy = 0;
+    if (camp_autopilot && parkx >= 0) { c->mx = parkx; c->my = parky; }
     *var = (char)('A' + pick);
     camp_show_mouse(c, 0);
     printf("CAMPAIGN|ra-map|scen-won=%d|reel=%s|picked=%d|dir=%c|var=%c\n",
            scenario, tag, pick, *dir, *var);
+    fflush(stdout);
+    return 0;
+}
+
+/* ------------------------------------------------------------------ the endings
+ *
+ * ending.cpp GDI_Ending and Nod_Ending, the parts that are screens rather than movies.
+ * The movies themselves (GDIFINA/B, GDIEND1/2, NODFINAL, NODEND1..4, CC2TEASE) play
+ * through the shell's own movie player; these two functions are what sits between and
+ * after them. */
+
+/* conquer.h TXT_SEL_TARGET, "Select a target". The host reads CONQUER.ENG by the same
+   numbers conquer.h gives its TXT_ names (see TXT_MAP_COUNTRYNAME above). */
+#define TXT_SEL_TARGET 675
+
+/* ending.cpp:111 _tanpal, slots 0 and 1 zeroed because ScorePrintClass prints with
+   TBLACK for both (see camp_print16). */
+static const unsigned char camp_tanpal[16] = {
+    0x00, 0x00, 0xED, 0x2C, 0x2C, 0xFB, 0xFB, 0xFD,
+    0xFD, 0x00, 0x00, 0x00, 0x00, 0x00, 0x52, 0x00};
+
+/* KANEFINL.AUD's own length: 850,614 bytes of 16 bit mono at 22,050 Hz, 19.29 s. The
+   caption waits for the speech to end, but with no audio device the mixer never drains,
+   so the wait is also bounded by the speech's length. */
+#define CAMP_KANE_MS 19300
+
+/* Nod_Ending's target screen (ending.cpp:135-215), after NODFINAL:
+ *
+ *   - SATSEL.CPS in SATSEL.PAL: four cities, one per quadrant;
+ *   - KANEFINL.AUD (Kane) and LOOPIE6M.AUD (the bed) start together at volume 128;
+ *   - while Kane speaks every click is thrown away; when he stops, "Select a target"
+ *     types itself at (0,180) in _tanpal and the pointer comes up;
+ *   - a click with y in 22..177 picks a quadrant: top right 1 (also the default), top
+ *     left 2, bottom left 3, bottom right 4. Anything else is ignored and the bed goes
+ *     on looping.
+ *
+ * Returns the selection 1..4, or -1 if the window was closed. Both samples live in
+ * dosdata/transit/TRANSIT.MIX, which comes with the music; without it the screen is
+ * silent and the caption types at once, the same file-presence rule as everywhere.
+ *
+ * Registered deviations: 1995 doubled this picture with its interpolated 2x scaler,
+ * which also read a brightened copy of the palette (Increase_Palette_Luminance, and
+ * SATSELIN.PAL, which the discs do not carry); this port draws the 320x200 picture at
+ * its stored palette like every other campaign screen. The bed loops inside the mixer
+ * rather than being re-triggered, as on the side select. */
+int camp_nod_target(Camp *c)
+{
+    const CampEntry *sat = camp_entry(c, "SATSEL");
+    CampCtx k;
+    Mixer *mx = c->au ? cnc_audio_mixer(c->au) : NULL;
+    int kane = -1, bed = -1, typed = 0, selection = 0, shot_once = 0;
+    Uint32 t0;
+
+    c->logo_side = -1;
+    camp_show_mouse(c, 0);
+    if (!sat) {
+        /* no picture: 1995's default target rather than a screen that cannot be seen */
+        fprintf(stderr, "campaign: campaign.pack has no SATSEL; the Nod ending takes target 1\n");
+        printf("CAMPAIGN|nod-ending|no-picture\n");
+        fflush(stdout);
+        return 1;
+    }
+    if (c->au)
+        cnc_music_stop(c->au); /* Play_Movie("NODFINAL", THEME_NONE): no score here */
+    memset(c->plate, 0, sizeof(c->plate));
+    camp_blit(c, sat, 0);
+    c->fade = 256;
+    camp_ctx_init(&k, c);
+
+    /* ending.cpp:162-163, Play_Sample(sample, 255, 128): priority 255, volume 128, Kane
+       then the bed in the same frame. Started here bed first: a looping voice is never
+       stolen, and when every voice is busy the speech then takes a one-shot's place
+       rather than the bed taking the speech's (measured: started the other way round
+       with all voices busy, the bed landed on Kane's voice and he was cut at once). */
+    if (c->au) {
+        bed = cnc_audio_play_named_loop(c->au, "LOOPIE6M.AUD", MIX_BUS_FX,
+                                        128 * MIX_UNITY / 255, 0, 255);
+        kane = cnc_audio_play_named(c->au, "KANEFINL.AUD", MIX_BUS_FX,
+                                    128 * MIX_UNITY / 255, 0, 255);
+    }
+    printf("CAMPAIGN|nod-ending|open|kane=%s|bed=%s\n",
+           kane < 0 ? "absent" : (mx && mixer_voice_active(mx, kane)) ? "playing" : "cut",
+           bed < 0 ? "absent" : (mx && mixer_voice_active(mx, bed)) ? "playing" : "cut");
+    fflush(stdout);
+    t0 = camp_now(c);
+
+    while (!selection) {
+        const int talking = kane >= 0 && mx && mixer_voice_active(mx, kane)
+                            && camp_now(c) - t0 < CAMP_KANE_MS;
+        if (!typed && !talking) {
+            typed = 1;
+            camp_ctx_type(&k, TXT_SEL_TARGET, 0, 180, camp_tanpal);
+            camp_show_mouse(c, 1);
+            printf("CAMPAIGN|nod-ending|caption|after=%u ms\n", (unsigned)(camp_now(c) - t0));
+            fflush(stdout);
+        }
+        if (!camp_ctx_tick(&k)) {
+            if (mx && kane >= 0) mixer_voice_stop(mx, kane);
+            if (mx && bed >= 0) mixer_voice_stop(mx, bed);
+            return -1;
+        }
+        if (!typed) {
+            /* Keyboard->Clear() while Kane speaks: a click now picks nothing */
+            k.clickx = -1;
+            k.keyed = 0;
+            continue;
+        }
+        if (!camp_ctx_typing(&k)) {
+            camp_shot(c, "flow_nodtarget.png", &shot_once);
+            if (camp_autopilot && k.clickx < 0) {
+                const int t = camp_autopilot_target;
+                k.clickx = (t == 2 || t == 3) ? 80 : 240;
+                k.clicky = (t == 3 || t == 4) ? 140 : 60;
+            }
+        }
+        if (k.clickx >= 0 && k.clicky >= 22 && k.clicky <= 177) {
+            selection = 1;
+            if (k.clickx < 160 && k.clicky < 100) selection = 2;
+            if (k.clickx < 160 && k.clicky >= 100) selection = 3;
+            if (k.clickx >= 160 && k.clicky >= 100) selection = 4;
+        }
+        k.clickx = -1;
+        k.keyed = 0;
+    }
+
+    /* ending.cpp:196-212: pointer off, the caption erased, both samples freed */
+    camp_show_mouse(c, 0);
+    camp_fill(c, 0, 180, 319, 199, 0);
+    camp_present(c);
+    if (mx && kane >= 0) mixer_voice_stop(mx, kane);
+    if (mx && bed >= 0) mixer_voice_stop(mx, bed);
+    printf("CAMPAIGN|nod-ending|target=%d\n", selection);
+    fflush(stdout);
+    return selection;
+}
+
+/* The still both endings close on (ending.cpp:80-92 and :236-248): fade to black,
+ * ATTRACT2.CPS faded up in its own palette, three seconds that no key shortens
+ * (Keyboard->Clear(), then a timer loop that reads nothing), fade to black. Returns 0,
+ * or -1 if the window was closed. */
+int camp_attract(Camp *c)
+{
+    const CampEntry *a = camp_entry(c, "ATTRACT2");
+    CampCtx k;
+    int shot_once = 0;
+    Uint32 t0;
+
+    c->logo_side = -1;
+    camp_show_mouse(c, 0);
+    if (!a) {
+        fprintf(stderr, "campaign: campaign.pack has no ATTRACT2; the ending skips its still\n");
+        printf("CAMPAIGN|attract|no-picture\n");
+        fflush(stdout);
+        return 0;
+    }
+    memset(c->plate, 0, sizeof(c->plate));
+    camp_blit(c, a, 0);
+    c->fade = 0;
+    camp_ctx_init(&k, c);
+    k.fade_step = 256 / 15 + 1; /* FADE_PALETTE_MEDIUM = 60/4 ticks */
+    while (k.fade_step)
+        if (!camp_ctx_tick(&k)) return -1;
+    camp_shot(c, "flow_attract.png", &shot_once);
+    t0 = camp_now(c);
+    while (camp_now(c) - t0 < 3000) /* count.Set(TIMER_SECOND * 3) */
+        if (!camp_ctx_tick(&k)) return -1;
+    k.fade_step = -(256 / 15 + 1);
+    while (k.fade_step)
+        if (!camp_ctx_tick(&k)) return -1;
+    printf("CAMPAIGN|attract|ATTRACT2|shown\n");
     fflush(stdout);
     return 0;
 }

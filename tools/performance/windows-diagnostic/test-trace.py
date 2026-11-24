@@ -7,7 +7,7 @@ with tempfile.TemporaryDirectory(prefix='opencnc3d-perftrace-test-') as temp:
     work=Path(temp); exe=work/'trace-test'
     subprocess.run(['c++','-std=c++14','-O2',str(here/'perf-trace-test.cpp'),'-o',str(exe)],check=True)
     decoded=0; outputs=0
-    for mode in ('off','invalid','sessions','ring','cancel','gpu'):
+    for mode in ('off','invalid','sessions','ring','cancel','gpu','sections'):
         dest=work/mode;dest.mkdir()
         subprocess.run([str(exe),mode,str(dest)],check=True)
         for file in dest.glob('*.csv'):
@@ -25,5 +25,8 @@ with tempfile.TemporaryDirectory(prefix='opencnc3d-perftrace-test-') as temp:
                 assert abs(sum(values)-float(row['total_ms']))<0.00002
                 assert row['missing']==''
                 assert float(row['cpu:first draw pass'])==1.0
+            if mode=='sections':
+                header=next(line for line in lines if line.startswith('frame,'))
+                assert header.count('"cpu:')==64 and '"cpu:swap"' in header and '"cpu:extra 45"' in header
             decoded+=len(rows);outputs+=1
     print(json.dumps({'status':'PASS','CSV_files':outputs,'decoded_rows':decoded,'native_driver_test':False}))

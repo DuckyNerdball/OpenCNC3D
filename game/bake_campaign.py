@@ -20,7 +20,11 @@ WHAT THE ENGINE SAYS (citations, brain/vanilla/tiberiandawn):
     (the grey-globe spin-in), EARTH_E.WSA (globe spin to Europe, 92 frames with
     per-frame sounds), EUROPE.WSA (227 frames: territory advances + crosshair
     blink via palette 249..254 cycling), CLICK_E.CPS (per-pixel click map),
-    COUNTRYE.SHP (country highlight), DARK_E.PAL (statistics-page palette).
+    COUNTRYE.SHP / COUNTRYA.SHP (the picked country's highlight, GDI / Nod),
+    DARK_E.PAL (statistics-page palette, both houses).
+  * The endings   -- ending.cpp GDI_Ending/Nod_Ending: SATSEL.CPS drawn in
+    SATSEL.PAL (Nod's "Select a target" satellite picture, GENERAL.MIX) and
+    ATTRACT2.CPS with its own palette (the still both sides end on, LOCAL.MIX).
 
 WSA format -- the REAL header, common/wsa.cpp:126-141 WSA_FileHeaderType:
     u16 total_frames; u16 x; u16 y; u16 w; u16 h;
@@ -116,8 +120,11 @@ def main():
         print("WSA %-12s -> %-8s: %3d frames %dx%d at (%d,%d), %d B of deltas"
               % (name, tag, nf, w, h, x, y, sum(len(c) for c in chunks)))
 
-    def add_cps(mix, name, tag):
+    def add_cps(mix, name, tag, palette=None):
         body, pal = cps_decode(mix.read(name))
+        if palette is not None:
+            pal = bytes(palette)
+            assert len(pal) == 768, (name, len(pal))
         entries.append((tag, 1, 1, 320, 200, 0, 0, pal, [body]))
         proofs.append((tag, 320, 200, pal, [body]))
         print("CPS %-12s -> %s" % (name, tag))
@@ -165,6 +172,16 @@ def main():
     add_wsa(general, "EARTH_A.WSA", "EARTH_A")
     add_wsa(general, "AFRICA.WSA", "AFRICA")
     add_cps(general, "CLICK_A.CPS", "CLICK_A")
+    # Nod's picked-country highlight for the statistics page (mapsel.cpp:1069 asks for
+    # COUNTRYA.SHP when the player is not GDI). It sits in CONQUER.MIX beside COUNTRYE:
+    # 17 frames of 64x54 where GDI's has 18 of 117x62. DARK_E is shared, as in 1995.
+    add_shp(conquer, "COUNTRYA.SHP", "COUNTRYA")
+    # The endings (ending.cpp). Nod_Ending loads SATSEL.PAL and SATSEL.CPS separately and
+    # sets the .PAL, so the picture is baked with that palette rather than the one inside
+    # the CPS. Both endings then show ATTRACT2.CPS in the palette it carries itself.
+    local = MixFile(os.path.join(DOSDATA, "LOCAL.MIX"))
+    add_cps(general, "SATSEL.CPS", "SATSEL", palette=general.read("SATSEL.PAL"))
+    add_cps(local, "ATTRACT2.CPS", "ATTRACT2")
 
     with open(OUT, "wb") as f:
         f.write(MAGIC)

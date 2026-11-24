@@ -112,8 +112,10 @@ static bool g_editOn      = false;   /* --edit was given                        
    drawing-first and the panels read them. */
 #define EDIT_GRID_MAX (C3D_MAP_MAX * C3D_MAP_MAX)
 static inline bool edit_map_big(void)   { return g_gridW > 64 || g_gridH > 64; }
-static inline int  edit_ini_w(void)     { return edit_map_big() ? C3D_INI_STRIDE : 64; }
-static inline int  edit_ini_cells(void) { return edit_map_big() ? C3D_INI_CELLS : 64 * 64; }
+/* RA's cell file stride is always 128 even when its fitted render pack is 64.
+   Deriving this from the pack moved/lost objects on an editor Trace round trip. */
+static inline int  edit_ini_w(void)     { return (g_raModule || edit_map_big()) ? C3D_INI_STRIDE : 64; }
+static inline int  edit_ini_cells(void) { return (g_raModule || edit_map_big()) ? C3D_INI_CELLS : 64 * 64; }
 /* Which mode the editor is in: 0 objects, 1 terrain, 2 elevation, 3 starts, 4 script.
    Up here with g_editOn because the map overlays are drawn near the top of this file and
    several of them are object-mode furniture that must stand down in the others. */
@@ -127,7 +129,29 @@ static int  g_editCellY   = -1;
 static float g_editCellFx = 0.5f;
 static float g_editCellFz = 0.5f;
 static bool g_editOverMap = false;
-static unsigned long g_editFrame = 0;   /* engine frames, not wallclock */
+/* THE EDITOR'S CLOCK, in sixtieths of a second. The simulation is frozen while editing, so
+   the engine's frame counter cannot drive the chrome, and counting DRAWN frames made every
+   timer here the screen's: the logo spun four times too fast on a 240 Hz display and
+   faster still with vsync off, and the toast, the REPLACE warning and the autosave ran
+   short by the same factor. eui_draw advances it by the time that really passed (a long
+   stall counts as a tenth of a second), and by exactly one sixtieth a draw in an automated
+   run (g_ehqStep), as it always did there, so scripted pictures of the editor are unchanged. */
+static unsigned long g_editFrame = 0;   /* sixtieths of a second of editing */
+static double        g_editClockMs = 0.0;
+static Uint32        g_editClockAt = 0;
+static void edit_clock_step(void)
+{
+    double dt;
+    if (g_ehqStep >= 0) { g_editFrame++; g_editClockMs = (double)g_editFrame * (1000.0 / 60.0); return; }
+    {
+        const Uint32 now = SDL_GetTicks();
+        dt = g_editClockAt ? (double)(Uint32)(now - g_editClockAt) : 1000.0 / 60.0;
+        if (dt > 100.0) dt = 100.0;
+        g_editClockAt = now;
+    }
+    g_editClockMs += dt;
+    g_editFrame = (unsigned long)(g_editClockMs * 0.06);
+}
 
 /* Which palette entry is armed, and where the map came from. Declared here with the
    rest of the state because the sidebar draws both and is defined above the code that
@@ -2156,8 +2180,8 @@ static void eui_draw_rail(const EuiLayout* L, int fbh, float t1)
  *  rotation, exactly. The dark side of the turn is dimmed rather than flipped, which is
  *  what sells it as a solid coin rather than a flapping card.
  *
- *  Driven off the ENGINE frame counter, never wallclock, so two --shot runs of the same
- *  scenario stay byte-identical -- the same rule the rest of the renderer lives under.
+ *  Driven off the editor's clock (g_editFrame), which takes a fixed step in an automated
+ *  run, so two --shot runs of the same scenario stay byte-identical.
  * ---------------------------------------------------------------------------------- */
 
 static GLuint g_euiEmblemTex = 0;
@@ -2174,9 +2198,8 @@ static void eui_coin(float cx, float cy, float r, unsigned long frame)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, EDIT_EMBLEM_N, EDIT_EMBLEM_N, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, EDIT_EMBLEM);
     }
-    /* Degrees per drawn frame. The sim is frozen while editing, so the ENGINE frame
-       counter is standing still and cannot drive this -- the draw counter is the only
-       clock the editor has. About five seconds a revolution at 60fps. */
+    /* Degrees per sixtieth of a second of the editor's clock (g_editFrame): five seconds
+       a revolution on any display. */
     const float t = (float)(frame % 300) * (1.2f * 0.0174532925f);
     const float c = cosf(t);
     const float w = r * (c < 0 ? -c : c);
@@ -8347,7 +8370,7 @@ static void eui_draw(int fbw, int fbh)
        viewport between them. eui_playtest gates the parts that would paint over it. */
     const bool eui_playtest = !g_editOn && g_playFromEditor;
     if (!g_editOn && !eui_playtest) return;
-    g_editFrame++;
+    edit_clock_step();
     EuiLayout L; eui_layout(fbw, fbh, &L);
     const float S = L.s;
     const float pad = EUI_PAD * S;
@@ -13119,7 +13142,7 @@ static void edit_cam_begin(void)
 {
     if (g_camAtYFree > -1.0e8f) return;          /* already ours */
     g_camPitchFree = n64_pitch();                /* freeze the derived pitch          */
-    g_camAtYFree   = N64_AT_Y + terrain_y(g_camX, g_camZ);
+    g_camAtYFree   = cam_at_y();                 /* the game's own eye height, so nothing moves */
 }
 
 static void edit_cam_release(void)
@@ -14841,10 +14864,10 @@ static void edit_draw_footprint(int fbw, int fbh)
             const bool ok = edit_cell_ok(cx, cy);
             glColor4f(ok ? 0.45f : 1.0f, ok ? 1.0f : 0.40f, 0.45f, ok ? 0.55f : 0.85f);
             float c[4], r[4];
-            world_to_screen((float)cx,     terrain_corner_y(cx, cy),         (float)cy,     fbw, fbh, &c[0], &r[0]);
-            world_to_screen((float)cx + 1, terrain_corner_y(cx + 1, cy),     (float)cy,     fbw, fbh, &c[1], &r[1]);
-            world_to_screen((float)cx + 1, terrain_corner_y(cx + 1, cy + 1), (float)cy + 1, fbw, fbh, &c[2], &r[2]);
-            world_to_screen((float)cx,     terrain_corner_y(cx, cy + 1),     (float)cy + 1, fbw, fbh, &c[3], &r[3]);
+            world_to_screen((float)cx,     terrain_cell_corner_y(cx,cy,cx, cy),         (float)cy,     fbw, fbh, &c[0], &r[0]);
+            world_to_screen((float)cx + 1, terrain_cell_corner_y(cx,cy,cx + 1, cy),     (float)cy,     fbw, fbh, &c[1], &r[1]);
+            world_to_screen((float)cx + 1, terrain_cell_corner_y(cx,cy,cx + 1, cy + 1), (float)cy + 1, fbw, fbh, &c[2], &r[2]);
+            world_to_screen((float)cx,     terrain_cell_corner_y(cx,cy,cx, cy + 1),     (float)cy + 1, fbw, fbh, &c[3], &r[3]);
             glBegin(GL_LINE_LOOP);
             for (int i = 0; i < 4; i++) glVertex2f(c[i], r[i]);
             glEnd();
@@ -16750,7 +16773,7 @@ static void edit_shot_overlay_at_screen_centre(int fbw, int fbh)
  *
  *  This header has exactly TWO compile targets, and both are C++14:
  *      Apple clang++            game/build.sh, app/build.sh
- *      i686-w64-mingw32-g++     tools/win/build-win.sh, which compiles cnc_eyes.cpp
+ *      x86_64-w64-mingw32-g++   tools/win/build-win.sh, which compiles cnc_eyes.cpp
  *                               itself (twice), so this file crosses with it for free
  *  The Win98/Glide build is a different program -- tools/win98/build.sh compiles
  *  the tier1 C sources as C89 and never sees cnc_eyes.cpp -- so do NOT contort this into C89 for

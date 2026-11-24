@@ -35,6 +35,19 @@
 // Filters hidden enemy combat targets and removes privileged hidden cargo/kill scoring from fair skirmish target evaluation.
 // This changes multiplayer simulation; campaign rules remain on their original path.
 
+// MODIFIED for OpenCNC3D in November 2026. In a Rally match (rally.h) a racer under its
+// respawn shield or the armour item takes no damage, no single hit from a course
+// defence takes more than most of a racer's health, a heavy hit throws a racer into
+// the air, a racer's destruction is reported to the Rally module, and every racer is a
+// target the defences may choose, the hovercraft included. Outside a Rally match
+// nothing changes. In a Rally match it DOES change the game simulation.
+
+// MODIFIED for OpenCNC3D. The Repair Bay's repair of a unit
+// (RADIO_REPAIR) no longer leaves the unit above its maximum strength: the last
+// repair step is clamped to the maximum, as Red Alert's own repair does. The number
+// of steps and their cost are unchanged. It DOES change the game simulation, by at
+// most three strength points at the end of a repair.
+
 /* $Header:   F:\projects\c&c\vcs\code\techno.cpv   2.13   02 Aug 1995 17:01:08   JOE_BOSTIC  $ */
 /***********************************************************************************************
  ***             C O N F I D E N T I A L  ---  W E S T W O O D   S T U D I O S               ***
@@ -134,7 +147,11 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "gun_game_ability.h"
+#include "../common/fire_visibility.h"
 #include "fair_ai_td.h"
+#include "rally.h"
 
 /***************************************************************************
 **	Cloaking control values.
@@ -906,6 +923,17 @@ RadioMessageType TechnoClass::Receive_Message(RadioClass* from, RadioMessageType
 #endif
                 House->Spend_Money(cost);
                 Strength += step;
+                /*
+                **	OpenCNC3D: a repair step never lifts a unit above its full strength.
+                **	The step is a fixed number of points, so the last one could land up to
+                **	three past the maximum (a Medium Tank finishing at 401 of 400). Red
+                **	Alert clamps the same step the same way in its own RADIO_REPAIR arm.
+                **	The repair still ends on the same step for the same cost, because the
+                **	next request already sees a full health ratio.
+                */
+                if (Strength > Class_Of().MaxStrength) {
+                    Strength = Class_Of().MaxStrength;
+                }
                 return (RADIO_ROGER);
             }
         }
@@ -1425,11 +1453,23 @@ bool TechnoClass::Evaluate_Object(ThreatType method, int mask, int range, Techno
         return (false);
 
     /*
+    **	A Gun Game stealthed combatant, or one inside smoke the searcher is outside, is
+    **	not there to be found.
+    */
+    if (Gun_Ability_Fire_Blocked(this, object->As_Target()))
+        return (false);
+
+    /*
     **	Determine if the target is theoretically allowed to be a target. If
     **	not, then bail.
     */
     TechnoTypeClass const* tclass = object->Techno_Type_Class();
-    if (!tclass->IsLegalTarget)
+    /*
+    **	OpenCNC3D Rally: every racer is fair game, the hovercraft included, whose type
+    **	is otherwise never a target.
+    */
+    const bool rally_racer = Rally_Is_Racer(object);
+    if (!tclass->IsLegalTarget && !rally_racer)
         return (false); // Legality failure.
 
     /*
@@ -1465,7 +1505,7 @@ bool TechnoClass::Evaluate_Object(ThreatType method, int mask, int range, Techno
     /*
     **	If not allowed to attack boats, then eliminate them from consideration.
     */
-    if (!(method & THREAT_BOATS) && otype == RTTI_UNIT
+    if (!(method & THREAT_BOATS) && otype == RTTI_UNIT && !rally_racer
         && (((UnitTypeClass const*)tclass)->Speed == SPEED_HOVER
             || ((UnitTypeClass const*)tclass)->Speed == SPEED_FLOAT)) {
         return (false);
@@ -2202,6 +2242,9 @@ FireErrorType TechnoClass::Can_Fire(TARGET target, int which) const
         && ((TechnoClass*)object)->Is_Cloaked(this)) {
         return (FIRE_CANT);
     }
+    if (Gun_Ability_Fire_Blocked(this, target)) {
+        return (FIRE_CANT);
+    }
 
     /*
     **	If there is no weapon, then firing is not allowed.
@@ -2217,6 +2260,7 @@ FireErrorType TechnoClass::Can_Fire(TARGET target, int which) const
     */
     if (object && object->What_Am_I() == RTTI_AIRCRAFT
         && !BulletTypeClass::As_Reference(Weapons[weap].Fires).IsAntiAircraft
+        && !Gun_Game_Combat_Aircraft((AircraftClass*)object)
         && ((AircraftClass*)object)->Altitude > 0) {
 
         return (FIRE_CANT);
@@ -2225,7 +2269,7 @@ FireErrorType TechnoClass::Can_Fire(TARGET target, int which) const
     /*
     **	Don't allow firing if still rearming.
     */
-    if (Arm)
+    if (Arm || (weap == WEAPON_RA_SCUD && !Gun_Game_Scud_Ready(this)))
         return (FIRE_REARM);
 
     /*
@@ -2351,9 +2395,9 @@ void TechnoClass::Assign_Target(TARGET target)
 int TechnoClass::Rearm_Delay(bool second) const
 {
     if (second) {
-        return (((int)Weapons[Techno_Type_Class()->Primary].ROF * House->ROFBias) + 3);
+        return Gun_Ability_Rearm(this, ((int)Weapons[Techno_Type_Class()->Primary].ROF * House->ROFBias) + 3);
     }
-    return (9);
+    return Gun_Ability_Rearm(this, 9);
 }
 
 /***********************************************************************************************
@@ -2431,7 +2475,9 @@ BulletClass* TechnoClass::Fire_At(TARGET target, int which)
     **	need to be performed according to the style of projectile
     **	created.
     */
-    int firepower = (weapon->Attack > 0) ? ((int)weapon->Attack * House->FirepowerBias) : 0;
+    const bool scud = weapon == &Weapons[WEAPON_RA_SCUD];
+    const int base_damage = scud ? 600 : weapon->Attack;
+    int firepower = base_damage * House->FirepowerBias;
     bullet = new BulletClass(weapon->Fires);
     if (bullet) {
         bullet->Assign_Target(target);
@@ -2446,6 +2492,8 @@ BulletClass* TechnoClass::Fire_At(TARGET target, int which)
         }
 
         if (bullet->Unlimbo(fire_coord, dir)) {
+            if (scud) Gun_Game_Scud_Fired(this);
+            Gun_Ability_Fired(this);
             // Mono_Printf("Units[0]=%p.\n", Units.Raw_Ptr(0));
             // Mono_Printf("Infantry[0]=%p.\n", Infantry.Raw_Ptr(0));
             // Mono_Printf("Buildings[0]=%p.\n", Buildings.Raw_Ptr(0));
@@ -2507,7 +2555,7 @@ BulletClass* TechnoClass::Fire_At(TARGET target, int which)
         /*
         **	Reduce ammunition for this object.
         */
-        if (Ammo > 0) {
+        if (Ammo > 0 && !Gun_Game_Combat_Aircraft(this)) {
             Ammo--;
         }
 
@@ -2526,43 +2574,32 @@ BulletClass* TechnoClass::Fire_At(TARGET target, int which)
 #ifndef REMASTER_BUILD
         if ((!IsOwnedByPlayer && !IsDiscoveredByPlayer) || !Map[Coord_Cell(Center_Coord())].IsMapped) {
             if (GameToPlay == GAME_NORMAL) {
-                Map.Sight_From(PlayerPtr, Coord_Cell(Center_Coord()), 1, false);
+                CncFireReveal(Coord_Cell(Center_Coord()),1,PlayerPtr);
             } else {
                 ObjectClass* obj = As_Object(target);
                 if (obj) {
                     HousesType tgt_owner = obj->Owner();
 
                     if (PlayerPtr->Class->House == tgt_owner) {
-                        Map.Sight_From(PlayerPtr, Coord_Cell(Center_Coord()), 1, false);
+                        CncFireReveal(Coord_Cell(Center_Coord()),1,PlayerPtr);
                     }
                 }
             }
         }
 #else
-        // If a projectile was fired from a unit that is hidden in the darkness,
-        //reveal that unit and a little area around it.
-        if (GameToPlay == GAME_NORMAL) {
-            if ((!IsOwnedByPlayer && !IsDiscoveredByPlayer)
-                || (!Map[Coord_Cell(Center_Coord())].IsMapped && (What_Am_I() != RTTI_AIRCRAFT || !IsOwnedByPlayer))) {
-                Map.Sight_From(PlayerPtr, Coord_Cell(Center_Coord()), 1, false);
-            }
-        }
-
-        /*
-        ** Now need to reveal for any player (only humans in normal node) that is the target. ST - 3/13/2019 5:43PM
-        */
-
+        /* Firing exposes its firer to the victim's house for three seconds after
+           its last shot. Ordinary unit/building sight remains permanent. */
+        /* Campaign observers retain the original reveal even for a shot at
+           ground or another AI; multiplayer reveals go to the victim's house. */
+        if (GameToPlay==GAME_NORMAL && PlayerPtr && !Is_Owned_By_Player(PlayerPtr))
+            CncFireReveal(Coord_Cell(Center_Coord()),1,PlayerPtr);
         ObjectClass* obj = As_Object(target);
         if (obj) {
-            HousesType tgt_owner = obj->Owner();
-
-            HouseClass* player = HouseClass::As_Pointer(tgt_owner);
-            if (player != nullptr && (player->IsHuman || GameToPlay != GAME_NORMAL)) {
-                if ((!Is_Owned_By_Player(player) && !Is_Discovered_By_Player(player))
-                    || !Map[Coord_Cell(Center_Coord())].Is_Mapped(House)) {
-                    Map.Sight_From(player, Coord_Cell(Center_Coord()), 1, false);
-                }
-            }
+            HouseClass* player = HouseClass::As_Pointer(obj->Owner());
+            if (player && (player->IsHuman || GameToPlay != GAME_NORMAL)
+                && !Is_Owned_By_Player(player)
+                && (player!=PlayerPtr || !(GameToPlay==GAME_NORMAL)))
+                CncFireReveal(Coord_Cell(Center_Coord()),1,player);
         }
 
 #endif
@@ -2747,7 +2784,7 @@ ActionType TechnoClass::What_Action(ObjectClass* object) const
                             || ((Techno_Type_Class()->Secondary != WEAPON_NONE)
                                 && BulletTypeClass::As_Reference(Weapons[Techno_Type_Class()->Secondary].Fires)
                                        .IsAntiAircraft)
-                            || (aircraft->Altitude == 0)) {
+                            || (aircraft->Altitude == 0) || Gun_Game_Combat_Aircraft(aircraft)) {
                             return (ACTION_ATTACK);
                         }
                     }
@@ -2811,7 +2848,9 @@ ActionType TechnoClass::What_Action(CELL cell) const
     /*
     **	Disable recognizing the <CTRL> key forced fire option when dealing with buildings.
     */
-    if (What_Am_I() == RTTI_BUILDING)
+    /* Armed defenses may force-fire ground within their normal weapon range.
+       Unarmed buildings and the SAM-specific restriction still decline it. */
+    if (What_Am_I() == RTTI_BUILDING && !Can_Player_Fire())
         ctrldown = false;
 
     if (cellptr->Overlay != OVERLAY_NONE) {
@@ -3144,6 +3183,22 @@ bool TechnoClass::Captured(HouseClass* newowner)
  *=============================================================================================*/
 ResultType TechnoClass::Take_Damage(int& damage, int distance, WarheadType warhead, TechnoClass* source)
 {
+    const int adjusted = Gun_Game_Dodge_Damage(this, damage);
+    if (damage > 0 && adjusted == 0) {
+        damage = 0;
+        return RESULT_NONE;
+    }
+    damage = adjusted;
+    /*
+    **	OpenCNC3D Rally: a racer under its respawn shield or the armour item takes nothing.
+    */
+    if (damage > 0) {
+        damage = Rally_Damage(this, damage, source);
+        if (damage == 0) {
+            return (RESULT_NONE);
+        }
+    }
+
     /*
     **	Adjust damage according to house override armor value.
     */
@@ -3152,6 +3207,15 @@ ResultType TechnoClass::Take_Damage(int& damage, int distance, WarheadType warhe
     }
 
     ResultType result = ObjectClass::Take_Damage(damage, distance, warhead, source);
+    if (result != RESULT_NONE && result != RESULT_DESTROYED) Gun_Game_Hit(this, source);
+    Gun_Ability_Damaged(this, source, damage, result);
+
+    /*
+    **	OpenCNC3D Rally: a heavy hit throws a racer into the air.
+    */
+    if (result != RESULT_NONE) {
+        Rally_Damaged(this, damage, warhead, source);
+    }
 
     switch (result) {
     case RESULT_DESTROYED:
@@ -3232,6 +3296,12 @@ int TechnoTypeClass::Max_Passengers(void) const
  *=============================================================================================*/
 void TechnoClass::Record_The_Kill(TechnoClass* source)
 {
+    Gun_Game_Kill(this, source);
+    /*
+    **	OpenCNC3D Rally: a destroyed racer waits to respawn, and its killer is credited.
+    */
+    Rally_Kill(this, source);
+
     /*
     **	Handle any trigger event associated with this object.
     */

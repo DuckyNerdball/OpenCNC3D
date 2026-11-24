@@ -103,8 +103,9 @@ int ln_get_range(const char *url, const char *key, const char *part, long long o
                  long long length, int stall_secs, volatile int *cancel, LN_Progress cb,
                  void *user, long *status, char *err, int errlen);
 
-/* The size of a file in bytes, 64-bit on every platform (the 32-bit Windows C
- * runtime's stat stops at 2 GiB), or -1 when there is no such file. */
+/* The size of a file in bytes, 64-bit on every platform (the Windows C runtime's
+ * plain stat keeps the size in 32 bits at either program width and stops at
+ * 2 GiB), or -1 when there is no such file. */
 long long ln_file_size(const char *path);
 
 #endif /* LNET_H */

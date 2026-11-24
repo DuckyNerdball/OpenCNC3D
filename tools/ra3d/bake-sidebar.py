@@ -16,8 +16,39 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "menu" / "tools"), str(ROOT / "game")]
 from mixshp import Shape  # noqa: E402
-from bake_dossidebar import bake_font, pack_name, widen, build_fading_table  # noqa: E402
+from bake_dossidebar import bake_font, pack_name, widen  # noqa: E402
 from ramix import RaMix  # noqa: E402
+
+
+def conquer_fading_table(pal: bytes, color: int, frac: int) -> bytearray:
+    """jshell.cpp Conquer_Build_Fading_Table. `pal` is 768 raw 6-bit bytes.
+
+    Not fading.cpp Build_Fading_Table, which searches the whole palette: this one
+    leaves index 0 and 241..255 alone and sends every other colour to the closest of
+    the fifteen greys at 240..254 after moving it frac/256 of the way toward `color`
+    (rgb.cpp RGBClass::Adjust, whose division truncates toward zero), measured by
+    RGBClass::Difference. A tie keeps the first grey: the search only replaces its
+    candidate on `diff < bvalue`."""
+    out = bytearray(256)
+    frac &= 0xFF
+    target = pal[color * 3:color * 3 + 3]
+    for index in range(256):
+        if index > 240 or index == 0:
+            out[index] = index
+            continue
+        trycolor = []
+        for ch in range(3):
+            original = pal[index * 3 + ch]
+            value = (target[ch] - original) * frac
+            step = abs(value) // 256
+            trycolor.append(original + (step if value >= 0 else -step))
+        best, bvalue = -1, 0
+        for grey in range(240, 255):
+            diff = sum((pal[grey * 3 + ch] - trycolor[ch]) ** 2 for ch in range(3))
+            if best == -1 or diff < bvalue:
+                best, bvalue = grey, diff
+        out[index] = best
+    return out
 
 
 class FontSource:
@@ -32,7 +63,7 @@ class FontSource:
         return value
 
 
-def shape(lores: RaMix, name: str) -> tuple[str, int, int, int, bytes]:
+def shape(lores, name: str) -> tuple[str, int, int, int, bytes]:
     raw = lores.read(name + ".SHP")
     if raw is None:
         raise ValueError(f"missing original shape {name}.SHP")
@@ -49,33 +80,67 @@ CHROME = ("SIDE1NA", "SIDE2NA", "SIDE3NA", "SIDE1US", "SIDE2US", "SIDE3US",
 SPECIAL_CAMEOS = ("SONR", "ATOM", "WARP", "PBMB", "PINF", "CAM", "INFX", "GPSS")
 
 
+class ArtSource:
+    """The base game's art archive, then the Aftermath expansion's matching one.
+
+    The 1997 Aftermath disc carries the cameos of its own units (the Chrono Tank, the
+    Tesla Tank, the M.A.D. Tank, the Demolition Truck, the Phase Transport, the Missile
+    Submarine, the Shock Trooper, the Mechanic and the carrier) in HIRES1.MIX and
+    LORES1.MIX, beside the 1996 HIRES.MIX and LORES.MIX the base cameos come from. A
+    shape the base archive has is always the base one."""
+
+    def __init__(self, base: RaMix, expansion: RaMix | None):
+        self.base = base
+        self.expansion = expansion
+
+    def read(self, name: str) -> bytes | None:
+        value = self.base.read(name)
+        if value is None and self.expansion is not None:
+            value = self.expansion.read(name)
+        return value
+
+
 def bake(data: Path, theater: str, out: Path, hires: bool = False) -> None:
-    art = RaMix(data / ("HIRES.MIX" if hires else "LORES.MIX"))
+    base = RaMix(data / ("HIRES.MIX" if hires else "LORES.MIX"))
+    aftermath = data / "expansions" / "aftermath"
+    expansion_mix = aftermath / ("HIRES1.MIX" if hires else "LORES1.MIX")
+    expansion = RaMix(expansion_mix) if expansion_mix.is_file() else None
+    art = ArtSource(base, expansion)
     local = RaMix(data / "LOCAL.MIX")
     palette = local.read(theater + ".PAL")
     rules = local.read("RULES.INI")
     if palette is None or len(palette) != 768 or max(palette) > 63 or rules is None:
         raise ValueError(f"missing original {theater} palette or RULES.INI")
 
-    # RULES.INI is the base game's object registry. Include every section that has an
-    # actual cameo, with no invented names or TD art fallback.
-    stems = sorted(set(re.findall(rb"^\[([A-Za-z0-9_]+)\]", rules, re.M)))
-    cameos = sorted(set(stem.decode("ascii") for stem in stems
+    # RULES.INI is the base game's object registry, and AFTRMATH.INI (in EXPAND2.MIX)
+    # adds the expansion's. Include every section that has an actual cameo, with no
+    # invented names or TD art fallback.
+    stems = set(re.findall(rb"^\[([A-Za-z0-9_]+)\]", rules, re.M))
+    expand2 = aftermath / "EXPAND2.MIX"
+    if expansion is not None and expand2.is_file():
+        extra = RaMix(expand2).read("AFTRMATH.INI")
+        if extra is not None:
+            stems |= set(re.findall(rb"^\[([A-Za-z0-9_]+)\]", extra, re.M))
+    cameos = sorted(set(stem.decode("ascii") for stem in sorted(stems)
                          if art.read(stem.decode("ascii") + "ICON.SHP") is not None)
                     | set(SPECIAL_CAMEOS))
     shapes = [shape(art, stem + "ICON") for stem in cameos]
     shapes = [(stem, n, w, h, pixels) for stem, (_, n, w, h, pixels) in zip(cameos, shapes)]
-    shapes.extend(shape(art, stem) for stem in CHROME)
-    fonts = [(name,) + bake_font(FontSource(art, local), name)
+    shapes.extend(shape(base, stem) for stem in CHROME)
+    fonts = [(name,) + bake_font(FontSource(base, local), name)
              for name in ("6POINT", "GRAD6FNT", "8POINT")]
 
-    # RA sidebar.cpp:1223 uses {GREEN, BLACK, 100, 0}; its ghost table maps the
-    # green clock ink to a palette fade toward black, while 0xFF means opaque.
-    cycling = bytearray(palette)
-    cycling[32 * 3:39 * 3] = b"\x3f" * (7 * 3)
+    # sidebar.cpp:1223-1244 StripClass::Init_Theater. Build_Translucent_Table with
+    # {GREEN, BLACK, 100, 0} gives the lookup: the green clock ink (index 3) selects
+    # table 0, every other index is 0xFF and drawn as itself. Its table 0 is then
+    # OVERWRITTEN by Conquer_Build_Fading_Table(GamePalette, BLACK, 100), so the wedge
+    # turns what it covers into the theater's dark grey ramp. The whole-palette fade
+    # this used to bake, with Tiberian Dawn's cycling range (32..38) whitened, sent
+    # Red Alert's ordinary dark browns at 32..38 to a light grey, which scattered
+    # light dots over every cameo under the clock or the busy-factory darken.
     ghost = bytearray(b"\xff" * 256)
     ghost[3] = 0
-    clock = bytes(ghost) + bytes(build_fading_table(cycling, 12, 100))
+    clock = bytes(ghost) + bytes(conquer_fading_table(palette, 12, 100))
 
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as stream:

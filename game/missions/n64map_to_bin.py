@@ -101,8 +101,22 @@ def convert(map_path, ini_path, out_path):
              stats['clear'], stats['bank4'], stats['bank8'], stats['unmapped']))
     return stats
 
+# CODES THIS DIRECTORY USES FOR SOMETHING ELSE. SCG90EA here is the renderer's own Test
+# Map (GDI 1's terrain, written by make_testmap.py), not the cartridge's SCG90EA, which is
+# installed as SCG99EA. Converting the cartridge map under that name would overwrite the
+# Test Map's ground, so the plain form refuses it and the TARGET=SOURCE form is required.
+REUSED = {"SCG90EA"}
+
 if __name__ == '__main__':
-    for scen in sys.argv[1:]:
-        convert(os.path.join(EXTRACTED, 'MAP', scen + '.MAP'),
-                os.path.join(EXTRACTED, 'INI', scen + '.INI'),
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), scen + '.BIN'))
+    # Each argument is a scenario code, or TARGET=SOURCE to convert the cartridge's SOURCE
+    # map into TARGET.BIN (the same alias form tools/bakery/runtime-scenarios.txt uses):
+    #     n64map_to_bin.py SCG30EA SCG99EA=SCG90EA
+    for arg in sys.argv[1:]:
+        out, _, src = arg.partition('=')
+        src = src or out
+        if out in REUSED:
+            raise SystemExit("n64map_to_bin: %s.BIN is not a cartridge conversion in this "
+                             "directory; give a target code, e.g. SCG99EA=%s" % (out, src))
+        convert(os.path.join(EXTRACTED, 'MAP', src + '.MAP'),
+                os.path.join(EXTRACTED, 'INI', src + '.INI'),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), out + '.BIN'))

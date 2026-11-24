@@ -1,6 +1,10 @@
 // MODIFIED for OpenCNC3D fair skirmish difficulty, 19 October 2026.
 // Assigns per-roster AI skill before house remapping and exports policy, state hash and read-only diagnostics.
 // This changes multiplayer simulation; campaign rules remain on their original path.
+// MODIFIED for OpenCNC3D. DLLExportClass::Code_Pointers and
+// Decode_Pointers carry the coded building type through intptr_t rather than
+// unsigned int, so the file compiles cleanly for 64-bit Windows; the value stored and
+// read back is unchanged on every platform.
 //
 // Copyright 2020 Electronic Arts Inc.
 //
@@ -7985,7 +7989,7 @@ void DLLExportClass::Code_Pointers(void)
         Sidebar_Glyphx_Code_Pointers(&MultiplayerSidebars[i]);
 
         if (PlacementType[i]) {
-            PlacementType[i] = (BuildingTypeClass*)PlacementType[i]->Type;
+            PlacementType[i] = (BuildingTypeClass*)(intptr_t)PlacementType[i]->Type;
         }
     }
 }
@@ -8007,7 +8011,7 @@ void DLLExportClass::Decode_Pointers(void)
         Sidebar_Glyphx_Decode_Pointers(&MultiplayerSidebars[i]);
 
         if (PlacementType[i]) {
-            StructType type = (StructType) reinterpret_cast<unsigned int>(PlacementType[i]);
+            StructType type = (StructType)(intptr_t)PlacementType[i];
             PlacementType[i] = NULL;
             if (type >= STRUCT_FIRST && type < STRUCT_COUNT) {
 

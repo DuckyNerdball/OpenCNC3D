@@ -19,9 +19,9 @@ text is under "Decisions of 2 October 2026" at the end of this file.
   `brain/vanilla/redalert`. It does not replace the Tiberian Dawn brain.
 - Core capabilities are shared between the modules rather than built twice, big maps
   and high player counts first. RA3D must support big maps.
-- Mixed GDI, Nod, Allied and Soviet matches belong to All Stars mode, which is on the
-  back burner. Every installed module must eventually work in All Stars, so shared IDs and
-  versioned definitions stay in the design, but Phase 5 is deferred.
+- Mixed GDI, Nod, Allied and Soviet matches belong to the cross-module mixed-match phase,
+  which is on the back burner. Every installed module must eventually work in it, so
+  shared IDs and versioned definitions stay in the design, but Phase 5 is deferred.
 - Red Alert data comes from the original 1996 discs as released free by EA in 2008.
 - The next player-facing milestone is a real Red Alert module in the launcher's
   second slot. Launch must enter Red Alert's own menu and brain; the regular OpenCNC3D
@@ -45,7 +45,7 @@ Work carried forward into its owning later phase:
 - Phase 3 builds the RA brain's OpenCNC3D exports and validates how big-map changes are
   shared with the XL TD brain without claiming unsupported wire compatibility.
 - Phase 4 owns module manifests and the content registry.
-- Mixed-match work in Phases 5 and 12 remains deferred with All Stars mode.
+- Mixed-match work in Phases 5 and 12 remains deferred.
 
 ## How agents must maintain this file
 
@@ -75,7 +75,7 @@ only one phase is the primary current phase.
 OpenCNC3D and RA3D have separate game brains and one renderer-facing OpenCNC3D ABI. Core
 capabilities such as big maps and the scaled pathfinder must be shared in implementation
 or kept equal by a verified gate. Stable content identities and explicit format versions
-reserve a path for future All Stars matches; mixed simulation is deferred.
+reserve a path for future cross-module matches; mixed simulation is deferred.
 
 ```text
 OpenCNC3D module -> Tiberian Dawn brain --+
@@ -301,7 +301,7 @@ Exit gate:
 
 ## Phase 5: Minimal mixed-match vertical slice
 
-Status: **DEFERRED** (All Stars mode is on the back burner; the
+Status: **DEFERRED** (cross-module mixed matches are on the back burner; the
 standalone RA3D module comes first.)
 
 Goal: prove the central promise before expanding the content catalog.
@@ -328,7 +328,7 @@ Exit gate:
 
 - A mixed-module multiplayer match can be played to completion without desynchronizing.
 
-This is a separate, high-risk All Stars milestone. It is deferred while the standalone
+This is a separate, high-risk mixed-match milestone. It is deferred while the standalone
 RA3D module is built.
 
 ## Phase 6: Shared world and economy
@@ -465,7 +465,7 @@ Deliverables:
 - [x] Reuse the shared multiplayer lobby with Red Alert's maps, countries and rules.
 - [x] Show N64 on RA3D Visuals in the disabled style and refuse activation by mouse
   and keyboard.
-- [ ] Reserve module and faction identities for later All Stars selection.
+- [ ] Reserve module and faction identities for later cross-module selection.
 - [ ] Add clear missing-content and version-mismatch messages.
 
 Exit gate:
@@ -503,7 +503,11 @@ Deliverables:
   Oct): it turns with its facing and lowers its four ramps in the 1996 order while the
   engine has its door open (the brain's door= for ships), each resting on the beach where
   the ground rises. Open: the other aircraft and every other ship (no file yet).
-- [ ] Produce terrain objects and the Interior theater.
+- [ ] Produce terrain objects and the Interior theater. **Interior: the walls are in the game**
+  under Enhanced on all seven indoor missions (G368, `art/remaster-ra/interior/BRIEF.md`): the
+  approved kit, painted, drawn as each cell is revealed, the shadow floors plain. Open: the
+  fittings, the terminal, the plant and the pit (their own rows), the floors' paintings, the
+  low brick walls.
 - [ ] Red Alert's own ground under Enhanced. **First slice in:** the placeholder pack's
   ground is replaced by the mission's own map (from the engine's static map export),
   flat, over the whole mission rectangle, with Red Alert's terrain set at 144 texels a
@@ -700,7 +704,7 @@ Deliverables:
 - [ ] Implement module dependencies and match-content acquisition.
 - [ ] Provide an upgrade path for existing OpenCNC3D installations.
 - [ ] Extend release gates to both standalone modules. Mixed-match gates belong to
-  the deferred All Stars phase.
+  the deferred mixed-match phase.
 - [ ] Validate Win98 and Voodoo 2 behavior and documented fallbacks.
 - [ ] Test performance in large battles for each module.
 - [ ] Test clean installation, repair and update flows.
@@ -712,7 +716,7 @@ Exit gate:
 - A clean installation can install and launch either module with its required content.
 - OpenCNC3D remains fully playable on its TD brain.
 - RA3D is complete as a standalone multiplayer and single-player Red Alert port.
-- Cross-module mixed matches remain a separate All Stars milestone.
+- Cross-module mixed matches remain a separate deferred milestone.
 
 ## Progress history
 
@@ -1208,7 +1212,7 @@ These answer the four questions the audit raised.
    by EA in 2008 and its source is open. The data is extracted from the Allied and Soviet
    disc images of that release, and the extracted data is committed under `data/` like
    the Tiberian Dawn data. The OpenRA content folder is no longer the source.
-4. **One design with WarGames and All Stars.** All Stars mode, the cross-module mixed
-   matches, is on the back burner. When it comes, every module the player has installed
+4. **One design with WarGames and mixed matches.** The cross-module mixed-match phase
+   is on the back burner. When it comes, every module the player has installed
    must work in it, so the module, identity and content model is one design for OpenCNC3D,
    RA3D and the WarGames port.

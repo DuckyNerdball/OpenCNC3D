@@ -72,6 +72,7 @@ SOURCE = ROOT / 'game/ebld'
 VERSIONS = ROOT / 'game/ebld_ra_versions'
 VERSION_PHASE = 'RA version'
 MANIFEST = 'reuse-manifest.json'
+SHARED_STAGES = 'shared-stages.txt'
 
 # The civilian types, crates and fences the renderer draws from a reused model.
 CIVIL = re.compile(r'^(V(0[1-9]|1[0-9])|BIO|HOSP|MISS|SCRATE|WCRATE|CYCL|WOOD)(_WIN)?$')
@@ -205,6 +206,41 @@ def stage(module, quiet=False, include_review=False):
             staged[row]['files'][p.name] = hashlib.sha256(data).hexdigest()
             if p.parent == VERSIONS:
                 staged[row]['own'].append(p.name)
+    # A tree's winter burning or snag stage that is byte for byte its temperate stage is kept
+    # once, and SHARED_STAGES names it: the game reads <T>_TEM_<stage>.ebld for every name
+    # listed there (ebld_stage_path), so a winter copy an earlier module installed and an
+    # update did not delete is never read in its place. The pair otherwise costs the
+    # download about 2.3 MB per tree. The bytes on disk decide, whichever row staged them.
+    def on_disk(name):
+        p = target / name
+        return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+
+    def spec_of(name):
+        p = (target / name).with_suffix('.spec')
+        return p.read_bytes() if p.is_file() else None
+    shared_names = {}
+    for name in sorted({n for v in staged.values() for n in v['files']}):
+        m = re.match(r'^(T\d\d)_WIN_(BURN|SNAG)\.ebld$', name)
+        if not m:
+            continue
+        tem = f'{m.group(1)}_TEM_{m.group(2)}.ebld'
+        if on_disk(name) is None or on_disk(name) != on_disk(tem) or spec_of(name) != spec_of(tem):
+            continue                   # (its own mesh, or the same mesh with its own specular maps)
+        shared_names[name] = tem
+    for v in staged.values():
+        for name, tem in shared_names.items():
+            if v['files'].pop(name, None) is not None:
+                v.setdefault('read_from', {})[name] = tem
+    for name in shared_names:
+        for p in (target / name, (target / name).with_suffix('.spec')):
+            if p.is_file():
+                p.unlink()
+    listing = target / SHARED_STAGES
+    if shared_names:
+        listing.write_text(''.join(f'{n} {t}\n' for n, t in sorted(shared_names.items())))
+    elif listing.is_file():
+        listing.unlink()
+    shared = len(shared_names)
     # what an earlier run staged and this one did not: its approval was withdrawn
     old = target / MANIFEST
     now = {n for v in staged.values() for n in v['files']}
@@ -229,6 +265,8 @@ def stage(module, quiet=False, include_review=False):
         print(f'RA reuse staged: {len(staged)} approved rows ({nv} of them Red Alert\'s own '
               f'versions{", those and the winter looks in review included" if include_review else ""}), '
               f'{n} files in {target}')
+        if shared:
+            print(f'   {shared} winter tree stages kept once: the same file as their temperate stage')
         for l in left:
             print(f'   left out: {l}')
         if held:

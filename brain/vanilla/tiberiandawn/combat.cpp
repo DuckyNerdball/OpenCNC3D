@@ -12,6 +12,16 @@
 // distributed with this program. You should have received a copy of the
 // GNU General Public License along with permitted additional restrictions
 // with this program. If not, see https://github.com/electronicarts/CnC_Remastered_Collection
+//
+// MODIFIED for OpenCNC3D in November 2026. This is not EA's original file.
+// In a Rally match (rally.h) Explosion_Damage measures the distance to a racer from
+// the edge of its vehicle rather than its centre, because a racer is a vehicle of real
+// size moving many times faster than the engine's units, and the steep fall-off of
+// small arms otherwise misses it entirely. Outside a Rally match nothing changes. In a
+// Rally match it DOES change the game simulation.
+// The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
+// and NOTICE.md lists every modified file.
+//
 
 /* $Header:   F:\projects\c&c\vcs\code\combat.cpv   2.17   16 Oct 1995 16:48:32   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -35,6 +45,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "rally.h"
 
 int Modify_Damage(int damage, WarheadType warhead, ArmorType armor);
 void Explosion_Damage(COORDINATE coord, unsigned strength, TechnoClass* source, WarheadType warhead);
@@ -200,6 +211,11 @@ void Explosion_Damage(COORDINATE coord, unsigned strength, TechnoClass* source, 
         } else {
             distance = Distance(coord, object->Center_Coord());
         }
+
+        /*
+        **	OpenCNC3D Rally: a racer is hit anywhere on its vehicle, not only at its centre.
+        */
+        distance = Rally_Hit_Distance(object, distance);
         if (object->IsDown && !object->IsInLimbo && distance < range) {
             int damage = strength;
 

@@ -451,6 +451,12 @@ static BulletTypeClass const ClassHonestJohn(BULLET_HONEST_JOHN,
                                              ANIM_NAPALM3  // Explosion to use upon impact.
 );
 
+// Red Alert FROG rules, using Dawn's existing missile and explosion art.
+static const BulletTypeClass ClassScud(BULLET_RA_SCUD, "MISSILE",
+                                      true, false, false, false, false, true,
+                                      true, true, false, true, false, false,
+                                      10, 0, (MPHType)64, 10, WARHEAD_HE, ANIM_FRAG1);
+
 static BulletTypeClass const ClassHeadButt(BULLET_HEADBUTT,
                                            "GORE",          // NAME:			Text name of this unit type.
                                            false,           // Flies over tall walls?
@@ -519,6 +525,7 @@ BulletTypeClass const* const BulletTypeClass::Pointers[BULLET_COUNT] = {
     &ClassSpreadfire, // BULLET_SPREADFIRE
     &ClassHeadButt,   // BULLET_HEADBUTT
     &ClassTRexBite,   // BULLET_TREXBITE
+    &ClassScud,       // BULLET_RA_SCUD
 };
 
 /***********************************************************************************************

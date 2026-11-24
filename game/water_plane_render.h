@@ -245,16 +245,38 @@ static void water_plane_draw_normals(void)
     fx_set2f(program, "uOpaqueInvSize", 1.0f / g_waterOpaqueLand.w, 1.0f / g_waterOpaqueLand.h);
     const std::vector<PackCell>& cells = water_cells();
     static const int dx[6] = {0,0,1,1,0,1}, dz[6] = {0,1,0,0,1,1};
-    glBegin(GL_TRIANGLES);
-    for (size_t i = 0; i < cells.size(); ++i) {
-        const PackCell& c = cells[i];
-        if ((!water_plane_covers(c) && !water_cell_wet(c)) || !cell_shown(c.x, c.y) || !cell_in_view(c.x, c.y)) continue;
-        for (int k = 0; k < 6; ++k) {
-            const int x = c.x + dx[k], z = c.y + dz[k];
-            glVertex3f((float)x, water_plane_cell_y(c, x, z), (float)z);
+    /* THE WATER SURFACE IS WORLD, NOT AN OVERLAY. The light pass marks as an overlay
+       every pixel whose depth came nearer after the copy taken before the health bars
+       (fx_overlay_depth_keep, fx_overlay_stamp), and lights it from the depth's own
+       slope with no class. This pass writes the water surface's depth after that copy,
+       so every river and lake pixel was marked: the water lost its own flat lighting and
+       was lit as the native corners slope. Where a narrow river's corners rise to its
+       banks the surface is a V, and the sun lit its two faces differently along the
+       crease, a hard straight line down the middle of the river (the river above the
+       Temperate waterfalls showed it worst). The same triangles go into the copy too,
+       with no colour, so the stamp sees no change there, while a health bar in front of
+       the water is still nearer than both and is still marked. */
+    const bool intoKept = g_fxInGroundNormals && g_fxOvDepthOk && g_fxOvDepth && g_fxScene.depth;
+    for (int pass = 0; pass < (intoKept ? 2 : 1); ++pass) {
+        if (pass == 1) {
+            fx_glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, g_fxOvDepth, 0);
+            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        }
+        glBegin(GL_TRIANGLES);
+        for (size_t i = 0; i < cells.size(); ++i) {
+            const PackCell& c = cells[i];
+            if ((!water_plane_covers(c) && !water_cell_wet(c)) || !cell_shown(c.x, c.y) || !cell_in_view(c.x, c.y)) continue;
+            for (int k = 0; k < 6; ++k) {
+                const int x = c.x + dx[k], z = c.y + dz[k];
+                glVertex3f((float)x, water_plane_cell_y(c, x, z), (float)z);
+            }
+        }
+        glEnd();
+        if (pass == 1) {
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            fx_glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, g_fxScene.depth, 0);
         }
     }
-    glEnd();
     fx_glUseProgram((GLuint)oldProgram);
     glPopAttrib();
 }

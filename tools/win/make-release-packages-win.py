@@ -54,6 +54,18 @@ def main():
     tag = 'v' + version
     td = a.module_dir / f'OpenCNC3D-module-td-windows-{tag}.zip'
     ra = a.module_dir / f'OpenCNC3D-module-ra-windows-{tag}.zip'
+    # No Windows product carries SDL2.dll: SDL is linked into every program. A base
+    # stage or module holding one is left over from an older build and is refused here,
+    # before any installer or zip is written from it.
+    stale = sorted(f.relative_to(a.base_stage).as_posix() for f in a.base_stage.rglob('*')
+                   if f.name.lower() == 'sdl2.dll')
+    for path in (td, ra):
+        with zipfile.ZipFile(path) as z:
+            stale += [path.name + ':' + n for n in z.namelist()
+                      if n.rsplit('/', 1)[-1].lower() == 'sdl2.dll']
+    if stale:
+        p.error('SDL2.dll in a Windows release input, and SDL is linked into the programs: '
+                + ', '.join(stale))
     for code, path in [('td', td), ('ra', ra)]:
         modules.verify_archive(path, code, 'windows', version)
     mark = f'OPENCNC3D|build|v{version}|cooked'.encode()
@@ -76,22 +88,30 @@ def main():
 
     names = ['OpenCNC3D.exe', 'opencnc3d-game.exe', 'OpenCNC3D-Diagnostics.exe',
              'cnc_eyes.exe', 'netcheck.exe', 'TiberianDawn.dll', 'dosclassic.pack',
-             'dosmenu.pack', 'enhanced-menu.pack', 'decalenh.pack', 'CONQUER.MIX']
+             'dosmenu.pack', 'enhanced-menu.pack', 'decalenh.pack', 'CONQUER.MIX',
+             'LICENSE', 'NOTICE.md']
+    names += [name for name in ['archive.dll', 'map-archive.json', 'map-archive-LICENSE.txt']
+              if (a.base_stage/name).is_file()]
     entries = [(name, (a.base_stage / name).read_bytes()) for name in names]
+    # The flat binary zip ends BUILD-ID.txt, as launchers up to v0.6.11 expect. There is
+    # no SDL2.dll in it: SDL is linked into every Windows program, and a launcher from
+    # v0.9.0 to v0.9.2 (a 32-bit program) keeps loading the SDL2.dll already in its folder.
     entries += [('READ-ME-FIRST.txt', (f'OpenCNC3D binaries {tag}.\n'
                  'Copy over a matching complete Dawn3D installation. Add Game installs\n'
                  'the complete module. Saves and settings are not included.\n').encode()),
-                ('BUILD-ID.txt', (tag + ' windows\n').encode()),
-                ('SDL2.dll', (a.base_stage / 'SDL2.dll').read_bytes())]
+                ('BUILD-ID.txt', (tag + ' windows\n').encode())]
     archive(a.out / f'OpenCNC3DBinaries-windows-{tag}.zip', entries)
 
-    # RA owns its frontend, brain and SDL under ra3d/. Shared launcher files let
-    # an existing RA installation acquire the current module/update controller.
+    # RA owns its frontend and brain under ra3d/. Shared launcher files let an
+    # existing RA installation acquire the current module/update controller.
     with zipfile.ZipFile(ra) as z:
         entries = [(name, z.read(name)) for name in
-                   ['ra3d/opencnc3d-game.exe', 'ra3d/RedAlert.dll', 'ra3d/SDL2.dll']]
+                   ['ra3d/opencnc3d-game.exe', 'ra3d/RedAlert.dll']]
+        entries += [(name, z.read(name)) for name in ['ra3d/LICENSE', 'ra3d/NOTICE.md',
+                    'ra3d/archive.dll', 'ra3d/map-archive.json', 'ra3d/map-archive-LICENSE.txt']
+                    if name in z.namelist()]
     entries += [(name, (a.base_stage / name).read_bytes()) for name in
-                ['OpenCNC3D.exe', 'SDL2.dll', 'dosmenu.pack', 'enhanced-menu.pack', 'ecur/ecur.bin']]
+                ['OpenCNC3D.exe', 'dosmenu.pack', 'enhanced-menu.pack', 'ecur/ecur.bin']]
     entries += [('READ-ME-RA3D-BINARIES.txt', (f'RA3D binaries {tag}.\n'
                  'Copy over a matching complete RA3D installation. Add Game installs\n'
                  'or updates the verified full module. This archive contains executables\n'

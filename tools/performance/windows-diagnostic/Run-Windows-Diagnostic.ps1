@@ -1,4 +1,5 @@
 # Windows PowerShell 5.1. This script copies; it never patches the original installation.
+# HISTORICAL: pinned to the 32-bit v0.8.4 game and its library fingerprints (README.txt).
 [CmdletBinding()]
 param(
     [string]$InstallDir,
@@ -171,8 +172,12 @@ $savesCopy = Join-Path $session 'saves'
 $reportDir = Join-Path $session 'report'
 $traceDir = Join-Path $gameCopy 'performance-trace'
 New-Item -ItemType Directory -Path $gameCopy, $savesCopy, $reportDir, $traceDir | Out-Null
-$normalPref = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Slipgate Ironworks\OpenCNC3D'
-$legacyPref = Join-Path (Split-Path -Parent $normalPref) 'CNC3D'
+$appData = [Environment]::GetFolderPath('ApplicationData')
+$normalPref = Join-Path $appData 'OpenCNC3D'
+# The folders earlier builds kept saves in. The game copies saves out of them once and
+# never writes to them; both are snapshotted so a run that touched them is caught.
+$earlierPref = Join-Path $appData 'Slipgate Ironworks\OpenCNC3D'
+$legacyPref = Join-Path $appData 'Slipgate Ironworks\CNC3D'
 
 function Get-ProtectedSnapshot {
     $out = @{}
@@ -189,6 +194,13 @@ function Get-ProtectedSnapshot {
             $_.Name -match '^(savegame\.\d+(?:\.enh)?|OPENCNC\.IDX|HALLFAME\.DAT|opencnc3d-log\.txt)$'
         } | ForEach-Object {
             $out['saves/' + $_.Name] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        }
+    }
+    if (Test-Path -LiteralPath $earlierPref -PathType Container) {
+        Get-ChildItem -LiteralPath $earlierPref -File | Where-Object {
+            $_.Name -match '^(savegame\.\d+(?:\.enh)?|OPENCNC\.IDX|HALLFAME\.DAT|opencnc3d-log\.txt)$'
+        } | ForEach-Object {
+            $out['earlier-saves/' + $_.Name] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
         }
     }
     if (Test-Path -LiteralPath $legacyPref -PathType Container) {
@@ -250,15 +262,20 @@ if (Test-Path -LiteralPath $normalPref -PathType Container) {
         $_.Name -match '^(savegame\.\d+(?:\.enh)?|OPENCNC\.IDX|HALLFAME\.DAT)$'
     } | ForEach-Object { Copy-PrivateSave $_ ('saves/' + $_.Name) $_.Name }
 }
-# Match the normal app's one-time carry-over, while writing only the private copies.
-$normalIndexOrFame = (Test-Path -LiteralPath (Join-Path $normalPref 'OPENCNC.IDX') -PathType Leaf) -or
-                     (Test-Path -LiteralPath (Join-Path $normalPref 'HALLFAME.DAT') -PathType Leaf)
-if (-not $normalIndexOrFame -and (Test-Path -LiteralPath $legacyPref -PathType Container)) {
-    Get-ChildItem -LiteralPath $legacyPref -File | Where-Object {
-        $_.Name -match '^(savegame\.\d+(?:\.enh)?|CNC3DSAV\.IDX|HALLFAME\.DAT)$'
+# Match the normal app's one-time carry-over, while writing only the private copies: the
+# first earlier folder that exists; its slots and index only while the per-user folder
+# has no index; its hall of fame only while absent (Copy-PrivateSave never overwrites).
+$normalIndex = Test-Path -LiteralPath (Join-Path $normalPref 'OPENCNC.IDX') -PathType Leaf
+$carryFrom = $null
+if (Test-Path -LiteralPath $earlierPref -PathType Container) { $carryFrom = @($earlierPref, 'earlier-saves/') }
+elseif (Test-Path -LiteralPath $legacyPref -PathType Container) { $carryFrom = @($legacyPref, 'legacy-saves/') }
+if ($carryFrom) {
+    Get-ChildItem -LiteralPath $carryFrom[0] -File | Where-Object {
+        $_.Name -match '^(savegame\.\d+(?:\.enh)?|OPENCNC\.IDX|CNC3DSAV\.IDX|HALLFAME\.DAT)$' -and
+        ($_.Name -ieq 'HALLFAME.DAT' -or -not $normalIndex)
     } | ForEach-Object {
         $name = if ($_.Name -ieq 'CNC3DSAV.IDX') { 'OPENCNC.IDX' } else { $_.Name }
-        Copy-PrivateSave $_ ('legacy-saves/' + $_.Name) $name
+        Copy-PrivateSave $_ ($carryFrom[1] + $_.Name) $name
     }
 }
 foreach ($name in $binaryNames) {
@@ -411,7 +428,7 @@ if (Test-Path -LiteralPath $rawLog -PathType Leaf) {
     # Keep diagnostics relevant to performance. Full gameplay/network logs remain local.
     $prefixes = '^(OpenCNC3D |GL_VERSION|GL_RENDERER|GL_SWAP|GL_GOT|GL_MULTITEX|GL WARNING|RESIZE\||PERFTRACE\||PERFWARM\||STATS\||GPUPROF\||GPUFRAMEPROF\||FRAMEPROF\||FRAMESPIKE\||FATAL:|FX\|graphics mode\||FX\|enhanced\||FX\|filter\||EBLDMESH\||EBLDART\||EBLD\|(?:wreck|damaged|sink)\||ebld: (?:[A-Za-z0-9_]+ (?:cut meshes built|textures on the card)|(?:ebld[\\/])?[A-Za-z0-9_]+\.ebld read at first sight)|M3(?:E)?\|[A-Za-z0-9_]+\|(?:tris |gpu\|)|M3\|loaded\||ran )'
     $log = ([IO.File]::ReadAllLines($rawLog) | Where-Object { $_ -match $prefixes }) -join "`r`n"
-    foreach ($prefix in @($gameCopy, $session, $InstallDir, $normalPref, $env:USERPROFILE) | Sort-Object Length -Descending) {
+    foreach ($prefix in @($gameCopy, $session, $InstallDir, $normalPref, $earlierPref, $legacyPref, $env:USERPROFILE) | Sort-Object Length -Descending) {
         if ($prefix) {
             $log = $log.Replace($prefix, '<local-path>').Replace($prefix.Replace('\', '/'), '<local-path>')
         }

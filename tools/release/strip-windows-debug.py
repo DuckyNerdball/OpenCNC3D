@@ -3,7 +3,8 @@
 
 Run prepare with a separate unstripped reference directory, then apply its external
 one-shot marker. The public-stage token remains for the subsequent asset reducer
-to consume. Build outputs and vendor libraries are never modified. Static PE
+to consume. Build outputs are never modified. A stage holding SDL2.dll is refused:
+the Windows programs link SDL statically, so no package carries it. Static PE
 equivalence is a packaging check, not a native Windows execution test.
 """
 import argparse
@@ -88,7 +89,7 @@ def stage_guard(stage, reference):
 
 
 def pe(path):
-    """Parse bounded PE32 structures and hash exact loader-visible section bytes."""
+    """Parse bounded PE32+ (x86-64) structures and hash exact loader-visible section bytes."""
     regular(path)
     require(path.stat().st_size <= 512 * 1024 * 1024, 'PE input exceeds the packaging limit')
     b = path.read_bytes()
@@ -97,11 +98,11 @@ def pe(path):
     require(64 <= off <= len(b)-24 and b[off:off+4] == b'PE\0\0', 'missing PE signature')
     machine, nsec, timestamp, symptr, nsyms, optsize, flags = struct.unpack_from('<HHIIIHH', b, off+4)
     opt = off+24
-    require(machine == 0x14c and 1 <= nsec <= 96, 'expected bounded i686 PE')
-    require(optsize == 224 and opt+optsize+40*nsec <= len(b), 'unexpected optional/section header')
-    require(struct.unpack_from('<H', b, opt)[0] == 0x10b, 'expected PE32 optional header')
-    require(struct.unpack_from('<I', b, opt+92)[0] == 16, 'unexpected PE directory count')
-    directories = [list(struct.unpack_from('<II', b, opt+96+8*i)) for i in range(16)]
+    require(machine == 0x8664 and 1 <= nsec <= 96, 'expected bounded x86-64 PE')
+    require(optsize == 240 and opt+optsize+40*nsec <= len(b), 'unexpected optional/section header')
+    require(struct.unpack_from('<H', b, opt)[0] == 0x20b, 'expected PE32+ optional header')
+    require(struct.unpack_from('<I', b, opt+108)[0] == 16, 'unexpected PE directory count')
+    directories = [list(struct.unpack_from('<II', b, opt+112+8*i)) for i in range(16)]
     require(directories[4] == [0, 0], 'signed inputs require a separate signing workflow')
     strings = b''
     if symptr:
@@ -160,7 +161,7 @@ def equivalent(before, after):
     b = bytearray.fromhex(after['optional_header'])
     changes = []
     for pos, size, name in [(8, 4, 'SizeOfInitializedData'), (56, 4, 'SizeOfImage'),
-            (60, 4, 'SizeOfHeaders'), (64, 4, 'CheckSum'), (144, 8, 'DebugDirectory')]:
+            (60, 4, 'SizeOfHeaders'), (64, 4, 'CheckSum'), (160, 8, 'DebugDirectory')]:
         if a[pos:pos+size] != b[pos:pos+size]:
             changes.append(dict(field=name, before=a[pos:pos+size].hex(), after=b[pos:pos+size].hex()))
         a[pos:pos+size] = b'\0'*size
@@ -208,19 +209,18 @@ def prepare(a):
         external(p, stage, reference)
         require(not p.exists(), 'control file already exists: ' + str(p))
     require(marker != receipt, 'marker and receipt must differ')
-    tool_name = a.strip_tool or shutil.which('i686-w64-mingw32-strip')
-    require(tool_name, 'i686-w64-mingw32-strip was not found')
+    tool_name = a.strip_tool or shutil.which('x86_64-w64-mingw32-strip')
+    require(tool_name, 'x86_64-w64-mingw32-strip was not found')
     tool = Path(tool_name).resolve()
     regular(tool)
     version = subprocess.run([str(tool), '--version'], capture_output=True, text=True, check=True).stdout.splitlines()[0]
-    require('GNU strip' in version, 'expected GNU i686 strip')
+    require('GNU strip' in version, 'expected GNU x86-64 strip')
     programs = {}
     for path in sorted(stage.iterdir()):
         if path.suffix.lower() not in ('.exe', '.dll'):
             continue
-        if path.name == 'SDL2.dll':
-            regular(path)
-            continue
+        require(path.name.lower() != 'sdl2.dll',
+                'SDL2.dll in a public stage: the Windows programs link SDL statically')
         require(path.name in PROGRAMS, 'unexpected project PE in public stage: ' + path.name)
         regular(path)
         ref = reference/path.name
@@ -234,8 +234,7 @@ def prepare(a):
     value = dict(schema='opencnc3d-public-debug-strip-1', state='prepared', stage=str(stage),
         reference_root=str(reference), receipt=str(receipt), helper_sha256=sha(Path(__file__).resolve()),
         token_sha256=sha(stage/TOKEN), tool=str(tool), tool_sha256=sha(tool), tool_version=version,
-        arguments=['--preserve-dates', '--strip-debug'], programs=programs,
-        vendor_sdl=identity(stage/'SDL2.dll') if (stage/'SDL2.dll').exists() else None)
+        arguments=['--preserve-dates', '--strip-debug'], programs=programs)
     write_new(marker, value)
     print('PUBLIC-DEBUG-STRIP|prepared|programs=' + str(len(programs)), flush=True)
 
@@ -256,8 +255,6 @@ def apply(a):
     require(value['programs'] and set(value['programs']) <= PROGRAMS, 'unexpected marker program names')
     for name, entry in value['programs'].items():
         require(identity(reference/name) == entry['reference'], 'unstripped reference changed: ' + name)
-    if value['vendor_sdl'] is not None:
-        require(identity(stage/'SDL2.dll') == value['vendor_sdl'], 'vendor SDL changed')
     if value['state'] == 'applied':
         regular(receipt)
         result = json.loads(receipt.read_text())
@@ -275,7 +272,7 @@ def apply(a):
     work = Path(tempfile.mkdtemp(prefix='.opencnc3d-public-strip-', dir=marker.parent))
     result = dict(schema=value['schema'], passed=False, stage=str(stage), reference_root=str(reference),
         helper_sha256=value['helper_sha256'], tool_sha256=value['tool_sha256'], arguments=value['arguments'],
-        vendor_sdl_unchanged=True, native_windows_execution_verified=False, programs={})
+        native_windows_execution_verified=False, programs={})
     try:
         # Verify the whole batch before replacing any stage input. On interruption,
         # refuse the stale marker rather than treating a partial stage as complete.
@@ -301,8 +298,6 @@ def apply(a):
         for name, entry in result['programs'].items():
             require(identity(stage/name) == entry['after'], 'installed stage hash mismatch')
             require(identity(reference/name) == value['programs'][name]['reference'], 'reference modified')
-        if value['vendor_sdl'] is not None:
-            require(identity(stage/'SDL2.dll') == value['vendor_sdl'], 'vendor SDL changed during stripping')
         result['passed'] = True
         write_new(receipt, result)
         value['state'] = 'applied'

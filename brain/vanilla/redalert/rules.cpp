@@ -16,6 +16,9 @@
 // MODIFIED for OpenCNC3D. This is not EA's original file.
 // Enforces enough dynamic rule-heap capacity for every compiled built-in weapon
 // and warhead. Larger content or mod values remain authoritative.
+// Changed again: the weapon and warhead heaps are built once,
+// so processing the Aftermath rules after RULES.INI no longer frees the weapons
+// every unit type points at.
 // The complete diff against upstream is brain/patches/vanilla-opencnc3d.patch,
 // and NOTICE.md lists every modified file.
 
@@ -639,71 +642,94 @@ bool RulesClass::Heap_Maximums(CCINIClass& ini)
     **	Any heaps that use the maximums that were just loaded, must
     **	be initialized as necessary.
     */
-    Warheads.Set_Heap(WarheadMax);
-    new WarheadTypeClass("SA");
-    new WarheadTypeClass("HE");
-    new WarheadTypeClass("AP");
-    new WarheadTypeClass("Fire");
-    new WarheadTypeClass("HollowPoint");
-    new WarheadTypeClass("Super");
-    new WarheadTypeClass("Organic");
-    new WarheadTypeClass("Nuke");
+    /*
+    **	OpenCNC3D: build the weapon and warhead heaps only once. Init_Game runs Process()
+    **	for RULES.INI and then again for AFTRMATH.INI, and Set_Heap() deletes the old
+    **	buffer. Rebuilding it on the second pass left every TechnoType's PrimaryWeapon and
+    **	SecondaryWeapon pointing into freed memory, and Objects(AFTRMATH.INI) read the
+    **	weapon ID through them as the default for "Primary" and "Secondary". The objects
+    **	made by the first pass stay; the second pass only reads its overrides into them,
+    **	which is what the Aftermath rules file is for. Only the fixed list of weapons and
+    **	warheads below is ever allocated, so a later Maximums value larger than the heap
+    **	already built is reported and otherwise has nothing to hold.
+    */
+    if (Warheads.Count() == 0) {
+        Warheads.Set_Heap(WarheadMax);
+        new WarheadTypeClass("SA");
+        new WarheadTypeClass("HE");
+        new WarheadTypeClass("AP");
+        new WarheadTypeClass("Fire");
+        new WarheadTypeClass("HollowPoint");
+        new WarheadTypeClass("Super");
+        new WarheadTypeClass("Organic");
+        new WarheadTypeClass("Nuke");
 #ifdef FIXIT_CSII //	checked - ajw 9/28/98
-    new WarheadTypeClass("Mechanical");
+        new WarheadTypeClass("Mechanical");
 #endif
+    } else if (WarheadMax > Warheads.Length()) {
+        char note[96];
+        snprintf(note, sizeof(note), "RA3D|rules|warhead heap kept at %d, asked %d", Warheads.Length(), WarheadMax);
+        GlyphX_Debug_Print(note);
+    }
 
-    Weapons.Set_Heap(WeaponMax);
-    new WeaponTypeClass("Colt45");
-    new WeaponTypeClass("ZSU-23");
-    new WeaponTypeClass("Vulcan");
-    new WeaponTypeClass("Maverick");
-    new WeaponTypeClass("Camera");
-    new WeaponTypeClass("FireballLauncher");
-    new WeaponTypeClass("Sniper");
-    new WeaponTypeClass("ChainGun");
-    new WeaponTypeClass("Pistol");
-    new WeaponTypeClass("M1Carbine");
-    new WeaponTypeClass("Dragon");
-    new WeaponTypeClass("Hellfire");
-    new WeaponTypeClass("Grenade");
-    new WeaponTypeClass("75mm");
-    new WeaponTypeClass("90mm");
-    new WeaponTypeClass("105mm");
-    new WeaponTypeClass("120mm");
-    new WeaponTypeClass("TurretGun");
-    new WeaponTypeClass("MammothTusk");
-    new WeaponTypeClass("155mm");
-    new WeaponTypeClass("M60mg");
-    new WeaponTypeClass("Napalm");
-    new WeaponTypeClass("TeslaZap");
-    new WeaponTypeClass("Nike");
-    new WeaponTypeClass("8Inch");
-    new WeaponTypeClass("Stinger");
-    new WeaponTypeClass("TorpTube");
-    new WeaponTypeClass("2Inch");
-    new WeaponTypeClass("DepthCharge");
-    new WeaponTypeClass("ParaBomb");
-    new WeaponTypeClass("DogJaw");
-    new WeaponTypeClass("Heal");
-    new WeaponTypeClass("SCUD");
-    new WeaponTypeClass("Flamer");
-    new WeaponTypeClass("RedEye");
+    if (Weapons.Count() == 0) {
+        Weapons.Set_Heap(WeaponMax);
+        new WeaponTypeClass("Colt45");
+        new WeaponTypeClass("ZSU-23");
+        new WeaponTypeClass("Vulcan");
+        new WeaponTypeClass("Maverick");
+        new WeaponTypeClass("Camera");
+        new WeaponTypeClass("FireballLauncher");
+        new WeaponTypeClass("Sniper");
+        new WeaponTypeClass("ChainGun");
+        new WeaponTypeClass("Pistol");
+        new WeaponTypeClass("M1Carbine");
+        new WeaponTypeClass("Dragon");
+        new WeaponTypeClass("Hellfire");
+        new WeaponTypeClass("Grenade");
+        new WeaponTypeClass("75mm");
+        new WeaponTypeClass("90mm");
+        new WeaponTypeClass("105mm");
+        new WeaponTypeClass("120mm");
+        new WeaponTypeClass("TurretGun");
+        new WeaponTypeClass("MammothTusk");
+        new WeaponTypeClass("155mm");
+        new WeaponTypeClass("M60mg");
+        new WeaponTypeClass("Napalm");
+        new WeaponTypeClass("TeslaZap");
+        new WeaponTypeClass("Nike");
+        new WeaponTypeClass("8Inch");
+        new WeaponTypeClass("Stinger");
+        new WeaponTypeClass("TorpTube");
+        new WeaponTypeClass("2Inch");
+        new WeaponTypeClass("DepthCharge");
+        new WeaponTypeClass("ParaBomb");
+        new WeaponTypeClass("DogJaw");
+        new WeaponTypeClass("Heal");
+        new WeaponTypeClass("SCUD");
+        new WeaponTypeClass("Flamer");
+        new WeaponTypeClass("RedEye");
 
 #ifdef FIXIT_ANTS
-    new WeaponTypeClass("Mandible");
+        new WeaponTypeClass("Mandible");
 #endif
 
 #ifdef FIXIT_CSII //	checked - ajw 9/28/98
-    new WeaponTypeClass("PortaTesla");
-    new WeaponTypeClass("GoodWrench");
-    new WeaponTypeClass("SubSCUD");
-    new WeaponTypeClass("TTankZap");
-    new WeaponTypeClass("APTusk");
-    new WeaponTypeClass("Democharge");
+        new WeaponTypeClass("PortaTesla");
+        new WeaponTypeClass("GoodWrench");
+        new WeaponTypeClass("SubSCUD");
+        new WeaponTypeClass("TTankZap");
+        new WeaponTypeClass("APTusk");
+        new WeaponTypeClass("Democharge");
 #endif
 #ifdef FIXIT_CARRIER //	checked - ajw 9/28/98
-    new WeaponTypeClass("AirAssault");
+        new WeaponTypeClass("AirAssault");
 #endif
+    } else if (WeaponMax > Weapons.Length()) {
+        char note[96];
+        snprintf(note, sizeof(note), "RA3D|rules|weapon heap kept at %d, asked %d", Weapons.Length(), WeaponMax);
+        GlyphX_Debug_Print(note);
+    }
 
     return (true);
 }

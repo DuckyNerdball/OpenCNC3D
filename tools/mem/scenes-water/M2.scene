@@ -1,0 +1,44 @@
+# M2 Tiberian Dawn, first GDI mission (SCG01EA, temperate), Enhanced, then the SAME mission
+# again in the same process (`remission`). Frames the beach, the sea with the landing boat
+# and the Nod guns in both missions: the soft coast, the water field and the land under
+# the water are built again for the second.
+game: td
+scen: SCG01EA
+modes: enh
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger m1t1
+cam 50 57
+frames 2
+shot {OUT}/m1_t0001_beach.png
+tick 299
+frames 2
+cam 50 57
+frames 2
+shot {OUT}/m1_t0300_beach.png
+remission
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger m2t1
+cam 50 57
+frames 2
+shot {OUT}/m2_t0001_beach.png
+cam 45 53
+frames 2
+shot {OUT}/m2_t0001_guns.png
+tick 299
+frames 2
+memledger m2t300
+cam 50 57
+frames 2
+shot {OUT}/m2_t0300_beach.png
+cam 45 53
+frames 2
+shot {OUT}/m2_t0300_guns.png
+quit

@@ -1,0 +1,61 @@
+{
+  "revision": "normal-response-v02",
+  "sources": [
+    {
+      "source": "rusty_metal_04",
+      "height_source_sha256": "2b900ebeb94d8e0debf5bd88c07335311df662312f01aeadb31fb04caea60713",
+      "roughness_source_sha256": "ec92cb336b72cf1759b3d529d22d36d093bb5ddfdb2d2996d0cbbc5bf20fcbde",
+      "input": "16-bit linear normalized by 65535; no clamp-to-L conversion",
+      "normal_convention": "OpenGL tangent space +Y; image-down derivative inverted to texture V-up",
+      "normal_uv_height_amplitude": 0.012,
+      "height_linear_range": [
+        0.2548256516456604,
+        0.9828183650970459
+      ],
+      "roughness_linear_range": [
+        0.4470740854740143,
+        0.931212306022644
+      ],
+      "normal_slope_percentiles": [
+        0.051013097167015076,
+        0.3548110499978065,
+        0.7936178416013713
+      ],
+      "normal_quantization_max_unit_length_error": 0.0064536333084106445,
+      "files": {
+        "rusty_metal_04_normal-v02.png": "a1d86d6d971225ae4692570fb427c901d39d09e7cad73bd4cb417c3e959f1392",
+        "rusty_metal_04_roughness-v02.png": "3b142ad8369ae0704567fa6e71174d78138d83134acb65a0e7919ef4b839afd2",
+        "rusty_metal_04_height-v02.png": "70eafa40bfde06cec46f4cde6d0cbacb10002c5fe7e31759e11dab29843dbd1a"
+      }
+    },
+    {
+      "source": "metal_plate_02",
+      "height_source_sha256": "f67ad7e64c959ace4c9b812f48009c19588f1ae74bf41672fd428228e6be05ed",
+      "roughness_source_sha256": "0d094534e567315d41e5e67be3987992f65d0bbfaf9713c372edbbd547efc21f",
+      "input": "16-bit linear normalized by 65535; no clamp-to-L conversion",
+      "normal_convention": "OpenGL tangent space +Y; image-down derivative inverted to texture V-up",
+      "normal_uv_height_amplitude": 0.012,
+      "height_linear_range": [
+        0.032715342938899994,
+        0.9724879860877991
+      ],
+      "roughness_linear_range": [
+        0.0,
+        0.999969482421875
+      ],
+      "normal_slope_percentiles": [
+        0.036878474056720734,
+        0.30426609516143777,
+        1.7177492129802578
+      ],
+      "normal_quantization_max_unit_length_error": 0.006093084812164307,
+      "files": {
+        "metal_plate_02_normal-v02.png": "9a50bb7bb4f704b90fdee43ff032c6ba93fe3e2a5a958bd4d78953cea82c3dc1",
+        "metal_plate_02_roughness-v02.png": "0798181af71855ac42cae2b1147c3ca0101e1087286d197530ba021f8c894781",
+        "metal_plate_02_height-v02.png": "5656440b151b83b753f8e4d7f3d0c94d4ac39686a21219abc011862d72910fa3"
+      }
+    }
+  ],
+  "legacy_failure": "PIL convert L clips 16-bit inputs above255 to255, flattening height/roughness. Preserved originals unchanged.",
+  "application": "All detail maps sample identical seeded per-panel photo UVs. Normal frame follows those UVs, including rotation. Existing paint mask and high geometry retained."
+}

@@ -121,7 +121,7 @@ static void ra3d_draw_road_joins()
         float light[4];ra3d_cell_light(X+x,Z+z,light);
         const int dx[6]={0,0,1,1,0,1},dz[6]={0,1,0,0,1,1},ci[6]={0,3,1,1,3,2};
         glBegin(GL_TRIANGLES);
-        for(int j=0;j<6;j++){const float l=light[ci[j]];glColor4f(l,l,l,1);glVertex3f((float)(X+x+dx[j]),terrain_corner_y(X+x+dx[j],Z+z+dz[j]),(float)(Z+z+dz[j]));}
+        for(int j=0;j<6;j++){const float l=light[ci[j]];glColor4f(l,l,l,1);glVertex3f((float)(X+x+dx[j]),terrain_cell_corner_y(X+x,Z+z,X+x+dx[j],Z+z+dz[j]),(float)(Z+z+dz[j]));}
         glEnd();drawn++;
     }
     fx_glUseProgram((GLuint)previous);glPopAttrib();glColor4f(1,1,1,1);

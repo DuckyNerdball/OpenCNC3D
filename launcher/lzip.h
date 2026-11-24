@@ -14,8 +14,9 @@
  *     records for it, so a release published without a SHA-256 still cannot
  *     install a corrupt file and report success.
  *   - Zip64 is refused rather than misread. The 32-bit fields reach 4 GiB, which
- *     holds every release zip so far, and offsets are read as 64-bit numbers so the
- *     32-bit Windows launcher reaches all of it; the day a zip is larger, this says
+ *     holds every release zip so far, and offsets are read as 64-bit numbers so a
+ *     Windows launcher, whose C `long` is 32 bits at either program width, reaches
+ *     all of it; the day a zip is larger, this says
  *     so instead of extracting from the wrong offset.
  *
  * The unix permission bits in the central directory ARE honoured on POSIX. They
@@ -23,8 +24,8 @@
  * one would leave a folder that looks complete and cannot start.
  *
  * THE FOLDER IT UNPACKS INTO IS IN USE. On Windows the launcher doing the update
- * has its own .exe and SDL2.dll loaded from that folder, and neither can be
- * opened for writing. So lz_extract never rewrites a file that is already
+ * has its own .exe loaded from that folder (and a 32-bit launcher up to v0.9.2
+ * its SDL2.dll too), and a loaded file cannot be opened for writing. So lz_extract never rewrites a file that is already
  * identical, writes a changed one beside itself and swaps it in by renaming, so
  * that no name ever holds a partial file, journals every change before making it,
  * puts everything back if any entry fails, and writes the named commit markers

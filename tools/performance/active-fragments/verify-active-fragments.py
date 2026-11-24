@@ -52,8 +52,8 @@ def run(arm,case,repeat=0):
  args=[str(B),'--build','98','--scen','SCG94EA','--pack',str(P/'SCB01EA.pack'),'--dir',str(F)+'/', '--models3d',str(F)+'/', '--content',str(P/'content')+'/', '--dylib',str(BRAIN),'--nosound','--enhanced','--texset','3','--gfx',str(CFG),'--gfxsave',str(out/'private.cfg'),'--savedir',str(out/'saves'),'--ticks','0','--w','1280','--h','720','--script',str(out/'script.txt')]
  begin=time.monotonic()
  with (out/'run.log').open('w') as log:r=subprocess.run(args,cwd=P,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=300)
- lines=(out/'run.log').read_text().splitlines();ends=[x for x in lines if x.startswith('SCRIPT|end')];maps=[x for x in lines if x.startswith('DOSDRAW|view=')];prep=[x for x in lines if x.startswith('FRAGMENTPREP|')];nuke=[x for x in lines if x.startswith('EBLDOBJ|NUKE|') and '|stage=WRECKED|' in x and '|bodies=321|' in x]
- receipt={'arm':arm,'case':case,'args':args,'controls':{k:v for k,v in env.items() if k.startswith('OPENCNC3D_MESH_FRAGMENT') or k.startswith('OPENCNC3D_MESH_PREPARED')},'exit':r.returncode,'elapsed_seconds':time.monotonic()-begin,'script_end':ends,'originalmap':maps,'actual_nuke321':bool(nuke),'preparation':prep,'binary_sha256':sha(B),'brain_sha256':sha(BRAIN),'NUKE_asset_sha256':sha(P/'ebld/NUKE.ebld')}
+ lines=(out/'run.log').read_text().splitlines();ends=[x for x in lines if x.startswith('SCRIPT|end')];maps=[x for x in lines if x.startswith('DOSDRAW|view=')];prep=[x for x in lines if x.startswith('FRAGMENTPREP|')];nuke=[x for x in lines if x.startswith('EBLDOBJ|NUKE|') and '|stage=WRECKED|' in x and ('|bodies='+str(a.expected_bodies)+'|') in x]
+ receipt={'arm':arm,'case':case,'args':args,'controls':{k:v for k,v in env.items() if k.startswith('OPENCNC3D_MESH_FRAGMENT') or k.startswith('OPENCNC3D_MESH_PREPARED')},'exit':r.returncode,'elapsed_seconds':time.monotonic()-begin,'script_end':ends,'originalmap':maps,'actual_nuke_expected_bodies':bool(nuke),'expected_bodies':a.expected_bodies,'preparation':prep,'binary_sha256':sha(B),'brain_sha256':sha(BRAIN),'NUKE_asset_sha256':sha(P/'ebld/NUKE.ebld')}
  (out/'launch.json').write_text(json.dumps(receipt,indent=2)+'\n');print(arm,case,r.returncode,receipt['elapsed_seconds'],'end',ends[-1:] if ends else [],'prep',prep[-1:] if prep else [],flush=True)
  assert r.returncode==0 and len(ends)==1 and ends[0].endswith('0 failures') and bool(nuke)
  assert maps and all(x.endswith('|map=3,3,57,58') for x in maps)
@@ -70,9 +70,9 @@ def compare(a,b):
  def state(p):return [x for x in p.read_text().splitlines() if x.split('|',1)[0] in {'OBJ','HOUSE','VIEW','PHYSICSCAPTURE','BUILDINGPHYSICSCAPTURE','M3','M3E','SMUDGE'} or (x.startswith(('EBLD','EFX')) and not x.startswith('EBLDPREPARE|'))]
  sa=state(a/'run.log');sb=state(b/'run.log');r={'passed':all(x['exact'] for x in png+targets) and sa==sb,'PNG_count':len(png),'target_count':len(targets),'state_count_off':len(sa),'state_count_on':len(sb),'state_exact':sa==sb,'PNGs':png,'targets':targets};(b/'comparison.json').write_text(json.dumps(r,indent=2)+'\n');print('comparison',a,b,r['passed'],len(png),len(targets),len(sa),len(sb),flush=True);assert r['passed'];return r
 if __name__=='__main__':
- ap=argparse.ArgumentParser(description='Hidden real321-body renderer parity and active CPU/upload/draw regression.')
+ ap=argparse.ArgumentParser(description='Hidden destruction renderer parity and active CPU/upload/draw regression.')
  ap.add_argument('--binary',type=Path,required=True);ap.add_argument('--playable',type=Path,required=True)
- ap.add_argument('--brain',type=Path);ap.add_argument('--gfx',type=Path,required=True);ap.add_argument('--output',type=Path,required=True)
+ ap.add_argument('--expected-bodies',type=int,default=321,help='Expected NUKE wreck bodies for this installed asset version');ap.add_argument('--brain',type=Path);ap.add_argument('--gfx',type=Path,required=True);ap.add_argument('--output',type=Path,required=True)
  ap.add_argument('--suite',choices=['fidelity','lifecycle','matrix','abba','all'],default='all');ap.add_argument('--repo',type=Path)
  a=ap.parse_args();R=a.output.resolve();R.mkdir(parents=True,exist_ok=True);P=a.playable.resolve();B=a.binary.resolve();CFG=a.gfx.resolve();BRAIN=a.brain.resolve() if a.brain else P/'TiberianDawn.dylib'
  # Legacy engine file buffers require a genuinely short scenario path.

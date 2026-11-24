@@ -69,6 +69,21 @@ static void frame(int ticks,bool held=false){
  advance(3000);perf_trace_swap_end();perf_trace_section("swap");
  advance(100);perf_trace_end_frame(&window,1280,720,ticks+1,false,held,held,12);
 }
+/* A frame that marks more names than the section table holds: the four of frame() plus
+   `extra` more, none taking any time. */
+static void frame_many(int ticks,int extra){
+ static char names[80][16];
+ perf_trace_begin_frame(ticks);
+ advance(1000);perf_trace_events_end();advance(500);perf_trace_tick_begin();advance(400);perf_trace_tick_end();
+ advance(600);perf_trace_section("events + tick + refresh");perf_trace_draw_begin();
+ advance(1000);perf_trace_section("first draw pass");
+ Uint64 values[2]={7,~(Uint64)0};perf_trace_extra("available,missing",values,2);
+ for(int i=0;i<extra&&i<80;i++){snprintf(names[i],sizeof names[i],"extra %02d",i);perf_trace_section(names[i]);}
+ advance(1000);perf_trace_draw_end();
+ advance(200);perf_trace_section("editor + options");perf_trace_swap_begin();
+ advance(3000);perf_trace_swap_end();perf_trace_section("swap");
+ advance(100);perf_trace_end_frame(&window,1280,720,ticks+1,false,false,false,12);
+}
 static bool exists(const std::string& p){struct stat s;return stat(p.c_str(),&s)==0;}
 static std::string read(const std::string& p){FILE* f=fopen(p.c_str(),"rb");assert(f);std::string s;char b[4096];size_t n;while((n=fread(b,1,sizeof b,f)))s.append(b,n);fclose(f);return s;}
 int main(int argc,char** argv){
@@ -107,6 +122,12 @@ int main(int argc,char** argv){
   mockReady=true;frame((int)PERFTRACE_CAPACITY+34);
   for(const auto& r:g_perfTrace.rows)assert(r.id>=first+35&&r.gpuMs<0);
   perf_trace_end_session();assert(mockQueries.empty()&&mockGpuDeletes==128);
+ } else if(mode=="sections") {
+  /* 50 names fit and every one is a column; past PERFTRACE_SECTIONS the table says so once. */
+  setenv("OPENCNC3D_PERFTRACE",(out+"/frames.csv").c_str(),1);perf_trace_begin_session(&window);
+  frame_many(0,46);frame_many(1,46);assert(g_perfTrace.sectionCount==50&&!g_perfTrace.sectionsFull);
+  frame_many(2,70);assert(g_perfTrace.sectionCount==PERFTRACE_SECTIONS&&g_perfTrace.sectionsFull);
+  perf_trace_end_session();
  } else assert(false);
  fprintf(stdout,"PASS %s capacity=%zu row_bytes=%zu buffer_bytes=%zu\n",mode.c_str(),PERFTRACE_CAPACITY,sizeof(PerfTraceRow),PERFTRACE_CAPACITY*sizeof(PerfTraceRow));
 }

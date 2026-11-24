@@ -23,6 +23,7 @@
 #define CNC_GAME_H
 
 #include <SDL.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -95,9 +96,10 @@ typedef struct GameOpts {
     int side;               /* the side the HUMAN plays: 0 GDI, 1 Nod       */
     int ai_count;           /* computer opponents, 1..7 (8-player patch)    */
     int credits;            /* starting credits, every house alike          */
-    int tiberium;           /* 1 = tiberium grows and spreads               */
+    int tiberium;           /* resource regrowth multiplier, zero disables it */
     int crates;             /* 1 = bonus crates are scattered               */
     int ai_takeover;        /* 1 = the computer takes over a player who leaves */
+    int gun_game;           /* Tiberian Dawn LAN Gun Game */
     int short_game;         /* 1 = defences and walls do not keep a player alive */
     int superweapons;       /* 1 = superweapons may be built                */
     /* Bases OFF is a real 1995 mode and it is not offered yet: with no base and no
@@ -139,6 +141,9 @@ typedef struct GameOpts {
                        entries a permutation of 0..7: GlyphX_Assign_Houses keeps a
                        color_used[] table, so a duplicate would have two houses claim
                        one slot.
+                       IN A RED ALERT MATCH it is the PALETTE.CPS row the lobby shows,
+                       and arm_skirmish turns it into the library's own number
+                       (ra_library_colour), which swaps grey and blue.
                        IT IS CARRIED HONESTLY AND IT DOES NOT YET PAINT. This renderer
                        takes its texture set and its identity colours from the SIDE
                        (obj_is_gdi, house_colour, band_house_colour), never from the
@@ -206,6 +211,14 @@ typedef struct GameOpts {
     int radar_off;
     int radar_strict;
     int radar_force;   /* --forceradar: show the radar without a Comm Center (gates) */
+    /* --rally: the skirmish is a Rally race on a course map. Zero, which every caller's
+       zero-filled struct gives, is every other kind of match. Read again at every mission
+       start, and only a map with a [Rally] course is raced, so a process that keeps it set
+       across missions plays every other map as it always did. */
+    int rally;
+    /* --laps, or the lobby's Match Rules: a Rally circuit's laps, 1..9; zero is "not said"
+       and races the default. A network match races the host's, off the room's setup. */
+    int rally_laps;
 } GameOpts;
 
 /* Why game_loop came back. The shell decides what to do about it; the game does
@@ -350,6 +363,11 @@ void game_use_red_alert_dials(void);
    for (fullscreen.h's FS_MODE_*), or the compiled defaults with no preset. Returns 1
    when a preset file was read. app/opencnc3d.cpp asks this before SDL_CreateWindow. */
 int game_display_wanted(const char* preset, int* mode, int* rw, int* rh);
+/* WHETHER TO ASK FOR THE DISPLAY'S REAL BACKING (SDL_WINDOW_ALLOW_HIGHDPI), before the
+   window exists: the hidpi dial from the preset, or its default. 1 or 0. shared is 1
+   when the preset is Tiberian Dawn's file asked about for Red Alert, which then decides
+   for both games. *from (may be NULL) is set to where the answer came from. */
+int game_hidpi_wanted(const char* preset, int shared, const char** from);
 /* Synchronize the live display choice after startup without writing a new preset. */
 void game_display_started(int mode, int rw, int rh);
 /* Successful fullscreen keyboard change on a window owned by the game. */
@@ -361,6 +379,15 @@ void game_diagnostics_graphics(void);
 void game_diagnostics_configuration(void);
 void game_diagnostics_phase(int phase, int code);
 int game_diagnostics_current_phase(void);
+
+/* THE LOG ON DISK, AND THE WAY OUT OF THE PROGRAM. game_log_commit writes the log file out
+   to disk now rather than when the file cache gets to it, so a machine that freezes keeps
+   the lines printed before it. game_exit_watch marks the start of the program's teardown
+   (and on Windows starts a watcher that ends a teardown which has stopped); game_exit_step
+   names each step of it, on disk, before the step runs. */
+void game_log_commit(void);
+void game_exit_watch(void);
+void game_exit_step(const char* step);
 
 /* THE PLAYER'S GAME CONTROLS, REMEMBERED, AND THE SHELL DECIDES THAT TOO.
  *
@@ -421,6 +448,7 @@ int game_skirmish_teams_ok(void);
    engine's own single-player score payload (Calculate_Single_Player_Score). */
 typedef struct GameOverInfo {
     int  valid, win;
+    int  sabotaged_structure; /* TD GameOver payload, retained through teardown. */
     char movie[16];
     char movie2[16], movie3[16], movie4[16], after_score_movie[16];
     int  score, leadership, efficiency, base_points;
@@ -445,12 +473,15 @@ const GameOverInfo* game_over_info(void);
  * draws it as one shared grid with every number a bar measured against whoever leads that
  * column.
  *
- * Every field here is something the engine already counts per player and hands out
- * through its own sidebar and player-info state; none of it needed a new export. There is
- * deliberately no "built" column, which the first sketch of this screen had: the engine
- * keeps no such tally, and a number nobody counts is a number that would have to be
- * invented. LOST takes its place, and reads better anyway -- killed against lost is the
- * whole shape of a match.
+ * The killed, razed, lost and harvested figures are the engine's own, read through its
+ * sidebar and player-info state; none of them needed a new export. The engine keeps no
+ * per-house tally of what was BUILT outside an internet game (its UnitTotals and
+ * BuildingTotals count only under GAME_INTERNET), so the built figures are the renderer's
+ * own count: every object that appears in the world under a commander's house that was
+ * not there the tick before and did not just change hands. It reads the world dump the
+ * renderer already parses every engine tick, so it is exact to the tick. Spent is derived
+ * the same way, from the balance: what the house started with, plus what it harvested,
+ * less what it holds at the end.
  *
  * Captured while the mission is still standing, because game_shutdown pulls the engine
  * down and the screen runs after it. */
@@ -469,7 +500,38 @@ typedef struct MatchStatRow {
     /* What the seat was given: Tiberian Dawn's side again, or Red Alert's COUNTRY
        (HousesType 0..7, Spain to Turkey; faction is then 1 for the Soviet side). */
     int country;
+    /* THE REST OF THE STORY, per commander, for the debrief's Units, Structures and
+       Economy pages. units_lost and structures_lost are the engine's two halves of lost;
+       the built figures, the army's peak and what was standing at the end are counted by
+       the renderer off the world it draws (see above). Fixed width: this table crosses
+       from the renderer library to the shell, on Windows too. */
+    int32_t units_lost, structures_lost;
+    int32_t units_built, structures_built;
+    int32_t army_peak, army_end, structures_end;
+    int32_t credits_start, credits_end, spent;
+    /* The 1995 and 1996 single-player score's two ratings, per commander, by the engine's
+       own formulas (TD_Calculate_Leadership / TD_Calculate_Efficiency): leadership is what
+       is still standing against what was lost, efficiency is the money held at the end
+       against the money the house ever had, both in percent. */
+    int32_t leadership, efficiency;
 } MatchStatRow;
+
+/* THE MATCH OVER TIME, for the debrief's graph. Every commander's numbers sampled at a
+ * fixed number of engine ticks, by the renderer, from the same sidebar and world state the
+ * table is read from. Every peer runs the same lockstep simulation, so each machine samples
+ * every player itself and nothing crosses the wire; the sampling only reads, so it cannot
+ * move the match. When the table fills, every second sample is dropped and the interval
+ * doubles, so a match of any length fits and keeps its whole span. */
+#define MATCH_SERIES 6
+enum { MATCH_S_SCORE = 0, MATCH_S_ARMY, MATCH_S_STRUCTURES, MATCH_S_HARVESTED,
+       MATCH_S_CREDITS, MATCH_S_KILLS };
+#define MATCH_SAMPLES 240
+typedef struct MatchTimeline {
+    int32_t count;             /* samples held, 0..MATCH_SAMPLES                          */
+    int32_t interval;          /* engine ticks between two samples                         */
+    int32_t first_tick;        /* the engine tick of sample 0                              */
+    int32_t v[8][MATCH_SERIES][MATCH_SAMPLES];   /* [row][series][sample]                  */
+} MatchTimeline;
 
 typedef struct MatchStats {
     MatchStatRow row[8];
@@ -485,6 +547,7 @@ typedef struct MatchStats {
        ordinary finish, which is every campaign path and every match that reached a
        verdict. */
     char ended[96];
+    MatchTimeline timeline;
 } MatchStats;
 const MatchStats* game_match_stats(void);
 

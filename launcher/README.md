@@ -248,19 +248,24 @@ this needs the website to change.
 
 ### Why the small update is possible, and when it is not
 
-Every release already publishes a binary-only zip beside the full one: **2.7 MB against
-507 on macOS, 15 MB against 519 on Windows.** Almost every build changes only binaries, so
-almost every update can be the small one.
+Every release already publishes a binary-only zip beside the full one: **16.3 MB against
+2033.9 on macOS** (v0.9.2's published pair), **23.4 MB against 2034.7 on Windows** (the
+first 64-bit candidate, measured in binary megabytes like the launcher's own; v0.9.2's
+32-bit binary zip was 20.6 MB). Almost every build changes only binaries, so almost every
+update can be the small one.
 
 The launcher may only take that shortcut when it can prove the data it already has is the
-data the new build expects. That proof is `data_id`: a hash over the path and size of
-every file in the package that the binary-only zip does **not** carry. It is written into
+data the new build expects. That proof is `data_id`: a hash over the path and content of
+every file in the package that the binary-only zip does **not** carry. Content, not size: a
+mission pack is the same length whatever is baked into it, and a number that misses a
+change does not cost a bigger download, it sends the small one and leaves the old file. It is written into
 `opencnc3d-install.txt` by the packagers using `tools/launcher/data-id.sh`, and
 `make-manifest.sh` reads it back out of the published zip rather than recomputing it. One
 implementation, quoted at both ends: two would agree until the day they did not, and the
 only symptom would be every update silently becoming a full download.
 
-Match, and the update is 15 MB. Differ, or unknown, and it is the whole package.
+Match, and the update is the binary-only zip (about 24 MB on Windows). Differ, or unknown,
+and it is the whole package.
 
 ### What the launcher checks before it writes anything
 
@@ -275,15 +280,16 @@ Match, and the update is 15 MB. Differ, or unknown, and it is the whole package.
 
 ### Unpacking over a folder that is in use
 
-On Windows the launcher has its own `.exe` and `SDL2.dll` loaded from the folder it is
-updating, and Windows will not open either for writing. So the extractor:
+On Windows the launcher has its own `.exe` loaded from the folder it is updating (and a
+32-bit launcher up to v0.9.2 also has that folder's `SDL2.dll` loaded), and Windows will
+not open a loaded file for writing. So the extractor:
 
 - **never rewrites a file that is already identical**: same size and same CRC-32 as the
   zip's entry, and it is left alone
 - **writes a changed file beside itself** as `<name>.opencnc3d-new`, checks it, and only then
   renames the old one to `<name>.old` and the new one into place, which Windows allows for
   a loaded DLL or a running `.exe`. **A name never holds a half-written file**, so a kill
-  cannot leave a partial launcher, `SDL2.dll` or `dosmenu.pack`, or a macOS launcher
+  cannot leave a partial launcher or `dosmenu.pack`, or a macOS launcher
   without its executable bit. A file that cannot be renamed **fails the update by name**
 - **journals every step before taking it**, in `opencnc3d-update.journal` in the game folder,
   and forces each journal line and each new file to the disk before the step that rests on
@@ -339,11 +345,18 @@ because its install folder is inside the user's own folder.
 
 The launcher doing an update is the one already installed, and launchers up to v0.6.11
 write in zip order, write the install record wherever the zip lists it, and stop at the
-first refusal, which is always `SDL2.dll`. So the Windows full package ends
-`CHANGELOG.txt`, `opencnc3d-install.txt`, `BUILD-ID.txt`, `SDL2.dll`; the binary-only zip is
-flat and ends `BUILD-ID.txt`, `SDL2.dll`; and `tools/release.sh` refuses a Windows zip of
-any other shape, or whose `SDL2.dll` is not the one pinned in
-`tools/win/setup-toolchain.sh`.
+first file they cannot write. So the Windows full package ends `CHANGELOG.txt`,
+`opencnc3d-install.txt`, `BUILD-ID.txt`; the binary-only zip is flat and ends
+`BUILD-ID.txt`; and `tools/release.sh` refuses a Windows zip of any other shape.
+
+The Windows programs are 64-bit and link SDL statically, so **no Windows package carries
+`SDL2.dll`**, and `tools/release.sh` and the packagers refuse one that holds it anywhere. A
+32-bit launcher from v0.9.0 to v0.9.2 loads the `SDL2.dll` in its own folder; an update
+removes nothing, so that file stays, and the old launcher should keep starting and start
+the 64-bit game. That has not been tried on Windows yet. It stays a 32-bit launcher until
+the player runs the new Setup, because a module update never replaces the launcher. The 32-bit packages up to v0.9.2 ended with
+`SDL2.dll`, an i686 DLL the release held to one pinned hash, because it was always the
+first file those old launchers refused.
 
 `tools/launcher/selftest.sh` exercises all of it against a fake site that speaks the real
 three routes, including the 302, in the with-manifest, without-manifest and wrapped-zip
@@ -398,10 +411,16 @@ only, so the window height has to be a multiple of 480.
 
 Known limitations:
 
-1. **Neither the Windows launcher nor the installer has been RUN on Windows.** Both cross
-   compile clean and the installer counts the files it embedded, but that is packaging
-   evidence, not "someone double-clicked it". The macOS half has been run against the live
-   site, all the way through a real 483 MB update.
+1. **The Windows launcher and Setup have run only unattended.** The 64-bit candidate was
+   run on a Windows 11 PC: Setup with `/S` (the empty one and both Complete ones, fresh and
+   over a v0.9.2 install), Add Game through `--install-module` against a local copy of the
+   site, the movies and music through `--media-install` from archive.org, the launcher's
+   screens through `--shot`, `--check` and `--play`, and the uninstaller. Nobody has
+   clicked through the launcher's window or Setup's pages on Windows (Stop, Resume,
+   Cancel, another drive, a lost network), and an update from a v0.9.2 launcher was run by
+   a program built from v0.9.2's sources making the same two calls, not by its Update
+   button. The macOS half has been run against the live site, all the way through a real
+   483 MB update.
 2. **No release carries a manifest asset yet**, so until v0.7.0 is cut every update is the
    full package checked by length rather than the small one checked by hash. Working as
    designed, and larger than it needs to be.

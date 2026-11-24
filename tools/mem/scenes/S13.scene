@@ -1,0 +1,48 @@
+# S13 Red Alert SCG01EA: a building changes owner on screen. The Soviet barracks is
+# brought below a quarter of its strength, an Allied engineer is put down beside it and
+# sent in, and the barracks is captured (its colour changes to the Allies'). The fog and
+# invulnerability cheats let the engine see the barracks and keep the engineer alive
+# past the Tesla coil beside it. Framed before, while the engineer walks in, and after.
+game: ra
+scen: SCG01EA
+modes: enh,cls,n64
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+cam 62.5 65.5
+frames 2
+shot {OUT}/t0001_barracks.png
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj BARR 0
+cheatset fog 1
+cheatset invuln 1
+tick 5
+spawnobj E6 59 67
+tick 2
+frames 2
+obj BARR 0
+obj E6 0
+lclickobj E6 0
+tick 1
+orderobj BARR 0
+tick 2
+frames 2
+shot {OUT}/t0008_order.png
+tick 40
+frames 2
+obj BARR 0
+memledger t48
+shot {OUT}/t0048_after.png
+tick 60
+frames 2
+obj BARR 0
+shot {OUT}/t0108_after.png
+quit

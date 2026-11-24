@@ -216,10 +216,10 @@ static void tcache_key_now(TcKey* k, float us, float vs, bool enhVar, int enhSlo
 static void tcache_cell_geo(const PackCell& c, float us, float vs, bool enhVar, int enhSlots, float V[30])
 {
     const float x = (float)c.x, z = (float)c.y;
-    const float y00 = terrain_corner_y(c.x,     c.y);
-    const float y10 = terrain_corner_y(c.x + 1, c.y);
-    const float y11 = terrain_corner_y(c.x + 1, c.y + 1);
-    const float y01 = terrain_corner_y(c.x,     c.y + 1);
+    const float y00 = terrain_cell_corner_y(c.x,c.y,c.x, c.y);
+    const float y10 = terrain_cell_corner_y(c.x,c.y,c.x + 1, c.y);
+    const float y11 = terrain_cell_corner_y(c.x,c.y,c.x + 1, c.y + 1);
+    const float y01 = terrain_cell_corner_y(c.x,c.y,c.x, c.y + 1);
     float u0 = c.u0 * us, u1 = c.u1 * us;
     float v0 = c.v0 * vs, v1 = c.v1 * vs;
     if (enhVar) {

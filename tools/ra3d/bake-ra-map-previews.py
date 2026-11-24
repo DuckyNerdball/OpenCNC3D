@@ -148,6 +148,11 @@ def bake(scen, text, slots, colour_of):
     ox, oy = (FRAME - iw) // 2, (FRAME - ih) // 2
     frame = Image.new("RGBA", (FRAME, FRAME), (0, 0, 0, 0))
     frame.paste(cells.resize((iw, ih), Image.BOX).convert("RGBA"), (ox, oy))
+    # The Enhanced lobby redraws each of these diamonds at run time with its number, in an
+    # idle grey or in the colour of the seat holding the start (ra_preview_fit and
+    # ra_start_markers in menu/enhanced_menu.cpp). It repeats this fit, this position and
+    # this diamond's size exactly; change one here and change it there, or the white dot
+    # shows round the edge.
     marks = []
     for cell in starts:
         cx, cy = cell % W - rx, cell // W - ry

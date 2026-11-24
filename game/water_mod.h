@@ -70,6 +70,9 @@
 
 #include "rain_glsl.h"
 #include "water_reflection.h"
+/* Banded texture reads, for the builds below that need pixels only the card holds; the
+   ground surface (terrain_surface.h, included later) reads its coast alpha through it too. */
+#include "gl_readback.h"
 
 /* ---------------------------------------------------------------------------------- *
  *  THE SOURCE. Red Alert's ground fills g_waterRa when it builds its sheet; Tiberian
@@ -639,6 +642,18 @@ static float water_swash_coast_at(float wx, float wz)
     return coast;
 }
 
+/* WHAT THE LAND TEXTURE'S BUILD HOLDS in system memory at once, its own vectors and
+   the bed material's, for the memory ledger: water_land_cpu_peak is the most it has held
+   at any moment in this process. */
+static long long g_waterLandHeld = 0;
+static void water_land_held(long long delta)
+{
+    g_waterLandHeld += delta;
+    memledger_peak("water_land_cpu_peak", g_waterLandHeld);
+}
+/* The rows read at a time when the sheet is read in bands. */
+#define WATER_LAND_BAND_ROWS 256
+
 #include "water_bed_material.h"
 
 static GLuint water_land_make(int ai)
@@ -650,7 +665,17 @@ static GLuint water_land_make(int ai)
        the cartridge sheet is kept and it is not the one on screen. A first draft had
        the shader walk back through its own cell's tile to find sand; on a coast that
        runs along a cell boundary the water cell's tile is all hole and the walk found
-       nothing, which is why the sand never showed. */
+       nothing, which is why the sand never showed.
+
+       HOW THE SHEET IS READ. Where each texel's colour comes from depends only on the
+       field and the cells, never on the sheet's pixels, so every position is worked out
+       first and the sheet is then read a band of rows at a time, each band filling the
+       texels whose colour lies in it. The sheet is never held whole: Red Alert's is
+       6240 x 6084, 145 MB as RGBA, and that copy was one of the first frame's three
+       largest single allocations. The bed material (water_bed_material.h) reads its own
+       windows through the same reader. The editor, which rebuilds this on every frame,
+       and OPENCNC3D_READBACK_WHOLE=1 read the whole sheet back instead, as before
+       (gl_readback.h says why); both routes give the same texture. */
     {
         const int w = g_wfW, h = g_wfH, res = g_wfRes;
         const std::vector<unsigned char>& wet = g_wfWet;
@@ -660,21 +685,32 @@ static GLuint water_land_make(int ai)
         const std::vector<float>& dDry = g_wfDDry;
         const PackTex& dr = water_atlas(ai);
         const std::vector<PackCell>& cells = water_cells();
+        const bool whole = gl_readback_whole();
+        const bool readable = dr.w > 0 && dr.h > 0 && (long)dr.w * dr.h <= WATER_ATLAS_MAX_TEXELS;
+        const Uint64 started = SDL_GetPerformanceCounter();
+        const long long bandsBefore = memledger_get("readback_bands");
         std::vector<unsigned char> atl;
-        if (dr.w > 0 && dr.h > 0 && (long)dr.w * dr.h <= WATER_ATLAS_MAX_TEXELS) {
+        if (whole && readable) {
             atl.resize((size_t)dr.w * dr.h * 4);
+            water_land_held((long long)atl.size());
             glBindTexture(GL_TEXTURE_2D, dr.gl);
             glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, &atl[0]);
             glBindTexture(GL_TEXTURE_2D, 0);
         }
+        GlBandReader rd;
+        if (!whole && readable) rd.begin(dr.gl, dr.w, dr.h, GL_RGBA);
         std::vector<int> cellOf((size_t)g_gridW * g_gridH, -1);
+        water_land_held((long long)(cellOf.size() * sizeof(int)));
         for (size_t i = 0; i < cells.size(); i++) {
             const PackCell& c = cells[i];
             if (c.x < 0 || c.y < 0 || c.x >= g_gridW || c.y >= g_gridH) continue;
             cellOf[(size_t)c.y * g_gridW + c.x] = (int)i;
         }
-        water_bed_material_make(atl,dr,cells);
+        if (whole) water_bed_material_make(atl,dr,cells);
+        else if (readable) water_bed_material_make_banded(rd,dr,cells,WATER_LAND_BAND_ROWS,water_land_held);
+        else g_waterBedPatternTex = 0;
         std::vector<unsigned char> lp((size_t)w * h * 4, 0);
+        water_land_held((long long)lp.size());
         /* ALPHA IS THE CLASS of the water here or nearest here: 255 sea, 128 river. Set
            on land as well as on water so the value is flat across the coast and only
            changes at a river mouth, which is the one place it should. */
@@ -682,52 +718,101 @@ static GLuint water_land_make(int ai)
             const int wi = wet[i] ? (int)i : nearWater[i];
             lp[i * 4 + 3] = (wi >= 0 && river[wi]) ? 128 : 255;
         }
+        /* Where texel i's colour lies in the sheet (row * width + column), or -1 when it
+           keeps none. */
+        const auto source = [&](size_t i) -> long long {
+            /* a wet texel takes its nearest land's colour; a dry one its own, so the
+               lap over the sand knows what it is lying on. NOT the texel right on
+               the cut, though: the tile art draws a dark rim where sand meets water,
+               and reading it put a dark hairline along every coast. Of the land
+               texels within two of the nearest one, take the one furthest from the
+               water: the sand proper. */
+            int ni = wet[i] ? nearLand[i] : (int)i;
+            if (ni < 0) return -1;
+            {
+                const int bx = ni % w, by = ni / w;
+                float bestD = -1.0f;
+                for (int dy = -2; dy <= 2; dy++)
+                    for (int dx = -2; dx <= 2; dx++) {
+                        const int x = bx + dx, y = by + dy;
+                        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+                        const size_t j = (size_t)y * w + x;
+                        if (wet[j]) continue;
+                        if (dDry[j] > bestD) { bestD = dDry[j]; ni = (int)j; }
+                    }
+            }
+            const int lx = ni % w, ly = ni / w;
+            const int ci = cellOf[(size_t)(ly / res) * g_gridW + (lx / res)];
+            if (ci < 0) return -1;
+            const PackCell& c = cells[ci];
+            const float fu = ((float)(lx % res) + 0.5f) / (float)res;
+            const float fv = ((float)(ly % res) + 0.5f) / (float)res;
+            int tx = (int)((c.u0 + (c.u1 - c.u0) * fu) * (float)dr.uw);
+            int ty = (int)((c.v0 + (c.v1 - c.v0) * fv) * (float)dr.uh);
+            if (tx < 0) tx = 0; else if (tx >= dr.w) tx = dr.w - 1;
+            if (ty < 0) ty = 0; else if (ty >= dr.h) ty = dr.h - 1;
+            return (long long)ty * dr.w + tx;
+        };
         if (!atl.empty()) {
             for (size_t i = 0; i < (size_t)w * h; i++) {
-                /* a wet texel takes its nearest land's colour; a dry one its own, so the
-                   lap over the sand knows what it is lying on. NOT the texel right on
-                   the cut, though: the tile art draws a dark rim where sand meets water,
-                   and reading it put a dark hairline along every coast. Of the land
-                   texels within two of the nearest one, take the one furthest from the
-                   water: the sand proper. */
-                int ni = wet[i] ? nearLand[i] : (int)i;
-                if (ni < 0) continue;
-                {
-                    const int bx = ni % w, by = ni / w;
-                    float bestD = -1.0f;
-                    for (int dy = -2; dy <= 2; dy++)
-                        for (int dx = -2; dx <= 2; dx++) {
-                            const int x = bx + dx, y = by + dy;
-                            if (x < 0 || y < 0 || x >= w || y >= h) continue;
-                            const size_t j = (size_t)y * w + x;
-                            if (wet[j]) continue;
-                            if (dDry[j] > bestD) { bestD = dDry[j]; ni = (int)j; }
-                        }
-                }
-                const int lx = ni % w, ly = ni / w;
-                const int ci = cellOf[(size_t)(ly / res) * g_gridW + (lx / res)];
-                if (ci < 0) continue;
-                const PackCell& c = cells[ci];
-                const float fu = ((float)(lx % res) + 0.5f) / (float)res;
-                const float fv = ((float)(ly % res) + 0.5f) / (float)res;
-                int tx = (int)((c.u0 + (c.u1 - c.u0) * fu) * (float)dr.uw);
-                int ty = (int)((c.v0 + (c.v1 - c.v0) * fv) * (float)dr.uh);
-                if (tx < 0) tx = 0; else if (tx >= dr.w) tx = dr.w - 1;
-                if (ty < 0) ty = 0; else if (ty >= dr.h) ty = dr.h - 1;
-                const unsigned char* q = &atl[((size_t)ty * dr.w + tx) * 4];
+                const long long at = source(i);
+                if (at < 0) continue;
+                const unsigned char* q = &atl[(size_t)at * 4];
                 lp[i * 4 + 0] = q[0]; lp[i * 4 + 1] = q[1]; lp[i * 4 + 2] = q[2];
             }
+        } else if (rd.open) {
+            /* every texel's sheet position, then each band that holds any of them */
+            const unsigned none = 0xffffffffu;
+            const int rows = WATER_LAND_BAND_ROWS;
+            const int bands = (dr.h + rows - 1) / rows;
+            std::vector<unsigned> from((size_t)w * h, none);
+            std::vector<unsigned> perBand((size_t)bands, 0);
+            water_land_held((long long)(from.size() * sizeof(unsigned) + perBand.size() * sizeof(unsigned)));
+            for (size_t i = 0; i < (size_t)w * h; i++) {
+                const long long at = source(i);
+                if (at < 0) continue;
+                from[i] = (unsigned)at;
+                perBand[(size_t)(at / dr.w) / rows]++;
+            }
+            std::vector<unsigned char> band((size_t)dr.w * rows * 4);
+            water_land_held((long long)band.size());
+            for (int b = 0; b < bands; b++) {
+                if (!perBand[b]) continue;
+                const int y0 = b * rows, n = std::min(rows, dr.h - y0);
+                rd.rows(y0, n, &band[0]);
+                const unsigned lo = (unsigned)y0 * (unsigned)dr.w, span = (unsigned)n * (unsigned)dr.w;
+                unsigned left = perBand[b];
+                for (size_t i = 0; i < (size_t)w * h && left; i++) {
+                    const unsigned d = from[i] - lo;
+                    if (d >= span) continue;
+                    const unsigned char* q = &band[(size_t)d * 4];
+                    lp[i * 4 + 0] = q[0]; lp[i * 4 + 1] = q[1]; lp[i * 4 + 2] = q[2];
+                    left--;
+                }
+            }
+            water_land_held(-(long long)(band.size() + from.size() * sizeof(unsigned) + perBand.size() * sizeof(unsigned)));
         }
+        if (rd.open) { rd.end(); glBindTexture(GL_TEXTURE_2D, 0); }
+        if (!atl.empty()) { water_land_held(-(long long)atl.size()); std::vector<unsigned char>().swap(atl); }
+        water_land_held(-(long long)(cellOf.size() * sizeof(int)));
+        std::vector<int>().swap(cellOf);
+        texhash_mem("water_land_lp", &lp[0], lp.size());
+        fprintf(stderr, "WATERLAND|route=%s|sheet=%dx%d|field=%dx%d|bands=%lld|peak_mb=%.1f|ms=%.2f\n",
+                whole ? "whole" : "bands", dr.w, dr.h, w, h, memledger_get("readback_bands") - bandsBefore,
+                (double)memledger_get("water_land_cpu_peak") / 1048576.0,
+                (double)(SDL_GetPerformanceCounter() - started) * 1000.0 / (double)SDL_GetPerformanceFrequency());
         /* A nearest-donor map has Voronoi wedges around every small rock. Blur
            the optical material in world space once, before upload, while keeping
            dry-bank RGB and the river/ocean class exact. No per-frame taps. */
         std::vector<float> colour((size_t)w*h);
+        water_land_held((long long)(colour.size() * sizeof(float)));
         for(int c=0;c<3;c++) {
             for(size_t i=0;i<(size_t)w*h;i++)colour[i]=lp[i*4+c];
             water_box_blur(colour.data(),w,h,std::max(1,res/2));
             water_box_blur(colour.data(),w,h,std::max(1,res/2));
             for(size_t i=0;i<(size_t)w*h;i++)if(wet[i])lp[i*4+c]=(unsigned char)(colour[i]+.5f);
         }
+        water_land_held(-(long long)(colour.size() * sizeof(float)));
         GLuint tex = 0;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
@@ -737,6 +822,7 @@ static GLuint water_land_make(int ai)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, &lp[0]);
         glBindTexture(GL_TEXTURE_2D, 0);
+        water_land_held(-(long long)lp.size());
         return tex;
     }
 }
@@ -857,8 +943,12 @@ static bool water_painted_floor(void)
 }
 
 
+/* Counts the builds, so a reader of the field (the ambience's ocean coverage) can tell a
+   rebuilt field from the one it last read even where the storage is reused. */
+static unsigned g_waterFieldBuilds = 0;
 static bool water_field_build(void)
 {
+    g_waterFieldBuilds++;
     water_field_free();
     /* THE CUT: the cartridge atlas's alpha (four bytes a texel, alpha last), addressed
        through the cells' rectangles normalised to the atlas's used size; or Red Alert's
@@ -885,10 +975,24 @@ static bool water_field_build(void)
     if (paintingCut) {
         const int ai = terrain_atlas_index();const PackTex& at = g_pack.tex[ai];
         const GLuint cutGL = water_coast_atlas_gl(ai);
-        if (cutGL && at.w > 0 && at.h > 0) {
+        if (cutGL && at.w > 0 && at.h > 0 && gl_readback_whole()) {
             paintedCut.resize((size_t)at.w * at.h * 4);
             glBindTexture(GL_TEXTURE_2D,cutGL);glGetTexImage(GL_TEXTURE_2D,0,GL_RGBA,GL_UNSIGNED_BYTE,&paintedCut[0]);glBindTexture(GL_TEXTURE_2D,0);
             cart=&paintedCut[0];aw=at.w;ah=at.h;cuw=at.uw;cuh=at.uh;cstride=4;
+            if (texhash_on()) {
+                std::vector<unsigned char> alpha((size_t)at.w * at.h);
+                for (size_t i = 0; i < alpha.size(); i++) alpha[i] = paintedCut[i * 4 + 3];
+                texhash_mem("water_cut_alpha", &alpha[0], alpha.size());
+            }
+        } else if (cutGL && at.w > 0 && at.h > 0) {
+            /* Only the alpha of the cut is read below (cart[... + (cstride - 1)]), so only
+               the alpha is read back: a quarter of the bytes, a band at a time. The 2D
+               binding ends at 0, as the whole read above leaves it. */
+            paintedCut.resize((size_t)at.w * at.h);
+            gl_read_tex_rows(cutGL, at.w, at.h, GL_ALPHA, &paintedCut[0]);
+            glBindTexture(GL_TEXTURE_2D,0);
+            cart=&paintedCut[0];aw=at.w;ah=at.h;cuw=at.uw;cuh=at.uh;cstride=1;
+            texhash_mem("water_cut_alpha", &paintedCut[0], paintedCut.size());
         }
     }
     g_waterFieldPaintedCut=(paintingCut&&!paintedCut.empty()) || (ra&&(!strcmp(g_pack.theater,"RATEMP")||!strcmp(g_pack.theater,"RASNOW"))&&fx_texset_get()==FX_TEX_ENH);
@@ -1949,7 +2053,7 @@ static const char* WATER_FS =
     "uniform float uFade; uniform float uFadeWidth; uniform float uProductMean;\n"
     "uniform float uEdge; uniform float uWaveLen; uniform float uWaveSpeed; uniform float uSwashHold;\n"
     "uniform sampler2D uNormal; uniform sampler2D uScene;\n"
-    "uniform vec2 uViewport; uniform vec3 uCamPos; uniform vec3 uSunDir, uReflectionDir;\n"
+    "uniform vec2 uViewport; uniform vec3 uCamPos; uniform vec3 uSunDir, uReflectionDir, uSecondSunDir; uniform float uSecondSunEnergy;\n"
     "uniform float uBump; uniform float uSpec; uniform float uRefract;\n"
     "uniform float uNatural; uniform float uDark;\n"
     "uniform sampler2D uWave; uniform int uWaveOn; uniform vec2 uWaveTexel; uniform float uWaveBump; uniform float uWaveFoam;\n"
@@ -2018,7 +2122,12 @@ static const char* WATER_FS =
     // Flow speed is independent of the turbulence/reset period. Very slow saved
     // flow-rate settings must not freeze rivers or their zero-tangent patches.
     "    float riverRate=max(uFlowRate,0.25);\n"
-    "    float t=uTime*mix(uFlowRate,riverRate,river);\n"
+    /* THE TWO-PHASE FLOW'S CLOCK HAS A HEAD START BY REGION (coastClock, the swash's own
+       smooth six-cell field), so the moment the two samples are mixed half and half, the
+       softest picture of the cycle, does not reach a whole river at once: in step, every
+       river on the map visibly pulsed and "restarted" every two seconds. Where the head
+       start changes, both samples move together, and each wraps only while it is hidden. */
+    "    float t=uTime*mix(uFlowRate,riverRate,river)+coastClock(vWorld.xz);\n"
     "    float p0 = fract(t), p1 = fract(t + 0.5);\n"
     "    float w  = 0.5 + 0.5 * cos(6.2831853 * p0);\n"
     "    vec2 o0 = -pan - push * (p0 - 0.5), o1 = -pan - push * (p1 - 0.5);\n"
@@ -2243,6 +2352,10 @@ static const char* WATER_FS =
     "    body = mix(body, uRainSky * (dot(body, vec3(0.299, 0.587, 0.114)) * 1.25), 0.70 * seaw);\n"
     "    spec *= 1.0 - 0.6 * uRainOvercast;\n"
     "    vec3 outc = body + spec * vec3(1.0, 0.97, 0.90);\n"
+    "    if(uSecondSunEnergy>0.0) {\n"
+    "        vec3 hs=normalize(normalize(uSecondSunDir)+V);\n"
+    "        outc+=pow(max(dot(N,hs),0.0),48.0)*uSpec*uSecondSunEnergy*vec3(1.0,0.97,0.90);\n"
+    "    }\n"
     "    outc = mix(outc, vec3(0.90, 0.94, 0.98), crest);\n"
     "    if(vVirtualBed>0.5) { outc=mix(contactBed,outc,surfaceCoverage); surfaceCoverage=1.0; }\n"
     "    gl_FragColor = vec4(outc * vCol.rgb, surfaceCoverage);\n"
@@ -2410,7 +2523,7 @@ static const char* SHORE_FS =
        crest rhythm, so patches swell toward the shore and thin again, and it is SOFT:
        a third of the range from nothing to full, so no edge is a paint stroke. */
     "    float riverRate=max(uFlowRate,0.25);\n"
-    "    float t=uTime*mix(uFlowRate,riverRate,river);\n"
+    "    float t=uTime*mix(uFlowRate,riverRate,river)+coastClock(vWorld.xz);\n"
     "    float p0 = fract(t), p1 = fract(t + 0.5);\n"
     "    float w  = 0.5 + 0.5 * cos(6.2831853 * p0);\n"
     "    vec2 fw = vWorld.xz * 0.28;\n"
@@ -2647,6 +2760,99 @@ static bool g_waterSurfaceDeferred=false;
 
 #include "water_bed.h"
 
+/* THE SEA AND THE SHORE GO TO GL AS ARRAYS. Both were immediate mode, five or six calls
+   a vertex (a texture coordinate per unit, the colour, the position), which on a map with
+   much coast or open sea came to a quarter of a million GL calls a frame; a driver that
+   charges for every call spends milliseconds on that alone, while the GPU waits. The loops
+   now write the very same floats, in the same order, into one interleaved array, drawn
+   with one glDrawArrays where each glBegin/glEnd stood, so the rasteriser receives the
+   same triangles with the same attributes.
+   GL leaves the current colour and texture coordinates undefined after an array draw,
+   where glEnd left them at the last vertex's. They are set back to the last vertex's
+   afterwards, so whatever draws next starts from the state it always had. */
+struct WaterArrayTex { GLenum unit; int size, offset; };   /* offset in floats */
+/* The array is filled one vertex at a time by a plain copy into storage that only ever
+   grows, and g_waterArrayN counts the floats in use. A std::vector range insert per vertex
+   is an out-of-line library call that checks capacity and moves the tail each time; at
+   tens of thousands of vertices a frame it cost more than the GL calls it replaced on a
+   driver whose immediate mode is cheap. */
+static std::vector<float> g_waterArray;
+static size_t g_waterArrayN = 0;
+static inline void water_array_put(const float* v, size_t n)
+{
+    if (g_waterArray.size() < g_waterArrayN + n) g_waterArray.resize((g_waterArrayN + n) * 2);
+    memcpy(&g_waterArray[g_waterArrayN], v, n * sizeof(float));
+    g_waterArrayN += n;
+}
+static int grass_buf_load(void);                         /* grass_bake.h, included later */
+static inline void gls_bind_buffer(GLenum t, GLuint b);  /* likewise */
+static GLuint water_array_cached_vbo(int slot,const float* data,size_t count);
+static void water_array_cache_free();
+static void water_array_cache_dump();
+static bool water_shore_film_allowed(); /* editor state is defined later */
+static bool water_array_snapshot_enabled();
+
+#include "water_shore_frame_cache.h"
+
+static void water_array_draw_data(const WaterArrayTex* tex,int ntex,int stride,int colour,int position,const float* a,size_t floats,GLuint cached)
+{
+    const size_t n = floats / (size_t)stride;
+    if (!n) return;
+    const GLsizei bytes = (GLsizei)(stride * sizeof(float));
+    /* With a buffer bound, the pointers below would be read as offsets into it. */
+    const bool buffers = grass_buf_load() != 0;
+    const GLuint bound = buffers ? gls_array_binding() : 0;
+    glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
+    if (cached || bound) gls_bind_buffer(GL_ARRAY_BUFFER,cached);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glDisableClientState(GL_INDEX_ARRAY);
+    glDisableClientState(GL_EDGE_FLAG_ARRAY);
+    /* Every coordinate set is walked, not only the fixed-function units: the shaders read
+       sets 6 and 7, past the four units some drivers report for fixed function, and an
+       array left enabled on any set would now be read where immediate mode ignored it. */
+    gls_texture_limits();
+    const int sets = g_glsClientLimit < 32 ? g_glsClientLimit : 32;
+    for (int u = sets - 1; u >= 0; u--) {
+        const WaterArrayTex* t = NULL;
+        for (int i = 0; i < ntex; i++) if (tex[i].unit == (GLenum)(GL_TEXTURE0 + u)) t = &tex[i];
+        glClientActiveTexture(GL_TEXTURE0 + u);
+        if (t) {
+            glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+            glTexCoordPointer(t->size, GL_FLOAT, bytes, cached?(const void*)(uintptr_t)(t->offset*sizeof(float)):a+t->offset);
+        } else glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    }
+    glEnableClientState(GL_COLOR_ARRAY);
+    glColorPointer(4, GL_FLOAT, bytes,cached?(const void*)(uintptr_t)(colour*sizeof(float)):a+colour);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, bytes,cached?(const void*)(uintptr_t)(position*sizeof(float)):a+position);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)n);
+    glPopClientAttrib();
+    /* The pop puts back the buffer binding saved by the push, which is the one read above.
+       The state cache forgets it at every pop; it is told again here, so that the next
+       user of the binding does not have to ask the driver for it, a query that stalls a
+       driver which queues commands on a thread of its own. */
+    if (buffers) { g_glsArray = bound; g_glsArrayKnown = true; }
+    const float* last = a + (n - 1) * (size_t)stride;
+    for (int i = 0; i < ntex; i++) {
+        const float* v = last + tex[i].offset;
+        if (tex[i].size == 2) glMultiTexCoord2f(tex[i].unit, v[0], v[1]);
+        else glMultiTexCoord3f(tex[i].unit, v[0], v[1], v[2]);
+    }
+    glColor4f(last[colour], last[colour + 1], last[colour + 2], last[colour + 3]);
+}
+
+static void water_array_draw(const WaterArrayTex* tex,int ntex,int stride,int colour,int position,int slot=-1)
+{
+    const GLuint cached=grass_buf_load()&&slot>=0?water_array_cached_vbo(slot,g_waterArray.data(),g_waterArrayN):0;
+    water_array_draw_data(tex,ntex,stride,colour,position,g_waterArray.data(),g_waterArrayN,cached);
+}
+static bool water_array_draw_snapshot(const WaterArrayTex* tex,int ntex,int stride,int colour,int position,int slot)
+{
+    const float* data=NULL;size_t count=0;GLuint vbo=0;
+    if(!water_array_snapshot(slot,data,count,vbo,true))return false;
+    water_array_draw_data(tex,ntex,stride,colour,position,data,count,vbo);return true;
+}
+
 static bool water_fx_draw_surface(bool lateSurface)
 {
     if (!water_fx_wanted()) return false;
@@ -2654,7 +2860,9 @@ static bool water_fx_draw_surface(bool lateSurface)
     const GLuint prog = water_prog_get();
     if (!prog) return false;
 
-    const float F = (float)g_engineFrame;
+    /* the cartridge's warp, on the engine clock WITH the sub-tick fraction: on whole
+       frames alone it stood still between ticks and stepped at the tick rate */
+    const float F = engine_time();
     const float phase = fmodf(F * 0.0625f, 6.2831853f);
 
     const bool tinted = terrain_tint_live();
@@ -2708,6 +2916,8 @@ static bool water_fx_draw_surface(bool lateSurface)
     fx_set3f(prog, "uCamPos", g_fxCamPos[0], g_fxCamPos[1], g_fxCamPos[2]);
     /* Keep diffuse water and underwater lighting on the unchanged shared sun. */
     fx_set3f(prog, "uSunDir", -g_fxSunDir[0], -g_fxSunDir[1], -g_fxSunDir[2]);
+    fx_set3f(prog,"uSecondSunDir",-g_fxSecondSunDir[0],-g_fxSecondSunDir[1],-g_fxSecondSunDir[2]);
+    fx_set1f(prog,"uSecondSunEnergy",fx_second_sun_energy());
     /* Only the specular half-vector receives the independent water bearing. */
     float reflectionLight[3];
     water_reflection_direction(g_fxSunDir, g_fx.water_reflection_yaw, reflectionLight);
@@ -2769,7 +2979,9 @@ static bool water_fx_draw_surface(bool lateSurface)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDepthMask(GL_FALSE);                       /* console: Z_CMP set, Z_UPD clear */
 
-    glBegin(GL_TRIANGLES);
+    /* One vertex is 15 floats: the base's coordinate (units 0 and 1 read the same pair),
+       the terrain tint (unit 2), the swash term (unit 6), the colour and the position. */
+    g_waterArrayN = 0;
     for (size_t i = 0; i < cells.size(); i++) {
         const PackCell& c = cells[i];
         if ((!water_cell_wet(c) && !water_plane_covers(c)) || !cell_shown(c.x, c.y) || !cell_in_view(c.x, c.y)) continue;
@@ -2785,17 +2997,20 @@ static bool water_fx_draw_surface(bool lateSurface)
             float light, vis, tint[3];
             water_terrain_corner(cx, cz, tinted, oneSun, &light, &vis, tint);
             /* The console's own scroll is NOT added: the pan along the current is the
-               motion now, and the second layer sits still against it (parallax). */
-            glMultiTexCoord2f(GL_TEXTURE0, bu, bv);
-            glMultiTexCoord2f(GL_TEXTURE1, bu, bv);
-            glMultiTexCoord3f(GL_TEXTURE2, tint[0], tint[1], tint[2]);
-            glMultiTexCoord3f(GL_TEXTURE6,1.0f,0.0f,water_swash_coast_at((float)cx,(float)cz));
-            /* RGB carries the shroud byte, ALPHA the terrain's light for the sand. */
-            glColor4f(vis, vis, vis, light);
-            glVertex3f((float)cx, water_plane_cell_y(c,cx,cz), (float)cz);
+               motion now, and the second layer sits still against it (parallax).
+               RGB carries the shroud byte, ALPHA the terrain's light for the sand. */
+            const float v[15] = { bu, bv, tint[0], tint[1], tint[2],
+                                  1.0f, 0.0f, water_swash_coast_at((float)cx, (float)cz),
+                                  vis, vis, vis, light,
+                                  (float)cx, water_plane_cell_y(c, cx, cz), (float)cz };
+            water_array_put(v, 15);
         }
     }
-    glEnd();
+    {
+        static const WaterArrayTex tex[4] = { { GL_TEXTURE0, 2, 0 }, { GL_TEXTURE1, 2, 0 },
+                                              { GL_TEXTURE2, 3, 2 }, { GL_TEXTURE6, 3, 5 } };
+        water_array_draw(tex, 4, 15, 8, 12);
+    }
     water_plane_audit_report();
 
     fx_glUseProgram(0);
@@ -2948,11 +3163,27 @@ static void water_shore_draw(void)
     glDisable(GL_ALPHA_TEST);
 
     const std::vector<PackCell>& cells = water_cells();
-    glBegin(GL_TRIANGLES);
+    /* One film vertex is 15 floats: the coast sheet's coordinate (unit 5, painted bases
+       only: otherwise the set is not sent, as it never was), the beach lift (unit 7), the
+       contact lift and coast term (unit 6), the colour and the position. */
+    const bool painted=water_painted_base();
+    static const WaterArrayTex filmTex[3]={{GL_TEXTURE5,2,0},{GL_TEXTURE7,3,2},{GL_TEXTURE6,3,5}};
+    g_waterArrayN = 0;
     water_shore_cache_prepare();
     const int steps=8,ox[6]={0,0,1,1,0,1},oz[6]={0,1,0,0,1,1};
     const bool forceFine=getenv("OPENCNC3D_WATER_FINE_SHORE")!=NULL;
     unsigned coarseCells=0,fineCells=0;
+    const int frameMode=water_array_snapshot_enabled()?shore_frame_mode():0;
+    std::vector<ShoreFrameInput> frameInputs;
+    const bool frameInputsOK=frameMode&&shore_frame_inputs(frameInputs,painted,ra,oneSun,forceFine);
+    const bool frameMatch=frameInputsOK&&shore_frame_matches(frameInputs);
+    bool frameReused=false;
+    if(frameMode){g_shoreFrameOffers++;if(!frameInputsOK)g_shoreFrameFallbacks++;}
+    if(frameMatch&&frameMode==1) {
+        frameReused=water_array_draw_snapshot(painted?filmTex:filmTex+1,painted?3:2,15,8,12,0);
+        if(frameReused){g_shoreFrameHits++;for(const auto& input:frameInputs){if(input.coarse)coarseCells++;else fineCells++;}}
+    }
+    if(!frameReused) {
     for(size_t i=0;i<cells.size();i++) {
         const PackCell& c=cells[i];
         if(c.x<0||c.y<0||c.x>=g_gridW||c.y>=g_gridH)continue;
@@ -2964,6 +3195,26 @@ static void water_shore_draw(void)
         const bool coarse=!forceFine && g_waterShoreLastCell->coarse && water_shore_linear_weights(lights) && water_shore_linear_weights(visible);
         const int stride=coarse?steps:1;
         if(coarse)++coarseCells;else ++fineCells;
+        const int filmMode=water_shore_film_allowed()?water_shore_film_mode():0;
+        auto& filmCell=*g_waterShoreLastCell;
+        std::array<float,14> filmKey{};
+        bool filmHit=false;
+        if(filmMode) {
+            for(int q=0;q<4;q++){filmKey[q]=lights[q];filmKey[q+4]=visible[q];}
+            filmKey[8]=c.u0;filmKey[9]=c.u1;filmKey[10]=c.v0;filmKey[11]=c.v1;
+            if(painted) {
+                const PackTex& at=water_atlas(water_atlas_index());
+                filmKey[12]=ra?1.f:(float)at.uw/at.w;filmKey[13]=ra?1.f:(float)at.uh/at.h;
+            }
+            filmHit=!filmCell.film.empty() && filmCell.filmPainted==painted && filmCell.filmCoarse==coarse
+                && !memcmp(filmKey.data(),filmCell.filmKey.data(),filmKey.size()*sizeof(float));
+            g_waterShoreFilmOffers++;
+            if(filmHit && filmMode==1) {
+                water_array_put(filmCell.film.data(),filmCell.film.size());
+                g_waterShoreFilmHits++;continue;
+            }
+        }
+        const size_t filmFirst=g_waterArrayN;
         for(int z=0;z<steps;z+=stride)for(int x=0;x<steps;x+=stride)for(int k=0;k<6;k++) {
             const float fx=(x+ox[k]*stride)/(float)steps,fz=(z+oz[k]*stride)/(float)steps;
             const WaterShoreNode& node=water_shore_node(c.x,c.y,x+ox[k]*stride,z+oz[k]*stride);
@@ -2972,18 +3223,53 @@ static void water_shore_draw(void)
             // Match the native beach exactly. Snapping only wet vertices to sea level
             // bends mixed shoreline triangles below the beach and exposes cell seams.
             const float y=node.y, lift=node.contactLift;
-            if(water_painted_base()) {
+            float sheetU=0.0f,sheetV=0.0f;
+            if(painted) {
                 const PackTex& at=water_atlas(water_atlas_index());
-                glMultiTexCoord2f(GL_TEXTURE5,(c.u0+(c.u1-c.u0)*fx)*(ra?1.f:(float)at.uw/at.w),
-                    (c.v0+(c.v1-c.v0)*fz)*(ra?1.f:(float)at.uh/at.h));
+                sheetU=(c.u0+(c.u1-c.u0)*fx)*(ra?1.f:(float)at.uw/at.w);
+                sheetV=(c.v0+(c.v1-c.v0)*fz)*(ra?1.f:(float)at.uh/at.h);
             }
-            glMultiTexCoord3f(GL_TEXTURE7,0.0f,node.lift,1.0f);
-            glMultiTexCoord3f(GL_TEXTURE6,lift,lift,node.coast);
-            glColor4f(vis,vis,vis,light);
-            glVertex3f(node.wx,y,node.wz);
+            const float v[15]={sheetU,sheetV, 0.0f,node.lift,1.0f, lift,lift,node.coast,
+                               vis,vis,vis,light, node.wx,y,node.wz};
+            water_array_put(v,15);
+        }
+        if(filmMode) {
+            const size_t count=g_waterArrayN-filmFirst;
+            if(filmHit) {
+                g_waterShoreFilmVerified++;
+                if(count!=filmCell.film.size() || memcmp(filmCell.film.data(),g_waterArray.data()+filmFirst,count*sizeof(float))) {
+                    if(g_waterShoreFilmBad<8)fprintf(stderr,"SHOREFILMCACHE|mismatch|cell=%d,%d\n",c.x,c.y);
+                    g_waterShoreFilmBad++;
+                }
+            } else {
+                const size_t cap=mesh_perf_switch("OPENCNC3D_SHORE_FILM_BUDGET_FULL")?32u*1024u*1024u:256u;
+                const size_t oldBytes=filmCell.film.capacity()*sizeof(float);
+                if(mesh_perf_switch("OPENCNC3D_SHORE_FILM_ALLOC_OK") && count*sizeof(float)<=cap
+                    && g_waterShoreFilmBytes-oldBytes<=cap-count*sizeof(float)) {
+                    try {
+                        std::vector<float> next(g_waterArray.data()+filmFirst,g_waterArray.data()+g_waterArrayN);
+                        const size_t bytes=next.capacity()*sizeof(float);
+                        if(bytes<=cap && g_waterShoreFilmBytes-oldBytes<=cap-bytes) {
+                            filmCell.film.swap(next);filmCell.filmKey=filmKey;
+                            filmCell.filmPainted=painted;filmCell.filmCoarse=coarse;
+                            g_waterShoreFilmBytes=g_waterShoreFilmBytes-oldBytes+bytes;
+                        } else g_waterShoreFilmFallbacks++;
+                    } catch(const std::bad_alloc&) {g_waterShoreFilmFallbacks++;}
+                } else g_waterShoreFilmFallbacks++;
+            }
         }
     }
-    glEnd();
+    if(frameMatch&&frameMode==2) {
+        const float* data=NULL;size_t count=0;GLuint vbo=0;
+        if(water_array_snapshot(0,data,count,vbo,false)){
+            g_shoreFrameVerified++;
+            if(count!=g_waterArrayN||(count&&memcmp(data,g_waterArray.data(),count*sizeof(float))))g_shoreFrameBad++;
+        }
+    }
+    water_array_draw(painted?filmTex:filmTex+1,painted?3:2,15,8,12,0);
+    if(frameInputsOK)shore_frame_remember(frameInputs);
+    }
+
     if(getenv("OPENCNC3D_WATER_SHORE_AUDIT"))fprintf(stderr,"WATER|shore-geometry|coarse=%u|fine=%u|native-film-vertices=%u|forced-fine=%d\n",coarseCells,fineCells,coarseCells*6+fineCells*384,forceFine?1:0);
 
 
@@ -2992,20 +3278,25 @@ static void water_shore_draw(void)
     if(g_fx.water_swash && opaqueLand) {
         fx_set1f(prog,"uShorePlane",1.0f);
         glDisable(GL_POLYGON_OFFSET_FILL);
-        glBegin(GL_TRIANGLES);
+        /* One crest vertex is 13 floats: the ground height (unit 7), the coast term
+           (unit 6), the colour and the position on the water plane. */
+        static const WaterArrayTex crestTex[2]={{GL_TEXTURE7,3,0},{GL_TEXTURE6,3,3}};
+        g_waterArrayN = 0;
         for(const PackCell& c:cells) {
             if(c.x<0||c.y<0||c.x>=g_gridW||c.y>=g_gridH)continue;
             if(!g_waterCoastCell[(size_t)c.y*g_gridW+c.x]||!water_plane_covers(c))continue;
             if(!cell_shown(c.x,c.y)||!cell_in_view(c.x,c.y))continue;
             for(int k=0;k<6;k++) {
                 const float x=c.x+(float)ox[k],z=c.y+(float)oz[k];
-                float light,vis,tint[3];water_terrain_corner(c.x,c.y,false,oneSun,&light,&vis,tint);
-                glMultiTexCoord3f(GL_TEXTURE7,0.0f,terrain_surface_height(x,z),1.0f);
-                glMultiTexCoord3f(GL_TEXTURE6,0.0f,0.0f,water_swash_coast_at(x,z));
-                glColor4f(vis,vis,vis,light);glVertex3f(x,water_plane_surface_at(c.x,c.y,x,z),z);
+                /* Each corner's own light, shared with the neighbouring cells: the cell's
+                   first corner for all six gave every coast cell one flat shade. */
+                float light,vis,tint[3];water_terrain_corner(c.x+ox[k],c.y+oz[k],false,oneSun,&light,&vis,tint);
+                const float v[13]={0.0f,terrain_surface_height(x,z),1.0f, 0.0f,0.0f,water_swash_coast_at(x,z),
+                                   vis,vis,vis,light, x,water_plane_surface_at(c.x,c.y,x,z),z};
+                water_array_put(v,13);
             }
         }
-        glEnd();
+        water_array_draw(crestTex,2,13,6,10,1);
     }
     glActiveTexture(GL_TEXTURE7);
     if(opaqueLand){glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);}
@@ -3127,6 +3418,16 @@ static void water_soft_slot_drop(WaterSoftSlot* s)
     memset(s, 0, sizeof *s);
 }
 
+/* Every soft-coast sheet held: the live one and both slots, with the keys that describe
+   them, so the next sync builds afresh. */
+static void water_soft_forget_all(void)
+{
+    for (int k = 0; k < 2; k++) water_soft_slot_drop(&g_waterSoftSlot[k]);
+    if (g_waterSoftTex) glDeleteTextures(1, &g_waterSoftTex);
+    g_waterSoftTex = 0; g_waterSoftAtlas = -1; g_waterSoftSrc = 0; g_waterSoftLinear = -1;
+    g_waterSoftUW = g_waterSoftUH = -1; g_waterSoftScen[0] = 0;
+}
+
 /* Extend each complete coast template, including its alternate paintings.
    Atlas neighbours are unrelated: logical icon coordinates own the continuation.
    The effects-off atlas remains untouched; only the live soft-coast copy changes. */
@@ -3216,9 +3517,17 @@ static bool water_soft_sync_for(int ai, int linear)
     const bool enhSheet = ai == g_pack.terrainTexEnh;
     float softR = WATER_SOFT_RADIUS;
     std::vector<unsigned char> atl((size_t)at.w * at.h * 4);
-    glBindTexture(GL_TEXTURE_2D, at.gl);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, &atl[0]);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    if (gl_readback_whole()) {
+        glBindTexture(GL_TEXTURE_2D, at.gl);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, &atl[0]);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    } else {
+        /* The whole sheet is edited and uploaded below, so all of it is read, a band of
+           rows at a time; the 2D binding ends at 0 as the whole read leaves it. */
+        gl_read_tex_rows(at.gl, at.w, at.h, GL_RGBA, &atl[0]);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    texhash_mem("water_soft_read", &atl[0], atl.size());
 
     /* every distinct tile rectangle a holed cell draws from */
     std::vector<long long> seen;
@@ -3349,8 +3658,16 @@ static void water_soft_prepare_loading(bool editing)
                 if (admitted) {
                     MEMORYSTATUSEX memory = {}; memory.dwLength = sizeof(memory);
                     const uint64_t reserve = 256u * 1024u * 1024u + cpuBound + gpuBound;
-                    admitted = GlobalMemoryStatusEx(&memory) && memory.ullAvailVirtual >= reserve
-                             && memory.ullAvailPhys >= reserve;
+                    /* The process's room to allocate is the commit limit in a 64-bit
+                       process, whose address space never binds, and the address space
+                       left in a 32-bit one; physical memory has to hold as well. */
+                    admitted = GlobalMemoryStatusEx(&memory) != 0;
+#ifdef _WIN64
+                    admitted = admitted && process_commit_room(memory) >= reserve;
+#else
+                    admitted = admitted && memory.ullAvailVirtual >= reserve;
+#endif
+                    admitted = admitted && memory.ullAvailPhys >= reserve;
                     reason = "headroom";
                 }
 #endif
@@ -3446,5 +3763,75 @@ static bool water_terrain_soft(void)
 
 #include "water_static_material.h"
 #include "water_plane_render.h"
+
+/* THE WATER BELONGS TO THE MISSION. Nothing gave its textures back when a mission ended:
+   the field, the land textures in their three slots (and the bed patterns beside them)
+   and the soft-coast sheets in theirs were all kept, and every one of those caches tells
+   its entries apart by the scenario's name and a GL texture NAME. A restart of the same
+   mission therefore kept a dead copy of the soft-coast sheet in a slot (98 MB on Tiberian
+   Dawn's first mission, a second copy for the second mission and two from then on), and
+   a recycled texture name could make a stale entry match a new atlas. Called from
+   game_shutdown: the field and its kept arrays, the land slots, every soft-coast sheet
+   and the band reader's framebuffer go, then glFlush hands the freed storage back to
+   the driver before the next mission allocates its own. The next mission builds all of
+   them again on its first frame, exactly as the first mission of a process does.
+   OPENCNC3D_WATER_SHUTDOWN_KEEP=1 (read once) keeps them as before, for comparing. */
+static bool water_shutdown_keep(void)
+{
+    static const bool on = [](){ const char* p = getenv("OPENCNC3D_WATER_SHUTDOWN_KEEP"); return p && *p && strcmp(p, "0"); }();
+    return on;
+}
+static void water_mission_free(void)
+{
+    if (water_shutdown_keep()) return;
+    water_array_cache_free();
+    water_shore_cache_forget();
+    g_shoreFrameValid=false;std::vector<ShoreFrameInput>().swap(g_shoreFrameInputs);
+    water_field_free();              /* the field, its plane, the land slots and their bed patterns */
+    g_waterBedPatternTex = 0;        /* it was one of the land slots' */
+    g_waterFieldNone.valid = false;
+    std::vector<unsigned char>().swap(g_wfWet);
+    std::vector<unsigned char>().swap(g_wfRiver);
+    std::vector<unsigned char>().swap(g_wfSwashRiver);
+    std::vector<int>().swap(g_wfNearLand);
+    std::vector<int>().swap(g_wfNearWater);
+    std::vector<float>().swap(g_wfDDry);
+    g_wfW = g_wfH = g_wfRes = 0;
+    water_soft_forget_all();
+    gl_readback_free();
+    glFlush();
+}
+
+/* The bytes of level 0 and every level below it that a texture holds on the card, read
+   off the texture itself, for the memory ledger. */
+static long long water_tex_bytes(GLuint tex)
+{
+    if (!tex || !glIsTexture(tex)) return 0;
+    GLint was = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &was);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    long long bytes = 0;
+    for (int level = 0; level < 16; level++) {
+        GLint w = 0, h = 0, f = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_WIDTH, &w);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_HEIGHT, &h);
+        if (w <= 0 || h <= 0) break;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_INTERNAL_FORMAT, &f);
+        const int texel = (f == GL_RGBA16 || f == GL_RGBA16F_ARB) ? 8
+                        : (f == GL_LUMINANCE || f == GL_LUMINANCE8 || f == GL_ALPHA || f == GL_ALPHA8) ? 1 : 4;
+        bytes += (long long)w * h * texel;
+    }
+    glBindTexture(GL_TEXTURE_2D, (GLuint)was);
+    return bytes;
+}
+/* water_gl: what the water's mission caches hold on the card now (the field, the land
+   slots and their bed patterns, the live soft-coast sheet and both slots). */
+static void water_memledger_note(void)
+{
+    long long b = water_tex_bytes(g_waterFieldTex) + water_tex_bytes(g_waterSoftTex);
+    for (int k = 0; k < 3; k++) b += water_tex_bytes(g_waterLandSlot[k].tex) + water_tex_bytes(g_waterLandSlot[k].bedPattern);
+    for (int k = 0; k < 2; k++) b += water_tex_bytes(g_waterSoftSlot[k].tex);
+    memledger_bytes("water_gl", b);
+}
 
 #endif /* OPENCNC3D_WATER_MOD_H */

@@ -1,0 +1,38 @@
+# S12 Red Alert SCG10EB, an indoor mission: walls, floors and crates in 3D under
+# Enhanced. Frames the player's start and the tank hall at tick 1 and tick 300, then
+# blows up a row of barrels by the tanks and frames the hall again.
+game: ra
+scen: SCG10EB
+modes: enh,cls,n64
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger t1
+shot {OUT}/t0001_start.png
+cam 70 104
+frames 2
+shot {OUT}/t0001_hall.png
+cam 46 106
+frames 2
+shot {OUT}/t0001_power.png
+tick 299
+frames 2
+memledger t300
+cam 70 104
+frames 2
+shot {OUT}/t0300_hall.png
+hurtobj BRL3 0
+hurtobj BARL 0
+hurtobj BRL3 1
+tick 20
+frames 2
+cam 64 102
+frames 2
+shot {OUT}/t0320_barrels.png
+cam 70 104
+frames 2
+shot {OUT}/t0320_hall.png
+quit

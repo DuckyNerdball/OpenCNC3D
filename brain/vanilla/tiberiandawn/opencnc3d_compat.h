@@ -4,7 +4,7 @@
 // After supplying a null keyboard and enabling the Microsoft language extensions
 // (-fms-extensions -fdeclspec), dllinterface.cpp needed only three Win32 conveniences.
 // None of them touch game logic, so shimming them keeps the engine sources byte-identical
-// and still able to cross-compile for the Win98 target later (where the real ones exist).
+// and still able to cross-compile for Windows (where the real ones exist).
 //
 #ifndef OPENCNC3D_COMPAT_H
 #define OPENCNC3D_COMPAT_H

@@ -1,0 +1,37 @@
+{
+  "version": "2026-11-11-user-latest",
+  "approval": "I changed the values again for the APC. Use the new values everywhere",
+  "supersedes": "Earlier APC values including blend=3, relief=.33, roughness=.35",
+  "material": {
+    "blend": 0,
+    "enabled": true,
+    "opacity": 0.82,
+    "relief": 1.47,
+    "roughness": 0.99,
+    "scaleVariation": 0.22,
+    "seed": 311,
+    "size": 0.255,
+    "source": "rusty_metal_04",
+    "strength": 0.66,
+    "variation": 0.75
+  },
+  "review_lighting_only": {
+    "light": -152,
+    "elevation": 45,
+    "exposure": 1.06
+  },
+  "blend_name": "Soft light",
+  "mapping": "Physical model-space panel projection. size=.255 source gameplay-cell units; independent seeded offsets, rotation and scale. Preserve seams, material ownership, camouflage, decals and prior wear. Do not apply painted-metal overlay to glass, tyres, lamps or exposed machinery.",
+  "source": "https://polyhaven.com/a/rusty_metal_04",
+  "creator": "Amal Kumar / Poly Haven",
+  "license": "CC0",
+  "files": {
+    "rusty_metal_04_normal-v02.png": "a1d86d6d971225ae4692570fb427c901d39d09e7cad73bd4cb417c3e959f1392",
+    "rusty_metal_04_color.jpg": "834ea7d0267bfa9b8bacbb45e852a5f8f1b9d1e4672abbce63b150d2eaa1f98a",
+    "rusty_metal_04_roughness-v02.png": "3b142ad8369ae0704567fa6e71174d78138d83134acb65a0e7919ef4b839afd2",
+    "rusty_metal_04_height-v02.png": "70eafa40bfde06cec46f4cde6d0cbacb10002c5fe7e31759e11dab29843dbd1a",
+    "MAPS.json": "b4f9b8a420d2c9dd92c7c56eaed72ff36435d4105f123bd33b11b7a13665c693",
+    "reference-shader.js": "f3581faef3c1554d3405048c54642da69b78df2a38fb0bacdc51ec767dbfa2ce"
+  },
+  "normal": "OpenGL tangent, linear; compute frame from same randomized UV as colour/roughness. 16-bit source maps divided by65535, never directly converted toL."
+}

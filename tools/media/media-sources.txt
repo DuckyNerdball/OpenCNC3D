@@ -34,6 +34,8 @@ source NOD zip https://files.cncnz.com/cc1_tiberian_dawn/full_game/NOD95.zip
 source NOD iso https://archive.org/download/cn-c-gdi-95/CnC_NOD95.iso
 
 source COVERT iso https://archive.org/download/cc_worldwide_warfare/COVERT.iso
+source COVERT iso https://ia600807.us.archive.org/16/items/cc_worldwide_warfare/COVERT.iso
+source COVERT iso https://ia800807.us.archive.org/16/items/cc_worldwide_warfare/COVERT.iso
 source COVERT zip https://files.cncnz.com/cc1_tiberian_dawn/full_game/CovertOps_ISO.zip
 
 # RA_ALLIED and RA_SOVIET are the two discs of the 1996 Red Alert release that Electronic

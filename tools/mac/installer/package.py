@@ -8,6 +8,7 @@ No installer, game or GUI is run by this build tool.
 """
 from __future__ import annotations
 import argparse
+import base64
 import hashlib
 import html
 import json
@@ -19,15 +20,28 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import importlib.util
 import xml.etree.ElementTree as ET
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[3]
 HERE=Path(__file__).resolve().parent
+# The macOS floor has one source, OPENCNC3D_MACOS_MIN in tools/mac/deployment-target.sh,
+# which is also every compile's deployment target. os_floor.py reads it.
+_spec=importlib.util.spec_from_file_location('opencnc3d_os_floor',ROOT/'tools/mac/os_floor.py')
+os_floor=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(os_floor)
 NAMES=('OpenCNC3DInstaller','OpenCNC3DComplete','RA3DComplete','OpenCNC3DBinaries','RA3DBinaries')
 BOOTSTRAP=('opencnc3d-launcher','libSDL2-2.0.0.dylib','libSDL3.dylib','dosmenu.pack','enhanced-menu.pack','ecur/ecur.bin','LICENSE','NOTICE.md')
 ART={'td':ROOT/'art/interface/launcher-enhanced-v05/CNC-native.png',
      'ra':ROOT/'art/interface/launcher-enhanced-v05/RA-native.png'}
+# What the Installer window calls each product. The asset file names keep their fixed form.
+DISPLAY={'OpenCNC3DInstaller':'OpenCNC3D Installer','OpenCNC3DComplete':'OpenCNC3D Complete','RA3DComplete':'RA3D Complete'}
+# Where the installed app is, said the same way on every page. ~/Applications is not the
+# Applications folder in the Finder sidebar, and a player who looks only there finds nothing.
+WHERE=('Installs into the Applications folder inside your home folder, not the Mac’s main '
+       'Applications folder:<br><b>~/Applications/OpenCNC3D</b>')
+FIND=('To find it, choose Go &gt; Home in the Finder (Shift-Command-H), open Applications, '
+      'then OpenCNC3D, and open OpenCNC3D.app. Spotlight finds it too: type OpenCNC3D.')
 
 
 def sha(path):
@@ -91,6 +105,8 @@ def module_record(directory,game,version):
             if PurePosixPath(rel).suffix.lower()in {'.cfg','.sav','.vqa','.log'}or any(p.lower()in {'saves','user_maps','settings','movies','music'}for p in PurePosixPath(rel).parts):raise ValueError('Player state or optional media in module')
             with z.open(info)as f:actual=hashlib.file_digest(f,'sha256').hexdigest()
             if actual!=h or info.file_size!=int(n):raise ValueError('Module member SHA mismatch: '+rel)
+            with z.open(info)as f:head=f.read(4)
+            if os_floor.is_macho(head):os_floor.check_bytes(path.name+':'+rel,z.read(info))
             owned[rel]=dict(size=int(n),sha256=h,mode=(info.external_attr>>16)&0o777)
         if set(names)!=set(owned)|{manifest_name}:raise ValueError('Unlisted module ZIP entries')
     required=({'ra3d/opencnc3d','ra3d/RedAlert.dylib','ra3d/dosmenu.pack','ra3d/SCG01EA.pack'}if game=='ra'else{'opencnc3d','TiberianDawn.dylib','cnc_eyes','CONQUER.MIX','dosmenu.pack'})
@@ -112,13 +128,9 @@ def bootstrap(base,dest,version,kind):
     # Fixed native bundle relocation rules are applied to pkgbuild separately.
     for name in ['CHANGELOG.txt']:
         if(base/name).is_file():copy_file(base/name,dest/name)
-    (dest/'READ-ME-INSTALLATION.txt').write_text(
-        f'{kind} v{version} for macOS\n\nOpen OpenCNC3D.app in your Applications/OpenCNC3D folder.\n'
-        'The launcher manages Dawn3D and RA3D independently. Optional music and movies\n'
-        'can be retried in the selected game\'s content settings. Saves, settings and\n'
-        'custom maps are not part of this installer. No game starts during installation.\n'
-        'These packages are unsigned unless the release receipt explicitly records a\n'
-        'Developer ID Installer signature. Signing/notarisation are separate checks.\n',encoding='utf-8')
+    readme=(ROOT/'tools/launchers/READ-ME.txt').read_text(encoding='utf-8')
+    if 'Requires '+os_floor.macos_label()+' or newer'not in readme:raise ValueError('tools/launchers/READ-ME.txt does not state the macOS floor: Requires '+os_floor.macos_label()+' or newer')
+    (dest/'READ-ME-INSTALLATION.txt').write_text(f'{kind} v{version} for macOS\n\n'+readme,encoding='utf-8')
     marks=(dest/'opencnc3d-launcher').read_bytes()
     if version.encode()+b'\0'not in marks:raise ValueError('Launcher release version differs from package version')
     for key in [b'/api/builds',b'--module-file',b'--media-game',b'--media-add-only']:
@@ -127,17 +139,52 @@ def bootstrap(base,dest,version,kind):
         p=dest/row['path'];magic=p.read_bytes()[:4]if p.stat().st_size<64 else p.open('rb').read(4)
         if magic in [b'\xca\xfe\xba\xbe',b'\xcf\xfa\xed\xfe']:
             run('lipo',p,'-verify_arch','arm64','x86_64')
+            # A binary asking for a newer macOS than the package admits would install on
+            # an older Mac and then be refused by dyld before main().
+            os_floor.check_bytes(row['path'],p.read_bytes())
 
 
-def welcome(resources,game,title,version,complete):
+def emblem_uri(game):
+    """The 160x160 emblem as a data: URI inside the page itself.
+
+    productbuild copies into the product only the Resources files the Distribution names
+    (welcome.html, conclusion.html), so a picture the page links to as a separate file is
+    dropped, and Installer draws an empty box with the alt text in its place."""
+    return 'data:image/png;base64,'+base64.b64encode(ART[game].read_bytes()).decode('ascii')
+
+
+def welcome(resources,game,title,version,complete,os_min=None):
     resources.mkdir(parents=True)
-    copy_file(ART[game],resources/'module.png')
     body=('This installer includes the complete '+('RA3D'if game=='ra'else'Dawn3D')+
           ' game. Choose optional Music and Movies in Customize. The game installs offline; only selected media downloads need the internet.'if complete else
           'Install the empty OpenCNC3D launcher. Open Add Game afterward to choose Dawn3D or RA3D, then select optional Music and Movies. This installer downloads no game or media.')
-    page=f'''<!doctype html><html><head><meta charset="utf-8"><style>body{{font:13px -apple-system,Helvetica,sans-serif;color:#222;margin:12px}}td{{vertical-align:top}}h1{{font-size:20px;margin:3px 0 12px}}p{{line-height:1.45}}img{{width:160px;height:160px}}</style></head><body><table cellspacing="0" cellpadding="0"><tr><td style="padding-right:16px"><img src="module.png" alt="{'RA3D'if game=='ra'else'OpenCNC3D'}"></td><td><h1>{html.escape(title)}</h1><p>Version {html.escape(version)}</p><p>{html.escape(body)}</p><p>Installs for you in<br>Applications/OpenCNC3D.</p></td></tr></table></body></html>'''
-    (resources/'welcome.html').write_text(page)
-    (resources/'conclusion.html').write_text(page.replace(body,'Open OpenCNC3D.app in your Applications/OpenCNC3D folder. If optional media could not finish downloading, use the selected game’s content settings to retry. Your installed game remains usable.'))
+    name=DISPLAY.get(title,title)
+    page=f'''<!doctype html><html><head><meta charset="utf-8"><style>body{{font:13px -apple-system,Helvetica,sans-serif;color:#222;margin:12px}}td{{vertical-align:top}}h1{{font-size:20px;margin:3px 0 12px}}p{{line-height:1.45}}img{{width:160px;height:160px}}</style></head><body><table cellspacing="0" cellpadding="0"><tr><td style="padding-right:16px"><img src="{emblem_uri(game)}" width="160" height="160" alt="{'RA3D'if game=='ra'else'OpenCNC3D'}"></td><td><h1>{html.escape(name)}</h1><p>Version {html.escape(version)}</p>BODY</td></tr></table></body></html>'''
+    # The floor is stated on the first page, so a player on an older macOS reads it
+    # before the installation check refuses (distribution() below).
+    first=('<p>'+html.escape(body)+'</p><p><b>'+html.escape(os_floor.requirement(os_min))+'</b></p><p>'+WHERE+'</p>')
+    (resources/'welcome.html').write_text(page.replace('BODY',first),encoding='utf-8')
+    after=('Optional media that could not finish downloading can be retried from the game’s content settings; the installed game remains usable.'
+           if complete else'Then choose Add Game in the launcher to install Dawn3D or RA3D.')
+    last=('<p>OpenCNC3D is installed in <b>~/Applications/OpenCNC3D</b>, inside your home folder, not in the Mac’s main Applications folder.</p>'
+          '<p>'+FIND+'</p><p>'+html.escape(after)+'</p>')
+    (resources/'conclusion.html').write_text(page.replace('BODY',last),encoding='utf-8')
+
+
+def verify_pages(resources,game):
+    """The built product's own pages show the emblem and say where the game went.
+
+    Reads an expanded product's Resources folder. Every picture a page draws has to be
+    inside the page, because the product holds nothing else beside it."""
+    want=emblem_uri(game)
+    names=sorted(x.name for x in Path(resources).iterdir())
+    for kind in ['welcome','conclusion']:
+        text=(Path(resources)/(kind+'.html')).read_text(encoding='utf-8')
+        for ref in re.findall(r'(?:src|href)="([^"]*)"',text):
+            if not ref.startswith('data:')and ref not in names:raise ValueError(f'{kind}.html links to {ref}, which the product does not hold (it holds {names})')
+        if text.count(want)!=1:raise ValueError(f'{kind}.html does not carry the {game} emblem inside the page')
+        if '~/Applications/OpenCNC3D'not in text or 'Mac’s main Applications folder'not in text:raise ValueError(f'{kind}.html does not say the game goes in ~/Applications, not /Applications')
+    if 'Go &gt; Home'not in (Path(resources)/'conclusion.html').read_text(encoding='utf-8'):raise ValueError('conclusion.html does not say how to find the installed app')
 
 
 def make_component(payload,scripts,out,identifier,version,components):
@@ -157,15 +204,41 @@ def verify_component(pkg,payload,work):
     shutil.rmtree(expanded)
 
 
-def distribution(path,title,version,core,media,identifiers):
+def os_check_script(os_min):
+    """The Installer JavaScript that refuses an older macOS with a sentence saying so.
+
+    Without it, allowed-os-versions alone disables the startup disk on an older macOS
+    with an empty reason, and because the home folder is the only location these
+    packages allow, Installer falls back to its generic line for every location: it
+    says the software cannot be installed here and offers nowhere else. The check
+    runs as Installer opens, before any location is offered. It is written without a
+    '<' so XML escaping cannot change it."""
+    label=os_floor.macos_label(os_min)
+    if not re.fullmatch(r'[0-9.]+',os_min)or"'"in label:raise ValueError('Unexpected macOS floor: '+os_min)
+    return ('function opencnc3d_os_ok() {\n'
+            f"  if (system.compareVersions(system.version.ProductVersion, '{os_min}') == -1) {{\n"
+            "    my.result.type = 'Fatal';\n"
+            f"    my.result.title = 'OpenCNC3D needs {label} or newer';\n"
+            f"    my.result.message = 'This Mac runs macOS ' + system.version.ProductVersion + '. OpenCNC3D runs on {label} or newer, on Apple Silicon and Intel Macs.';\n"
+            '    return false;\n'
+            '  }\n'
+            '  return true;\n'
+            '}\n')
+
+
+def distribution(path,title,version,core,media,identifiers,os_min=None):
+    os_min=os_min or os_floor.macos_min()
     root=ET.Element('installer-gui-script',{'minSpecVersion':'2'})
-    ET.SubElement(root,'title').text=title
+    ET.SubElement(root,'title').text=DISPLAY.get(title,title)
     ET.SubElement(root,'options',{'customize':'always'if media else'never','require-scripts':'true','hostArchitectures':'arm64,x86_64'})
     ET.SubElement(root,'domains',{'enable_currentUserHome':'true','enable_localSystem':'false','enable_anywhere':'false'})
-    ET.SubElement(root,'allowed-os-versions').append(ET.Element('os-version',{'min':'14.0'}))
+    # The check that explains the refusal, and allowed-os-versions as the backstop.
+    ET.SubElement(root,'installation-check',{'script':'opencnc3d_os_ok()'})
+    ET.SubElement(root,'script').text=os_check_script(os_min)
+    ET.SubElement(root,'allowed-os-versions').append(ET.Element('os-version',{'min':os_min}))
     for kind in ['welcome','conclusion']:ET.SubElement(root,kind,{'file':kind+'.html','mime-type':'text/html'})
     outline=ET.SubElement(root,'choices-outline');ET.SubElement(outline,'line',{'choice':'core'})
-    choice=ET.SubElement(root,'choice',{'id':'core','title':title,'start_selected':'true','enabled':'false'});ET.SubElement(choice,'pkg-ref',{'id':identifiers['core']})
+    choice=ET.SubElement(root,'choice',{'id':'core','title':DISPLAY.get(title,title),'start_selected':'true','enabled':'false'});ET.SubElement(choice,'pkg-ref',{'id':identifiers['core']})
     refs=[('core',core)]
     if media:
         for key,title0 in [('music','Music (optional download)'),('movies','Movies (optional download)')]:
@@ -180,6 +253,16 @@ def distribution(path,title,version,core,media,identifiers):
     ET.ElementTree(root).write(path,encoding='utf-8',xml_declaration=True)
 
 
+def verify_os_floor(product,os_min=None):
+    """A built Distribution states and enforces the one floor, with its explanation."""
+    os_min=os_min or os_floor.macos_min()
+    check=product.find('installation-check')
+    if check is None or check.get('script')!='opencnc3d_os_ok()':raise ValueError('Distribution lacks the macOS installation check')
+    if (product.findtext('script')or'')!=os_check_script(os_min):raise ValueError('Distribution macOS check script differs')
+    mins=[x.get('min')for x in product.iter('os-version')]
+    if mins!=[os_min]:raise ValueError('Distribution os-version min '+str(mins)+' is not the floor '+os_min)
+
+
 def installer_output(*args):
     result=subprocess.run(['installer',*map(str,args)],capture_output=True)
     if result.returncode:raise ValueError('Native Installer metadata query failed: '+result.stdout.decode(errors='replace')+result.stderr.decode(errors='replace'))
@@ -189,6 +272,10 @@ def native_choices(pkg,work,complete):
     result={}
     domains=installer_output('-dominfo','-pkg',pkg).decode().splitlines()
     if domains!=['CurrentUserHomeDirectory']:raise ValueError('Native installer offers an unexpected install domain: '+str(domains))
+    # -dominfo still answers CurrentUserHomeDirectory when the OS test has disabled the
+    # disk the home folder sits on; -volinfo is what goes empty then.
+    volumes=installer_output('-volinfo','-pkg',pkg).decode().splitlines()
+    if '/'not in volumes:raise ValueError('Native installer refuses the startup disk on this Mac: '+str(volumes))
     if not complete:
         data=installer_output('-showChoicesXML','-pkg',pkg,'-target','CurrentUserHomeDirectory');(work/'choices-empty.plist').write_bytes(data)
         result['empty']=plistlib.loads(data)
@@ -247,13 +334,16 @@ def build_installer(base,module,version,out,scratch,title,game):
     # Reopen the actual product: verify Distribution and every included package
     # entry before reporting it. This reads a container, never runs Installer.
     expanded=work/'product-expanded';run('pkgutil','--expand',artifact,expanded)
-    if ET.parse(expanded/'Distribution').getroot().find('domains').attrib!={'enable_currentUserHome':'true','enable_localSystem':'false','enable_anywhere':'false'}:raise ValueError('Native domains changed')
+    product=ET.parse(expanded/'Distribution').getroot()
+    if product.find('domains').attrib!={'enable_currentUserHome':'true','enable_localSystem':'false','enable_anywhere':'false'}:raise ValueError('Native domains changed')
+    verify_os_floor(product)
+    verify_pages(expanded/'Resources',game)
     for pkg in [core,*media.values()]:
         expected=work/(pkg.stem+'-original');run('pkgutil','--expand',pkg,expected)
         if file_rows(expected)!=file_rows(expanded/pkg.name):raise ValueError('Product changed component package: '+pkg.name)
         shutil.rmtree(expected)
     shutil.rmtree(expanded)
-    return dict(name=artifact.name,path=str(artifact),size=artifact.stat().st_size,sha256=sha(artifact),kind='native-installer',game=module['game']if module else None,payload_files=rows,module_sha256=module['sha256']if module else None,media_choices=choices,install_domain='CurrentUserHomeDirectory',install_location='~/Applications/OpenCNC3D',bundle_relocation=False,media_invokes_scoped_headless_controller=True if module else False,source_art=str(ART[game].relative_to(ROOT)),source_art_sha256=sha(ART[game]),signature='Developer ID Installer requested'if identity else'unsigned; not notarised',gui_launched=False,system_install_performed=False)
+    return dict(name=artifact.name,path=str(artifact),size=artifact.stat().st_size,sha256=sha(artifact),kind='native-installer',game=module['game']if module else None,payload_files=rows,module_sha256=module['sha256']if module else None,media_choices=choices,install_domain='CurrentUserHomeDirectory',macos_min=os_floor.macos_min(),install_location='~/Applications/OpenCNC3D',bundle_relocation=False,media_invokes_scoped_headless_controller=True if module else False,source_art=str(ART[game].relative_to(ROOT)),source_art_sha256=sha(ART[game]),signature='Developer ID Installer requested'if identity else'unsigned; not notarised',gui_launched=False,system_install_performed=False)
 
 
 def binary_zip(base,module,out,version,title):
@@ -261,7 +351,7 @@ def binary_zip(base,module,out,version,title):
     with zipfile.ZipFile(module['path'])as source,zipfile.ZipFile(artifact,'x',zipfile.ZIP_DEFLATED,compresslevel=6)as z:
         for rel,r in module['files'].items():
             p=PurePosixPath(rel)
-            if not(p.suffix=='.dylib'or p.name in {'opencnc3d','cnc_eyes','netcheck'}):continue
+            if not(p.suffix=='.dylib'or p.name in {'opencnc3d','cnc_eyes','netcheck','LICENSE','NOTICE.md'}):continue
             info=zipfile.ZipInfo(rel,(2026,1,1,0,0,0));info.external_attr=(stat.S_IFREG|r['mode'])<<16;info.compress_type=zipfile.ZIP_DEFLATED
             with source.open(rel)as src,z.open(info,'w')as dest:shutil.copyfileobj(src,dest)
             included[rel]=r
@@ -273,7 +363,7 @@ def binary_zip(base,module,out,version,title):
             info=zipfile.ZipInfo(rel,(2026,1,1,0,0,0));info.external_attr=(stat.S_IFREG|stat.S_IMODE(p.stat().st_mode))<<16;info.compress_type=zipfile.ZIP_DEFLATED
             with p.open('rb')as src,z.open(info,'w')as dest:shutil.copyfileobj(src,dest)
             included[rel]=dict(size=p.stat().st_size,sha256=sha(p),mode=stat.S_IMODE(p.stat().st_mode))
-        z.writestr('BINARIES-README.txt',f'{title} v{version}\nApply over a complete matching module installation. This archive contains no game data, artwork packs, optional media, saves or settings.\n')
+        z.writestr('BINARIES-README.txt',f'{title} v{version}\nApply over a complete matching module installation. This archive contains no game data, artwork packs, optional media, saves or settings.\n\n'+(ROOT/'tools/launchers/READ-ME.txt').read_text(encoding='utf-8'))
         z.writestr('BINARIES-MANIFEST.json',json.dumps(dict(version=version,game=module['game'],files=included),indent=2)+'\n')
     with zipfile.ZipFile(artifact)as z:
         if set(z.namelist())!=set(included)|{'BINARIES-README.txt','BINARIES-MANIFEST.json'}:raise ValueError('Unexpected binary ZIP entries')
@@ -305,6 +395,8 @@ def main():
     receipt=dict(version=version,source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),source_base_stage=str(a.base_stage),base_stage_files=source_before,catalog_path=str(a.module_dir/f'OpenCNC3D-v{version}-modules.txt'),catalog_sha256=sha(a.module_dir/f'OpenCNC3D-v{version}-modules.txt'),modules={g:{k:v for k,v in r.items()if k!='files'}for g,r in modules.items()},artifacts=records,all_five_named_outputs=True,native_container_and_choice_checks_passed=True,actual_user_install_not_performed=True,gui_launched=False,temporary_payloads_retired=True)
     receipt['builder_sources']={str(p.relative_to(ROOT)):sha(p)for p in sorted(HERE.iterdir())if p.is_file()and p.suffix!='.pyc'}
     receipt['wrapper_source_sha256']=sha(ROOT/'launcher/mac_launch.c')
+    receipt['builder_sources']['tools/mac/os_floor.py']=sha(ROOT/'tools/mac/os_floor.py')
+    receipt['macos_min']=os_floor.macos_min()
     result=a.out/f'macos-package-receipt-v{version}.json'
     with result.open('x')as f:json.dump(receipt,f,indent=2);f.write('\n')
     for r in records:print(f"MAC-PACKAGE|{r['name']}|bytes={r['size']}|sha256={r['sha256']}")

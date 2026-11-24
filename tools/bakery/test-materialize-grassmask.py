@@ -54,7 +54,7 @@ class MaterializerTests(unittest.TestCase):
         self.assertEqual(HELPER.materialize(self.root), 'materialized')
         value = json.loads((self.root / HELPER.MANIFEST).read_text())
         self.assertEqual(HELPER.identity(self.root / HELPER.ASSET), value['raw'])
-        self.assertEqual(value['raw']['sha256'], '1161d0e48d636b288b03b0b67e0350c8cc1369950237d973ec119ba29f04ea55')
+        self.assertEqual(value['raw']['sha256'], 'c5aa3d2fcd82122848fb4a44a45f4424d903fabe43f8d911e12af86cf18782d0')
         before = [(self.root / n).stat() for n in (HELPER.ASSET, HELPER.RECORD)]
         self.assertEqual(HELPER.materialize(self.root), 'verified')
         self.assertEqual(HELPER.materialize(self.root, check=True), 'verified')

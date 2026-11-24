@@ -34,9 +34,11 @@ python3 tools/performance/windows-diagnostic/test-trace.py
 
 Native Windows driver performance and compositor timing still require a tester run. Mocked SDL/GL and Windows metadata tests do not substitute for that measurement.
 
-Standard Windows full and binaries-only packages include `OpenCNC3D-Diagnostics.exe` beside the normal game. Their packager verifies the dedicated entry marker, PE32/large-address-aware shape and matching build identities; a normal `vVERSION|cooked` release needs no diagnostic revision suffix or special launcher.
+Standard Windows full and binaries-only packages include `OpenCNC3D-Diagnostics.exe` beside the normal game. Their packager verifies the dedicated entry marker, the 64-bit (x86-64 PE32+) GUI shape and matching build identities; a normal `vVERSION|cooked` release needs no diagnostic revision suffix or special launcher.
 
 The separate add-on workflow below is for a source-stamped diagnostic build (`vVERSION+revision|cooked`), rather than normal release packaging. The older explicit trace add-on remains separate.
+
+The add-on workflow is historical: its packager shares `make-bundle.py`'s checks, which accept only the 32-bit (i386 PE32, large-address-aware) programs of the v0.8.x builds. Windows builds are now 64-bit only, so it refuses every current build until those checks are moved to a 64-bit release.
 
 Reproducible add-on packaging after building that dedicated frontend from committed main:
 
@@ -47,7 +49,7 @@ python3 tools/performance/windows-diagnostic/make-permanent-bundle.py \
   --output build/diagnostics/OpenCNC3D-Windows-Diagnostics.zip
 ```
 
-The packager checks PE32, large-address awareness, matching cooked build provenance,
+The add-on packager checks PE32, large-address awareness, matching cooked build provenance,
 the dedicated entry marker and exact ZIP member hashes. It reads the repository
 version for future builds. The add-on preserves the complete installation's existing
 libraries; it imposes no launcher fingerprint gate.

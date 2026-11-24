@@ -302,6 +302,7 @@ static int fol_id_for(int x, int y, int kind, int k, float px, float pz)
     return id;
 }
 
+static int g_rockCrumbled = 0;
 static void rock_dyn_reset(void);
 static void foliage3d_crush_reset(void)
 {
@@ -517,6 +518,14 @@ static void foliage3d_mark(void)
     for (size_t i = 0; i < g_walls.size(); i++)   fol_block(g_walls[i].x, g_walls[i].y, 7);
     for (size_t i = 0; i < g_crates.size(); i++)  fol_block(g_crates[i].x, g_crates[i].y, 8);
     for (size_t i = 0; i < g_smudges.size(); i++) fol_block(g_smudges[i].x, g_smudges[i].y, 9);
+    /* Red Alert prints no SMUDGE| lines, so its building aprons come from its engine's map
+       (g_crushApronRa, ra3d_cells_from_map) and are kept free of clumps and bushes the way
+       Tiberian Dawn's are above. Without this the clumps stood on the apron's lower row
+       and not its upper one, which lies inside the footprint. --grassonaprons (the gate's
+       control) leaves them unblocked, as before. */
+    if (g_raModule && g_crushApronOn)
+        for (size_t i = 0; i < g_crushApronRa.size(); i++)
+            fol_block(g_crushApronRa[i].x, g_crushApronRa[i].y, 9);
     /* a field or haystack placed as an overlay covers its cell; a bush grew through it */
     for (size_t i = 0; i < g_fields.size(); i++)  fol_block(g_fields[i].x, g_fields[i].y, 10);
     if (fol_rocks_on()) rock_face_update();
@@ -573,7 +582,7 @@ static void rock_face_update(void)
             if (!face) {
                 float lo = 1e9f, hi = -1e9f;
                 for (int c = 0; c < 4; c++) {
-                    const float h = terrain_corner_y(x + (c & 1), y + (c >> 1));
+                    const float h = terrain_cell_corner_y(x,y,x+(c&1),y+(c>>1));
                     lo = h < lo ? h : lo; hi = h > hi ? h : hi;
                 }
                 face = hi - lo > 0.35f;
@@ -1018,10 +1027,19 @@ static std::vector<RockPulse> g_rockPulses;
 static std::map<int, std::pair<float, float> > g_rockVehPrev;
 static int g_rockHits = 0, g_rockPulsed = 0;
 
+/* A VEHICLE THE PLAYER CANNOT SEE LEAVES THE GROUND ALONE: another house's cloaked
+   Stealth Tank. Rocks and bodies moving round an empty patch of ground were all the
+   sign of it a player needed, which the cloak exists to deny. The player's own cloaked
+   vehicle, which the player can see shimmer, still shoves. */
+static bool shover_unseen(const SimObject& o)
+{
+    return o.cloak == 2 && !(g_playerHouse[0] && !strcmp(o.house, g_playerHouse));
+}
+
 static void rock_dyn_reset(void)
 {
     g_rockDyn.clear(); g_rockPulses.clear(); g_rockVehPrev.clear();
-    g_rockHits = g_rockPulsed = 0;
+    g_rockHits = g_rockPulsed = g_rockCrumbled = 0;
 }
 
 /* A structure going up: queued by the object refresh (cnc_eyes.cpp), spent by the next
@@ -1297,6 +1315,18 @@ static void rock_pos(int id, float* x, float* z)
     else { *x = g_folRootX[id]; *z = g_folRootZ[id]; }
 }
 
+/* A crushed stone becomes a short dust/grit burst in the existing bounded
+   particle pool. It creates no persistent rigid bodies or new asset geometry. */
+static bool rock_crumble_pick(int id) { return (fol_hash((unsigned)id,77u,193u)&3u)!=0; }
+static void rock_crumble(RockDyn& d) {
+    if (d.gone) return;
+    d.gone=true;d.sleep=true;g_rockCrumbled++;
+    if (g_efxPoolLive) for (int n=0;n<6;n++)
+        wall_dust_one(WALL_DUST[n<2?0:1],d.p[0],d.p[2],n&3,
+                      fol_hash((unsigned)d.id,(unsigned)g_engineFrame,(unsigned)n));
+    printf("ROCKCRUSH|id=%d|frame=%d|dust=%d\n",d.id,g_engineFrame,g_efxPoolLive?6:0);
+}
+
 static void rock_tick(void)
 {
     std::vector<int> cand;
@@ -1309,6 +1339,7 @@ static void rock_tick(void)
     for (size_t i = 0; i < g_objects.size(); i++) {
         const SimObject& o = g_objects[i];
         if (o.kind != K_UNIT || o.limbo || water_is_boat(o)) continue;
+        if (shover_unseen(o)) continue;
         const int key = o.id;
         std::map<int, std::pair<float, float> >::iterator pv = g_rockVehPrev.find(key);
         float mx = 0.0f, mz = 0.0f;
@@ -1335,6 +1366,12 @@ static void rock_tick(void)
             const int di = rock_wake(id);
             if (di < 0) continue;
             RockDyn& d = g_rockDyn[di];
+            if (d.gone) continue;
+            /* Three stones in four crumble under a moving hull. Choose once by
+               stable stone identity: a parked tank never rerolls the chance. */
+            if (rock_crumble_pick(id)) {
+                rock_crumble(d);continue;
+            }
             /* OUT FROM UNDER THE HULL FIRST, by the shorter way. A shove alone left a rock
                half under a vehicle that turned onto it. */
             {
@@ -1445,7 +1482,9 @@ static void rock_tick(void)
 static int g_folNoteFrame = -1;
 static void foliage3d_crush_note(void)
 {
-    if (!foliage3d_wanted() || g_folCellIds.empty()) return;
+    /* (a structure that went up while nothing here was laid throws nothing later: the
+       queue is spent, not kept for when rocks come back) */
+    if (!foliage3d_wanted() || g_folCellIds.empty()) { g_rockPulses.clear(); return; }
     if (g_engineFrame == g_folNoteFrame) return;     /* one record a tick */
     g_folNoteFrame = g_engineFrame;
     if (fol_plants_on() && g_fx.fol_crush)
@@ -1702,6 +1741,10 @@ static void foliage3d_prepare(int frame)
 
 /* ---- Drawing -------------------------------------------------------------------- */
 enum { FOL_LIT = 0, FOL_CAST = 1, FOL_NRM = 2, FOL_LIGHT_SPLIT = 3 };
+/* GROUND BOUNCE (bounce_mod.h, included later by the host): the plants' ground colour
+   from the map under them. Unit 5 is free here: 0 to 3 are the sheets, 4 the crush. */
+enum { FOL_BOUNCE_UNIT = 5 };
+static bool bounce_foliage(int unit, const float skyCol[3], float xf[4], float k[3]);
 
 static bool fol_chunk_in(int cx, int cy, float pad, float x0, float x1, float z0, float z1)
 {
@@ -1796,7 +1839,7 @@ static void fol_place_constants(GLuint prog)
     tfx_set1f(prog, TFX_uYawS, 0.0f);
     tfx_set3f(prog, TFX_uLean, 0.0f, 0.0f, 0.0f);
     tfx_set1f(prog, TFX_uFlutter, g_fx.fol_flutter * FOL_HREF);
-    tfx_set1f(prog, TFX_uTime, engine_time() * (1.0f / 15.0f));
+    tfx_set1f(prog, TFX_uTime, (float)wind_seconds());
     tfx_set1f(prog, TFX_uAnim, 0.0f);
     tfx_set1f(prog, TFX_uRigWind, 1.0f);
 }
@@ -1804,7 +1847,7 @@ static void fol_place_constants(GLuint prog)
 /* And the two that are not: the wind is per chunk and per model, on a phase from both. */
 static void fol_place(GLuint prog, int cx, int cy, int model)
 {
-    const float t = engine_time() * (1.0f / 15.0f);
+    const float t = (float)wind_seconds();
     const float phase = (float)(fol_hash((unsigned)cx, (unsigned)cy, (unsigned)model + 5u)
                                 & 1023u) * (6.2831853f / 1024.0f);
     const float amp = g_fx.fol_wind * FOL_HREF
@@ -1838,6 +1881,7 @@ static void foliage3d_draw(int purpose, int boxOn, float bx0, float bx1, float b
 
     fx_glUseProgram(prog);
     tfx_set1i(prog, TFX_uLightSplit, purpose==FOL_LIGHT_SPLIT?1:0);
+    bool bounceOn = false;   /* GROUND BOUNCE: its map is bound on FOL_BOUNCE_UNIT */
     /* this call leaves its own values in the trees' program, so the next tree drawn
        sets the pass's constants again rather than trusting them */
     tree3d_pass_reset();
@@ -1852,10 +1896,25 @@ static void foliage3d_draw(int purpose, int boxOn, float bx0, float bx1, float b
         tfx_set1i(prog, TFX_uAtlas, 0);  tfx_set1i(prog, TFX_uAtlasN, 1);
         tfx_set1i(prog, TFX_uBark,  2);  tfx_set1i(prog, TFX_uBarkN,  3);
         tfx_set3f(prog, TFX_uSun, -g_fxSunDir[0], -g_fxSunDir[1], -g_fxSunDir[2]);
+        tfx_set3f(prog,TFX_uSecondSun,-g_fxSecondSunDir[0],-g_fxSecondSunDir[1],-g_fxSecondSunDir[2]);
+        tfx_set1f(prog,TFX_uSecondSunOn,fx_second_sun_on()?1.0f:0.0f);
+        tfx_set3f(prog,TFX_uSecondSunCol,fx_second_sun_energy(),0.97f*fx_second_sun_energy(),0.90f*fx_second_sun_energy());
         tfx_set3f(prog, TFX_uCam, g_fxCamPos[0], g_fxCamPos[1], g_fxCamPos[2]);
         tfx_set3f(prog, TFX_uSunCol, 1.00f*fx_sun_energy(), 0.97f*fx_sun_energy(), 0.90f*fx_sun_energy());
         tfx_set3f(prog, TFX_uSkyCol, 0.52f*fx_sky_energy(), 0.62f*fx_sky_energy(), 0.78f*fx_sky_energy());
         tfx_set3f(prog, TFX_uGndCol, 0.30f*fx_sky_energy(), 0.31f*fx_sky_energy(), 0.22f*fx_sky_energy());
+        /* GROUND BOUNCE: the ground colour from the map under each plant instead */
+        {
+            const float sky[3] = { 0.52f*fx_sky_energy(), 0.62f*fx_sky_energy(), 0.78f*fx_sky_energy() };
+            float xf[4], k[3];
+            bounceOn = bounce_foliage(FOL_BOUNCE_UNIT, sky, xf, k);
+            tfx_set1f(prog, TFX_uBounceOn, bounceOn ? 1.0f : 0.0f);
+            if (bounceOn) {
+                tfx_set1i(prog, TFX_uBounceMap, FOL_BOUNCE_UNIT);
+                tfx_set4fv(prog, TFX_uBounceXf, 1, xf);
+                tfx_set3f(prog, TFX_uBounceK, k[0], k[1], k[2]);
+            }
+        }
         tfx_set1f(prog, TFX_uCut, 0.34f);
         tfx_set1f(prog, TFX_uBurn, 0.0f);
         tfx_set1f(prog, TFX_uAOAmt, g_fx.tree3d_ao);
@@ -1991,6 +2050,12 @@ static void foliage3d_draw(int purpose, int boxOn, float bx0, float bx1, float b
     /* THE PROGRAM IS THE TREES' TOO: hand it back with the foliage branch shut. */
     tfx_set1f(prog, TFX_uFol, 0.0f);
     tfx_set1f(prog, TFX_uStone, 0.0f);
+    if (bounceOn) {   /* and the ground bounce off, its unit emptied */
+        tfx_set1f(prog, TFX_uBounceOn, 0.0f);
+        glActiveTexture(GL_TEXTURE0 + FOL_BOUNCE_UNIT);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+    }
     glActiveTexture(GL_TEXTURE4);
     glBindTexture(GL_TEXTURE_2D, 0);
     glActiveTexture(GL_TEXTURE0);

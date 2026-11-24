@@ -24,8 +24,9 @@
  * them separately (lz_is_link). */
 #define LZ_LSTAT(p, st) stat(p, st)
 #define LZ_NAP() Sleep(50)
-/* OFFSETS INTO THE ARCHIVE ARE 64-BIT. The Windows launcher is a 32-bit program, where
- * a C `long` is 32 bits, so fseek and ftell on their own stop at 2 GiB: a full package
+/* OFFSETS INTO THE ARCHIVE ARE 64-BIT. On Windows a C `long` is 32 bits whether the
+ * launcher is a 32-bit or a 64-bit program, so fseek and ftell on their own stop at
+ * 2 GiB: a full package
  * past that size read its index from a negative offset and failed as "not a zip
  * file". The zip format's own 32-bit fields reach 4 GiB, and these reach all of it. */
 #define LZ_FSEEK(f, o, w) _fseeki64(f, (__int64)(o), w)
@@ -616,18 +617,20 @@ int lz_wrapped(const char *zip)
  * The extractor.
  *
  * AN UPDATE IS UNPACKED OVER A FOLDER THAT IS IN USE, and on Windows that folder
- * refuses writes. The launcher is an SDL program, so while it runs it has
- * SDL2.dll loaded from the very folder it is updating, and Windows will not open
- * a loaded DLL or a running .exe for writing. A plain fopen(out, "wb") per entry
- * therefore stopped every Windows update that carried SDL2.dll at that entry, in
- * zip order, with everything before it written and everything after it not.
+ * refuses writes. While the launcher runs, its own .exe is loaded from the very
+ * folder it is updating, and so is SDL2.dll for a 32-bit launcher up to v0.9.2,
+ * which loaded SDL from beside it (the 64-bit launcher links SDL in). Windows
+ * will not open a loaded DLL or a running .exe for writing. A plain
+ * fopen(out, "wb") per entry therefore stopped every Windows update that carried
+ * SDL2.dll at that entry, in zip order, with everything before it written and
+ * everything after it not.
  * Six rules answer that, and they are one mechanism rather than six patches:
  *
  * 1. A FILE ALREADY IDENTICAL TO THE ENTRY IS NEVER OPENED FOR WRITING. The
  *    central directory carries each entry's CRC-32 and size, and a regular file
- *    on disk with the same size and CRC is left exactly as it is. SDL2.dll is
- *    byte identical across most releases, so in the common case the file that
- *    cannot be written is never asked to be. An update over a mostly unchanged
+ *    on disk with the same size and CRC is left exactly as it is. The 32-bit
+ *    packages' SDL2.dll was byte identical across most releases, so in the common
+ *    case the file that could not be written was never asked to be. An update over a mostly unchanged
  *    folder is also faster, since reading a file is cheaper than inflating it.
  *
  * 2. A CHANGED FILE IS REPLACED BY TWO RENAMES, NEVER WRITTEN OVER. The new bytes
@@ -635,15 +638,16 @@ int lz_wrapped(const char *zip)
  *    file renamed to "<name>.old" (".old2" to ".old9" while the name before it
  *    is taken, whatever holds it) and the new one renamed onto the name that frees
  *    up. Windows allows a loaded DLL or a running .exe to be RENAMED, and whatever has it
- *    loaded goes on using it under the new name, which is how a genuinely new
- *    SDL2.dll, or launcher, installs underneath the launcher that has them loaded.
+ *    loaded goes on using it under the new name, which is how a new launcher (or,
+ *    in the 32-bit packages, a new SDL2.dll) installs underneath the launcher that
+ *    has it loaded.
  *
  *    SO A NAME NEVER HOLDS A PARTIAL FILE. It holds the old file, then, for the
  *    moment between the two renames, nothing, then the whole new file, already
  *    checked and, on POSIX, already executable. That matters most for the files
  *    the recovery needs in order to run at all. On Windows nothing in the launcher
- *    can repair a half-written OpenCNC3D.exe or SDL2.dll, because the launcher cannot
- *    start from them; on macOS the app starts the game rather than the launcher
+ *    can repair a half-written OpenCNC3D.exe (or, beside a 32-bit launcher,
+ *    SDL2.dll), because the launcher cannot start from them; on macOS the app starts the game rather than the launcher
  *    when the launcher is not executable.
  *
  *    IF A RENAME IS REFUSED FOR LONGER THAN A MOMENT, THE ENTRY FAILS and rule 4

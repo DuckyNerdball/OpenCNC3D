@@ -1,0 +1,348 @@
+{
+  "format": 1,
+  "source": "data/radata/expansions",
+  "roster_source": "brain/vanilla/redalert/expand.cpp",
+  "missions": [
+    {
+      "code": "SCG20EA",
+      "family": "counterstrike",
+      "name": "Sarin Gas 1: Crackdown",
+      "sha256": "4e3bf9f831cf8315a9ed3a72578206560fa18da8fc3551eda0ef377c485ca667",
+      "scene_sha256": "0dc28c57cf53c4cc9c888c8965851fc01a1ab07f865ba17b610a850c3de78ecd",
+      "height_sha256": "18e2a85256d03f111777cd1e7e5df05ff159ae866bc72d48fa2d86a03cb8d0e0"
+    },
+    {
+      "code": "SCG21EA",
+      "family": "counterstrike",
+      "name": "Sarin Gas 2: Down Under",
+      "sha256": "5514930333b8e96e178b1bbae0efa7ff46ab06f8fe275d013b00acf2f3da0471",
+      "scene_sha256": "bb30bb24db07790f03d679ac3f04ee65b358d31b412e8b96c9cb47a0eaa45e1a",
+      "height_sha256": "4cca5cd8fbb1f32707c9c4e1c79bdc45f6d06003831e888b5b3fb15c9e88ca4e"
+    },
+    {
+      "code": "SCG22EA",
+      "family": "counterstrike",
+      "name": "Sarin Gas 3: Controlled Burn",
+      "sha256": "7ae828c35fee46a6645190a19e80b0c0d75c397ea6702706dd191882095b93d5",
+      "scene_sha256": "0217cde6e1ef10c45bcf9a61ccb56c07e1a953897b05083657fbaa16b87bc5aa",
+      "height_sha256": "1de52f5c508a36fbe493e0661576caa99a8c9ad25e8d0483e02bc8de4ce27948"
+    },
+    {
+      "code": "SCG23EA",
+      "family": "counterstrike",
+      "name": "Fall of Greece 1: Personal War",
+      "sha256": "6249169f408f8acc7e00290b342b6966e6801180e8b6dab5f1ac3da64d9d5671",
+      "scene_sha256": "84f18d8a62b7b1e45ea55430b83c84a40b916ae378e48d8c2b6e9b39f4abbdc9",
+      "height_sha256": "8105c0ff05fbf95467bb84466ceeff5593c21f042c3df6d3b7239b6e40bdcbfc"
+    },
+    {
+      "code": "SCG24EA",
+      "family": "counterstrike",
+      "name": "Fall of Greece 2: Evacuation",
+      "sha256": "d97cac24af697781e3a50d5a6040403d3ec8de5810fcc7f2fc9624496c440dfc",
+      "scene_sha256": "f35db19cad7b38d551355844f8163b67c74d7c96239482b357b9412de0d8d246",
+      "height_sha256": "cb4ba477c647aa2d240a2befbe3ede49379ba877ad9e0b8333ab90d07cc56a16"
+    },
+    {
+      "code": "SCG26EA",
+      "family": "counterstrike",
+      "name": "Siberian Conflict 1: Fresh Tracks",
+      "sha256": "36c42d0c5c145dff8f3ab1af8dca315c4559680263ddf7102288b2acbfc1620d",
+      "scene_sha256": "57f18d77a02d396009f9fe1b012db02320803b030ce552427cd7854720ae02e3",
+      "height_sha256": "c2c777e527cbc2d73115e0d754da13e7b4ff6d30f3a7457a62c62a9a056d4a37"
+    },
+    {
+      "code": "SCG27EA",
+      "family": "counterstrike",
+      "name": "Siberian Conflict 2: Trapped",
+      "sha256": "af35094fa954bd2a441257572913cc81b0ddec7ded32861982a139a29e89975f",
+      "scene_sha256": "e9d1b5d2b4ab7205524fdb695cb989148792fa23890f0f1cbf21ea3d25438372",
+      "height_sha256": "d6785cad6620c02c5769429ec3ee779757429b3281770352edaeb4d51cd5dee7"
+    },
+    {
+      "code": "SCG28EA",
+      "family": "counterstrike",
+      "name": "Siberian Conflict 3: Wasteland",
+      "sha256": "d9a8e3a8430699e513f6267ab048793fd75102ee225a2825448b40d422017bca",
+      "scene_sha256": "bd5b5afe6d007c582cfb58f08d66a4b807e54dfda8bb57df1d71515c53d39d47",
+      "height_sha256": "7969fd74c8f3e0fa1870642c835987178fd5ef3a08731dae7da38052987ff80a"
+    },
+    {
+      "code": "SCU31EA",
+      "family": "counterstrike",
+      "name": "Proving Grounds",
+      "sha256": "8592bb58ce805ef384b449e049b06ee7863b70d529f2feb61e960fade236af04",
+      "scene_sha256": "0a8d0c52eae711e629caceae0f7879b88172ee10ad5ba539e666308571b48b0c",
+      "height_sha256": "d7938fc239a676d65e71e65255273a7803a282109167f35fc88974f996689f16"
+    },
+    {
+      "code": "SCU32EA",
+      "family": "counterstrike",
+      "name": "Besieged",
+      "sha256": "79cdc1712d0fea463fa0c24c15ace6a31f6f6bc2c2a3a7d6259be9ba7283cb71",
+      "scene_sha256": "d2b9a376b5e625ed0806998f2ec13b04fbc314024139473115c5f0743dc74bc8",
+      "height_sha256": "f51e97a9151f9e882dd854d9eeb5a93e1c78ce97d5c1540593f124ab05235ced"
+    },
+    {
+      "code": "SCU33EA",
+      "family": "counterstrike",
+      "name": "Mousetrap",
+      "sha256": "09c5cb91512c0358e6d1ae17c47463775083d443ce45f2cac19875fd63f95c8d",
+      "scene_sha256": "dc762be95ce5b9dc09537cdf0597042d98cc66e366649ca79c5c8d27ae360d26",
+      "height_sha256": "4cca5cd8fbb1f32707c9c4e1c79bdc45f6d06003831e888b5b3fb15c9e88ca4e"
+    },
+    {
+      "code": "SCU34EA",
+      "family": "counterstrike",
+      "name": "Legacy of Tesla",
+      "sha256": "dd793061f627926852c1ea96bde49084abc1da44307c965d2a7cf3ad72482737",
+      "scene_sha256": "86e4004432f95a7c22fb816e3891a0c71b25332046339207efade185a99bc0b4",
+      "height_sha256": "125a79f379a961243dcf303fb37dedde78d3555e5bdab3280bd6fe34482880d8"
+    },
+    {
+      "code": "SCU35EA",
+      "family": "counterstrike",
+      "name": "Soviet Soldier Volkov & Chitzkoi",
+      "sha256": "59c53e02fdb053f534fdfbce6fe471f836e04f9ee75ac4b4d0781381da28cd09",
+      "scene_sha256": "28c423b6a4344c51e0728d853c8f6f56411620a40ac67d4b14af3ab03e468fee",
+      "height_sha256": "bafedba3944f9acecb54813a860f4a75a9a0fe086eb43592928d3420ca830046"
+    },
+    {
+      "code": "SCU36EA",
+      "family": "counterstrike",
+      "name": "Top o' the world",
+      "sha256": "02d2ac0da5ecbcf950242f1d920f304e0634de2811204061b88bf5cbe0a7d895",
+      "scene_sha256": "45aca822c74bd6ca6f824f84ad63611a6737801c8988a5283facb6aafc34f42b",
+      "height_sha256": "dec091f0a23eb8440608c9ae24ec8f974f787d72628d5ca87f2fe0dcfd509343"
+    },
+    {
+      "code": "SCU37EA",
+      "family": "counterstrike",
+      "name": "Paradox Equation",
+      "sha256": "bcc3dfaaa7b6c5979d6260ce11f224a0dfb1c2d65567544fb1d57a366832b023",
+      "scene_sha256": "d4e48367f90fd821597780e1d09830b53d4976dab9991b6c1a2365564ffb5c69",
+      "height_sha256": "e329bc5fd524fa617180f8c787db06be0c37e25ce0f7f7f65dddfe8785d4ee23"
+    },
+    {
+      "code": "SCU38EA",
+      "family": "counterstrike",
+      "name": "Nuclear Escalation",
+      "sha256": "9a83ca39ef8a9532e8be9a21bf8416e1017ba61a0aa45cc5c072214c555009d1",
+      "scene_sha256": "d4000f777b37e6e910805008e0a284be7583719d92537a18f4772c9db083d2a0",
+      "height_sha256": "f6c29f7397f504ffe992b3de659e498bb3e35084081524a65df3dbc17ad4d876"
+    },
+    {
+      "code": "SCG43EA",
+      "family": "aftermath",
+      "name": "Harbor Reclamation",
+      "sha256": "124f25e12f0fc3e7cbb9d47e320177d7224417fdcf619207c8dde1ec4ab316cf",
+      "scene_sha256": "d8ebf180425f89ae963395b32868cf2b750fdeea8cb3fd6c586fd481f9e18bc4",
+      "height_sha256": "317bb80e84f168b049b64ff21c44279fe5f90fb37fa3015d5af1e0127d2d1650"
+    },
+    {
+      "code": "SCG41EA",
+      "family": "aftermath",
+      "name": "In the Nick of Time",
+      "sha256": "89b375bb32b1d7561d315223a843c5d93f27cdc8bb74662e27fda320b62a66e0",
+      "scene_sha256": "718156bd7232fc9c071fd09e6872aeb950e9e6f641c693954ba6799b49783797",
+      "height_sha256": "30207613174992b031d8e58630b91c4be0c53f7466f0e5ae77949259e0bc372e"
+    },
+    {
+      "code": "SCG40EA",
+      "family": "aftermath",
+      "name": "Caught In the Act",
+      "sha256": "795a5a0872981af67b7b2a51d3a12ff6357b39c6295776a572287e61390a4011",
+      "scene_sha256": "2e0a3c4095c2752348efe1b75929cb0fa1265b1ffa6cebae91a8859cdac1b2d6",
+      "height_sha256": "ec1e77a462e615df65310913e0b449e5c47c85ce0493972e915b1ae0341cffbd"
+    },
+    {
+      "code": "SCG42EA",
+      "family": "aftermath",
+      "name": "Production Disruption",
+      "sha256": "039311bc67288d81fa59b5652ff2fae8a0da81ab3d4c635cd02df5377f87fca7",
+      "scene_sha256": "d239cfaf08521e8e25f2455c64b5628cb5a60b46f5e597c7bbcd97ee9a59f90c",
+      "height_sha256": "f2d9012a8e33095a1334cddf9d41601cd2431f0fc914cba22fce2bd5137e14e0"
+    },
+    {
+      "code": "SCG47EA",
+      "family": "aftermath",
+      "name": "Negotiations",
+      "sha256": "a5cd09a3bf9b4f1b555b007ad5b1056f8e02ec662d2eeeb865784888ecc9cc1d",
+      "scene_sha256": "23355f5c129753e85229b053a7195f5f88df123bc7227a5f809beec3dbb8de99",
+      "height_sha256": "bff01f4361d0f78081f586d1bf90c1edcbd78d343e18a6111492e3ccf085983c"
+    },
+    {
+      "code": "SCG45EA",
+      "family": "aftermath",
+      "name": "Monster Tank Madness",
+      "sha256": "69e7b0b5f29b737f3fec08ef91ccc86b189605bec0b83552442a2a20835ba4dc",
+      "scene_sha256": "5a610cdb8fb1f4cf0b990fadd9da68182e9e15ad0c62265fc180694bb46cd974",
+      "height_sha256": "b848ea8f395ab000f121e709d46129b2f0d45ae813d257740131796cf62378e6"
+    },
+    {
+      "code": "SCG44EA",
+      "family": "aftermath",
+      "name": "Time Flies",
+      "sha256": "0bc6bae87905d33f0349e807b870a609b9ffb209c91a8efca18ea80a5b530de4",
+      "scene_sha256": "acb6e5f04ca583d5876da5fe664a7bfd6ff297d776b8ba2286bda2b5e70ee80d",
+      "height_sha256": "e45690a39121caec3afd47bb350aed6b5f3620beb341eda19b80b77a328b2c99"
+    },
+    {
+      "code": "SCG48EA",
+      "family": "aftermath",
+      "name": "Absolut M.A.D.ness",
+      "sha256": "598de4b9fb4c9a6309c2aea0dc50b15e7e6193b71e3c42be0e3fb14027827f9e",
+      "scene_sha256": "355761e701b6dc32191cf32d29995bc76bb1d453508e071194feb74dcf7ea7b5",
+      "height_sha256": "a2c5b492e623f7e8228932441a569876b95cf3dd985810f819a67c97b903e625"
+    },
+    {
+      "code": "SCG46EA",
+      "family": "aftermath",
+      "name": "PAWN",
+      "sha256": "559e2d129362a84813361b45a02d4c4a8240af5c146870895c3938100509208e",
+      "scene_sha256": "7772023a2c6eac0b15a126878ed6de8bd949f78150970d165a3d6d997843f177",
+      "height_sha256": "6433a5d5ad525f8c2a9da1497354f094f058ff9e87f297f6d2bc928dc2f49c33"
+    },
+    {
+      "code": "SCU43EA",
+      "family": "aftermath",
+      "name": "Testing Grounds",
+      "sha256": "56bddcc64775016022cb8ffdb21f6c5bcb0ebba0de4e8fdba11959804cea8b81",
+      "scene_sha256": "e5193405c59d3dabbc1cc43db445e438b0c381581d8e8689e1b6485feda2d13d",
+      "height_sha256": "3f1e91b5668a77ff166db7fa1088d42f37b05135fd8f5addc5fa695d109c5540"
+    },
+    {
+      "code": "SCU40EA",
+      "family": "aftermath",
+      "name": "Shock Therapy",
+      "sha256": "3807beb47627962f8e29fa3e20e1e133b6580db40ae57d136c2308dcf706a911",
+      "scene_sha256": "0512cc1b56ab25532ed8cb40eb91b86fe1b8c4b70e71effc9167b513c259fd3f",
+      "height_sha256": "755e819fdad60e65f01e340a38567934be7a23dacd2e0bdae23383088b2cd5bd"
+    },
+    {
+      "code": "SCU42EA",
+      "family": "aftermath",
+      "name": "Let's Make a Steal",
+      "sha256": "7f635506681d72233ad9de1f3d32ede5b85d46caf982e5ff50f012a360a58e69",
+      "scene_sha256": "e917193df33611b6d530ac215e5f3aed121ecaaec7c10a381caa344a666a9930",
+      "height_sha256": "4cca5cd8fbb1f32707c9c4e1c79bdc45f6d06003831e888b5b3fb15c9e88ca4e"
+    },
+    {
+      "code": "SCU41EA",
+      "family": "aftermath",
+      "name": "Test Drive",
+      "sha256": "df289db98f90b0201be465edfd4d50c79cb432b3e9276081f4e27cf732a1d2a2",
+      "scene_sha256": "0ad1c8c73cf1d1e691ca66d9e09f6a8bf2edd0b107b580ac05d30b2542a8b1ab",
+      "height_sha256": "fdbd5479d9de32939bd7e79024c9a8360e0e5072e0c60e752202de2f5cd28616"
+    },
+    {
+      "code": "SCU45EA",
+      "family": "aftermath",
+      "name": "Don't Drink The Water",
+      "sha256": "9124cbaabb38f4be2b54745fbab58100091faa068e6f1133e3b3e779871ca452",
+      "scene_sha256": "b8e10fdf0d856e89ce72907d67c35d567845beb0a8f7cc20c704317dddafbb5e",
+      "height_sha256": "145d987c1cda3ef6d43dc91c23148bed2f1739821598e153da9fae0c9f13cf54"
+    },
+    {
+      "code": "SCU44EA",
+      "family": "aftermath",
+      "name": "Situation Critical",
+      "sha256": "31d995658cec9c30bcbe84bae9512ff7daddb7edf92615eb075b2ae0237b9ca0",
+      "scene_sha256": "6aefb7fa0be7b9f2fab965ffa7698a948cdc6b405a379c554bad3a9fd3eb9df0",
+      "height_sha256": "143ceaf044a83032138d67b7e2a1f11a88db2a117f048dc41d792fb6d47818c1"
+    },
+    {
+      "code": "SCU46EA",
+      "family": "aftermath",
+      "name": "Brothers in Arms",
+      "sha256": "775ac8c04c26ea6354e783041bab10e86fecc5fc2e0cdc239b5611595fc3265f",
+      "scene_sha256": "ce04db5d73cef3a765638c427b6a9fc55faae12d70a58bd4ca7c50eef6dc3e58",
+      "height_sha256": "dd916d6c38544530bb0ef9573e4c57fec2f052279a74e575cfd002aa9772a3b5"
+    },
+    {
+      "code": "SCU47EA",
+      "family": "aftermath",
+      "name": "Deus Ex Machina",
+      "sha256": "74401859688e19869908ab1ef88ffd280224c58a8f211bc3c206c55d12687305",
+      "scene_sha256": "22816516ab6aa4389595c184160096db6614f7589e87b0ad7704f3d15004f102",
+      "height_sha256": "ce4826a2171bae22f1d5a6705060362f45512e27564e99ebdeb6cdde0b159044"
+    },
+    {
+      "code": "SCU48EA",
+      "family": "aftermath",
+      "name": "Grunyev Revolution",
+      "sha256": "49ef241d2f3c17aa25a85ab91c2b65a7dc6c48229f3073d24179da66b3fb1225",
+      "scene_sha256": "d94ecf622887ec422d186e7ae7e90c599bc3e0e8aa77914379b444112f2bcfc2",
+      "height_sha256": "e76618a71c275a18ffe55f8856ba0f962b9d940e5eaf28b8549ab4351731a993"
+    },
+    {
+      "code": "SCA01EA",
+      "family": "ants",
+      "name": "it came from ra! 1: Discovery",
+      "sha256": "46b224e75d84a00a9bac3630a56c6956cbdb87d9370a9452013b7dc630e8ad98",
+      "height_sha256": "34b2ee3ff9e7fb3eecbaa6f0868d0e0fb7b31d22b78486b7445098173447512e",
+      "scene_sha256": "ed624bf9e5f87ae6af87df526728aa1e45b177df4ba091ef1d602e30777550ff"
+    },
+    {
+      "code": "SCA02EA",
+      "family": "ants",
+      "name": "It came from RA! 2:  Rescue!",
+      "sha256": "07250a8b5753cc05c4192bba43c91d5b3fad439a5df0a5189df38b4df4608160",
+      "height_sha256": "e8063f9e124827ba1ad5c044b7d20132326fa6887833f10b0c85055b08eb9c74",
+      "scene_sha256": "f23d6e214083f2ed866b67685ff60f2270a6be7db88552efe8cf8bc20694b283"
+    },
+    {
+      "code": "SCA03EA",
+      "family": "ants",
+      "name": "it came from ra! 3: hunt!",
+      "sha256": "b73250e2cb70723623ee744b563e1fc5f60aebfed8a53da99e5904b7194f5cac",
+      "height_sha256": "c14038ccdad23bc71544db5eaefbe7472b39185e9a6fd749a13bf8339e56ed20",
+      "scene_sha256": "02c6195e8549f89d85f93d2c8736018cbd4fea6e852c6391fb754ea3605a233e"
+    },
+    {
+      "code": "SCA04EA",
+      "family": "ants",
+      "name": "it came from ra! 4: exterminate!",
+      "sha256": "43af0d9c14b7ecc08073f9e9ab4603f6d5ff444ee4461da87a8f2eff54ce6d5b",
+      "height_sha256": "4cca5cd8fbb1f32707c9c4e1c79bdc45f6d06003831e888b5b3fb15c9e88ca4e",
+      "scene_sha256": "cad7219f95cd755b65bb47bdb7fc6e3f49c02ca4c0dbe806237634320f16af96"
+    }
+  ],
+  "archives": {
+    "counterstrike": "7a5fc7e22872cea8e9acd94f9096ffc5300b1f1192cfd6fde516c97eb1f687b9",
+    "aftermath": "2dcee47ba28931b4e18352250e8cb30115ede7a594d1d9457e8b21059bb235b2"
+  },
+  "source_receipts": {
+    "counterstrike": {
+      "family": "counterstrike",
+      "source": "https://archive.org/details/redump-id-9855",
+      "disc_sha1": "d25da331642b77437857820de66d35ab3711d72a",
+      "extractor_reference": "https://github.com/OpenRA/OpenRA/blob/bleed/mods/ra-content/installer/aftermath.yaml",
+      "files": {
+        "GENERAL.MIX": "7a5fc7e22872cea8e9acd94f9096ffc5300b1f1192cfd6fde516c97eb1f687b9",
+        "SCORES.MIX": "d1968819b0cf53dd4777685b68065e11f99aff5f29890c48bca8a0045cfdbbe1",
+        "SOUNDS.MIX": "f6f426dc99b67e06b98290bfd9174ff37d2ec4e1e245c696a45040dc77ca23f0"
+      }
+    },
+    "aftermath": {
+      "family": "aftermath",
+      "source": "https://archive.org/details/redump-id-2199",
+      "disc_sha1": "695e28f911bf7bec9a9c2b47ecde0d541b6ad685",
+      "extractor_reference": "https://github.com/OpenRA/OpenRA/blob/bleed/mods/ra-content/installer/aftermath.yaml",
+      "files": {
+        "EXPAND2.MIX": "e379b23ce6c7af9d4f7469e10b788210124cb92e8b6e3978b9569802edfdfc9a",
+        "GENERAL.MIX": "2dcee47ba28931b4e18352250e8cb30115ede7a594d1d9457e8b21059bb235b2",
+        "HIRES1.MIX": "48c407f80f1fdbc86ac2689c00339927b2127a758871e998c9942b7a7d93e07d",
+        "LORES1.MIX": "5b83e8d731fc78041647f19adbb82f4e71cc09b837d2492b8f2a0520e11de641",
+        "SCORES.MIX": "dfb26fe92769d717a58a8486dcab84ed8ac3ffd4de6284b4aaba87258f0afc82",
+        "SOUNDS.MIX": "f0108c30eceb7a320468daa0370d3817735afcc3b3e9d5e47ee986ddbd29ec5f"
+      }
+    }
+  },
+  "height_recipe": "docs/auto-heightmap.md",
+  "generator_sha256": {
+    "tools/ra3d/ra_heights.py": "537ee78405b3b884bd613d0935e3683a72a9f8430a37d910a34d074f2e502c9d",
+    "game/autoheight_mod.h": "41d22e4201b92e6383f0b98a750964682e1b3d9353540e985ff3afc710db75e2",
+    "game/autoheight_tables.h": "f1abeaaead31610344921960b71c982c1324d9f61e4be367464b9c23e7ec5255"
+  }
+}

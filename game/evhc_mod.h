@@ -87,7 +87,7 @@ enum { EVD_NONE = 0, EVD_APC_DOOR, EVD_TRAN_RAMP, EVD_LST_BOW, EVD_C17_RAMP,
        EVD_HARV_HOPPER, EVD_ELEVATION, EVD_DUCT, EVD_LST_STERN,
        EVD_ORE_SCOOP, EVD_ORE_DUMP, EVD_ORE_LOAD,
        EVD_V2_ERECTOR, EVD_V2_ROCKET, EVD_V2_RAM, EVD_V2_ROD, EVD_RA_RAMP,
-       EVD_HARV_LIFT, EVD_HARV_RAM, EVD_HARV_ROD, EVD_HARV_JAW, EVD_GEAR, EVD_HARV_HOOP, EVD_N };
+       EVD_HARV_LIFT, EVD_HARV_RAM, EVD_HARV_ROD, EVD_HARV_JAW, EVD_GEAR, EVD_HARV_HOOP, EVD_SSML_ROUND, EVD_N };
 enum { EVC_TRACKED = 0, EVC_WHEELED, EVC_HALF, EVC_HELI, EVC_PLANE, EVC_HOVER, EVC_BOAT };
 enum { EVQ_CLASS = 0, EVQ_GAUGE, EVQ_SINK_AFTER, EVQ_SINK_TIME, EVQ_SINK_DEPTH, EVQ_SHADE,
        EVQ_DOCK_X, EVQ_DOCK_Z, EVQ_DOCK_YAW, EVQ_DECK,
@@ -149,6 +149,7 @@ struct EvhcModel {
     long  rigHoopMid, rigHoopFull, rigHoopBad;
     /* it carries landing gear (EVD_GEAR hinges): Red Alert's aircraft that land */
     bool  gear;
+    bool  gunRa;
     long  drawn;                              /* whole-model draws since the last dump */
     long  rigDrawn;                           /* drawn in the dock or deploy rig, likewise */
     /* RESIDENCY IN TWO HALVES: the textures the standing model draws with go to the card the
@@ -249,6 +250,7 @@ static int g_evhcLastTick = -1;
 
 /* ---- a wreck: the DESTROYED pieces, falling, settling, sinking ---------------------- */
 struct EvhcWreck {
+    std::uint64_t physicsTicket=0;
     int   model, id, kind, house;
     char  type[16];
     int   deathTick, impactTick;
@@ -262,6 +264,32 @@ struct EvhcWreck {
 };
 static std::map<long long, EvhcWreck> g_evhcWreck;
 static long long g_evhcWreckSerial = 0;
+
+/* Test the actual posed piece family, with both interpolation endpoints. The
+   local camera helper never uses a sun/reflection pass or the whole map. */
+static bool evhc_wreck_in_local_view(const EvhcWreck& e,const EvhcModel& model) {
+    float lo[3]={1e30f,1e30f,1e30f},hi[3]={-1e30f,-1e30f,-1e30f};bool have=false;
+    const auto& pieces=model.m.set[EBS_DESTROYED].piece;
+    for(size_t i=0;i<e.body.size()&&i<pieces.size();++i)if(e.body[i].live) {
+        const auto& body=e.body[i];const float radius=std::max(0.05f,pieces[i].size*MODEL_SCALE);have=true;
+        for(int axis=0;axis<3;++axis) {
+            lo[axis]=std::min(lo[axis],std::min(body.p[axis],body.pp[axis])-radius);
+            hi[axis]=std::max(hi[axis],std::max(body.p[axis],body.pp[axis])+radius);
+        }
+    }
+    return have&&local_viewport_box(lo,hi);
+}
+static void evhc_view_prune() {
+    if(!vehicle_budget_enabled())return;
+    for(auto it=g_evhcWreck.begin();it!=g_evhcWreck.end();) {
+        const auto& e=it->second;
+        if(!e.physicsTicket){++it;continue;}
+        if(e.model>=0&&(size_t)e.model<g_evhc.size()&&evhc_wreck_in_local_view(e,g_evhc[e.model])){++it;continue;}
+        vehicle_budget_end(e.physicsTicket);
+        printf("VEHICLEDESTRUCTIONCAP|viewport-retire|owner=evhc|key=%lld\n",it->first);
+        it=g_evhcWreck.erase(it);
+    }
+}
 
 /* WATER IS THE MAP'S OWN: a cell with holes in its ground is one the sea shows through
    (the radar paints those blue). A wreck that comes to rest on one goes down at once,
@@ -483,6 +511,53 @@ static bool evhc_read_one(const char* path, EvhcModel& V)
 
 /* Every vehicle and aircraft the engine knows, scanned by name, so installing a new one is
    dropping its file in. Once per process: the files do not depend on the mission. */
+static std::string evhc_load_types(const char* dir, const char* folder,
+                                   const char* const* types, bool gunRa)
+{
+    std::string names;
+    for (size_t i = 0; types[i]; i++) {
+        char path[512];
+        snprintf(path, sizeof path, "%s%s/%s.evhc", dir && *dir ? dir : "", folder, types[i]);
+        EvhcModel V;
+        if (!evhc_read_one(path, V)) continue;
+        if (V.m.type != types[i]) {
+            fprintf(stderr, "evhc: %s says it is %s -- refused\n", path, V.m.type.c_str());
+            continue;
+        }
+        V.gunRa = gunRa;
+        ebld_spec_read(path, V.m);
+        if (V.m.hasSpec) {
+            int k = 0;
+            for (size_t t = 0; t < V.m.spec.size(); t++) if (V.m.spec[t].from >= 0) k++;
+            fprintf(stderr, "evhc: %s carries %d specular map%s\n", V.m.type.c_str(), k, k == 1 ? "" : "s");
+        }
+        names += (names.empty() ? "" : " ") + V.m.type;
+        g_evhc.push_back(std::move(V));
+    }
+    return names;
+}
+
+static bool evhc_gun_ra_match()
+{
+    /* a LAN room or a local skirmish (gun_game_match covers both) */
+    return !g_raModule && gun_game_match();
+}
+
+static void evhc_load_gun_ra(const char* dir)
+{
+    static bool loaded = false;
+    if (loaded || !evhc_gun_ra_match()) return;
+    loaded = true;
+    /* tools/ra3d/stage-gun-game.py reads this list to stage evhc/gunra/: keep it one
+       line of quoted type names */
+    static const char* const types[] = {"3TNK", "V2RL", "CTNK", "HIND", "YAK", "MIG", NULL};
+    /* evhc/gunra/, a folder every module installer accepts; gunra-evhc/ is where a
+       package staged them before that */
+    std::string names = evhc_load_types(dir, "evhc/gunra", types, true);
+    if (names.empty()) names = evhc_load_types(dir, "gunra-evhc", types, true);
+    fprintf(stderr, "evhc: Gun Game Red Alert models: %s\n", names.c_str());
+}
+
 static void evhc_load(const char* dir)
 {
     if (g_evhcLoaded) return;
@@ -506,28 +581,8 @@ static void evhc_load(const char* dir)
         "TRAN", "BADR", "U2", "MIG", "YAK", "HELI", "HIND",
         "PT", "SS", "DD", "CA", "LST", "MSUB", "CARR", NULL
     };
-    const char* const* TYPES = g_raModule ? TYPES_RA : TYPES_TD;
-    std::string names;
-    for (size_t i = 0; TYPES[i]; i++) {
-        char path[512];
-        snprintf(path, sizeof path, "%s%s/%s.evhc", dir && *dir ? dir : "",
-                 g_raModule ? "ra3d/evhc" : "evhc", TYPES[i]);
-        EvhcModel V;
-        if (!evhc_read_one(path, V))
-            continue;
-        if (V.m.type != TYPES[i]) {
-            fprintf(stderr, "evhc: %s says it is %s -- refused\n", path, V.m.type.c_str());
-            continue;
-        }
-        ebld_spec_read(path, V.m);
-        if (V.m.hasSpec) {
-            int k = 0;
-            for (size_t t = 0; t < V.m.spec.size(); t++) if (V.m.spec[t].from >= 0) k++;
-            fprintf(stderr, "evhc: %s carries %d specular map%s\n", V.m.type.c_str(), k, k == 1 ? "" : "s");
-        }
-        names += (names.empty() ? "" : " ") + V.m.type;
-        g_evhc.push_back(V);
-    }
+    const std::string names = evhc_load_types(dir, g_raModule ? "ra3d/evhc" : "evhc",
+                                             g_raModule ? TYPES_RA : TYPES_TD, false);
     fprintf(stderr, "evhc: %d remastered vehicle%s and aircraft for Enhanced%s%s\n",
             (int)g_evhc.size(), g_evhc.size() == 1 ? "" : "s",
             names.empty() ? "" : ": ", names.c_str());
@@ -664,7 +719,9 @@ static void evhc_attach(void)
         /* (Red Alert's scene packs carry no cartridge types: every staged file attaches, as
            its remastered buildings do) */
         std::map<std::string, PackType>::const_iterator it = g_pack.type.find(M.type);
-        if (!g_raModule && it == g_pack.type.end()) continue;
+        if (V.gunRa && !evhc_gun_ra_match()) continue;
+        // The SSML and the Gun Game imports have no Dawn cartridge mesh.
+        if (!g_raModule && !V.gunRa && M.type != "MLRS" && it == g_pack.type.end()) continue;
         M.tex0 = (int)g_pack.tex.size();
         M.resident = false;
         V.texUp.assign(M.tex.size(), 0);
@@ -810,8 +867,10 @@ static void evhc_attach(void)
    textures, or every one. Read back out of the file, which must still be the one checked;
    bled, filtered and wrapped as a remastered building's; its liveries painted if the pack's
    are already built. A file that cannot be read back detaches the model, and the cartridge
-   draws its type. */
-static bool evhc_resident(EvhcModel& V, bool all)
+   draws its type. With a limit, at most that many textures go up in this call and the
+   model stays short of "all up" while any is left (the wrecks' spread, evhc_prepare_frame),
+   with nothing printed: the caller prints its own line. */
+static bool evhc_resident_some(EvhcModel& V, bool all, int limit)
 {
     EbldModel& M = V.m;
     if (all ? V.allUp : V.intactUp) return true;
@@ -828,8 +887,10 @@ static bool evhc_resident(EvhcModel& V, bool all)
     long bytes = 0;
     int n = 0;
     const size_t tex0 = (size_t)M.tex0;
+    bool partial = false;
     for (size_t t = 0; t < M.tex.size() && readOk; t++) {
         if (V.texUp[t] || (!all && !V.texIntact[t])) continue;
+        if (limit > 0 && n >= limit) { partial = true; break; }
         const EbldTex& T = M.tex[t];
         const size_t sz = (size_t)T.w * T.h * 4;
         std::vector<unsigned char> rgba(sz), nod, mask;
@@ -871,6 +932,7 @@ static bool evhc_resident(EvhcModel& V, bool all)
         }
         V.texUp[t] = 1;
         livery_build_range(tex0 + t, tex0 + t + 1);
+        livery_copies_release(pt);          /* (ebld_mod.h: once nothing can read them) */
         n++;
     }
     if (tf) fclose(tf);
@@ -881,10 +943,19 @@ static bool evhc_resident(EvhcModel& V, bool all)
         M.attached = false;
         return false;
     }
-    V.intactUp = true;
-    if (all) V.allUp = true;
+    if (partial) {
+        /* (short of all: the standing set is up only if every one of its textures is) */
+        bool intact = true;
+        for (size_t t = 0; t < M.tex.size(); t++)
+            if (!V.texUp[t] && V.texIntact[t]) intact = false;
+        if (intact) V.intactUp = true;
+    } else {
+        V.intactUp = true;
+        if (all) V.allUp = true;
+    }
     M.resident = V.allUp;
     g_ebldResidentBytes += bytes;
+    if (limit > 0) return true;
     fprintf(stderr, "evhc: %s %s textures on the card, %d textures, %.1f MB (%.1f MB of "
             "remastered textures in all), %.1f ms\n", M.type.c_str(),
             all ? "wreck" : "standing", n, (double)bytes / 1048576.0,
@@ -893,6 +964,7 @@ static bool evhc_resident(EvhcModel& V, bool all)
                 / (double)SDL_GetPerformanceFrequency());
     return true;
 }
+static bool evhc_resident(EvhcModel& V, bool all) { return evhc_resident_some(V, all, 0); }
 
 /* ---- the rule ---------------------------------------------------------------------- */
 static bool evhc_rule_now(void) { return g_evhcOn && g_fx.enabled; }
@@ -914,6 +986,7 @@ static int evhc_model_of(const char* type)
     }
     return -1;
 }
+
 /* The authored art set's choice for an object (model3d_mod.h). */
 static int object_model3d(const SimObject& o);
 /* A KIND THIS SYSTEM DRAWS: units and aircraft, and under Red Alert its vessels (Tiberian
@@ -932,6 +1005,208 @@ static int evhc_for(const SimObject& o)
     if (m < 0) return -1;
     if (object_model3d(o) >= 0) return -1;
     return m;
+}
+
+/* AHEAD OF A SWITCH TO ENHANCED (gmw_prewarm): one vehicle type on the map a call has its
+   standing textures put on the card, where Enhanced's first frame would otherwise put every
+   one in view on the card at once. True while there was one to do. */
+static bool evhc_resident(EvhcModel& V, bool all);
+static bool evhc_ahead_step(void)
+{
+    static std::string scen;
+    static std::set<int> tried;               /* (each type once a mission, uploaded or not) */
+    if (scen != g_pack.scen) { scen = g_pack.scen; tried.clear(); }
+    if (g_evhc.empty() || !g_evhcOn) return false;
+    for (const SimObject& o : g_objects) {
+        if (!evhc_kind(o.kind) || o.limbo) continue;
+        const int m = evhc_model_of(o.type);
+        if (m < 0 || g_evhc[m].intactUp || !g_evhc[m].m.attached || object_model3d(o) >= 0
+            || !tried.insert(m).second)
+            continue;
+        evhc_resident(g_evhc[m], false);
+        return true;
+    }
+    return false;
+}
+
+/* THE WRECKS' TEXTURES AHEAD OF THE FIRST DEATH. A vehicle's wreck atlases (its charred
+   atlases, broken material and glow, more than half its bytes) went to the card the first
+   time one of its wrecks was drawn: on the frame it died, which in a big blast is the frame
+   that already draws every new piece of every building and vehicle at once. Measured on an
+   atom bomb over an Allied base: the V2 launcher's six wreck atlases, 5.1 MB, 10 to 20 ms
+   on that frame.
+   Now every remastered vehicle type on the map has them on the card before play: in Red
+   Alert on the first tick, after its structures' own preparation (ebld_prepare_ra); in
+   Tiberian Dawn at the end of the buildings' loading walk (ebld_prepare_loading). The
+   buildings go first and the vehicles have caps of their own, so a vehicle never takes a
+   building's room; the memory test (lowmem.h) is the one both answer to.
+   A type first seen in play is not loaded on the tick it appears, which is the frame that
+   also puts its standing textures on the card (the landing ship arriving on Allied 5: 8
+   atlases, 8.1 MB, 22 to 25 ms in one go). It waits until its standing textures are up and
+   a frame has passed, then goes up one texture a frame (evhc_prepare_frame). If one dies
+   before its last texture is up, its first wreck loads what is left, as before.
+   A type that does not fit stays on the demand path, and the refusal is printed
+   (EVHCPREPARE|rejected, EVHCPREPARE|spread-rejected). */
+#define EVHC_PREPARE_CPU ebld_prepare_cap(64u * 1024u * 1024u)
+#define EVHC_PREPARE_GPU ebld_prepare_cap(128u * 1024u * 1024u)
+struct EvhcPrepareSpread {
+    int model;
+    unsigned seenUp;                           /* the frame its standing set was seen up, 0 not yet */
+    bool admitted;
+};
+struct EvhcPrepareState {
+    unsigned generation = ~0u;
+    bool loaded = false;
+    std::set<int> tried;                       /* (each type once a mission, uploaded or not) */
+    std::set<std::string> settled;             /* type names with nothing more to do here */
+    std::vector<EvhcPrepareSpread> spread;     /* types first seen in play, still going up */
+    uint64_t cpu = 0, gpu = 0;                 /* charged against EVHC_PREPARE_CPU / _GPU */
+    unsigned types = 0, textures = 0, rejectedCap = 0, rejectedHeadroom = 0, rejectedTransient = 0;
+    unsigned spreadTypes = 0, spreadTextures = 0;
+    uint64_t bytes = 0;
+};
+static EvhcPrepareState g_evhcPrepare;
+static bool evhc_prepare_on(void)
+{
+    return ebld_prepare_on() && g_evhcOn && !g_evhc.empty()
+        && mesh_perf_switch("OPENCNC3D_EVHC_PREPARE");
+}
+static void evhc_prepare_sync(void)
+{
+    if (g_evhcPrepare.generation == g_ebldPrepareGeneration) return;
+    g_evhcPrepare = EvhcPrepareState();
+    g_evhcPrepare.generation = g_ebldPrepareGeneration;
+}
+/* One model's missing textures, priced as the buildings' preparation prices them and
+   admitted under the vehicles' own caps and the shared memory test. The refusal is
+   counted and named; nothing is charged until the caller does. */
+static const char* evhc_prepare_price(int m, EbldPrepareCost& sum, unsigned& n)
+{
+    EvhcModel& V = g_evhc[(size_t)m];
+    sum = EbldPrepareCost();
+    n = 0;
+    for (size_t t = 0; t < V.m.tex.size(); t++) {
+        if (t < V.texUp.size() && V.texUp[t]) continue;
+        const EbldPrepareCost c = ebld_prepare_texture_cost(V.m, t);
+        if (!ebld_prepare_add_checked(sum.cpu, c.cpu) || !ebld_prepare_add_checked(sum.gpu, c.gpu)) {
+            g_evhcPrepare.rejectedCap++; return "cap";
+        }
+        sum.transient = std::max(sum.transient, c.transient);
+        n++;
+    }
+    if (sum.transient > EBLD_PREPARE_TRANSIENT) { g_evhcPrepare.rejectedTransient++; return "transient"; }
+    if (sum.cpu > ebld_prepare_remaining(EVHC_PREPARE_CPU, g_evhcPrepare.cpu)
+        || sum.gpu > ebld_prepare_remaining(EVHC_PREPARE_GPU, g_evhcPrepare.gpu)) {
+        g_evhcPrepare.rejectedCap++; return "cap";
+    }
+    if (!ebld_prepare_headroom(sum, true)) { g_evhcPrepare.rejectedHeadroom++; return "headroom"; }
+    return NULL;
+}
+static void evhc_prepare_charge(const EbldPrepareCost& sum)
+{
+    g_evhcPrepare.cpu += sum.cpu;
+    g_evhcPrepare.gpu += sum.gpu;
+    ebld_prepare_charged(sum);
+}
+/* Before play: one model's wreck, every missing texture at once, through the ordinary
+   upload. */
+static bool evhc_prepare_model(int m)
+{
+    EvhcModel& V = g_evhc[(size_t)m];
+    if (V.allUp || !V.m.attached) return false;
+    EbldPrepareCost sum;
+    unsigned n = 0;
+    if (evhc_prepare_price(m, sum, n)) return false;
+    const int64_t before = g_ebldResidentBytes;
+    if (!evhc_resident(V, true)) return false;
+    evhc_prepare_charge(sum);
+    g_evhcPrepare.types++;
+    g_evhcPrepare.textures += n;
+    if (g_ebldResidentBytes > before) g_evhcPrepare.bytes += (uint64_t)(g_ebldResidentBytes - before);
+    return true;
+}
+/* The buildings have had their claim: Red Alert's first-tick preparation has run, or
+   Tiberian Dawn's loading walk has, this mission. */
+static bool evhc_prepare_after_buildings(void)
+{
+    if (g_ebldPrepare.generation != g_ebldPrepareGeneration) return false;
+    return g_raModule ? g_ebldPrepare.raLoaded : g_ebldPrepare.loadingAttempted;
+}
+/* Called once a tick (after ebld_prepare_ra), and at the end of Tiberian Dawn's loading
+   walk. The first call after the buildings' claim loads every type on the map; later
+   calls only queue a type first seen, for evhc_prepare_frame. */
+static void evhc_prepare_tick(void)
+{
+    if (!evhc_prepare_on()) return;
+    evhc_prepare_sync();
+    if (!g_evhcPrepare.loaded && !evhc_prepare_after_buildings()) return;
+    const bool first = !g_evhcPrepare.loaded;
+    const Uint64 t0 = SDL_GetPerformanceCounter();
+    for (const SimObject& o : g_objects) {
+        if (!evhc_kind(o.kind) || o.limbo) continue;
+        /* (a steady tick: every type on the map is settled, one set lookup an object) */
+        if (g_evhcPrepare.settled.count(o.type)) continue;
+        const int m = evhc_model_of(o.type);
+        if (m < 0 || g_evhc[(size_t)m].allUp) { g_evhcPrepare.settled.insert(o.type); continue; }
+        if (object_model3d(o) >= 0) continue;  /* (drawn by the authored art set today) */
+        g_evhcPrepare.settled.insert(o.type);
+        if (!g_evhcPrepare.tried.insert(m).second) continue;
+        if (first) evhc_prepare_model(m);
+        else g_evhcPrepare.spread.push_back(EvhcPrepareSpread{m, 0u, false});
+    }
+    if (!first) return;
+    g_evhcPrepare.loaded = true;
+    /* (the uploads finished here, at loading, and not deferred by the driver to the first
+       frame that draws a wreck) */
+    if (g_evhcPrepare.textures) glFinish();
+    fprintf(stderr, "EVHCPREPARE|loading|types=%u|textures=%u|bytes=%llu|ms=%.3f\n",
+            g_evhcPrepare.types, g_evhcPrepare.textures, (unsigned long long)g_evhcPrepare.bytes,
+            (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency());
+    fprintf(stderr, "EVHCPREPARE|rejected|cap=%u|headroom=%u|transient=%u\n",
+            g_evhcPrepare.rejectedCap, g_evhcPrepare.rejectedHeadroom, g_evhcPrepare.rejectedTransient);
+}
+/* Once a frame, before anything is drawn (draw_frame): one wreck texture of a type first
+   seen in play, once that type's standing textures were seen on the card on an earlier
+   frame. */
+static void evhc_prepare_frame(void)
+{
+    if (g_evhcPrepare.spread.empty() || g_editOn) return;
+    if (!evhc_prepare_on() || g_evhcPrepare.generation != g_ebldPrepareGeneration) {
+        g_evhcPrepare.spread.clear();
+        return;
+    }
+    std::vector<EvhcPrepareSpread>& Q = g_evhcPrepare.spread;
+    for (size_t i = 0; i < Q.size(); i++) {
+        EvhcModel& V = g_evhc[(size_t)Q[i].model];
+        if (V.allUp || !V.m.attached) { Q.erase(Q.begin() + (long)i); i--; continue; }
+        if (!V.intactUp) continue;             /* (not drawn yet: it waits) */
+        if (!Q[i].seenUp) { Q[i].seenUp = g_drawFrameSerial; continue; }
+        if (g_drawFrameSerial <= Q[i].seenUp) continue;
+        if (!Q[i].admitted) {
+            EbldPrepareCost sum;
+            unsigned n = 0;
+            if (const char* why = evhc_prepare_price(Q[i].model, sum, n)) {
+                fprintf(stderr, "EVHCPREPARE|spread-rejected|type=%s|why=%s\n", V.m.type.c_str(), why);
+                Q.erase(Q.begin() + (long)i); i--;
+                continue;
+            }
+            evhc_prepare_charge(sum);
+            Q[i].admitted = true;
+        }
+        const Uint64 t0 = SDL_GetPerformanceCounter();
+        const int64_t before = g_ebldResidentBytes;
+        if (!evhc_resident_some(V, true, 1)) { Q.erase(Q.begin() + (long)i); return; }
+        g_evhcPrepare.spreadTextures++;
+        if (g_ebldResidentBytes > before) g_evhcPrepare.bytes += (uint64_t)(g_ebldResidentBytes - before);
+        unsigned left = 0;
+        for (size_t t = 0; t < V.texUp.size(); t++) left += V.texUp[t] ? 0u : 1u;
+        fprintf(stderr, "EVHCPREPARE|spread|type=%s|frame=%u|standing_seen=%u|left=%u|bytes=%lld|ms=%.3f\n",
+                V.m.type.c_str(), g_drawFrameSerial, Q[i].seenUp, left,
+                (long long)(g_ebldResidentBytes - before),
+                (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency());
+        if (V.allUp) { g_evhcPrepare.spreadTypes++; Q.erase(Q.begin() + (long)i); }
+        return;                                /* (one texture a frame) */
+    }
 }
 
 /* Only TD's remastered Harvester: cartridge and Red Alert motion remain unchanged. */
@@ -1101,13 +1376,14 @@ static const int EVHC_V2_RAISE = 8;             /* ticks the V2's launch section
 static void evhc_v2_launch(const SimObject& o, int m, const EvhcUnit* U, int frame);
 static void evhc_lst_step(const SimObject& o, const EvhcModel& V, EvhcUnit* U, int frame);
 static void evhc_v2_launch_step(int frame);
+static void evhc_ssml_step(int frame);
 static void evhc_v2_flight_step(int frame);
 
 static void evhc_step(int frame)
 {
     if (g_evhc.empty()) return;
     if (frame == g_evhcLastTick) return;
-    if (frame < g_evhcLastTick) { g_evhcUnit.clear(); g_evhcWreck.clear(); }
+    if (frame < g_evhcLastTick) { g_evhcUnit.clear();for(const auto& e:g_evhcWreck)vehicle_budget_end(e.second.physicsTicket);g_evhcWreck.clear(); }
     g_evhcLastTick = frame;
     const bool rule = evhc_rule_now();
     for (std::map<int, EvhcUnit>::iterator it = g_evhcUnit.begin(); it != g_evhcUnit.end(); ++it)
@@ -1223,7 +1499,7 @@ static void evhc_step(int frame)
         /* THE LANDING GEAR (Red Alert's aircraft that land): it follows the altitude,
            eased so that no step of the engine's moves it more than a sixth of its swing
            (a craft put down somewhere new swings its gear rather than snapping it) */
-        if (V.gear && g_raModule) {
+        if (V.gear && (g_raModule || V.gunRa)) {
             U->gear = ev_ease(U->gear, evhc_gear_want(o), 1.0f / 6.0f);
             U->gearAlt = o.alt;
         }
@@ -1372,6 +1648,7 @@ static void evhc_step(int frame)
     }
     if (g_raModule) raShotsPrev.swap(raShotsNow);
     evhc_v2_launch_step(frame);
+    evhc_ssml_step(frame);
     evhc_wreck_step(frame);
     fflush(stdout);
 }
@@ -1413,6 +1690,7 @@ struct EvhcPose {
     float fill;                               /* how full the bed is drawn, 0 .. 1 */
     float erect;                              /* Red Alert's V2 Rocket's erector, 0 .. 1 */
     float ramp[4];                            /* Red Alert's Transport's ramps, degrees */
+    int   ammo;                               /* Dawn SSML rounds on the rails */
     bool  rocket;                             /* the V2's rocket is on the rail */
     float claw;                               /* the Harvester's claws, 0 lowered .. 1
                                                  raised; below 0 they stand at rest */
@@ -1755,7 +2033,7 @@ static void evhc_part_local(const EvhcModel& V, const EvhcPart& p, const EvhcPos
             break;
         /* RED ALERT'S LANDING GEAR: each leg and door swings its full stowing angle (a6)
            about its own hinge as the gear goes up, all together, eased at both ends */
-        case EVD_GEAR: ang = g_raModule ? p.a[6] * evhc_ease01(P.gear) : 0.0f; break;
+        case EVD_GEAR: ang = (g_raModule || V.gunRa) ? p.a[6] * evhc_ease01(P.gear) : 0.0f; break;
         /* THE HARVESTER: the claws' lift (its booms; the jaws ride it), the mouth's lower
            jaw, and the lift rams following the booms' pins as the V2's follow its erector */
         case EVD_HARV_LIFT: ang = evhc_claw_lift(p, P.claw); break;
@@ -1890,7 +2168,8 @@ static void evhc_pose_of(const EvhcModel& V, const SimObject& o, const EvhcUnit*
     }
     /* the V2's rocket is on the rail unless the engine says it carries none (ammo= 0, from
        the launch until it reloads; a brain without the field says -1, and it shows) */
-    P.rocket = !(g_raModule && o.ammo == 0);
+    P.ammo = o.ammo < 0 ? 2 : o.ammo;
+    P.rocket = !((g_raModule || V.gunRa) && o.ammo == 0);
     P.claw = -1.0f;
     if (U && V.liftPart >= 0 && g_evhcHarvLiftOn)
         P.claw = U->clawP + (U->claw - U->clawP) * a;
@@ -1978,6 +2257,7 @@ static bool evhc_piece_shows(const EvhcModel& V, int pi, const EvhcPose& P)
     if (p.kind == EVP_HINGE && p.driver == EVD_ORE_LOAD) return P.load;
     /* the V2's rocket, shown while it is loaded (Red Alert's ammo) */
     if (p.kind == EVP_HINGE && p.driver == EVD_V2_ROCKET) return P.rocket;
+    if (p.kind == EVP_HINGE && p.driver == EVD_SSML_ROUND) return P.ammo > p.side;
     if (p.kind != EVP_ROTOR) return true;
     if (p.flags & EVF_DISC) return P.disc > 0.01f;
     /* The authored Orca adds a translucent streak disc OVER its fan assembly.
@@ -2015,6 +2295,211 @@ static float evhc_dive(const EvhcModel& V, const SimObject& o)
     return q[1] + (q[2] - q[1]) * (x - 2.0f);
 }
 
+
+/* Opaque sun depth: conservative bounds of the current vehicle pose. Union the current articulated local
+   boxes, then turn that conservative union into the current pass, never the camera.
+   The full CPU draw remains the independent rejection witness. */
+static int actor_depth_mode() {
+    static const int mode=[](){const char* p=getenv("OPENCNC3D_ACTOR_DEPTH_CULL");
+        if(p)return !strcmp(p,"verify")?2:!strcmp(p,"1")?1:0;
+#if defined(__APPLE__) || defined(_WIN32)
+        return 1; /* Native paired late battles improve on both supported platforms. */
+#else
+        return 0;
+#endif
+    }();return mode;
+}
+struct ActorDepthBox {float lo[3],hi[3];bool valid=false;};
+struct ActorDepthSource {
+    int pack=-1;const PackTri* data=NULL;size_t count=0;
+    std::vector<ActorDepthBox> pieces;
+};
+static std::map<int,ActorDepthSource> g_actorDepthSources;
+static unsigned long long g_actorDepthOffers=0,g_actorDepthRejected=0,g_actorDepthRefused=0;
+static bool actor_depth_outside(const EvhcModel& V,int model,const EvhcPose& P,
+        const std::vector<float>& mats,const EvhcDraw& D) {
+    if(!actor_depth_mode() || !g_meshSunDepth || !g_m3CasterDepth || D.pass!=MODE_OPAQUE
+        || g_meshBakePass || g_meshShadowPass || g_meshNrmOut || g_meshFragmentCollect
+        || g_meshGroundPerVertex || g_meshFillY<1.0e38f || debug_meshes_on()
+        || g_meshFlash || g_meshAlphaScale!=255 || g_meshUVScaleU!=1.0f || g_meshUVScaleV!=1.0f
+        || g_meshUVOffU!=0.0f || g_meshUVOffV!=0.0f
+        || !g_fx.enabled || g_meshBatchEditor || !mesh_perf_switch("OPENCNC3D_MESH_GPU")
+        || !grass_buf_load())return false;
+    g_actorDepthOffers++;
+    if(D.mi<0 || D.mi>=(int)g_pack.mesh.size())return false;
+    const PackMesh& mesh=g_pack.mesh[D.mi];const EbldSet& S=V.m.set[EBS_INTACT];
+    const auto& ranges=V.m.rng[EBM_INTACT];
+    if(mesh.gpuDeformed || !mesh.sway.empty() || mesh.animFrames>0 || V.m.type=="BARL"
+        || ranges.size()!=S.piece.size()*EBR || V.partOf.size()!=S.piece.size()
+        || S.piece.size()>4096 || !mesh_perf_switch("OPENCNC3D_ACTOR_DEPTH_SOURCE_OK")) {
+        g_actorDepthRefused++;return false;
+    }
+    ActorDepthSource* source=NULL;
+    try {
+        auto found=g_actorDepthSources.find(model);
+        if(found==g_actorDepthSources.end()) {
+            if(g_actorDepthSources.size()>=256 || !mesh_perf_switch("OPENCNC3D_ACTOR_DEPTH_ALLOC_OK")) {
+                g_actorDepthRefused++;return false;
+            }
+            found=g_actorDepthSources.emplace(model,ActorDepthSource()).first;
+        }
+        ActorDepthSource& B=found->second;
+        if(B.pack!=g_evhcPackSerial || B.data!=mesh.tris.data() || B.count!=mesh.tris.size()
+            || B.pieces.size()!=S.piece.size()) {
+            B.pack=-1;
+            /* Dispose obsolete metadata before replacement; charge retained capacities,
+               not only logical size. Refusal leaves the original drawing path active. */
+            std::vector<ActorDepthBox>().swap(B.pieces);
+            const size_t cap=4u*1024u*1024u;
+            size_t used=0;
+            for(const auto& item:g_actorDepthSources)
+                used+=item.second.pieces.capacity()*sizeof(ActorDepthBox);
+            if(used>cap || S.piece.size()>(cap-used)/sizeof(ActorDepthBox)
+                || !mesh_perf_switch("OPENCNC3D_ACTOR_DEPTH_BUDGET_OK")) {
+                g_actorDepthRefused++;return false;
+            }
+            std::vector<ActorDepthBox> replacement(S.piece.size());
+            if(replacement.capacity()>(cap-used)/sizeof(ActorDepthBox)) {
+                g_actorDepthRefused++;return false;
+            }
+            B.pieces.swap(replacement);
+            for(size_t k=0;k<S.piece.size();k++) {
+                const int first=ranges[k*EBR+EBR_A],last=ranges[k*EBR+EBR_B];
+                if(first<0 || last<first || (size_t)last>mesh.tris.size())return false;
+                ActorDepthBox& b=B.pieces[k];
+                for(int t=first;t<last;t++)if(mesh.tris[t].mode==MODE_OPAQUE)
+                    for(int c=0;c<3;c++) {
+                        const PackVert& v=mesh.tris[t].v[c];const float p[3]={v.x,v.y,v.z};
+                        for(int a=0;a<3;a++) {
+                            if(!(p[a]>=-1.0e8f && p[a]<=1.0e8f))return false;
+                            if(!b.valid)b.lo[a]=b.hi[a]=p[a];
+                            else{b.lo[a]=std::min(b.lo[a],p[a]);b.hi[a]=std::max(b.hi[a],p[a]);}
+                        }
+                        b.valid=true;
+                    }
+            }
+            B.data=mesh.tris.data();B.count=mesh.tris.size();B.pack=g_evhcPackSerial;
+        }
+        source=&B;
+    }catch(const std::bad_alloc&){g_actorDepthRefused++;return false;}
+    ActorDepthBox local;float magnitude=1.0f;
+    for(size_t k=0;k<source->pieces.size();k++) {
+        const ActorDepthBox& b=source->pieces[k];
+        if(!b.valid || !evhc_piece_shows(V,V.partOf[k],P))continue;
+        const float* M=evhc_piece_pose(V,mats,(int)k);
+        if(M && ev_is_ident(M))M=NULL;
+        float c[3],e[3];
+        for(int a=0;a<3;a++){c[a]=(b.lo[a]+b.hi[a])*0.5f;e[a]=(b.hi[a]-b.lo[a])*0.5f;}
+        for(int a=0;a<3;a++) {
+            const float centre=M?M[a*4]*c[0]+M[a*4+1]*c[1]+M[a*4+2]*c[2]+M[a*4+3]:c[a];
+            const float extent=M?fabsf(M[a*4])*e[0]+fabsf(M[a*4+1])*e[1]+fabsf(M[a*4+2])*e[2]:e[a];
+            const float lo=centre-extent,hi=centre+extent;
+            if(!(lo>=-1.0e12f && hi<=1.0e12f))return false;
+            if(!local.valid){local.lo[a]=lo;local.hi[a]=hi;}
+            else{local.lo[a]=std::min(local.lo[a],lo);local.hi[a]=std::max(local.hi[a],hi);}
+            float errorScale=0.0f;
+            for(int j=0;j<3;j++) {
+                const float radius=std::max(fabsf(b.lo[j]),fabsf(b.hi[j]));
+                errorScale+=radius*(M?fabsf(M[a*4+j]):(j==a?1.0f:0.0f));
+            }
+            if(M)errorScale+=fabsf(M[a*4+3]);
+            magnitude=std::max(magnitude,errorScale*fabsf(MODEL_SCALE));
+        }
+        local.valid=true;
+    }
+    if(!local.valid)return false;
+    float ground=terrain_y(D.x,D.z),lift=D.lift;float rs,rc,wax,waz;
+    /* a racer's lift and anchor height, as draw_mesh takes them (rally_mod.h) */
+    if(g_rlyDraw&&D.wob!=WOBBLE_NONE)rly_draw_at(D.x,D.z,&lift,&ground);
+    facing_rot(D.face,&rs,&rc);mesh_wobble(D.wob,D.x,D.z,&wax,&waz);
+    const float wsx=sinf(wax),wcx=cosf(wax),wsz=sinf(waz),wcz=cosf(waz);
+    ActorDepthBox world;
+    for(int corner=0;corner<8;corner++) {
+        const float vx=corner&1?local.hi[0]:local.lo[0],vy=corner&2?local.hi[1]:local.lo[1],vz=corner&4?local.hi[2]:local.lo[2];
+        const float mx=vx*rc+vz*rs,mz=-vx*rs+vz*rc;
+        float p[3];
+        if(D.wob!=WOBBLE_NONE) {
+            const float lx=mx*MODEL_SCALE,ly=vy*MODEL_SCALE+lift,lz=mz*MODEL_SCALE;
+            const float y1=ly*wcx-lz*wsx,z1=ly*wsx+lz*wcx;
+            const float x2=lx*wcz-y1*wsz,y2=lx*wsz+y1*wcz;
+            p[0]=D.x+x2;p[1]=y2+ground;p[2]=D.z+z1;
+        }else{p[0]=D.x+mx*MODEL_SCALE;p[1]=vy*MODEL_SCALE+lift+ground;p[2]=D.z+mz*MODEL_SCALE;}
+        for(int a=0;a<3;a++) {
+            if(!(p[a]>=-1.0e12f && p[a]<=1.0e12f))return false;
+            magnitude=std::max(magnitude,fabsf(p[a]));
+            if(!world.valid)world.lo[a]=world.hi[a]=p[a];
+            else{world.lo[a]=std::min(world.lo[a],p[a]);world.hi[a]=std::max(world.hi[a],p[a]);}
+        }
+        world.valid=true;
+    }
+    /* Outward arithmetic margin includes cancellation in source/posed boxes. */
+    const float pad=std::max(0.01f,magnitude*1.0e-5f);
+    for(int a=0;a<3;a++){world.lo[a]-=pad;world.hi[a]+=pad;}
+    return mesh_box_outside(world.lo,world.hi)||fx_recv_object_outside(world.lo,world.hi);
+}
+struct ActorDepthWitness {
+    bool previous;
+    explicit ActorDepthWitness(bool rejected):previous(g_actorDepthWitness) {
+        g_actorDepthWitness=previous||(rejected&&actor_depth_mode()==2);
+    }
+    ~ActorDepthWitness(){g_actorDepthWitness=previous;}
+};
+static void actor_depth_dump(){printf("ACTORUVCULL|offers=%llu|rejected=%llu|verified=%llu|bad=%llu\n",g_actorUvOffers,g_actorUvRejected,g_actorUvVerified,g_meshEarlyCullBad);printf("ACTORDEPTHCULL|mode=%d|offers=%llu|rejected=%llu|verified=%llu|bad=%llu|refused=%llu|sources=%zu|active=%d\n",actor_depth_mode(),g_actorDepthOffers,g_actorDepthRejected,g_actorDepthVerified,g_actorDepthBad,g_actorDepthRefused,g_actorDepthSources.size(),g_actorDepthWitness?1:0);}
+
+/* Preserve the established per-object client-array scope
+   across a vehicle's piece walk, as the building renderer already does. Each
+   piece still supplies all arrays, and the caller's state is restored once. */
+static bool evhc_array_scope_enabled(){static const bool on=[](){const char* p=getenv("OPENCNC3D_EVHC_ARRAY_SCOPE");
+#ifdef __APPLE__
+return !p||strcmp(p,"0"); // Paired Mac benefit; Windows retains its faster original path.
+#else
+return p&&strcmp(p,"0");
+#endif
+}();return on;}
+/* A SHIP'S HULL UNDER THE SEA IS NOT DRAWN. The sea is drawn first, as part of the ground,
+   and every model after it, so the part of a hull below the surface (it sits down in the
+   water by its draft, alt_lift's ship_ride) would be drawn over the water in full and the
+   ship would look laid on top of it. Clip plane 0 cuts the model at the surface for as
+   long as its draw lasts, in every pass, the sun's included, so the water shows where the
+   hull goes under. Set while the pass's own view is on the modelview stack, so the plane is
+   the world's. Not for the hovercraft, which rides on its cushion, nor for a deck rider,
+   which stands above the deck, nor for a submarine, whose dive draws it under the sea. */
+struct ShipWaterCut {
+    bool on;
+    ShipWaterCut(const SimObject& o) : on(false) {
+        if (!ship_swell_on() || wobble_of(o) != WOBBLE_SHIP || o.ylift > 0.0f) return;
+        if (!g_raModule && !strcmp(o.type, "LST")) return;
+        if (g_raModule && !strcmp(o.type, "SS")) return;
+        const double eq[4] = { 0.0, 1.0, 0.0, -(double)terrain_y(o.wx, o.wz) };
+        glClipPlane(GL_CLIP_PLANE0, eq);
+        glEnable(GL_CLIP_PLANE0);
+        on = true;
+    }
+    ~ShipWaterCut() { if (on) glDisable(GL_CLIP_PLANE0); }
+};
+
+/* A SEE-THROUGH VEHICLE'S MARK IN THE NORMAL TARGET: one level under the vehicle class
+   this pass writes (0.34 -> 86/255, 0.35 -> 88/255), which every band that reads the
+   class still takes for a vehicle, so its pixels are lit as one. The one reader that
+   tells it apart is the light pass's contact march, which steps over it as a blocker:
+   its screen door would otherwise put a whole contact shadow wherever a single one of
+   its pixels landed on the march, and the faintest steps of the fade darkened the
+   ground as much as the solid tank. FX_FS_LIGHT_BODY names the two values again. */
+struct EvhcGhostClass {
+    GLint prog;
+    float was;
+    EvhcGhostClass(bool on) : prog(0), was(0.0f)
+    {
+        if (!on) return;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+        if (!prog) return;
+        was = fx_vehicle_active(&g_fx) ? 0.34f : 0.35f;   /* as evhc_draw_normals sets it */
+        fx_set1f((GLuint)prog, "uClass", fx_vehicle_active(&g_fx) ? 86.0f / 255.0f
+                                                                  : 88.0f / 255.0f);
+    }
+    ~EvhcGhostClass() { if (prog) fx_set1f((GLuint)prog, "uClass", was); }
+};
+
 static bool evhc_draw_object(const SimObject& o, int pass)
 {
     const int m = evhc_for(o);
@@ -2023,6 +2508,10 @@ static bool evhc_draw_object(const SimObject& o, int pass)
     /* no ground-shadow triangles: a vehicle's plate is the cartridge's own quad, drawn by
        type elsewhere, whatever model stands over it */
     if (pass == MODE_SHADOW) return true;
+    /* a cloaking vehicle under the light pass, on its share of the pixels (CloakScreen,
+       cnc_eyes.cpp), and marked see-through in the normal target (EvhcGhostClass) */
+    const CloakScreen cloakScreen(o, pass);
+    const EvhcGhostClass ghostClass(cloakScreen.on && g_evhcNrmPass);
     if (!evhc_resident(V, false)) return false;
     /* off this pass's view in a pass that only draws (aux_object_outside); room above for
        an aircraft's flight and a rider's lift */
@@ -2049,6 +2538,11 @@ static bool evhc_draw_object(const SimObject& o, int pass)
     /* (a submarine diving or surfacing: lowered through the sea) */
     const float dive = evhc_dive(V, o);
     D.lift -= dive;
+    const bool depthOutside=actor_depth_outside(V,m,P,mats,D);
+    if(depthOutside){g_actorDepthRejected++;if(actor_depth_mode()==1)return true;}
+    ActorDepthWitness witness(depthOutside);
+    ShipWaterCut waterCut(o);
+    MeshArrayScope arrays(evhc_array_scope_enabled());
     const bool colour = (pass == MODE_OPAQUE || pass == MODE_CUTOUT || pass == MODE_XLU)
                         && !ebld_aux_pass();
     if (pass == MODE_OPAQUE && colour) {
@@ -2063,6 +2557,9 @@ static bool evhc_draw_object(const SimObject& o, int pass)
        wheel flipbooks, whose motion is only in their texture) go down as one draw where
        their runs meet; each draw costs more than its triangles here. */
     const bool merge = g_evhcNrmPass && pass == MODE_OPAQUE;
+    /* a caller's alpha for the whole model (a cloaking vehicle's see-through translucent
+       parts, cloak_draw_ghosts), under each piece's own */
+    const unsigned char baseAlpha = g_meshAlphaScale;
     int ma = -1, mb = -1;
     for (size_t k = 0; k < S.piece.size(); k++) {
         const int* r = &rg[k * EBR];
@@ -2079,7 +2576,7 @@ static bool evhc_draw_object(const SimObject& o, int pass)
             continue;
         }
         bool hook = false;
-        unsigned char alpha = 255;
+        unsigned char alpha = baseAlpha;
         if (pi >= 0) {
             const EvhcPart& p = V.part[pi];
             if (p.kind == EVP_BELT || p.kind == EVP_WFLIP) {
@@ -2091,13 +2588,13 @@ static bool evhc_draw_object(const SimObject& o, int pass)
             if (p.kind == EVP_ROTOR && (p.flags & EVF_DISC)) {
                 float d = P.disc;
                 if (d > 1.0f) d = 1.0f;
-                alpha = (unsigned char)(255.0f * d + 0.5f);
+                alpha = (unsigned char)((float)baseAlpha * d + 0.5f);
                 if (!colour && alpha < 128) continue;
             }
         }
         g_meshAlphaScale = alpha;
         D.run(r0, r1, Mx);
-        g_meshAlphaScale = 255;
+        g_meshAlphaScale = baseAlpha;
         if (hook) ebld_uv_clear();
     }
     if (ma >= 0) D.run(ma, mb, NULL);
@@ -2537,6 +3034,15 @@ static void evhc_note_death(const EvhcDeathIn& d, int key, int frame)
         E.carrier.w[2] = (eb_r(h, 3) - 0.5f) * (heli ? 1.2f : 2.0f);
     }
     const long long wk = ++g_evhcWreckSerial;
+    if(vehicle_budget_enabled()) {
+        destruction_view_refresh();
+        if(evhc_wreck_in_local_view(E,V))E.physicsTicket=vehicle_budget_begin(wk,"evhc",frame);
+        else vehicle_budget_effects_only(wk,"evhc",frame,"offscreen");
+        if(!E.physicsTicket) {
+            printf("EVHC|death|key=%d|type=%s|air=%d|pieces=0|lift=%.3f|frame=%d|effects_only=1\n",key,d.type,E.air?1:0,d.lift,frame);
+            return; /* the engine explosion/scorch and the sweep's sound/jolt remain */
+        }
+    }
     g_evhcWreck[wk] = E;
     printf("EVHC|death|key=%d|type=%s|air=%d|pieces=%d|lift=%.3f|frame=%d\n", key, d.type,
            E.air ? 1 : 0, (int)W.piece.size(), d.lift, frame);
@@ -2649,7 +3155,7 @@ static void evhc_wreck_step(int frame)
     for (std::map<long long, EvhcWreck>::iterator it = g_evhcWreck.begin(); it != g_evhcWreck.end(); ) {
         EvhcWreck& E = it->second;
         const long long key = it->first;
-        if (E.model < 0 || E.model >= (int)g_evhc.size()) { g_evhcWreck.erase(it++); continue; }
+        if (E.model < 0 || E.model >= (int)g_evhc.size()) {vehicle_budget_end(E.physicsTicket);g_evhcWreck.erase(it++);continue;}
         const EvhcModel& V = g_evhc[E.model];
         const EbldSet& W = V.m.set[EBS_DESTROYED];
         const float sinkAfter = V.m.param[EVQ_SINK_AFTER], sinkTime = V.m.param[EVQ_SINK_TIME];
@@ -2718,6 +3224,7 @@ static void evhc_wreck_step(int frame)
         }
         if (E.sinking && t >= sinkEnd) {
             printf("EVHC|gone|key=%lld|type=%s|frame=%d\n", key, E.type, frame);
+            vehicle_budget_end(E.physicsTicket);
             g_evhcWreck.erase(it++);
             continue;
         }
@@ -2771,16 +3278,18 @@ static bool evhc_wreck_shown(const EvhcWreck& E)
    state: one-sided, the broken faces (caps and linings) pushed back in depth so a surface
    they touch always wins (ebld_gl_begin). */
 static void evhc_draw_flights(int pass);
+static void evhc_draw_ssml_flights(int pass);
 static void evhc_draw_wrecks(int pass, bool fading)
 {
     /* the V2's rockets in flight go down in every pass the wrecks do (they outlive the
        launcher's own draw as the wrecks outlive their vehicle) */
-    if (!fading) evhc_draw_flights(pass);
+    if (!fading) { evhc_draw_flights(pass); evhc_draw_ssml_flights(pass); }
     /* (`evhc 0` in a run takes the wrecks out of the picture with the models: --noevhc never
        makes one) */
     if (g_evhcWreck.empty() || pass == MODE_SHADOW || !g_evhcOn) return;
     const bool aux = ebld_aux_pass();
     if (aux && fading) return;
+    MeshArrayScope arrays(evhc_array_scope_enabled());
     const float now = engine_time();
     bool began = false;
     EbldGL st;
@@ -2837,8 +3346,10 @@ static void evhc_draw_wrecks(int pass, bool fading)
 static void evhc_draw_glow(void)
 {
     if (g_evhcWreck.empty() || ebld_aux_pass() || !g_evhcOn) return;
+    MeshArrayScope arrays(evhc_array_scope_enabled());
     const bool transientWas=g_meshTransientColor;
     g_meshTransientColor=mesh_perf_switch("OPENCNC3D_MESH_GLOW_DYNAMIC");
+    MeshGeometrySharingScope geometrySharing(!mesh_vehicle_glow_single_pass());
     const float now = engine_time();
     GLint depthFunc = GL_LEQUAL;
     GLboolean depthMask = GL_FALSE;
@@ -2929,6 +3440,7 @@ static void evhc_draw_glow(void)
 #define EVHC_NORMAL_CLASS 0.35f
 static bool g_evhcNrmOn = true;                  /* --noevhcnormals clears it */
 static int  dosmake_strip_for(const SimObject& o);
+static void evhc_mark_lit_lenses(void);
 static void evhc_draw_normals(void)
 {
     g_evhcNrmObjs = g_evhcNrmRigs = g_evhcNrmWrecks = 0;
@@ -2967,8 +3479,9 @@ static void evhc_draw_normals(void)
                 continue;
             }
             if (!evhc_kind(o.kind)) continue;
-            /* (a Red Alert unit has no cartridge model to stand in for) */
-            if ((!g_raModule && mesh_for(o) < 0) || shatter_owns(o)) continue;
+            if (shatter_owns(o)) continue;
+            const int m = evhc_for(o);
+            if (m < 0 || (!g_raModule && !g_evhc[m].gunRa && mesh_for(o) < 0)) continue;
             if (evhc_draw_object(o, pass) && !pi) g_evhcNrmObjs++;
         }
         /* the riders on a hovercraft's deck */
@@ -2982,6 +3495,8 @@ static void evhc_draw_normals(void)
     g_evhcNrmPass = false;
     g_meshNrmOut = 0;
     g_m3NormalPass = was3;
+    fx_glUseProgram(0);
+    evhc_mark_lit_lenses();   /* a lit lens's glow is light, not paint */
     fx_glUseProgram((GLuint)was);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 }
@@ -3010,7 +3525,9 @@ static const char* EVHC_SPEC_FS =
     "varying float vEmit;\n"
     "uniform sampler2D uTex;\n"
     "uniform int uCut;\n"
+    CLOAK_DOOR_GLSL
     "void main() {\n"
+    "    if (cloakDoorShut()) discard;\n"
     "    vec4 s = texture2D(uTex, vUV);\n"
     "    if (uCut == 1 && s.a <= 0.5) discard;\n"
     /* a self-lit texel (a lit lens) makes its own light and takes no highlight */
@@ -3064,6 +3581,7 @@ static bool evhc_spec_want(void)
 
 static void evhc_draw_spec(void)
 {
+    MeshArrayScope arrays(ant_perf_switch("OPENCNC3D_AUX_ARRAY_SCOPE"));
     g_evhcSpecObjs = g_evhcSpecRigs = 0;
     const GLuint prog = evhc_spec_prog();
     if (!prog) return;
@@ -3101,9 +3619,10 @@ static void evhc_draw_spec(void)
                 continue;
             }
             if (!vehSpec || !evhc_kind(o.kind)) continue;
-            if ((!g_raModule && mesh_for(o) < 0) || shatter_owns(o)) continue;
+            if (shatter_owns(o)) continue;
             const int m = evhc_for(o);
-            if (m < 0 || !g_evhc[m].m.hasSpec) continue;
+            if (m < 0 || !g_evhc[m].m.hasSpec
+                || (!g_raModule && !g_evhc[m].gunRa && mesh_for(o) < 0)) continue;
             if (evhc_draw_object(o, pass) && !pi) g_evhcSpecObjs++;
         }
     }
@@ -3152,6 +3671,9 @@ struct EvhcLamp {
     float p[3], d[3], n[3];                       /* world: the lens, the beam, the lens's facing */
     float col[3], cosI, cosO, range, score, lensR, opacity;
     bool  shadows, view;
+    int   obj;                                    /* its vehicle in g_objects */
+    float cw[3];                                  /* each channel's cloak share (cloak_light_share) */
+    bool  cloaking;                               /* below 1 in any channel */
 };
 static std::vector<EvhcLamp> g_evhcLamp;          /* this frame's lamps, posed */
 static std::map<long long, float> g_evhcLampW;    /* each lamp's slot weight, 0..1 */
@@ -3174,19 +3696,73 @@ static void evhc_lamp_world(const SimObject& o, const float* M, const float* v, 
     const float mx = l[0] * rc + l[2] * rs, mz = -l[0] * rs + l[2] * rc;
     const float sc = point ? MODEL_SCALE : 1.0f;
     const float lx = mx * sc, lz = mz * sc;
-    const float ly = l[1] * sc + (point ? alt_lift(o) + o.ylift : 0.0f);
+    float lift = alt_lift(o) + o.ylift, ground = terrain_y(o.wx, o.wz);
+    /* a racer's lift and anchor height, as draw_mesh takes them (rally_mod.h) */
+    if (g_rlyDraw && wobble_of(o) != WOBBLE_NONE) rly_draw_at(o.wx, o.wz, &lift, &ground);
+    const float ly = l[1] * sc + (point ? lift : 0.0f);
     float wax = 0.0f, waz = 0.0f;
     mesh_wobble(wobble_of(o), o.wx, o.wz, &wax, &waz);
     const float wsx = sinf(wax), wcx = cosf(wax), wsz = sinf(waz), wcz = cosf(waz);
     const float y1 = ly * wcx - lz * wsx, z1 = ly * wsx + lz * wcx;
     const float x2 = lx * wcz - y1 * wsz, y2 = lx * wsz + y1 * wcz;
     if (point) {
-        out[0] = o.wx + x2; out[1] = terrain_y(o.wx, o.wz) + y2; out[2] = o.wz + z1;
+        out[0] = o.wx + x2; out[1] = ground + y2; out[2] = o.wz + z1;
     } else {
         const float L = sqrtf(x2 * x2 + y2 * y2 + z1 * z1);
         const float k = L > 1e-9f ? 1.0f / L : 0.0f;
         out[0] = x2 * k; out[1] = y2 * k; out[2] = z1 * k;
     }
+}
+
+/* The Dawn MLRS mouth belongs to the elevation hinge, not the hull's engine
+   Fire_Coord. Measure its front plane along the authored rest bore, then use the
+   same complete hinge/turret/hull/terrain transform as the preserved mesh. */
+static bool evhc_msam_launch(const EfxFire& fire, float out[3])
+{
+    if (g_raModule || !g_fx.enabled || strcmp(fire.type, "MSAM")) return false;
+    for (size_t oi = 0; oi < g_objects.size(); oi++) {
+        const SimObject& o = g_objects[oi];
+        if (o.kind != K_UNIT || o.id != fire.id || strcmp(o.type, "MSAM") || o.limbo) continue;
+        const int model = evhc_for(o);
+        if (model < 0) return false;
+        const EvhcModel& V = g_evhc[model];
+        const EbldSet& S = V.m.set[EBS_INTACT];
+        for (size_t pi = 0; pi < V.part.size(); pi++) {
+            const EvhcPart& part = V.part[pi];
+            if (part.kind != EVP_HINGE || part.driver != EVD_ELEVATION
+                || part.piece < 0 || part.piece >= (int)S.piece.size()) continue;
+            const EbldPiece& piece = S.piece[part.piece];
+            const float rest = part.a[7] * (3.14159265f / 180.0f);
+            const float axis[3] = { 0, sinf(rest), cosf(rest) };
+            float front = -1e9f;
+            for (int ti = piece.tri0; ti < piece.tri0 + piece.ntri; ti++)
+                for (int c = 0; c < 3; c++) {
+                    const EbldVert& v = S.tri[ti].v[c];
+                    front = fmaxf(front, v.y * axis[1] + v.z * axis[2]);
+                }
+            float lo[3] = {1e9f,1e9f,1e9f}, hi[3] = {-1e9f,-1e9f,-1e9f};
+            int count = 0;
+            for (int ti = piece.tri0; ti < piece.tri0 + piece.ntri; ti++)
+                for (int c = 0; c < 3; c++) {
+                    const EbldVert& v = S.tri[ti].v[c];
+                    if (v.y * axis[1] + v.z * axis[2] < front - 1.0f) continue;
+                    const float p[3] = {v.x,v.y,v.z};
+                    for (int k = 0; k < 3; k++) {lo[k]=fminf(lo[k],p[k]);hi[k]=fmaxf(hi[k],p[k]);}
+                    count++;
+                }
+            if (!count) return false;
+            const float mouth[3] = {(lo[0]+hi[0])*0.5f,(lo[1]+hi[1])*0.5f,(lo[2]+hi[2])*0.5f};
+            const auto it = g_evhcUnit.find(smooth_key(o));
+            const EvhcUnit* U = it != g_evhcUnit.end() && it->second.model == model ? &it->second : NULL;
+            EvhcPose pose; evhc_pose_of(V,o,U,pose);
+            std::vector<float> matrices; evhc_pose_all(V,pose,U,matrices);
+            evhc_lamp_world(o,&matrices[pi*12],mouth,true,out);
+            printf("MSAMLAUNCH|id=%d|bullet=%d|piece=%s|rest=%.2f|local=%.2f,%.2f,%.2f|world=%.4f,%.4f,%.4f\n",
+                o.id,fire.bullet,piece.name,part.a[7],mouth[0],mouth[1],mouth[2],out[0],out[1],out[2]);
+            return true;
+        }
+    }
+    return false;
 }
 
 /* ================================================================================
@@ -3546,12 +4122,244 @@ static bool evhc_v2_flight_has(int bullet)
     return false;
 }
 
+/* Align the detached piece's authored axis and anchor to the live flight. */
+static bool evhc_rocket_matrix(const float* a, const float* d, const float* anchor, float* Mx)
+{
+    /* the rotation taking the rocket's rest frame (its line, up off it, the side) onto
+       the flight's */
+    float u0[3] = { -a[1] * a[0], 1.0f - a[1] * a[1], -a[1] * a[2] };
+    float u1[3] = { -d[1] * d[0], 1.0f - d[1] * d[1], -d[1] * d[2] };
+    float l0 = sqrtf(u0[0] * u0[0] + u0[1] * u0[1] + u0[2] * u0[2]);
+    float l1 = sqrtf(u1[0] * u1[0] + u1[1] * u1[1] + u1[2] * u1[2]);
+    if (l0 < 1e-4f || l1 < 1e-4f) return false;
+    for (int k = 0; k < 3; k++) { u0[k] /= l0; u1[k] /= l1; }
+    const float s0[3] = { u0[1] * a[2] - u0[2] * a[1], u0[2] * a[0] - u0[0] * a[2],
+                          u0[0] * a[1] - u0[1] * a[0] };
+    const float s1[3] = { u1[1] * d[2] - u1[2] * d[1], u1[2] * d[0] - u1[0] * d[2],
+                          u1[0] * d[1] - u1[1] * d[0] };
+    for (int row = 0; row < 3; row++) {
+        for (int col = 0; col < 3; col++)
+            Mx[row * 4 + col] = s1[row] * s0[col] + u1[row] * u0[col] + d[row] * a[col];
+        Mx[row * 4 + 3] = -(Mx[row * 4] * anchor[0] + Mx[row * 4 + 1] * anchor[1]
+                            + Mx[row * 4 + 2] * anchor[2]);
+    }
+    return true;
+}
+
+/* Dawn's two rail pieces ride their own engine projectiles. Honest John's
+   ballistic height is measured above the line from the rail to impact. */
+struct EvhcSsmlFlight {
+    int model, part, house, type, launchTick, lastLive;
+    bool arc;
+    float launchNose[3], launchDir[3], offset[3], impactY;
+    float previous[3], current[3], direction[3];
+};
+static std::map<int, EvhcSsmlFlight> g_evhcSSML;
+static int g_evhcSSMLTick = -1;
+static const int SSML_RAIL_BLEND = 4;
+
+static const EvhcPart* evhc_ssml_part(const EvhcSsmlFlight& flight)
+{
+    if (!evhc_rule_now() || flight.model < 0 || flight.model >= (int)g_evhc.size())
+        return NULL;
+    const EvhcModel& model = g_evhc[flight.model];
+    if (model.m.type != "MLRS" || !evhc_meshes_ok(model)
+        || flight.part < 0 || flight.part >= (int)model.part.size()) return NULL;
+    const EvhcPart& part = model.part[flight.part];
+    return part.kind == EVP_HINGE && part.driver == EVD_SSML_ROUND ? &part : NULL;
+}
+
+static void evhc_ssml_pose(const EvhcSsmlFlight& flight, float alpha, float* nose, float* axis)
+{
+    const float age = fmaxf(0.0f, (float)(flight.lastLive - flight.launchTick) - 1.0f + alpha);
+    const float blend = fminf(1.0f, age / (float)SSML_RAIL_BLEND);
+    float length2 = 0.0f;
+    for (int k = 0; k < 3; k++) {
+        nose[k] = flight.previous[k] + (flight.current[k] - flight.previous[k]) * alpha
+                  + (flight.arc ? 0.0f : flight.offset[k] * (1.0f - blend));
+        axis[k] = flight.launchDir[k] * (1.0f - blend) + flight.direction[k] * blend;
+        length2 += axis[k] * axis[k];
+    }
+    const float length = sqrtf(length2);
+    for (int k = 0; k < 3; k++)
+        axis[k] = length > 1e-5f ? axis[k] / length : flight.direction[k];
+}
+
+static void evhc_ssml_tail_fx(const EvhcSsmlFlight& flight, const EvhcPart& part, int id, int frame)
+{
+    if (!g_efxEnhOn) return;
+    float nose[3], axis[3];
+    evhc_ssml_pose(flight, 1.0f, nose, axis);
+    const bool ignition = frame == flight.launchTick;
+    const unsigned key = 0x53534d00u ^ (unsigned)id;
+    EfxSourceRec smoke = EFX_SRC[5];
+    smoke.sys = 6;  // Use the blended smoke pass and its soft sheet.
+    smoke.spd = 0.0f; smoke.spdR = 0.0f;
+    smoke.yacc = 0.16f;
+    smoke.size = 20.0f; smoke.sizeR = 4.0f; smoke.grow = 1.4f;
+    smoke.life = 22; smoke.lifeR = 5;
+    smoke.r = 216; smoke.g = 213; smoke.b = 203; smoke.a = 210;
+    float tail[3];
+    for (int k = 0; k < 3; k++)
+        tail[k] = ignition ? flight.launchNose[k] - flight.launchDir[k] * part.a[6] * MODEL_SCALE
+                          : nose[k] - axis[k] * part.a[6] * MODEL_SCALE;
+    efx_emit(smoke, tail[0], tail[1], tail[2], 1, key, frame, 0, 0,
+             0, efx_sheet_slot("LZSMOKE", smoke.sys));
+    if (!ignition) return;
+    for (int i = 0; i < EFX_ENH_NEXTRA; i++) {
+        if (strcmp(EFX_ENH_EXTRA[i].recipe, "MUZZLE_FLASH")) continue;
+        EfxSourceRec flash = EFX_ENH_EXTRA[i].src;
+        flash.name = "SSML_Exhaust";
+        flash.size = 19.0f; flash.sizeR = 0.0f;
+        flash.life = 5; flash.lifeR = 0;
+        flash.r = 255; flash.g = 220; flash.b = 128;
+        for (int k = 0; k < 3; k++) {
+            const float rear = 0.025f + 0.041f * (float)k;
+            efx_emit(flash, tail[0] - flight.launchDir[0] * rear,
+                     tail[1] - flight.launchDir[1] * rear,
+                     tail[2] - flight.launchDir[2] * rear, 1, key, frame, 1, k,
+                     0, -1, false, true);
+        }
+        break;
+    }
+    printf("SSML|ignition|bullet=%d|tail=%.3f,%.3f,%.3f|frame=%d\n",
+           id, tail[0], tail[1], tail[2], frame);
+}
+
+static void evhc_ssml_step(int frame)
+{
+    if (g_raModule || !evhc_rule_now() || frame < g_evhcSSMLTick) g_evhcSSML.clear();
+    g_evhcSSMLTick = frame;
+    if (g_raModule || !evhc_rule_now()) return;
+    for (const EfxFire& fire : g_efxFiresNow) {
+        if (efx_att_objkind(fire.kind) != K_UNIT || strcmp(fire.type, "MLRS") || strcmp(fire.bname, "MISSILE")) continue;
+        g_evhcSSML.erase(fire.bullet);     /* the engine can reuse a projectile slot */
+        for (const SimObject& o : g_objects) {
+            if (o.kind != K_UNIT || o.id != fire.id || strcmp(o.type, fire.type)
+                || o.limbo || o.ammo < 0 || o.ammo > 1) continue;
+            const int m = evhc_for(o);
+            if (m < 0) break;
+            const EvhcModel& V = g_evhc[m];
+            for (size_t pi = 0; pi < V.part.size(); pi++) {
+                const EvhcPart& part = V.part[pi];
+                if (part.kind != EVP_HINGE || part.driver != EVD_SSML_ROUND || part.side != o.ammo)
+                    continue;
+                EvhcSsmlFlight f = {};
+                f.model = m; f.part = (int)pi; f.house = mesh_house(o); f.type = fire.btype;
+                f.launchTick = frame; f.lastLive = -1;
+                EvhcPose pose;
+                const auto unit = g_evhcUnit.find(smooth_key(o));
+                const EvhcUnit* U = unit == g_evhcUnit.end() ? NULL : &unit->second;
+                evhc_pose_of(V, o, U, pose);
+                std::vector<float> mats;
+                evhc_pose_all(V, pose, U, mats);
+                const float* M = &mats[pi * 12];
+                float localNose[3];
+                for (int k = 0; k < 3; k++) localNose[k] = part.a[k] + part.a[k + 3] * part.a[6];
+                evhc_lamp_world(o, M, localNose, true, f.launchNose);
+                evhc_lamp_world(o, M, part.a + 3, false, f.launchDir);
+                std::copy(f.launchDir, f.launchDir + 3, f.direction);
+                g_evhcSSML[fire.bullet] = f;
+                printf("SSML|fire|id=%d|bullet=%d|rail=%d|ammo=%d|frame=%d\n",
+                       o.id, fire.bullet, part.side, o.ammo, frame);
+                break;
+            }
+            break;
+        }
+    }
+    for (const EfxBullet& b : g_efxBullets) {
+        const auto it = g_evhcSSML.find(b.id);
+        if (it == g_evhcSSML.end() || b.type != it->second.type) continue;
+        EvhcSsmlFlight& f = it->second;
+        if (f.lastLive >= 0 && f.lastLive != frame - 1) continue;
+        const EvhcPart* part = evhc_ssml_part(f);
+        if (!part || b.invis) continue;
+        float p[3] = {b.wx, 0.0f, b.wz};
+        f.arc = b.arcTicks > 0 && std::isfinite(b.tx) && std::isfinite(b.tz);
+        if (f.arc) {
+            if (f.lastLive < 0) f.impactY = terrain_y(b.tx, b.tz);
+            const float t = (float)b.arcStep / (float)b.arcTicks;
+            // The engine supplies flight progress, height and the impact point.
+            // Interpolate between the visible rail and impact, sampling the terrain
+            // only at impact. The missile never follows the contours below it.
+            p[0] = f.launchNose[0] + (b.tx - f.launchNose[0]) * t;
+            p[1] = f.launchNose[1] + (f.impactY - f.launchNose[1]) * t + efx_bullet_lift(b);
+            p[2] = f.launchNose[2] + (b.tz - f.launchNose[2]) * t;
+        } else {
+            p[1] = terrain_y(b.wx, b.wz) + efx_bullet_lift(b) + 0.065f;
+        }
+        if (f.lastLive < 0) {
+            for (int k = 0; k < 3; k++) {
+                f.offset[k] = f.launchNose[k] - p[k];
+                f.previous[k] = p[k];
+            }
+        } else {
+            const float delta[3] = {p[0] - f.current[0], p[1] - f.current[1], p[2] - f.current[2]};
+            const float travel = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+            for (int k = 0; k < 3; k++) {
+                f.previous[k] = f.current[k];
+                if (travel > 1e-5f) f.direction[k] = delta[k] / travel;
+            }
+        }
+        std::copy(p, p + 3, f.current);
+        f.lastLive = frame;
+        evhc_ssml_tail_fx(f, *part, b.id, frame);
+    }
+    for (auto it = g_evhcSSML.begin(); it != g_evhcSSML.end(); ) {
+        const EvhcSsmlFlight& f = it->second;
+        if (f.lastLive == frame - 1)
+            printf("SSML|end|bullet=%d|frame=%d\n", it->first, frame);
+        if (frame - std::max(f.lastLive, f.launchTick) > 30) it = g_evhcSSML.erase(it);
+        else ++it;
+    }
+}
+
+static bool evhc_ssml_replaces_bullet(const EfxBullet& b)
+{
+    const auto it = g_evhcSSML.find(b.id);
+    if (it == g_evhcSSML.end()) return false;
+    const EvhcSsmlFlight& f = it->second;
+    return b.type == f.type && f.lastLive == g_evhcSSMLTick && evhc_ssml_part(f)
+           && evhc_resident(g_evhc[f.model], false);
+}
+
+static bool evhc_ssml_replaces_smoke(const EfxAnim& an)
+{
+    if (!g_efxEnhOn || an.ssmlBullet < 0) return false;
+    const auto it = g_evhcSSML.find(an.ssmlBullet);
+    return it != g_evhcSSML.end() && evhc_ssml_part(it->second);
+}
+
+static void evhc_draw_ssml_flights(int pass)
+{
+    if (pass != MODE_OPAQUE || g_evhcSSML.empty() || !evhc_rule_now()) return;
+    MeshArrayScope arrays(evhc_array_scope_enabled());
+    for (const auto& entry : g_evhcSSML) {
+        const EvhcSsmlFlight& f = entry.second;
+        if (f.lastLive != g_evhcSSMLTick) continue;
+        const EvhcPart* part = evhc_ssml_part(f);
+        if (!part) continue;
+        EvhcModel& V = g_evhc[f.model];
+        if (!evhc_resident(V, false)) continue;
+        const int* r = &V.m.rng[EBM_INTACT][part->piece * EBR];
+        float nose[3], axis[3], anchor[3], M[12];
+        evhc_ssml_pose(f, g_tickAlpha, nose, axis);
+        if (efx_hidden(nose[0], nose[2])) continue;
+        for (int k = 0; k < 3; k++) anchor[k] = part->a[k] + part->a[k + 3] * part->a[6];
+        if (!evhc_rocket_matrix(part->a + 3, axis, anchor, M)) continue;
+        const float lift = nose[1] - terrain_y(nose[0], nose[2]);
+        draw_mesh(V.m.mesh[EBM_INTACT], nose[0], nose[2], -1, pass, 0, 0.0f, f.house,
+                  1.0f, lift, false, WOBBLE_NONE, -1.0f, M, (size_t)r[EBR_A], (size_t)r[EBR_B]);
+    }
+}
+
 /* THE FLYING ROCKET DRAWN: the model's own rocket piece, in its paint and at its size,
    its nose at the flight's point and its line along the flight's, kept upright about its
    line (no roll), in every pass the wrecks are drawn in. */
 static void evhc_draw_flights(int pass)
 {
     if (g_evhcFlight.empty() || pass == MODE_SHADOW || !evhc_rule_now()) return;
+    MeshArrayScope arrays(evhc_array_scope_enabled());
     for (size_t i = 0; i < g_evhcFlight.size(); i++) {
         EvhcFlight& F = g_evhcFlight[i];
         if (!F.seen || F.ended >= 0 || F.model < 0 || F.model >= (int)g_evhc.size()) continue;
@@ -3567,26 +4375,8 @@ static void evhc_draw_flights(int pass)
         if (r[EBR_B] <= r[EBR_A]) continue;
         float nose[3], d[3];
         evhc_v2_flight_pose(F, g_tickAlpha, nose, d);
-        /* the rotation taking the rocket's rest frame (its line, up off it, the side) onto
-           the flight's */
-        const float* a = F.a0;
-        float u0[3] = { -a[1] * a[0], 1.0f - a[1] * a[1], -a[1] * a[2] };
-        float u1[3] = { -d[1] * d[0], 1.0f - d[1] * d[1], -d[1] * d[2] };
-        float l0 = sqrtf(u0[0] * u0[0] + u0[1] * u0[1] + u0[2] * u0[2]);
-        float l1 = sqrtf(u1[0] * u1[0] + u1[1] * u1[1] + u1[2] * u1[2]);
-        if (l0 < 1e-4f || l1 < 1e-4f) continue;
-        for (int k = 0; k < 3; k++) { u0[k] /= l0; u1[k] /= l1; }
-        const float s0[3] = { u0[1] * a[2] - u0[2] * a[1], u0[2] * a[0] - u0[0] * a[2],
-                              u0[0] * a[1] - u0[1] * a[0] };
-        const float s1[3] = { u1[1] * d[2] - u1[2] * d[1], u1[2] * d[0] - u1[0] * d[2],
-                              u1[0] * d[1] - u1[1] * d[0] };
         float Mx[12];
-        for (int row = 0; row < 3; row++) {
-            for (int col = 0; col < 3; col++)
-                Mx[row * 4 + col] = s1[row] * s0[col] + u1[row] * u0[col] + d[row] * a[col];
-            Mx[row * 4 + 3] = -(Mx[row * 4] * F.n0[0] + Mx[row * 4 + 1] * F.n0[1]
-                                + Mx[row * 4 + 2] * F.n0[2]);
-        }
+        if (!evhc_rocket_matrix(F.a0, d, F.n0, Mx)) continue;
         const float lift = nose[1] - terrain_y(nose[0], nose[2]);
         draw_mesh(mi, nose[0], nose[2], -1, pass, 0, 0.0f, F.house, 1.0f, lift, false,
                   WOBBLE_NONE, -1.0f, Mx, (size_t)r[EBR_A], (size_t)r[EBR_B]);
@@ -3645,6 +4435,9 @@ static void evhc_gather_lamps(void)
         EvhcPose P;
         evhc_pose_of(V, o, U, P);
         evhc_pose_all(V, P, U, mats);
+        /* a cloaking vehicle's lamps show what its body shows (cloak_light_share) */
+        float cw[3];
+        const bool cloaking = cloak_light_share(o, cw);
         for (size_t li = 0; li < V.light.size() && li < 64; li++) {
             const EvhcLight& L = V.light[li];
             const int pi = (L.piece >= 0 && L.piece < (int)V.partOf.size()) ? V.partOf[L.piece] : -1;
@@ -3652,13 +4445,16 @@ static void evhc_gather_lamps(void)
             EvhcLamp E;
             E.key = (long long)smooth_key(o) * 64 + (long long)li;
             E.model = m; E.light = (int)li;
+            E.obj = (int)i;
+            E.cw[0] = cw[0]; E.cw[1] = cw[1]; E.cw[2] = cw[2];
+            E.cloaking = cloaking;
             evhc_lamp_world(o, M, L.pos, true, E.p);
             evhc_lamp_world(o, M, L.dir, false, E.d);
             evhc_lamp_world(o, M, L.lensN, false, E.n);
             const bool head = L.kind == EVL_HEAD;
             const float dial = head ? g_fx.vlight_head : g_fx.vlight_tail;
             const float s = L.intensity * dial;
-            for (int c = 0; c < 3; c++) E.col[c] = L.col[c] * s * EVHC_LAMP_GAIN;
+            for (int c = 0; c < 3; c++) E.col[c] = L.col[c] * s * EVHC_LAMP_GAIN * cw[c];
             const float cs = g_fx.vlight_cone > 0.0f ? g_fx.vlight_cone : 1.0f;
             float ao = L.cone[1] * cs, ai = L.cone[0] * cs;
             if (ao > 89.0f) ao = 89.0f;
@@ -3672,7 +4468,9 @@ static void evhc_gather_lamps(void)
             E.opacity = fminf(1.0f, 0.55f + 0.45f * sqrtf(L.intensity));
             E.view = evhc_lamp_in_view(E.p, E.d, E.range);
             const float dx = E.p[0] - camX, dz = E.p[2] - camZ;
-            E.score = s * E.range / (1.0f + sqrtf(dx * dx + dz * dz));
+            /* a cloaking vehicle's faint lamps give their slots up to brighter ones */
+            E.score = s * E.range / (1.0f + sqrtf(dx * dx + dz * dz))
+                    * fmaxf(cw[0], fmaxf(cw[1], cw[2]));
             g_evhcLamp.push_back(E);
         }
     }
@@ -3805,8 +4603,8 @@ static void evhc_draw_lamp_glows(void)
         float c0[3];
         for (int c = 0; c < 3; c++) c0[c] = E.p[c] + n[c] * 0.0015f;
         const float g = g_fx.vlight_glow;
-        glColor4f(fminf(1.0f, L.col[0] * g), fminf(1.0f, L.col[1] * g), fminf(1.0f, L.col[2] * g),
-                  E.opacity);
+        glColor4f(fminf(1.0f, L.col[0] * g) * E.cw[0], fminf(1.0f, L.col[1] * g) * E.cw[1],
+                  fminf(1.0f, L.col[2] * g) * E.cw[2], E.opacity);
         glTexCoord2f(0.0f, 0.0f);
         glVertex3f(c0[0] - u[0] * h - v[0] * h, c0[1] - u[1] * h - v[1] * h, c0[2] - u[2] * h - v[2] * h);
         glTexCoord2f(1.0f, 0.0f);
@@ -3827,6 +4625,62 @@ static void evhc_draw_lamp_glows(void)
     glBlendFunc((GLenum)bsrc, (GLenum)bdst);
     glDepthMask(depthMask);
     glDepthFunc((GLenum)depthFunc);
+}
+
+/* A LIT LENS'S GLOW IS LIGHT, NOT PAINT. The glow above is added to the colour picture
+   before the light pass, which relights every vehicle pixel from what the normal target
+   says it is; on a lens whose specular map makes it a mirror (Red Alert's Ranger among
+   them) the material model took most of its diffuse away, glow and all, and a lit
+   headlight came out as a dark disc in a ring. So the core of each glowing disc (the 0.45 of its
+   radius the glow paints solid) is written into the normal target as self-lit, the class
+   a remastered model gives its own lit lenses, which the light pass leaves as it is.
+   Called at the end of the vehicles' normal pass, with its matrices and depth test, and no
+   program.
+   ON A CLOAKING VEHICLE the glow is as faint as the body (cloak_light_share), and the mark
+   goes down through the body's own screen door (CloakScreen), so the pixels where the
+   ground shows through the vehicle stay ground for the light pass. Once the glow is under
+   half its strength (the player's own cloaked tank wears about a fifteenth of it) the lens
+   is left to be lit as the rest of the darkened body is, and not marked at all. */
+static void evhc_mark_lit_lenses(void)
+{
+    if (g_evhcLamp.empty() || g_fx.vlight_glow <= 0.0f) return;
+    const float cls = fx_vehicle_active(&g_fx) ? 0.22f : EBLD_SELFLIT_CLASS;
+    const GLboolean texWas = glIsEnabled(GL_TEXTURE_2D), cullWas = glIsEnabled(GL_CULL_FACE);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_CULL_FACE);
+    for (size_t k = 0; k < g_evhcLamp.size(); k++) {
+        const EvhcLamp& E = g_evhcLamp[k];
+        if (!E.view || E.opacity < 0.5f) continue;
+        if (E.cloaking && (E.cw[0] + E.cw[1] + E.cw[2]) < 1.5f) continue;
+        if (E.obj < 0 || E.obj >= (int)g_objects.size()) continue;
+        const float* n = E.n;
+        float a[3] = { 0.0f, 1.0f, 0.0f };
+        if (fabsf(n[1]) > 0.9f) { a[0] = 1.0f; a[1] = 0.0f; }
+        float u[3] = { a[1] * n[2] - a[2] * n[1], a[2] * n[0] - a[0] * n[2], a[0] * n[1] - a[1] * n[0] };
+        const float ul = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+        if (ul < 1e-6f) continue;
+        for (int c = 0; c < 3; c++) u[c] /= ul;
+        const float v[3] = { n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0] };
+        const float r = (E.lensR > 0.006f ? E.lensR : 0.006f) * 1.8f * EVHC_GLOW_SIZE * 0.45f;
+        float c0[3];
+        for (int c = 0; c < 3; c++) c0[c] = E.p[c] + n[c] * 0.0015f;
+        /* the door, for a cloaking vehicle under the light pass (nothing otherwise); its
+           stand-in program draws the vertex colour alone, at the scale of one */
+        const CloakScreen door(g_objects[E.obj], MODE_OPAQUE);
+        cloak_door_textured(false);
+        cloak_door_scale(1.0f);
+        glColor4f(n[0] * 0.5f + 0.5f, n[1] * 0.5f + 0.5f, n[2] * 0.5f + 0.5f, cls);
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex3f(c0[0], c0[1], c0[2]);
+        for (int i = 0; i <= 16; i++) {
+            const float t = (float)i * (6.2831853f / 16.0f), cs = cosf(t) * r, sn = sinf(t) * r;
+            glVertex3f(c0[0] + u[0] * cs + v[0] * sn, c0[1] + u[1] * cs + v[1] * sn,
+                       c0[2] + u[2] * cs + v[2] * sn);
+        }
+        glEnd();
+    }
+    if (texWas) glEnable(GL_TEXTURE_2D);
+    if (cullWas) glEnable(GL_CULL_FACE);
 }
 
 /* evhclamps: the lamps of the last frame: EVHCLAMP the switch and the counts, EVHCLAMPL
@@ -3852,7 +4706,11 @@ static void evhc_lamp_dump(void)
 /* Mission boundary and shutdown. */
 static void evhc_reset(void)
 {
+    g_evhcSSML.clear();
+    g_evhcSSMLTick = -1;
+    g_actorDepthSources.clear();
     g_evhcUnit.clear();
+    for(const auto& e:g_evhcWreck)vehicle_budget_end(e.second.physicsTicket);
     g_evhcWreck.clear();
     g_evhcLastTick = -1;
     g_evhcWreckSerial = 0;
@@ -3969,6 +4827,18 @@ static void evhc_dump(void)
         V.rigLift = -1.0f;
         V.rigHoop = V.rigTank = -1.0f;
         V.rigHoopMid = V.rigHoopFull = V.rigHoopBad = 0;
+    }
+    if (!g_raModule) {
+        for (const SimObject& o : g_objects) {
+            if (strcmp(o.type, "MLRS") || o.limbo) continue;
+            printf("SSML|rails|id=%d|ammo=%d|frame=%d\n", o.id, o.ammo, g_engineFrame);
+        }
+        for (const auto& entry : g_evhcSSML) {
+            const EvhcSsmlFlight& f = entry.second;
+            if (!f.arc || f.lastLive != g_engineFrame) continue;
+            printf("SSML|pose|bullet=%d|xyz=%.4f,%.4f,%.4f|frame=%d\n",
+                   entry.first, f.current[0], f.current[1], f.current[2], g_engineFrame);
+        }
     }
     for (std::map<int, EvhcUnit>::iterator it = g_evhcUnit.begin(); it != g_evhcUnit.end(); ++it) {
         EvhcUnit& U = it->second;

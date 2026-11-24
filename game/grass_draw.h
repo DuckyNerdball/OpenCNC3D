@@ -696,7 +696,7 @@ static GLuint grass_prog(void)
  * ---------------------------------------------------------------------------------- */
 static void grass_wind_phases(float* p1, float* p2, float* p3)
 {
-    const double tsec = ((double)g_engineFrame + (double)g_tickAlpha) / 15.0;
+    const double tsec = wind_seconds();   /* the wind's clock, cnc_eyes.cpp */
     const double sp   = (double)g_fx.tree3d_wind_speed * (double)g_fx.grass_wind_rate;
     const double a = tsec * sp, b = tsec * sp * 1.7, c = tsec * sp * 3.3;
     *p1 = (float)(a - floor(a));

@@ -35,7 +35,7 @@ REM echoed text: inside a block cmd reads the first one as the end of the block.
     echo editor  %DATE% %TIME%
     echo   map      %SCEN%
     echo   folder   %CD%
-    echo   build    @BUILD_ID@   Windows, 32-bit
+    echo   build    @BUILD_ID@   Windows, 64-bit
     echo ==============================================================
 ) > "%LOG%"
 

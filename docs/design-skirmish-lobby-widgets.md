@@ -1,5 +1,28 @@
 # The skirmish lobby: what to reuse, what is missing, and the order to build it
 
+<!-- october34-2026-11-04 -->
+
+## Offline preferences and edit acceptance — 4 November 2026
+
+The user-directed October fix supersedes the historical all-filled default below.
+Fresh games start with one AI; other available seats are Empty. Empty/Blocked,
+country, colour, team and per-AI difficulty survive map changes; only map-specific
+starts are cleared. Per-game offline preferences survive full app restarts.
+
+A seat edit snapshots all eight rows because a colour choice can swap another row.
+Back/Escape restores the snapshot; Done/Enter commits. Leaving the lobby cancels
+an unfinished popup before writing the accepted settings. Network state and offline
+preference files remain separate. Reads reject invalid, truncated and foreign-game
+files transactionally; writes replace a per-process temporary file atomically.
+
+Both games pass actual pointer Back/Done and two fresh app launches on native Mac
+and Windows. Geometry, native artwork, fonts and the accepted difficulty widgets
+are unchanged. Review captures/hashes are in the private October Remaster Lab
+page; final source, delivery and failures are recorded in
+`docs/verification/2026-11-04-october-reports/`.
+
+<!-- /october34-2026-11-04 -->
+
 Research only. No code was changed to write this. Every line number below was read out of
 the working tree at the time of writing and every negative claim ("there is no X") was
 confirmed with a substring count over the whole tree rather than with a single grep.

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "native_clear_mean": [
+    0.8976477396514161,
+    0.797574976171024,
+    0.5707278050108933
+  ],
+  "enhanced_source_mean": [
+    0.769133408194851,
+    0.518788548727104,
+    0.26346170140228475
+  ],
+  "ground_rgb_gain": [
+    1.1670897793377446,
+    1.5373796860550382,
+    2.1662647814584557
+  ],
+  "source_theater": "DESERT",
+  "runtime_theater": "SAND",
+  "native_bank_unchanged": true,
+  "player_colour": "Explicit all-black masks paired with the shared source albedo/UV in unified_daylight_v01/MANIFEST.json",
+  "outputs": {
+    "coastmask_SAND.pack": "acd20cd203ae7ab5b6480a5fee8d8c286074f9b925874432e74f6edb47a43788",
+    "terrainenh_SAND.pack": "a159a511d3079ff033db833d470ced7f8e27eb1a78fe293ae459760c1ee6dc66",
+    "terrainseam_SAND.pack": "18dea0234b8ec9044683f5203c626d62d2ede01839d3ff3e53f4ab7e2f8d0202",
+    "clearblend_SAND.pack": "2cf78f99354ff40ad899ae09e001a10448049c2b41a5210f573578576d4b7cf6",
+    "groundmask_SAND.pack": "b33aeefc09411289d0d11e995e26ee97e01c4a4422cde2ce799e75a779775ba1",
+    "terrainsurface_SAND.pack": "02f0012c100e9638ba0866cdd61d9c52bc4feb6fdb6b54ebd107da98d62d6a76"
+  }
+}

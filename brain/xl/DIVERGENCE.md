@@ -263,6 +263,13 @@ except where noted):
   classic side, and the parity comparator treats inicell as stride-derived
   either way, so it is dropped from the comparison rather than normalized.
   Re-sync the field when the classic formula settles.
+- `DLLExportClass::Code_Pointers` and `Decode_Pointers` (dllinterface.cpp) carry
+  the coded building type through `intptr_t`, as the classic brain does, rather
+  than through `unsigned int`. Not a divergence from the classic brain but from
+  the fork point: the stored number is unchanged on every platform, and a 64-bit
+  Windows compile of the file no longer reports a pointer truncation there. The
+  classic brain's save-width mark in DLLExportClass::Save and Load is NOT ported:
+  no Windows build compiles XL.
 
 ## Formats
 
@@ -443,3 +450,29 @@ changed by this work. TD headless checks exercise initial-MCV construction,
 paid harvesting/production, level assignment, scouting/attacks, deterministic
 state diagnostics and save/resume; XL additionally requires its normal build
 and parity gates before runtime delivery.
+
+The skirmish planner's growth rework is ported here by hand, so
+this is still parity: the same refinery schedule, silos, tech goals, per-tick
+installment starts, wave window, cheapest-units home reserve, rally point outside the
+base, inward MCV drive from a map edge and the placement rule in
+`Find_Cell_In_Zone` that refuses a skirmish computer building which would split the
+passable ground (`TD_Fair_AI_Keeps_Paths`). The fork's copy of `fair_ai_td.inc`
+still differs from the unforked one only by the Rally, Gun Game, film-isolation and
+level-query lines it never had.
+
+## Two random draws in one call are taken one statement at a time
+
+`HouseClass::AI` (house.cpp, the random map cell a newly spawned creature is placed on)
+and `DisplayClass::Calculated_Cell` (display.cpp, `SOURCE_VISIBLE`, a random cell of the
+tactical view) each passed two `Random_Pick` draws as the two arguments of one
+`XY_Cell` call. C++ leaves the order of those two evaluations unspecified: the macOS
+compiler takes the column first and the Windows build's MinGW GCC the row first, so the
+two builds took different cells from the same random state. Both sites now draw into
+two locals, column first, which is the order the macOS build already compiled to: at the
+house.cpp site the macOS machine code reads the map width before the first draw both
+before and after the change, and at both sites the Windows code now reads the width
+first where it read the height first.
+
+**This is NOT a divergence from the unforked engine.** The same change was made to
+`brain/vanilla/tiberiandawn` in the same commit and ported here by hand; the same fix in
+Red Alert's start-point deficiency loop (`redalert/scenario.cpp`) came first.

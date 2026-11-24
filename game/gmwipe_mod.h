@@ -3,18 +3,20 @@
  *
  *  WHAT A PLAYER SEES. SPACE takes the game to the next graphics mode (Classic, then
  *  N64, then Enhanced, then Classic again; where N64 is not offered, as in Red Alert,
- *  Classic and Enhanced in turn). The old picture is torn up cell by cell from left to
- *  right, each piece turning over and flying off to the right like a carpet of tiles
- *  ripped up from one end, with the new mode already there beneath; the ground shakes
- *  and a low rumble goes with it (THE TILE RIP, below). The new mode's name comes up
- *  large at the top of the screen, holds, and fades.
+ *  Classic and Enhanced in turn). A vertical line sweeps from the left edge to the right
+ *  in a second and a half, fast at first and easing out, with the new mode already
+ *  showing behind it and the old picture still in front of it (THE SWIPE, below). The
+ *  line is green in Tiberian Dawn and red in Red Alert. The new mode's name comes up
+ *  large at the top of the screen, holds, and fades. The earlier tile rip, the old
+ *  picture torn up piece by piece with a rumble and a shake, is still here for
+ *  comparison (OPENCNC3D_GFXWIPE=rip) and is not what a player sees.
  *
  *  HOW. The old mode's last finished frame is copied into a texture (a snapshot), the
  *  mode is switched through the same apply the Visuals screen uses (so the choice is
  *  saved like any other), and while the rip runs each new frame is drawn normally with
  *  the snapshot's pieces drawn back over it, flat where the front has not reached them.
- *  Nothing is rendered twice: the pieces are a still picture for the second and a half
- *  the rip takes, which is what makes the switch free of cost while it happens.
+ *  Nothing is rendered twice: the old picture is a still for the second and a half the
+ *  swipe takes, which is what makes the switch free of cost while it happens.
  *
  *  WHERE IN THE FRAME. After fx_present, when the finished picture (post chain, sidebar
  *  and all) is on the real framebuffer, and before the pointer: while a snapshot is due
@@ -32,10 +34,6 @@
  *  pixel enlargement and nearest filtering. Green lettering has a crisp dark drop shadow.
  *  No font data is added to the build.
  *
- *  TIER 1: NONE, TIER 2 ONLY. The draw is fixed function (a copied texture, quads, lines
- *  and additive blending), but the thing it switches between is not: Windows 98 has the
- *  Classic picture only, so there is nothing for SPACE to cycle there. Listed in
- *  docs/tier1-gap.md.
  * ==================================================================================== */
 #ifndef OPENCNC3D_GMWIPE_MOD_H
 #define OPENCNC3D_GMWIPE_MOD_H
@@ -54,8 +52,17 @@ static const float GMW_TITLE_FADE = 0.60f;  /* its fade out                     
 static const float GMW_RIP_S  = 0.95f;   /* the tear front's crossing, eased in and out    */
 static const float GMW_TILE_S = 0.50f;   /* one tile, first lift to gone                   */
 static const float GMW_RIP_SHAKE = 0.07f; /* the camera's jolt while it runs, in cells    */
-/* The whole wipe: the crossing, and the last tile's own time after it. */
-static float gmw_wipe_total(void) { return GMW_RIP_S + GMW_TILE_S; }
+/* THE SWIPE (the default, its own section below): one line crossing the screen. */
+static const float GMW_SWIPE_S = 1.00f;  /* the line's crossing, eased out                */
+/* The tile rip is kept for comparison only: OPENCNC3D_GFXWIPE=rip selects it. */
+static bool gmw_rip_on(void)
+{
+    static int on = -1;
+    if (on < 0) { const char* e = getenv("OPENCNC3D_GFXWIPE"); on = (e && !strcmp(e, "rip")) ? 1 : 0; }
+    return on == 1;
+}
+/* The whole wipe: the swipe's crossing, or the rip's crossing and its last tile's time. */
+static float gmw_wipe_total(void) { return gmw_rip_on() ? GMW_RIP_S + GMW_TILE_S : GMW_SWIPE_S; }
 static void gmw_rumble_build(short** out, int* outN);
 
 enum { GMW_IDLE = 0, GMW_CAPTURE = 1, GMW_WIPE = 2 };
@@ -494,7 +501,7 @@ static void gmw_rip_capture(int fbw, int fbh)
             bool ok = true;
             for (int i = 0; i < 4 && ok; i++) {
                 const float wx = (float)(cx + OX[i]), wz = (float)(cz + OZ[i]);
-                const float wy = flat ? 0.0f : terrain_corner_y(cx + OX[i], cz + OZ[i]);
+                const float wy = flat ? 0.0f : terrain_cell_corner_y(cx,cz,cx+OX[i],cz+OZ[i]);
                 ok = project_point(wx, wy, wz, fbw, fbh, &x[i], &y[i]);
             }
             if (!ok) continue;                        /* a corner behind the camera */
@@ -592,6 +599,69 @@ static void gmw_tile_place(const GmwTile* t, float q, float W, float H, float D,
     /* Lit the same on either face: full as it lies, a little darker as it tilts, so the
        peel has a shadow side; the underside shows the same picture as the top. */
     *shade = 0.65f + 0.35f * fabsf(c);
+}
+
+/* ================================================================================== *
+ *  THE SWIPE
+ *
+ *  The old picture (the snapshot gmw_capture keeps) is drawn flat over the new frame to
+ *  the right of a vertical line, and the line crosses the screen from left to right in
+ *  GMW_SWIPE_S, eased out: quick off the left edge, settling into the right one. The
+ *  line is the game's colour, green for Tiberian Dawn and red for Red Alert, with a soft
+ *  glow either side. No shake, no sound and no title: a quick, quiet change of picture.
+ * ================================================================================== */
+static float gmw_ease_out(float p)
+{
+    if (p <= 0.0f) return 0.0f;
+    if (p >= 1.0f) return 1.0f;
+    const float q = 1.0f - p;
+    return 1.0f - q * q * q;
+}
+
+static void gmw_draw_swipe(int fbw, int fbh)
+{
+    const float W = (float)fbw, H = (float)fbh;
+    const float u = H / 800.0f;
+    const float front = W * gmw_ease_out(g_gmwT / GMW_SWIPE_S);
+
+    /* the old picture, right of the line */
+    if (front < W) {
+        cnc_screen_viewport(fbw, fbh);
+        glDisable(GL_BLEND);
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, g_gmwSnap);
+        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        const float u0 = front / W;
+        glBegin(GL_QUADS);
+        glTexCoord2f(u0, 1.0f);   glVertex2f(front, 0.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex2f(W, 0.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex2f(W, H);
+        glTexCoord2f(u0, 0.0f);   glVertex2f(front, H);
+        glEnd();
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glDisable(GL_TEXTURE_2D);
+        glEnable(GL_BLEND);
+    }
+
+    /* the line: green in Tiberian Dawn, red in Red Alert */
+    const float r = g_raModule ? 0.95f : 0.24f;
+    const float g = g_raModule ? 0.16f : 0.95f;
+    const float b = g_raModule ? 0.12f : 0.30f;
+    const float core = 2.0f * u, glow = 18.0f * u;
+    glShadeModel(GL_SMOOTH);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glBegin(GL_QUADS);
+    glColor4f(r, g, b, 0.0f);  glVertex2f(front - glow, 0); glVertex2f(front - glow, H);
+    glColor4f(r, g, b, 0.45f); glVertex2f(front, H);        glVertex2f(front, 0);
+    glColor4f(r, g, b, 0.45f); glVertex2f(front, 0);        glVertex2f(front, H);
+    glColor4f(r, g, b, 0.0f);  glVertex2f(front + glow, H); glVertex2f(front + glow, 0);
+    glEnd();
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBegin(GL_QUADS);
+    glColor4f(r, g, b, 1.0f);
+    glVertex2f(front - core, 0); glVertex2f(front + core, 0);
+    glVertex2f(front + core, H); glVertex2f(front - core, H);
+    glEnd();
 }
 
 static void gmw_draw_rip(int fbw, int fbh)
@@ -784,7 +854,7 @@ static void gmw_switch_quiet(int mode)
     DOPT_Visuals v;
     memset(&v, 0, sizeof v);
     vis_from_fx(&v);
-    v.mode = mode;
+    v.mode = g_gunGraphicsBeforeMatch >= 0 ? FX_MODE_ENHANCED : mode;
     opt_apply_visuals(NULL, &v);
     dopt_set_visuals(&g_optState, &v);
 }
@@ -800,12 +870,16 @@ static void gmw_switch(int mode)
    so a quick double press goes two modes on rather than being lost. */
 static void gmw_request(void)
 {
+    if (g_gunGraphicsBeforeMatch >= 0) return;
     if (g_gmwState != GMW_IDLE || g_gmwWarming) { g_gmwQueued = 1; return; }
     g_gmwFrom = fx_mode_of(&g_fx);
     g_gmwTarget = (g_gmwFrom + 1) % FX_MODE_COUNT;
     /* WHERE N64 IS NOT OFFERED (Red Alert, which has only Classic and Enhanced: the
-       cartridge never had its art), SPACE steps over it, as the Visuals screen does */
-    if (g_gmwTarget == FX_MODE_N64 && g_optState.n64_unavailable)
+       cartridge never had its art), SPACE steps over it, as the Visuals screen does. The
+       module itself is asked as well as the dialog's flag, as the warm-up below asks it:
+       the flag is set by the front end, and a mission started without it (a scripted
+       run) would otherwise step into an N64 picture no player of Red Alert can reach. */
+    if (g_gmwTarget == FX_MODE_N64 && (g_optState.n64_unavailable || g_raModule))
         g_gmwTarget = (g_gmwTarget + 1) % FX_MODE_COUNT;
     g_gmwState = GMW_CAPTURE;
 }
@@ -853,69 +927,265 @@ static void gmw_capture(int fbw, int fbh)
  *  builds it itself, on its own first frame, as it always has), and only in a player's
  *  run: an automated one keeps the old order unless a script asks (`gfxprebuild`).
  * ================================================================================== */
+/* (built further down the file, in the headers that draw them) */
+static bool ra3d_ground_ensure(void);
+static void ra3d_draw_clear_blend(void);
+static void terrain_surface_prepare_td(void);
+static void terrain_surface_prepare_scene(void);
+static bool bounce_wanted(void);
+static bool evhc_ahead_step(void);
+static void harvestfx_shards(void);
+
+/* ENHANCED'S OWN INPUTS are built under Enhanced's own settings: the frame hook switches the
+   live state to Enhanced quietly (nothing is written to the preset, nothing is drawn while it
+   holds) for the one call, and straight back. Each builder keys what it makes on the inputs
+   it read, so what is built here is exactly what Enhanced's first frame would build, and
+   never stale: a build the real frame does not match is simply built again. */
+static GLint g_gmwQuietFb = 0, g_gmwQuietVp[4];
+static int g_gmwQuietActive = 0;
+static int g_gmwQuietWarming = 0;
+static int gmw_quiet_enter(void)
+{
+    const int back = fx_mode_of(&g_fx);
+    /* (the warm-up's own flag is kept, not cleared on the way out: a quiet switch inside a
+       warm-up would otherwise end that warm-up without its frame, leaving the warm-up's mode
+       on screen for good) */
+    g_gmwQuietWarming = g_gmwWarming;
+    g_gmwWarming = 1;
+    gmw_switch_quiet(FX_MODE_ENHANCED);
+    /* as inside an Enhanced frame: the chain is running (the builders ask fx_unified_lighting
+       and water_fx_wanted), with nothing of it bound */
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &g_gmwQuietFb);
+    glGetIntegerv(GL_VIEWPORT, g_gmwQuietVp);
+    g_gmwQuietActive = g_fxActive;
+    g_fxActive = g_fxUsable ? 1 : 0;
+    return back;
+}
+static void gmw_quiet_leave(int back)
+{
+    g_fxActive = g_gmwQuietActive;
+    fx_glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)g_gmwQuietFb);
+    glViewport(g_gmwQuietVp[0], g_gmwQuietVp[1], g_gmwQuietVp[2], g_gmwQuietVp[3]);
+    gmw_switch_quiet(back);
+    g_gmwWarming = g_gmwQuietWarming;
+}
+
+enum {
+    GMW_T_CHAIN, GMW_T_FIELD, GMW_T_SHEET, GMW_T_WATER, GMW_T_COAST, GMW_T_SURFACE,
+    GMW_T_CLEAR, GMW_T_GRASS, GMW_T_LIGHT, GMW_T_AMBIENCE, GMW_T_COUNT
+};
+
+/* One task: true when it built something (and so took this frame). */
+static bool gmw_prewarm_task(int task, const char** what)
+{
+    const int mode = fx_mode_of(&g_fx);
+    const float* enh = g_fx.mode_row[FX_MODE_ENHANCED];
+    const int enhTex = (int)(enh[FXR_TEXSET] + 0.5f);
+    switch (task) {
+    case GMW_T_CHAIN:
+        /* THE CHAIN'S SHADERS, the cloud mask and the framebuffers: only Classic never
+           boots them. */
+        if (g_fxBooted) return false;
+        fx_boot();
+        *what = "post chain";
+        return true;
+    case GMW_T_FIELD:
+        /* THE WATER FIELD FOR N64, read from the cartridge's own tiles. Only Classic never
+           builds it, and Red Alert has no N64 picture to build it for: Enhanced's own,
+           with its own cut, is the next task's. */
+        if (mode != FX_MODE_CLASSIC || g_optState.n64_unavailable || g_raModule
+            || g_fx.mode_row[FX_MODE_N64][FXR_WATER] < 0.5f)
+            return false;
+        water_field_sync();
+        *what = "water field";
+        return true;
+    case GMW_T_SHEET:
+        /* ENHANCED'S GROUND SHEET: 4992 x 4212 under Tiberian Dawn, interpolated from its
+           pack; Red Alert's ground with its heights and its sheet */
+        if (enhTex != FX_TEX_ENH) return false;
+        if (!g_raModule) {
+            if (g_pack.terrainTexEnh >= 0 || g_pack.enhTried) return false;
+            terrain_enh_ensure();
+        } else {
+            const int back = gmw_quiet_enter();
+            ra3d_ground_ensure();
+            gmw_quiet_leave(back);
+        }
+        *what = "Enhanced's ground sheet";
+        return true;
+    case GMW_T_WATER: {
+        /* ENHANCED'S WATER FIELD, through its own cut of the coast (Tiberian Dawn's sea is
+           cut along the painted sheet's edge, not the cartridge tiles') */
+        if (enh[FXR_WATER] < 0.5f) return false;
+        const int back = gmw_quiet_enter();
+        if (g_fx.water_fx) water_field_sync();
+        gmw_quiet_leave(back);
+        *what = "Enhanced's water field";
+        return true;
+    }
+    case GMW_T_COAST: {
+        /* ENHANCED'S SOFT COAST, the sheet its sea draws the shore through, for the atlas
+           Enhanced's own settings pick. */
+        if (enh[FXR_WATER] < 0.5f) return false;
+        const int ai = (enhTex == FX_TEX_ENH && g_pack.terrainTexEnh >= 0) ? g_pack.terrainTexEnh
+                     : (enhTex != FX_TEX_N64 && enhTex != FX_TEX_REMASTER && g_pack.terrainTexDos >= 0)
+                           ? g_pack.terrainTexDos
+                     : (enhTex == FX_TEX_REMASTER && g_pack.terrainTexRemaster >= 0)
+                           ? g_pack.terrainTexRemaster
+                     : g_pack.terrainTex;
+        water_soft_prepare(ai, enh[FXR_BILINEAR] >= 0.5f ? 1 : 0);
+        *what = "Enhanced's soft coast";
+        return true;
+    }
+    case GMW_T_SURFACE: {
+        /* THE RAISED GROUND'S SURFACE, read back from the sheet the water has just cut */
+        const int back = gmw_quiet_enter();
+        if (g_raModule) terrain_surface_prepare_scene();
+        else terrain_surface_prepare_td();
+        gmw_quiet_leave(back);
+        *what = "Enhanced's ground surface";
+        return true;
+    }
+    case GMW_T_CLEAR: {
+        /* THE CLEAR GROUND'S THREE MATERIALS: their field, from the map's own templates */
+        const int back = gmw_quiet_enter();
+        g_clearBlendPrepareOnly = true;
+        if (g_raModule) ra3d_draw_clear_blend();
+        else draw_clear_blend_td(false);
+        g_clearBlendPrepareOnly = false;
+        gmw_quiet_leave(back);
+        *what = "Enhanced's clear ground";
+        return true;
+    }
+    case GMW_T_GRASS: {
+        /* THE GRASS: its masks, its blades and its colour, off Enhanced's own ground */
+        if (enh[FXR_GRASS] < 0.5f) return false;
+        const int back = gmw_quiet_enter();
+        if (g_fx.grass) grass_bake_sync(grass_bake_cfg_default());
+        gmw_quiet_leave(back);
+        *what = "Enhanced's grass";
+        return true;
+    }
+    case GMW_T_LIGHT: {
+        /* THE LIGHT PASS'S BUILD with the ground bounce compiled in, the one Enhanced's
+           first frame asks for (fx_boot made the plain ones) */
+        const int back = gmw_quiet_enter();
+        if (g_fxUsable && bounce_wanted()) {
+            const int gtao = (g_fx.ssao_on && g_fx.ao_mode >= 0.5f && g_fxPGtao && g_fxPLightGtao) ? 1 : 0;
+            fx_light_variant(gtao, (g_fx.linear_on && fx_hdr_want()) ? 2 : 1);
+        }
+        gmw_quiet_leave(back);
+        *what = "Enhanced's light pass";
+        return true;
+    }
+    case GMW_T_AMBIENCE: {
+        /* THE MAP'S AMBIENT BEDS (ambience_mod.h): the clips Enhanced's camera hears,
+           decoded, which its first tick otherwise reads (two of them, 30 ms) */
+        int w = 0, h = 0;
+        SDL_Window* win = SDL_GL_GetCurrentWindow();
+        if (win) SDL_GL_GetDrawableSize(win, &w, &h);
+        if (w <= 0 || h <= 0) return false;
+        const int back = gmw_quiet_enter();
+        ambience_prepare_loading(w, h);
+        gmw_quiet_leave(back);
+        *what = "Enhanced's ambience";
+        return true;
+    }
+    }
+    return false;
+}
+
+/* Which tasks are done for which mission (a new mission starts them over). */
+static char g_gmwPrewarmScen[20] = "";
+static unsigned g_gmwPrewarmDone = 0;
+static bool g_gmwVehiclesDone = false;
+static void gmw_prewarm_scen(void)
+{
+    if (!strcmp(g_gmwPrewarmScen, g_pack.scen)) return;
+    snprintf(g_gmwPrewarmScen, sizeof g_gmwPrewarmScen, "%s", g_pack.scen);
+    g_gmwPrewarmDone = 0;
+    g_gmwVehiclesDone = false;
+    g_gmwWarmed = 0;
+}
+
+/* AT LOADING, in a player's run that starts a mission in Classic or N64 (enh_ahead_on):
+   every task at once, before the mission's first frame, where a wait reads as loading.
+   About half a second of Tiberian Dawn's loading, measured on a busy machine; the frames
+   after it then only meet what is built. The frame hook below is the same list one task a
+   frame, for whatever loading did not reach (a mission entered with the prewarm off, then
+   allowed by a script's `gfxprebuild`, which runs this too). */
+static void gmw_prewarm_loading(void)
+{
+    if (!enh_ahead_on() || g_gmwWarming || g_gmwWarmDue) return;
+    /* (a mission loaded again under the same name, a restart, starts the list over: what
+       its last run built may have gone with its pack, and a builder whose work is still
+       there answers at once) */
+    snprintf(g_gmwPrewarmScen, sizeof g_gmwPrewarmScen, "%s", g_pack.scen);
+    g_gmwPrewarmDone = 0;
+    g_gmwVehiclesDone = false;
+    g_gmwWarmed = 0;
+    const Uint64 t0 = SDL_GetPerformanceCounter();
+    int built = 0;
+    for (int task = 0; task < GMW_T_COUNT; task++) {
+        if (g_gmwPrewarmDone & (1u << task)) continue;
+        g_gmwPrewarmDone |= 1u << task;
+        const char* what = NULL;
+        const Uint64 a = SDL_GetPerformanceCounter();
+        if (!gmw_prewarm_task(task, &what) || !what) continue;
+        built++;
+        fprintf(stderr, "GFXWIPE|%s built at loading in %.1f ms\n", what,
+                (double)(SDL_GetPerformanceCounter() - a) * 1000.0
+                    / (double)SDL_GetPerformanceFrequency());
+    }
+    while (!g_gmwVehiclesDone) {
+        if (evhc_ahead_step()) built++;
+        else g_gmwVehiclesDone = true;
+    }
+    if (built)
+        fprintf(stderr, "GFXWIPE|Enhanced's inputs built at loading: %d in %.1f ms\n", built,
+                (double)(SDL_GetPerformanceCounter() - t0) * 1000.0
+                    / (double)SDL_GetPerformanceFrequency());
+}
+
 static void gmw_prewarm(void)
 {
-    static char scen[20] = "";
-    static int done = 0;
     if (g_rtpAllow != 1) return;
-    if (strcmp(scen, g_pack.scen)) {
-        snprintf(scen, sizeof scen, "%s", g_pack.scen);
-        done = 0;
-        g_gmwWarmed = 0;
-    }
+    gmw_prewarm_scen();
     const int mode = fx_mode_of(&g_fx);
     const int f = g_rtpFrames;
-    const bool chainWanted = true;
-    const bool waterWanted = g_fx.mode_row[FX_MODE_ENHANCED][FXR_WATER] >= 0.5f;
     Uint64 t0;
     const char* what = NULL;
 
     t0 = SDL_GetPerformanceCounter();
-    if (f >= 2 && !(done & 1)) {
-        done |= 1;
-        /* THE CHAIN'S SHADERS, the cloud mask and the framebuffers: only Classic never
-           boots them. */
-        if (mode != FX_MODE_ENHANCED && chainWanted) { fx_boot(); what = "post chain"; }
-    } else if (f >= 3 && !(done & 2)) {
-        done |= 2;
-        /* THE WATER FIELD, read from the cartridge's own tiles, so it serves every mode;
-           only Classic never builds it. */
-        if (mode != FX_MODE_ENHANCED && waterWanted) { water_field_sync(); what = "water field"; }
-    } else if (f >= 4 && !(done & 4)) {
-        done |= 4;
-        /* THE GRASS: its mask and blades come from the cartridge's tiles too; only the
-           colour step is redone for Enhanced's own ground when it arrives. */
-        if (mode != FX_MODE_ENHANCED && g_fx.mode_row[FX_MODE_ENHANCED][FXR_GRASS] >= 0.5f
-            && !strcmp(g_pack.theater, "TEMPERAT")) {
-            grass_bake_sync(grass_bake_cfg_default());
-            what = "grass";
+    /* ONE TASK A FRAME from the second frame, while another mode is on screen: the mode
+       on screen does not need any of it, and Enhanced, if it is on screen, builds its own
+       as it always has. A task with nothing to do takes no frame. None runs while the
+       hidden warm-up below holds the screen: the mode on screen then is the warm-up's,
+       not the player's. */
+    if (f >= 2 && mode != FX_MODE_ENHANCED && !g_gmwWarming && !g_gmwWarmDue) {
+        for (int task = 0; task < GMW_T_COUNT && !what; task++) {
+            if (g_gmwPrewarmDone & (1u << task)) continue;
+            g_gmwPrewarmDone |= 1u << task;
+            gmw_prewarm_task(task, &what);
         }
-    } else if (f >= 5 && !(done & 8)) {
-        done |= 8;
-        /* ENHANCED'S SOFT COAST, the sheet its sea draws the shore through, for the atlas
-           Enhanced's own settings pick. */
-        if (mode != FX_MODE_ENHANCED && g_fx.mode_row[FX_MODE_ENHANCED][FXR_WATER] >= 0.5f) {
-            const int want = (int)(g_fx.mode_row[FX_MODE_ENHANCED][FXR_TEXSET] + 0.5f);
-            const int ai = (want == FX_TEX_ENH && g_pack.terrainTexEnh >= 0) ? g_pack.terrainTexEnh
-                         : (want != FX_TEX_N64 && want != FX_TEX_REMASTER && g_pack.terrainTexDos >= 0)
-                               ? g_pack.terrainTexDos
-                         : (want == FX_TEX_REMASTER && g_pack.terrainTexRemaster >= 0)
-                               ? g_pack.terrainTexRemaster
-                         : g_pack.terrainTex;
-            water_soft_prepare(ai, g_fx.mode_row[FX_MODE_ENHANCED][FXR_BILINEAR] >= 0.5f ? 1 : 0);
-            what = "Enhanced's soft coast";
+        /* THEN THE REMASTERED VEHICLES on the map, a type a frame: their standing
+           textures on the card (evhc_mod.h) */
+        if (!what && !g_gmwVehiclesDone) {
+            if (evhc_ahead_step()) what = "a remastered vehicle";
+            else g_gmwVehiclesDone = true;
         }
     }
     /* THEN THE REST, whatever it is: each mode not yet drawn this mission is drawn once,
        for one frame, under a snapshot of the frame before (gmw_frame), which is the only
        way to be sure every shader, target and upload it will ask for exists before a
-       player asks for it. Enhanced waits for its ground to be ready, or the frame
-       would build the ground itself, synchronously, for seconds. */
+       player asks for it. By now Enhanced's frame meets what the tasks above built. */
     if (!what && f >= 8 && g_gmwState == GMW_IDLE && !g_gmwWarmDue && !g_gmwWarming) {
         g_gmwWarmed |= 1u << mode;
         for (int m = 0; m < FX_MODE_COUNT; m++) {
             if (g_gmwWarmed & (1u << m)) continue;
-            if (m == FX_MODE_N64 && g_optState.n64_unavailable) continue;   /* never shown */
+            /* (never shown: Red Alert has no N64 picture, whether or not the options
+               dialog has been opened to say so) */
+            if (m == FX_MODE_N64 && (g_optState.n64_unavailable || g_raModule)) continue;
             g_gmwWarmDue = 1;
             g_gmwWarmMode = m;
             break;
@@ -932,6 +1202,11 @@ static void gmw_frame(int fbw, int fbh)
 {
     gmw_font_build();   /* once, on the first frame, so the first press has no build in it */
     if (g_au) gmw_rumble_build();
+    /* A scripted still's settle frames (fx_taa_settle_begin) are not frames of play: the
+       ground build, the other modes' warm-up and the wipe's clock all wait, so the frame
+       the still keeps is the first one they see, as it is without the blend. The settle
+       frames are never shown, so nothing drawn below is missed. */
+    if (g_fxTaaSettling) return;
     /* And everything the other two modes build the first time they are drawn. */
     terrain_remaster_prebuild_tick();
     gmw_prewarm();
@@ -970,6 +1245,9 @@ static void gmw_frame(int fbw, int fbh)
         glBindTexture(GL_TEXTURE_2D, 0);
         glDisable(GL_TEXTURE_2D);
         end_overlay();
+        /* (and the harvester's crystal shards, cut from the Tiberium the frame just loaded,
+           which Enhanced's first tick would otherwise cut) */
+        if (g_gmwWarmMode == FX_MODE_ENHANCED && !g_tib3dClump.empty()) harvestfx_shards();
         gmw_switch_quiet(g_gmwWarmBack);
         g_gmwWarming = 0;
         fprintf(stderr, "GFXWIPE|%s drawn once, hidden, to warm it up (%.1f ms since the switch)\n",
@@ -994,7 +1272,7 @@ static void gmw_frame(int fbw, int fbh)
         /* This frame is the old mode's last, already on the glass: keep it, switch, and
            the line sets off on the next one. */
         gmw_capture(fbw, fbh);
-        gmw_rip_capture(fbw, fbh);
+        if (gmw_rip_on()) gmw_rip_capture(fbw, fbh);
         {
             const Uint64 a = SDL_GetPerformanceCounter();
             gmw_switch(g_gmwTarget);
@@ -1004,10 +1282,15 @@ static void gmw_frame(int fbw, int fbh)
         }
         g_gmwState = GMW_WIPE;
         g_gmwT = 0.0f;
-        g_gmwTitleT = 0.0f;
-        gmw_rumble_play();
-        printf("GFXWIPE|rip|pieces=%d|shake=%.3f|shake_on=%d\n", (int)g_gmwTiles.size(),
-               GMW_RIP_SHAKE, g_fx.shake_on ? 1 : 0);
+        /* The mode's name is shown over the tile rip only; the swipe carries no title. */
+        g_gmwTitleT = gmw_rip_on() ? 0.0f : -1.0f;
+        if (gmw_rip_on()) {
+            gmw_rumble_play();
+            printf("GFXWIPE|rip|pieces=%d|shake=%.3f|shake_on=%d\n", (int)g_gmwTiles.size(),
+                   GMW_RIP_SHAKE, g_fx.shake_on ? 1 : 0);
+        } else {
+            printf("GFXWIPE|swipe|seconds=%.2f|line=%s\n", GMW_SWIPE_S, g_raModule ? "red" : "green");
+        }
         g_gmwTitleMode = g_gmwTarget;
         g_gmwSeed = g_gmwSeed * 1664525u + 1013904223u;
     } else if (g_gmwState == GMW_WIPE && g_gmwT >= gmw_wipe_total() && !g_gmwFrozen) {
@@ -1024,12 +1307,12 @@ static void gmw_frame(int fbw, int fbh)
         g_gmwSwitchAt = 0;
     }
     const bool wiping = (g_gmwState == GMW_WIPE);
-    if (wiping) gmw_rumble_follow(g_gmwT / GMW_RIP_S);
+    if (wiping && gmw_rip_on()) gmw_rumble_follow(g_gmwT / GMW_RIP_S);
     /* THE SHAKE: held at one strength for as long as the rip runs (a note of equal
        strength restarts the jolt every frame, so its decay never gets going), then it
        dies away by the game's own decay once the last piece is gone. Engine-tick driven
        like every other shake, so a scripted shot is the same picture every run. */
-    if (wiping) shake_note(GMW_RIP_SHAKE);
+    if (wiping && gmw_rip_on()) shake_note(GMW_RIP_SHAKE);
     const bool title = g_gmwTitleT >= 0.0f && g_gmwTitleT < GMW_TITLE_HOLD + GMW_TITLE_FADE;
     if (!wiping && !title) {
         if (g_gmwTitleT >= GMW_TITLE_HOLD + GMW_TITLE_FADE) g_gmwTitleT = -1.0f;
@@ -1039,7 +1322,7 @@ static void gmw_frame(int fbw, int fbh)
 
     begin_overlay(fbw, fbh);
     glDisable(GL_CULL_FACE);
-    if (wiping) gmw_draw_rip(fbw, fbh);
+    if (wiping) { if (gmw_rip_on()) gmw_draw_rip(fbw, fbh); else gmw_draw_swipe(fbw, fbh); }
     if (title && g_gmwFontTex) {
         const float tt = g_gmwTitleT;
         const float a = gmw_smooth(0.0f, GMW_TITLE_IN, tt)

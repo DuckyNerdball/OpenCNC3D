@@ -1,0 +1,55 @@
+# S2 Tiberian Dawn, first GDI mission (SCG01EA, temperate), Enhanced with the Enhanced
+# terrain art. Frames the beach and the sea with the landing boat (soft coast, water
+# land and bed), the Nod gun line and its sandbags, and the meadow the Nod soldiers hold
+# (mottle, grass, ground material) at tick 1 and tick 300; then destroys the three Nod
+# guns (explosions, craters, scorch decals, wrecks) and frames them again.
+# S7 and S8 run this script in Classic and N64.
+game: td
+scen: SCG01EA
+modes: enh
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger t1
+cam 50 57
+frames 2
+shot {OUT}/t0001_beach.png
+cam 45 53
+frames 2
+shot {OUT}/t0001_guns.png
+cam 48 44
+frames 2
+shot {OUT}/t0001_meadow.png
+tick 299
+frames 2
+memledger t300
+cam 50 57
+frames 2
+shot {OUT}/t0300_beach.png
+cam 45 53
+frames 2
+shot {OUT}/t0300_guns.png
+cam 48 44
+frames 2
+shot {OUT}/t0300_meadow.png
+hurtcell 49 55
+hurtcell 41 55
+hurtcell 46 55
+tick 20
+frames 2
+cam 45 53
+frames 2
+shot {OUT}/t0320_guns.png
+tick 100
+frames 2
+memledger t420
+cam 45 53
+frames 2
+shot {OUT}/t0420_guns.png
+cam 50 57
+frames 2
+shot {OUT}/t0420_beach.png
+quit

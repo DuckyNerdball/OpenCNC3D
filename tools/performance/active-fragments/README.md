@@ -66,3 +66,7 @@ shadow casting or user quality setting is altered by the optimization.
 Adjacent triangle coalescing follows the existing `glDrawArrays(GL_TRIANGLES)`
 semantics: complete contiguous triangles under identical state retain primitive
 order. See the [Khronos reference](https://wikis.khronos.org/opengl/GLAPI/glDrawArrays).
+
+For newer installed asset versions, pass `--expected-bodies N` explicitly. The
+27 October Dock NUKE has 80 wreck bodies; the historical fixture default remains
+321. The receipt records the expected count and requires that exact wreck to exist.

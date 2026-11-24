@@ -415,6 +415,18 @@ bool Init_Game(int, char*[])
     } else {
         CCDebugString("C&C95 - About to register CONQUER.MIX\n");
         new MFCD("CONQUER.MIX"); // Cached.
+#ifdef REMASTER_BUILD
+        /* Gun Game's Red Alert roster ships in evhc/gunra/ beside its models, a folder
+           every module installer accepts; a play folder may still hold it at the top. */
+        {
+            const char* gunra = CCFileClass("evhc/gunra/GUNRA.MIX").Is_Available()
+                                    ? "evhc/gunra/GUNRA.MIX" : "GUNRA.MIX";
+            if (CCFileClass(gunra).Is_Available()) {
+                new MFCD(gunra);
+                MFCD::Cache("GUNRA.MIX"); /* (the cache finds a MIX by its bare name) */
+            }
+        }
+#endif
         CCDebugString("C&C95 - About to register TRANSIT.MIX\n");
         new MFCD("TRANSIT.MIX");
 

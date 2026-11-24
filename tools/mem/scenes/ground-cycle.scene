@@ -1,0 +1,41 @@
+# Red Alert, the first Allied mission (SCG01EA, snow), through every graphics mode in one
+# session: N64, Classic, Enhanced. Each switch between the Enhanced art and the 1995
+# tiles builds the ground's sheet again for the other set and deletes the old sheets
+# (ra3d_terrain.h), and the bilinear toggle of the new mode re-filters every texture it
+# was told about (fx_filter.h). Frames the base and the lake in the starting mode, then
+# in each mode in turn.
+game: ra
+scen: SCG01EA
+modes: enh,cls,n64
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger t1
+cam 62.5 61.5
+frames 2
+shot {OUT}/t0001_start.png
+cam 57 56
+frames 2
+shot {OUT}/t0001_lake.png
+gfxmode 1
+frames 2
+shot {OUT}/t0001_n64.png
+gfxmode 0
+frames 2
+shot {OUT}/t0001_classic.png
+gfxmode 2
+frames 2
+shot {OUT}/t0001_enhanced.png
+tick 40
+frames 2
+memledger t41
+cam 62.5 61.5
+frames 2
+shot {OUT}/t0041_enhanced.png
+gfxmode 1
+frames 2
+shot {OUT}/t0041_n64.png
+quit

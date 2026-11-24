@@ -111,6 +111,7 @@ struct ShatterLive {
        pieces stand in for an object that is still in the heap (shatter_owns); a vehicle
        or an aircraft has left the heap by the time its pieces spawn. */
     bool  unit;
+    std::uint64_t buildingTicket = 0, vehicleTicket = 0;
     int   launchTick;                /* it hangs in place until this tick */
     float px, py, pz, vx, vy, vz;    /* world, cells and cells/tick */
     float ppx, ppy, ppz;             /* previous tick, for the sub-tick lerp */
@@ -539,6 +540,37 @@ static const ShatterMesh& shatter_mesh_unit(int mi)
  * SPAWN. Called from the ONE site that already observes a building's death and
  * already prints DEATHSHED| -- the per-tick parse, never a draw.
  * ============================================================================== */
+/* Retire a whole building family once all its pieces leave the local camera.
+   Vehicle debris never owns a building slot and is not touched here. */
+static void shatter_view_prune() {
+    struct Bounds {float lo[3]={1e30f,1e30f,1e30f},hi[3]={-1e30f,-1e30f,-1e30f};};
+    std::map<std::uint64_t,Bounds> bounds;
+    for(const auto& piece:g_shatLive)if(piece.buildingTicket) {
+        Bounds& box=bounds[piece.buildingTicket];
+        const float p[3]={piece.px,piece.py,piece.pz},pp[3]={piece.ppx,piece.ppy,piece.ppz};
+        for(int axis=0;axis<3;axis++) {box.lo[axis]=std::min(box.lo[axis],std::min(p[axis],pp[axis])-piece.r);box.hi[axis]=std::max(box.hi[axis],std::max(p[axis],pp[axis])+piece.r);}
+    }
+    std::set<std::uint64_t> retire;
+    for(const auto& item:bounds)if(!local_viewport_box(item.second.lo,item.second.hi))retire.insert(item.first);
+    if(retire.empty())return;
+    g_shatLive.erase(std::remove_if(g_shatLive.begin(),g_shatLive.end(),[&](const ShatterLive& piece){return retire.count(piece.buildingTicket)!=0;}),g_shatLive.end());
+    for(auto ticket:retire) {destruction_budget_end(ticket);printf("DESTRUCTIONCAP|viewport-retire|owner=shatter|ticket=%llu\n",(unsigned long long)ticket);}
+}
+/* Cartridge vehicles share the two slots with Enhanced vehicle wrecks. */
+static void shatter_vehicle_view_prune() {
+    if(!vehicle_budget_enabled())return;
+    struct Bounds {float lo[3]={1e30f,1e30f,1e30f},hi[3]={-1e30f,-1e30f,-1e30f};};
+    std::map<std::uint64_t,Bounds> bounds;
+    for(const auto& p:g_shatLive)if(p.vehicleTicket) {
+        auto& b=bounds[p.vehicleTicket];const float now[3]={p.px,p.py,p.pz},old[3]={p.ppx,p.ppy,p.ppz};
+        for(int a=0;a<3;++a){b.lo[a]=std::min(b.lo[a],std::min(now[a],old[a])-p.r);b.hi[a]=std::max(b.hi[a],std::max(now[a],old[a])+p.r);}
+    }
+    std::set<std::uint64_t> retire;
+    for(const auto& b:bounds)if(!local_viewport_box(b.second.lo,b.second.hi))retire.insert(b.first);
+    if(retire.empty())return;
+    g_shatLive.erase(std::remove_if(g_shatLive.begin(),g_shatLive.end(),[&](const ShatterLive& p){return retire.count(p.vehicleTicket)!=0;}),g_shatLive.end());
+    for(auto ticket:retire){vehicle_budget_end(ticket);printf("VEHICLEDESTRUCTIONCAP|viewport-retire|owner=shatter|ticket=%llu\n",(unsigned long long)ticket);}
+}
 static void shatter_note_death(int id, int mi, int face, int house,
                                float wx, float wz, int fw, int fh, int frame,
                                const char* type,
@@ -567,6 +599,20 @@ static void shatter_note_death(int id, int mi, int face, int house,
     const PackMesh& mesh = g_pack.mesh[mi];
     const int ns = (int)mesh.sections.size();
     if (ns < 1) return;
+    if(!isUnit||vehicle_budget_enabled()) {
+        destruction_view_refresh();
+        float lo[3]={1e30f,1e30f,1e30f},hi[3]={-1e30f,-1e30f,-1e30f};
+        float rs,rc;facing_rot(face,&rs,&rc);const float ground=terrain_y(wx,wz)+lift;
+        for(const auto& piece:sm.pieces) {
+            const float center[3]={wx+(piece.cx*rc+piece.cz*rs)*MODEL_SCALE,ground+piece.cy*MODEL_SCALE,wz+(-piece.cx*rs+piece.cz*rc)*MODEL_SCALE};
+            for(int axis=0;axis<3;axis++){lo[axis]=std::min(lo[axis],center[axis]-piece.r*MODEL_SCALE);hi[axis]=std::max(hi[axis],center[axis]+piece.r*MODEL_SCALE);}
+        }
+        if(!local_viewport_box(lo,hi)){if(isUnit)vehicle_budget_effects_only(id,"shatter",frame,"offscreen");else destruction_budget_effects_only(id,"shatter",frame,"offscreen");return;}
+    }
+    const std::uint64_t ticket=isUnit?0:destruction_budget_begin(id,"shatter",frame);
+    if(!isUnit && !ticket)return;  /* native explosion/scorch and the pulse remain */
+    const std::uint64_t vehicleTicket=isUnit&&vehicle_budget_enabled()?vehicle_budget_begin(id,"shatter",frame):0;
+    if(isUnit&&vehicle_budget_enabled()&&!vehicleTicket)return;
 
     /* The pulse itself is fired above, before the early-outs. OURS to fire; the
        cartridge's in every other respect. SOURCE_Shock is EFX_SRC[29], particle system 4,
@@ -598,7 +644,7 @@ static void shatter_note_death(int id, int mi, int face, int house,
         liveTris += pc.tri1 - pc.tri0;
         ShatterLive L;
         L.mi = mi; L.tri0 = pc.tri0; L.tri1 = pc.tri1; L.house = house; L.face = face;
-        L.id = id; L.k = k; L.serial = serial; L.unit = isUnit;
+        L.id = id; L.k = k; L.serial = serial; L.unit = isUnit; L.buildingTicket=ticket;L.vehicleTicket=vehicleTicket;
         L.cmx = pc.cx; L.cmy = pc.cy; L.cmz = pc.cz;
         L.r = pc.r * MODEL_SCALE;
         L.low = pc.low * MODEL_SCALE;
@@ -681,6 +727,7 @@ static void shatter_note_death(int id, int mi, int face, int house,
         printf("SHATTER|piece|id=%d|k=%d|sec=%d..%d|tris=%d|r=%.3f|mass=%.3f|v=%.4f,%.4f,%.4f\n",
                id, k, pc.sec0, pc.sec1, pc.tri1 - pc.tri0, L.r, L.mass, L.vx, L.vy, L.vz);
     }
+    if(!made){destruction_budget_end(ticket);vehicle_budget_end(vehicleTicket);}
     printf("SHATTER|%s|id=%d|pieces=%d|tris=%d|frame=%d\n",
            type, id, made, tris, frame);
     fflush(stdout);
@@ -693,6 +740,7 @@ static void shatter_step(int frame)
 {
     if (frame == g_shatLastTick) return;
     if (frame < g_shatLastTick) {                /* new mission, or a restarted clock */
+        for(const auto& piece:g_shatLive){destruction_budget_end(piece.buildingTicket);vehicle_budget_end(piece.vehicleTicket);}
         g_shatLive.clear(); g_shatDropped = 0;
     }
     g_shatLastTick = frame;
@@ -707,7 +755,14 @@ static void shatter_step(int frame)
 
         if (L.resting) {
             if (frame - L.restTick > linger + SHATTER_FADE_TICKS) {
+                const std::uint64_t ticket=L.buildingTicket,vehicleTicket=L.vehicleTicket;
                 g_shatLive.erase(g_shatLive.begin() + i);
+                bool remains=false;
+                if(ticket)for(const auto& piece:g_shatLive)if(piece.buildingTicket==ticket){remains=true;break;}
+                if(!remains)destruction_budget_end(ticket);
+                bool vehicleRemains=false;
+                if(vehicleTicket)for(const auto& p:g_shatLive)if(p.vehicleTicket==vehicleTicket){vehicleRemains=true;break;}
+                if(!vehicleRemains)vehicle_budget_end(vehicleTicket);
                 continue;
             }
             i++; continue;
@@ -876,6 +931,8 @@ static bool shatter_owns(const SimObject& o)
    not outlive the pack it was built from. */
 static void shatter_reset(void)
 {
+    for(const auto& p:g_shatLive)vehicle_budget_end(p.vehicleTicket);
+    destruction_budget_reset();
     g_shatMesh.clear();
     g_shatMeshUnit.clear();
     g_shatLive.clear();

@@ -1,3 +1,4 @@
+// MODIFIED for OpenCNC3D. A random cell for a newly spawned map creature is drawn column then row in two statements, so every compiler deals it alike.
 //
 // Copyright 2020 Electronic Arts Inc.
 //
@@ -32,6 +33,29 @@
 // MODIFIED for OpenCNC3D fair skirmish difficulty, 19 October 2026.
 // Runs the per-house fair skirmish planner, neutralizes difficulty stat handicaps and applies ordinary economy and prerequisites.
 // This changes multiplayer simulation; campaign rules remain on their original path.
+
+// MODIFIED for OpenCNC3D. The skirmish planner it includes
+// (fair_ai_td.inc) keeps building past the opening: refineries on a game-time schedule,
+// silos, the Comm Center, Repair Bay, defences and the top of the tech tree, started on
+// the ordinary per-tick installments, and it sends tanks out in waves. A skirmish
+// computer house's building placement also refuses a spot that would wall its base
+// off from the rest of the map, judged on the ground that house has explored, and the
+// planner orders a building only when such a spot exists. Campaign play is unchanged. This DOES change the
+// skirmish game simulation.
+
+// MODIFIED for OpenCNC3D. When the environment variables
+// OPENCNC3D_FILM_ISOLATE, OPENCNC3D_BACKGROUND and OPENCNC3D_FILM_PRIVATE_MISSION are
+// all set to 1 (a capture mode for recording showcase footage, film_isolation.h), the
+// computer houses do not start, alert or build their bases, skip the expert AI, never
+// fire the ion cannon, the nuclear strike or the air strike, and low power does no
+// damage to buildings. Without all three variables nothing changes. In that mode it
+// DOES change the game simulation.
+
+// MODIFIED for OpenCNC3D in November 2026. In a Rally match (rally.h) no house is
+// defeated by the multiplayer empty-house check (a racer's vehicle is gone between
+// respawns) or by the destroy-structures rule (a racer seat has no base), a racer seat
+// runs no skirmish AI, and the course's hostile house always counts as fully powered. Outside a Rally match nothing changes. In a Rally match it
+// DOES change the game simulation.
 
 /* $Header:   F:\projects\c&c\vcs\code\house.cpv   2.13   02 Aug 1995 17:03:50   JOE_BOSTIC  $ */
 /***********************************************************************************************
@@ -118,6 +142,9 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
+#include "gun_game.h"
+#include "gun_game_ability.h"
+#include "film_isolation.h"
 
 /*
 ** New sidebar for GlyphX multiplayer. ST - 3/26/2019 12:24PM
@@ -127,6 +154,7 @@
 #include "common/irandom.h"
 #include "ccini.h"
 #include "common/fixed.h"
+#include "rally.h"
 #include "fair_ai_td.inc"
 
 /***********************************************************************************************
@@ -958,6 +986,11 @@ extern void On_Message(const char* message, float timeout_seconds, long long mes
 void HouseClass::AI(void)
 {
     Validate();
+    if (Film_Isolation_Enabled() && !IsHuman) {
+        IsStarted = false;
+        IsAlerted = false;
+        IsBaseBuilding = false;
+    }
 #ifdef REMASTER_BUILD
     // Set PlayerPtr to be this house. Not really keen on this solution but it means I have to make fewer code changes
     // to the original code. ST - 4/17/2019 4:32PM
@@ -1146,8 +1179,15 @@ void HouseClass::AI(void)
                 }
 
                 if (obj) {
-                    cell = XY_Cell(Map.MapCellX + Random_Pick(0, Map.MapCellWidth - 1),
-                                   Map.MapCellY + Random_Pick(0, Map.MapCellHeight - 1));
+                    /*
+                    **	OpenCNC3D: the two draws are taken one statement at a time. As two arguments of
+                    **	one call their order is unspecified in C++, and the macOS and Windows compilers
+                    **	take them in opposite orders, so a Mac and a Windows peer of one match would place
+                    **	this creature on different cells. Column first, the order the macOS build always used.
+                    */
+                    int opencnc3d_col = Random_Pick(0, Map.MapCellWidth - 1);
+                    int opencnc3d_row = Random_Pick(0, Map.MapCellHeight - 1);
+                    cell = XY_Cell(Map.MapCellX + opencnc3d_col, Map.MapCellY + opencnc3d_row);
                     if (!Scan_Place_Object(obj, cell)) {
                         delete obj;
                     }
@@ -1192,7 +1232,7 @@ void HouseClass::AI(void)
         **	When the power is below required, then the buildings will take damage over
         **	time.
         */
-        if (Power_Fraction() < 1) {
+        if (!Film_Isolation_Enabled() && Power_Fraction() < 1) {
             for (int index = 0; index < Buildings.Count(); index++) {
                 BuildingClass& b = *Buildings.Ptr(index);
 
@@ -1337,7 +1377,7 @@ void HouseClass::AI(void)
         /*
         **	The computer may decide to fire the ion cannon if it is ready.
         */
-        if (IonCannon.Is_Ready() && !IsHuman) {
+        if (IonCannon.Is_Ready() && !IsHuman && !Film_Isolation_Enabled()) {
             Special_Weapon_AI(SPC_ION_CANNON);
         }
 
@@ -1434,7 +1474,7 @@ void HouseClass::AI(void)
         /*
         **	The computer may decide to fire the nuclear missile if it is ready.
         */
-        if (NukeStrike.Is_Ready() && !IsHuman) {
+        if (NukeStrike.Is_Ready() && !IsHuman && !Film_Isolation_Enabled()) {
             Special_Weapon_AI(SPC_NUCLEAR_BOMB);
         }
 
@@ -1480,7 +1520,7 @@ void HouseClass::AI(void)
         /*
         **	The computer may decide to call in the airstrike if it is ready.
         */
-        if (AirStrike.Is_Ready() && !IsHuman) {
+        if (AirStrike.Is_Ready() && !IsHuman && !Film_Isolation_Enabled()) {
             Special_Weapon_AI(SPC_AIR_STRIKE);
         }
     }
@@ -1530,8 +1570,8 @@ void HouseClass::AI(void)
     ** may not properly set IScan etc for each house; you have to go
     ** through each object's AI before it will be properly set.
     */
-    if (GameToPlay != GAME_NORMAL && !IsDefeated && !ActiveBScan && !ActiveAScan && !UScan && !ActiveIScan
-        && Frame > 0) {
+    if (GameToPlay != GAME_NORMAL && !Gun_Game_Active() && !Rally_Active() && !IsDefeated && !ActiveBScan
+        && !ActiveAScan && !UScan && !ActiveIScan && Frame > 0) {
         MPlayer_Defeated();
     }
 
@@ -1681,7 +1721,7 @@ void HouseClass::AI(void)
     **
     */
 #ifdef USE_RA_AI
-    if (GameToPlay != GAME_NORMAL && IsHuman == false) {
+    if (GameToPlay != GAME_NORMAL && IsHuman == false && !Rally_Skip_House_AI(this)) {
 
         TD_Fair_AI_Tick(this);
     }
@@ -2693,6 +2733,17 @@ void HouseClass::Special_Weapon_AI(SpecialWeaponType id)
 {
     Validate();
     /*
+    **	A Gun Game has no buildings to aim at: the computer fires at the nearest enemy
+    **	combatant instead, after a short pause.
+    */
+    if (Gun_Game_Active()) {
+        const CELL cell = Gun_Ability_Strike_Cell(Class->House);
+        if (cell != -1) {
+            Place_Special_Blast(id, cell);
+        }
+        return;
+    }
+    /*
     ** Loop through all of the building objects on the map
     ** and see which ones are available.
     */
@@ -2853,7 +2904,7 @@ bool HouseClass::Place_Special_Blast(SpecialWeaponType id, CELL cell)
                 if (bullet) {
                     COORDINATE start = Cell_Coord(XY_Cell(Cell_X(cell), 0));
                     bullet->Assign_Target(::As_Target(cell));
-                    bullet->Payback = NULL;
+                    bullet->Payback = Gun_Game_Combatant(Class->House);
                     bullet->Strength = 1;
                     if (!bullet->Unlimbo(start, DIR_S)) {
                         delete bullet;
@@ -4804,7 +4855,7 @@ void HouseClass::Init_Data(PlayerColorType color, HousesType house, int credits)
 fixed HouseClass::Power_Fraction(void) const
 {
     Validate();
-    if (Power >= Drain || Drain == 0)
+    if (Power >= Drain || Drain == 0 || Rally_Full_Power(this))
         return (1);
 
     if (Power) {
@@ -4941,6 +4992,14 @@ void HouseClass::Check_Pertinent_Structures(void)
     */
 
     if (!Special.IsEarlyWin) {
+        return;
+    }
+
+    /*
+    **	OpenCNC3D Rally: a racer seat never has a building or an MCV, so this rule would
+    **	end a race before it starts. The race decides its own end.
+    */
+    if (Rally_Active()) {
         return;
     }
 
@@ -5391,6 +5450,7 @@ void HouseClass::Recalc_Center(void)
  *=============================================================================================*/
 int HouseClass::Expert_AI(void)
 {
+    if (Film_Isolation_Enabled()) return TICKS_PER_SECOND;
     // assert(Houses.ID(this) == ID);
 
     BuildingClass* b = 0;
@@ -8259,31 +8319,55 @@ CELL HouseClass::Find_Cell_In_Zone(TechnoClass const* techno, ZoneType zone) con
     /*
     **	Find a legal placement position as close as possible to the picked location while still
     **	remaining within the zone.
+    **
+    **	A skirmish computer house also refuses a spot whose building would wall off part of
+    **	the ground (TD_Fair_AI_Keeps_Paths): the nearest legal cell is tried, and if it would
+    **	seal the base off from its Tiberium, the next nearest, up to a bounded number of tries.
     */
-    for (CELL cell = 0; cell < MAP_CELL_TOTAL; cell++) {
-        //		if (Map.In_Radar(cell)) {
-        if (Map.In_Radar(cell) && Which_Zone(cell) != ZONE_NONE
-            && (GameToPlay == GAME_NORMAL || Map[cell].Is_Mapped(Class->House))) {
-            bool ok = ttype->Legal_Placement(cell);
-            // TD permits a foundation to extend beyond explored origin cells.
-            // Match the normal human placement rule, including terrain/bib and
-            // adjacency validation, rather than requiring every bib pixel seen.
+    CELL rejected[24];
+    int rejected_count = 0;
+    for (;;) {
+        bestval = -1;
+        bestcell = 0;
+        for (CELL cell = 0; cell < MAP_CELL_TOTAL; cell++) {
+            //		if (Map.In_Radar(cell)) {
+            if (Map.In_Radar(cell) && Which_Zone(cell) != ZONE_NONE
+                && (GameToPlay == GAME_NORMAL || Map[cell].Is_Mapped(Class->House))) {
+                bool ok = ttype->Legal_Placement(cell);
+                // TD permits a foundation to extend beyond explored origin cells.
+                // Match the normal human placement rule, including terrain/bib and
+                // adjacency validation, rather than requiring every bib pixel seen.
 
-            /*
-            **	Another (adjacency) check is required for buildings.
-            */
-            if (ok && list != NULL && !Map.Passes_Proximity_Check(ttype, techno->House->Class->House, list, cell)) {
-                ok = false;
-            }
+                /*
+                **	Another (adjacency) check is required for buildings.
+                */
+                if (ok && list != NULL && !Map.Passes_Proximity_Check(ttype, techno->House->Class->House, list, cell)) {
+                    ok = false;
+                }
+                for (int r = 0; ok && r < rejected_count; r++) {
+                    if (rejected[r] == cell) {
+                        ok = false;
+                    }
+                }
 
-            if (ok) {
-                int dist = Distance(Cell_Coord(cell), Cell_Coord(trycell));
-                if (bestval == -1 || dist < bestval) {
-                    bestval = dist;
-                    bestcell = cell;
+                if (ok) {
+                    int dist = Distance(Cell_Coord(cell), Cell_Coord(trycell));
+                    if (bestval == -1 || dist < bestval) {
+                        bestval = dist;
+                        bestcell = cell;
+                    }
                 }
             }
         }
+        if (!bestcell || list == NULL || GameToPlay == GAME_NORMAL || IsHuman
+            || TD_Fair_AI_Keeps_Paths(this, (BuildingTypeClass const*)ttype, bestcell)) {
+            break;
+        }
+        if (rejected_count == ARRAY_SIZE(rejected)) {
+            bestcell = 0;
+            break;
+        }
+        rejected[rejected_count++] = bestcell;
     }
 
     /*

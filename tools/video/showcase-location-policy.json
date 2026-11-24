@@ -1,0 +1,391 @@
+{
+  "version": 2,
+  "direction_date": "2026-10-27",
+  "game": "Dawn3D",
+  "source_catalog": "output/vehicle-showcase/campaign-location-scout-v01/screenshot-manifest.json",
+  "source_catalog_sha256": "e1862354b8d5b913659c56b744b0ca320156a17f894ed3c1daf33540b821d5a5",
+  "pools": {
+    "gdi": [
+      {
+        "id": "GDI-01",
+        "faction": "GDI",
+        "mission": "SCG05EA",
+        "title": "GDI campaign 5 / EA",
+        "theater": "TEMPERATE",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          50,
+          54
+        ],
+        "overview_center": [
+          50.5,
+          54.5
+        ],
+        "distance": 16
+      },
+      {
+        "id": "GDI-02",
+        "faction": "GDI",
+        "mission": "SCG12EB",
+        "title": "GDI campaign 12 / EB",
+        "theater": "TEMPERATE",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          12,
+          49
+        ],
+        "overview_center": [
+          14.0,
+          52.0
+        ],
+        "distance": 15.853658536585368
+      },
+      {
+        "id": "GDI-03",
+        "faction": "GDI",
+        "mission": "SCB07EA",
+        "title": "Nod campaign 7 / EA",
+        "theater": "DESERT",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          27,
+          54
+        ],
+        "overview_center": [
+          23.0,
+          52.0
+        ],
+        "distance": 24.0
+      },
+      {
+        "id": "GDI-04",
+        "faction": "GDI",
+        "mission": "SCB10EA",
+        "title": "Nod campaign 10 / EA",
+        "theater": "DESERT",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          23,
+          25
+        ],
+        "overview_center": [
+          27.5,
+          28.5
+        ],
+        "distance": 30
+      },
+      {
+        "id": "GDI-05",
+        "faction": "GDI",
+        "mission": "SCB13EB",
+        "title": "Nod campaign 13 / EB",
+        "theater": "DESERT",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          21,
+          29
+        ],
+        "overview_center": [
+          18.5,
+          32.0
+        ],
+        "distance": 21.34146341463415
+      },
+      {
+        "id": "GDI-06",
+        "faction": "GDI",
+        "mission": "SCG36EA",
+        "title": "Infiltrated!",
+        "theater": "DESERT",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          14,
+          55
+        ],
+        "overview_center": [
+          15.5,
+          55.0
+        ],
+        "distance": 17
+      },
+      {
+        "id": "GDI-07",
+        "faction": "GDI",
+        "mission": "SCB31EA",
+        "title": "The Tiberium Strain",
+        "theater": "TEMPERATE",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          47,
+          7
+        ],
+        "overview_center": [
+          48.0,
+          12.0
+        ],
+        "distance": 18.29268292682927
+      },
+      {
+        "id": "GDI-08",
+        "faction": "GDI",
+        "mission": "SCB37EA",
+        "title": "Nod Death Squad",
+        "theater": "DESERT",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          21,
+          22
+        ],
+        "overview_center": [
+          24.5,
+          23.0
+        ],
+        "distance": 28.658536585365855
+      },
+      {
+        "id": "GDI-09",
+        "faction": "GDI",
+        "mission": "SCB21EA",
+        "title": "Nod '99 Special Ops M1",
+        "theater": "DESERT",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          34,
+          11
+        ],
+        "overview_center": [
+          36.0,
+          15.5
+        ],
+        "distance": 27.884615384615383
+      },
+      {
+        "id": "GDI-10",
+        "faction": "GDI",
+        "mission": "SCB22EB",
+        "title": "Nod '99 Special Ops M2",
+        "theater": "DESERT",
+        "vehicle_production": "WEAP",
+        "factory_cell": [
+          13,
+          4
+        ],
+        "overview_center": [
+          18.5,
+          12.0
+        ],
+        "distance": 21.153846153846153
+      }
+    ],
+    "nod": [
+      {
+        "id": "NOD-01",
+        "faction": "Nod",
+        "mission": "SCG05WB",
+        "title": "GDI campaign 5 / WB",
+        "theater": "TEMPERATE",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          40,
+          18
+        ],
+        "overview_center": [
+          44.0,
+          23.0
+        ],
+        "distance": 23.170731707317074
+      },
+      {
+        "id": "NOD-02",
+        "faction": "Nod",
+        "mission": "SCG08EA",
+        "title": "GDI campaign 8 / EA",
+        "theater": "TEMPERATE",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          27,
+          14
+        ],
+        "overview_center": [
+          28.0,
+          18.5
+        ],
+        "distance": 26.799999999999997
+      },
+      {
+        "id": "NOD-03",
+        "faction": "Nod",
+        "mission": "SCG10EA",
+        "title": "GDI campaign 10 / EA",
+        "theater": "TEMPERATE",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          44,
+          54
+        ],
+        "overview_center": [
+          45.0,
+          52.0
+        ],
+        "distance": 21.951219512195124
+      },
+      {
+        "id": "NOD-04",
+        "faction": "Nod",
+        "mission": "SCG11EA",
+        "title": "GDI campaign 11 / EA",
+        "theater": "TEMPERATE",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          28,
+          10
+        ],
+        "overview_center": [
+          26.0,
+          12.0
+        ],
+        "distance": 21.153846153846153
+      },
+      {
+        "id": "NOD-05",
+        "faction": "Nod",
+        "mission": "SCG15EB",
+        "title": "GDI campaign 15 / EB",
+        "theater": "TEMPERATE",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          21,
+          18
+        ],
+        "overview_center": [
+          22.5,
+          16.0
+        ],
+        "distance": 26.219512195121954
+      },
+      {
+        "id": "NOD-06",
+        "faction": "Nod",
+        "mission": "SCG41EA",
+        "title": "Twist of Fate",
+        "theater": "DESERT",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          13,
+          54
+        ],
+        "overview_center": [
+          13.0,
+          52.0
+        ],
+        "distance": 14.634146341463415
+      },
+      {
+        "id": "NOD-07",
+        "faction": "Nod",
+        "mission": "SCG50EA",
+        "title": "Blindsided",
+        "theater": "DESERT",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          12,
+          8
+        ],
+        "overview_center": [
+          15.5,
+          12.0
+        ],
+        "distance": 17.682926829268293
+      },
+      {
+        "id": "NOD-08",
+        "faction": "Nod",
+        "mission": "SCB35EA",
+        "title": "Under Siege: C&C",
+        "theater": "TEMPERATE",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          25,
+          31
+        ],
+        "overview_center": [
+          28.5,
+          35.5
+        ],
+        "distance": 28.2
+      },
+      {
+        "id": "NOD-09",
+        "faction": "Nod",
+        "mission": "SCG30EA",
+        "title": "GDI '99 Special Ops M1",
+        "theater": "TEMPERATE",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          14,
+          12
+        ],
+        "overview_center": [
+          14.0,
+          14.5
+        ],
+        "distance": 15.853658536585368
+      },
+      {
+        "id": "NOD-10",
+        "faction": "Nod",
+        "mission": "SCG12EA",
+        "title": "GDI campaign 12 / EA",
+        "theater": "TEMPERATE",
+        "vehicle_production": "AFLD",
+        "factory_cell": [
+          15,
+          20
+        ],
+        "overview_center": [
+          14.0,
+          20.0
+        ],
+        "distance": 15.853658536585368
+      }
+    ]
+  },
+  "order": {
+    "GDI": [
+      "gdi",
+      "nod"
+    ],
+    "Nod": [
+      "nod",
+      "gdi"
+    ]
+  },
+  "selection": "Persisted cross-batch seeded shuffle without replacement across all ten original bases per faction. Original theater retained. Technical revisions retain exact previous draws.",
+  "mission_control": {
+    "scope": "Private filming copies only; installed missions and gameplay AI remain unchanged",
+    "remove_sections": [
+      "Triggers",
+      "CellTriggers",
+      "TeamTypes",
+      "Teams"
+    ],
+    "empty_base_build_queue": true,
+    "remove_original_mobile_actors": true,
+    "house_credits": 0,
+    "cutscenes_and_mission_endings": false,
+    "encounters": "Only explicitly listed, manually staged actors and participating defenses; offscreen entry, native movement and weapons",
+    "required_preflight": "Native full-duration idle probe: no unplanned actors, reinforcements, production, combat, health changes or mission endings; then whitelist encounter actors/actions in the actual capture log"
+  },
+  "action_revision_2026_10_27": {
+    "latest_actual_dock_cfg_required": true,
+    "suppress_only_construction_complete": true,
+    "native_participating_defenses_required": true,
+    "humvee_opening_targets": "infantry",
+    "humvee_native_muzzle_and_casings": true,
+    "apc_friendly_boarding_before_drive": "small squad; native cargo verified before Enhanced departure",
+    "mcv_encounter": "peaceful; camera centered through deployment",
+    "technical_revision_keeps_location_and_music": true
+  },
+  "user_direction": "withheld",
+  "history": "output/vehicle-showcase/location-history.json"
+}

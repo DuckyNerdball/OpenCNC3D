@@ -1,0 +1,103 @@
+# S1 Red Alert, first Allied mission (SCG01EA, snow), Enhanced.
+# Frames the Soviet base (west half with the lake, east half), the lake and its coast at
+# tick 1 and tick 300; then hits one building of each kind until most are past half
+# strength (damage pictures, fire, smoke), destroys one power plant and the village
+# house (wrecks), and frames the base again 20 and 120 ticks later.
+# S5 and S6 run this script in Classic and N64; S15 runs it with --noeinf.
+game: ra
+scen: SCG01EA
+modes: enh
+---
+gfxload {CFG}
+gfx show_stats 0
+reveal 1
+tick 1
+frames 2
+memledger t1
+cam 62.5 61.5
+frames 2
+shot {OUT}/t0001_west.png
+cam 70.5 63.5
+frames 2
+shot {OUT}/t0001_east.png
+cam 57 56
+frames 2
+shot {OUT}/t0001_water.png
+tick 299
+frames 2
+memledger t300
+cam 62.5 61.5
+frames 2
+shot {OUT}/t0300_west.png
+cam 70.5 63.5
+frames 2
+shot {OUT}/t0300_east.png
+cam 57 56
+frames 2
+shot {OUT}/t0300_water.png
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj FACT 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj DOME 0
+hurtobj WEAP 0
+hurtobj WEAP 0
+hurtobj WEAP 0
+hurtobj WEAP 0
+hurtobj WEAP 0
+hurtobj WEAP 0
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj BARR 0
+hurtobj POWR 0
+hurtobj POWR 0
+hurtobj POWR 0
+hurtobj POWR 1
+hurtobj POWR 1
+hurtobj POWR 1
+hurtobj POWR 1
+hurtobj POWR 1
+hurtobj KENN 0
+hurtobj KENN 0
+hurtobj SILO 0
+hurtobj SILO 0
+hurtcell 62 61
+hurtcell 62 61
+hurtcell 62 61
+hurtcell 62 61
+hurtcell 74 59
+hurtcell 74 59
+hurtcell 74 59
+hurtcell 74 59
+hurtcell 74 59
+hurtcell 71 60
+hurtcell 71 60
+hurtcell 71 60
+hurtobj V19 0
+tick 20
+frames 2
+cam 62.5 61.5
+frames 2
+shot {OUT}/t0320_west.png
+cam 70.5 63.5
+frames 2
+shot {OUT}/t0320_east.png
+tick 100
+frames 2
+memledger t420
+cam 62.5 61.5
+frames 2
+shot {OUT}/t0420_west.png
+cam 70.5 63.5
+frames 2
+shot {OUT}/t0420_east.png
+quit

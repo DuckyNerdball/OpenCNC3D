@@ -2497,10 +2497,18 @@ static void Bootstrap(void)
            original infantry shapes. Their art lives in LORES.MIX, which the
            no-legacy-window path otherwise never registers. Keep it optional
            for synthetic engine-only fixtures with no disc archives. */
-        CCFileClass lores("LORES.MIX");
-        if (lores.Is_Available()) {
-            new MFCD("LORES.MIX", &FastKey);
-            MFCD::Cache("LORES.MIX");
+        /* The engine still executes Draw_It to export the sprite layers.
+           Expansion units (including all three ants) return before exporting
+           anything when their original shape pointer is null, even though the
+           external renderer already has those same sprites in its own pack. */
+        const char* shape_archives[] = {"EXPAND2.MIX", "EXPAND.MIX", "LORES1.MIX", "LORES.MIX", NULL};
+        for (int i = 0; shape_archives[i]; ++i) {
+            CCFileClass shapes(shape_archives[i]);
+            if (shapes.Is_Available()) {
+                new MFCD(shape_archives[i], &FastKey);
+                const bool cached = MFCD::Cache(shape_archives[i]);
+                fprintf(stderr, "RA3D|shapes|archive=%s|cached=%d\n", shape_archives[i], cached ? 1 : 0);
+            }
         }
     }
 

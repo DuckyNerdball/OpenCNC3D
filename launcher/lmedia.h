@@ -122,6 +122,11 @@ int lm_wanted(LM_State *m, int *movies, int *music, int *movies_pending, int *mu
 /* What each component weighs, in bytes, from the manifest: the game's own files and
  * those of every module installed in the folder at the moment of asking. */
 void lm_sizes(LM_State *m, long long *movies_bytes, long long *music_bytes);
+/* What a download of each component would fetch, in bytes: the manifest size of every
+ * file lm_sizes counts that is not in the folder at its size (lm_installed's test, so a
+ * component lm_installed calls complete needs 0). A file part way down counts whole,
+ * which is what the job fetches for it at most. */
+void lm_missing(LM_State *m, long long *movies_bytes, long long *music_bytes);
 /* Preview a physically game-scoped manifest before that game is installed. No
  * files or records change; applies only to module choice UI. */
 void lm_game_sizes(LM_State *m, long long *movies_bytes, long long *music_bytes);
@@ -176,5 +181,10 @@ void lm_set_stall(LM_State *m, int seconds);
 /* 1 when the last job failed without ever reaching a single host it tried: the
  * machine is offline, or every mirror is gone. */
 int lm_offline(LM_State *m);
+
+/* The names a job on this state owns, one by `index` from 0: its files, then its
+ * legacy names. 0 past the last. The uninstaller asks, so that it can take away the
+ * folders a removal emptied. */
+int lm_name(LM_State *m, int index, char *rel, int len);
 
 #endif /* LMEDIA_H */

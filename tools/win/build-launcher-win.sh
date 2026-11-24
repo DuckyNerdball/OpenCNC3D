@@ -25,15 +25,45 @@ set -e
 cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
 
-HOST=${OPENCNC3D_WIN_HOST:-i686-w64-mingw32}
+# THE ONE HOST, refused otherwise, for the reason tools/win/build-win.sh gives: Windows
+# builds are 64-bit only, and a 32-bit launcher would be refused by the packager anyway.
+HOST=${OPENCNC3D_WIN_HOST:-x86_64-w64-mingw32}
+case "$HOST" in
+    x86_64-w64-mingw32) ;;
+    *) echo "OPENCNC3D_WIN_HOST=$HOST is refused: Windows builds are 64-bit only, and the" >&2
+       echo "only host is x86_64-w64-mingw32. Unset OPENCNC3D_WIN_HOST to use it." >&2
+       exit 1 ;;
+esac
 SDK="${OPENCNC3D_WINSDK:-$HOME/.opencnc3d-winsdk}"
 OUT="$ROOT/build/win"
 OBJ="$OUT/obj-launcher"
 
 SDL2_ROOT=$(ls -d "$SDK"/SDL2-*/"$HOST" 2>/dev/null | head -1)
 [ -n "$SDL2_ROOT" ] || { echo "no SDL2 for $HOST in $SDK. Run tools/win/setup-toolchain.sh" >&2; exit 1; }
+[ -f "$SDL2_ROOT/lib/libSDL2.a" ] || { echo "no static libSDL2.a in $SDL2_ROOT/lib. Run tools/win/setup-toolchain.sh" >&2; exit 1; }
 [ -f "$SDK/lib/$HOST/libz.a" ] || { echo "no zlib for $HOST in $SDK. Run tools/win/setup-toolchain.sh" >&2; exit 1; }
 command -v $HOST-gcc >/dev/null 2>&1 || { echo "no $HOST-gcc on PATH (brew install mingw-w64)" >&2; exit 1; }
+
+# ONE ARCHITECTURE PER FOLDER, the same question tools/win/build-win.sh asks of the same
+# file, build/win/.host. This script may be the first to run in a checkout whose build/win
+# still holds 32-bit programs, so it empties them the same way, and the game build that
+# follows finds the folder already marked and keeps the launcher this script wrote.
+if [ "$(cat "$OUT/.host" 2>/dev/null)" != "$HOST" ]; then
+    echo "== build/win was not built for $HOST: removing its programs, DLLs and objects"
+    for f in "$OUT"/*.exe "$OUT"/*.dll; do
+        [ -f "$f" ] || continue
+        echo "   removed ${f##*/}"
+        rm -f "$f"
+    done
+    rm -rf "$OUT/obj" "$OUT/obj-launcher"
+fi
+mkdir -p "$OUT"
+printf '%s\n' "$HOST" > "$OUT/.host"
+# No SDL2.dll in the folder: SDL2 is linked into the launcher (see the link below).
+if [ -f "$OUT/SDL2.dll" ]; then
+    rm -f "$OUT/SDL2.dll"
+    echo "   removed build/win/SDL2.dll: SDL2 is linked into the programs, no DLL ships"
+fi
 
 # The update host, stamped in, exactly as the Mac build does it.
 tools/launcher/make-config.sh
@@ -46,7 +76,36 @@ CC=$HOST-gcc
 INC="-I$ROOT/launcher -I$ROOT/game -I$ROOT/menu -I$ROOT/video \
      -I$SDL2_ROOT/include/SDL2 -I$SDK/include"
 LIBDIRS="-L$SDL2_ROOT/lib -L$SDK/lib/$HOST"
-CFLAGS="-O2 -Wall -Wextra -std=gnu89 $INC"
+# A POINTER CUT TO A NARROWER INTEGER IS AN ERROR, the same three -Werror switches every
+# C compile in tools/win/build-win.sh carries, and the same search of the log behind
+# them (run_cc below).
+CWIDTH="-Werror=pointer-to-int-cast -Werror=int-to-pointer-cast -Werror=int-conversion"
+CFLAGS="-O2 -Wall -Wextra $CWIDTH -std=gnu89 $INC"
+
+# EVERY COMPILER MESSAGE IS KEPT, in build/win/launcher-compile.log, and searched for a
+# pointer truncation; tools/win/build-win.sh explains each part of this at its run_cc.
+# In short: the compiler's own exit status decides (no pipe, because this is sh with
+# set -e and no pipefail, and behind a pipe a failed compile reports success), and
+# LC_ALL=C because the patterns are GCC's English messages.
+LOG="$OUT/launcher-compile.log"
+: > "$LOG"
+TRUNCATION='loses precision|cast from pointer to integer of different size|cast to pointer from integer of different size'
+run_cc() {   # run_cc <compiler command...>
+    _from=$(( $(wc -c < "$LOG") + 1 ))
+    if LC_ALL=C "$@" 2>>"$LOG"; then _rc=0; else _rc=$?; fi
+    tail -c +"$_from" "$LOG" >&2
+    if [ "$_rc" -ne 0 ]; then
+        echo "ERROR: the compiler failed (exit $_rc); its messages are in $LOG" >&2
+        exit "$_rc"
+    fi
+    if grep -E "$TRUNCATION" "$LOG" >/dev/null; then
+        echo "ERROR: a pointer is cut to a narrower integer (from $LOG):" >&2
+        grep -nE "$TRUNCATION" "$LOG" >&2
+        echo "       In a 64-bit program that loses the top half of an address. Cast through" >&2
+        echo "       intptr_t or uintptr_t instead. This build stops here on purpose." >&2
+        exit 1
+    fi
+}
 
 echo "== compile"
 # From inside launcher/, because the shared source list is written relative to it
@@ -55,7 +114,7 @@ echo "== compile"
 OBJS=""
 for src in $LAUNCHER_SOURCES; do
     o="$OBJ/$(echo "$src" | sed 's|[./]|_|g').o"
-    ( cd "$ROOT/launcher" && $CC $CFLAGS -c "$src" -o "$o" )
+    ( cd "$ROOT/launcher" && run_cc $CC $CFLAGS -c "$src" -o "$o" )
     OBJS="$OBJS $o"
 done
 
@@ -115,14 +174,19 @@ printf '1 24 "launcher.manifest"\n' > "$OBJ/manifest.rc"
 ( cd "$OBJ" && $HOST-windres manifest.rc -O coff -o manifest.o )
 
 echo "== link"
-# The -Bdynamic island around -lSDL2 is the same trick build-win.sh documents at
-# length: -static on its own picks the static libSDL2.a, which then wants every
-# Windows multimedia import SDL normally resolves inside its own DLL. SDL2 stays
-# dynamic and everything else, including winpthread, folds into the binary, so
-# SDL2.dll is the only file that has to travel beside the .exe.
-LIBS="-lmingw32 -lSDL2main -Wl,-Bdynamic -lSDL2 -Wl,-Bstatic -lopengl32 -lwininet -lz -static"
+# EVERYTHING IS LINKED IN, SDL2 included, the same line tools/win/build-win.sh explains
+# at length: -static to the driver folds in the GCC runtime and winpthread, and the static
+# libSDL2.a brings its own private Windows libraries with it (the SDK's sdl2.pc lists
+# them). So the launcher is one file. That matters more for the launcher than for the
+# game: it is the program that replaces the others, and it runs from a folder where an
+# older install may have left a 32-bit SDL2.dll that a 64-bit launcher could not load.
+LIBS="-static -lmingw32 -lSDL2main -lSDL2 -lopengl32 -lwininet -lz -lm \
+      -ldinput8 -ldxguid -ldxerr8 -luser32 -lgdi32 -lwinmm -limm32 -lole32 -loleaut32 \
+      -lshell32 -lsetupapi -lversion -luuid"
+# Loaded anywhere in the 64-bit space; tools/win/build-win.sh says why at LDSEC.
+LDSEC="-Wl,--dynamicbase -Wl,--high-entropy-va -Wl,--nxcompat"
 
-$CC -mwindows -o "$OUT/OpenCNC3D.exe" $OBJS $RCOBJ "$OBJ/manifest.o" $LIBDIRS $LIBS
+run_cc $CC -mwindows $LDSEC -o "$OUT/OpenCNC3D.exe" $OBJS $RCOBJ "$OBJ/manifest.o" $LIBDIRS $LIBS
 
 # Asked of the binary, not of the build: a launcher without it still links and runs,
 # and fails only on the machines the manifest is for.
@@ -131,6 +195,13 @@ grep -aq '>UTF-8</activeCodePage>' "$OUT/OpenCNC3D.exe" || {
     exit 1
 }
 
-cp "$SDL2_ROOT/bin/SDL2.dll" "$OUT/" 2>/dev/null || true
+# AND IT IS A 64-BIT PROGRAM, laid out to load anywhere, that loads no SDL2.dll:
+# check-pe-arch.py reads its import table too. Only the file this script wrote is asked;
+# the rest of build/win is tools/win/build-win.sh's.
+python3 "$ROOT/tools/win/check-pe-arch.py" "$OUT/OpenCNC3D.exe" || {
+    echo "the linked launcher is not a 64-bit Windows program laid out as required, or imports SDL2.dll" >&2
+    exit 1
+}
+
 ls -la "$OUT/OpenCNC3D.exe"
 echo "built $OUT/OpenCNC3D.exe"
